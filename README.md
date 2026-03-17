@@ -1,4 +1,4 @@
-# FlightComp Platform
+﻿# FlightComp Platform
 
 FlightComp Platform is a self-hosted hang gliding and paragliding competition scoring platform. Phase 1 targets a QNAP NAS deployment through Docker Compose while keeping the codebase friendly to desktop development when needed. The platform is being built as a FastAPI and Next.js application, but it is intentionally aligned with established open-source scoring and viewer projects instead of reinventing the domain from zero.
 
@@ -12,7 +12,7 @@ Phase 1 explicitly evaluates and reuses the following projects where practical:
 - `igc-xc-score` as a reusable helper for GeoJSON-oriented track scoring and validation ideas where applicable
 - MapLibre GL for the map UI
 
-See [docs/oss-reuse-evaluation.md](G:\My Drive\Scoring Application\docs\oss-reuse-evaluation.md) for the concrete integration plan.
+See [docs/oss-reuse-evaluation.md](docs/oss-reuse-evaluation.md) for the concrete integration plan.
 
 ## Repository Layout
 
@@ -31,9 +31,9 @@ The intended Phase 1 runtime is your NAS, not your desktop. Docker does not need
 1. Copy `.env.example` to `.env`.
 2. Copy `backend/.env.example` to `backend/.env`.
 3. Copy `frontend/.env.local.example` to `frontend/.env.local`.
-4. Review [docs/deployment-qnap.md](G:\My Drive\Scoring Application\docs\deployment-qnap.md).
+4. Review [docs/deployment-qnap.md](docs/deployment-qnap.md).
 5. Deploy the stack with Docker Compose on the NAS.
 
 ## Current Status
 
-The bootstrap repo and GitHub remote are in place. Phase 1 implementation now focuses on authentication, events, pilots, turnpoints, task building, IGC evidence handling, scoring, results, and auditability.
+Phase 1 now includes a working backend scoring API, a Next.js admin and pilot dashboard, MapLibre-based task and track visualization, OSS reuse documentation, and NAS-oriented deployment files.

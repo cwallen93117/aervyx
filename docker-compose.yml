@@ -1,4 +1,4 @@
-version: "3.9"
+﻿version: "3.9"
 
 services:
   db:
@@ -20,10 +20,12 @@ services:
       - db
     env_file:
       - ./backend/.env
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
       - ./backend:/app
+      - backend_uploads:/app/storage/uploads
 
   frontend:
     build:
@@ -32,6 +34,7 @@ services:
       - backend
     env_file:
       - ./frontend/.env.local
+    restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
@@ -40,3 +43,4 @@ services:
 
 volumes:
   postgres_data:
+  backend_uploads:
