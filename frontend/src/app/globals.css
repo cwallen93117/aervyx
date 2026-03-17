@@ -1,16 +1,147 @@
-:root {
+﻿:root {
   color-scheme: light;
-  font-family: "Segoe UI", sans-serif;
+  --ink: #10203a;
+  --muted: #58657a;
+  --line: #d6dfe8;
+  --panel: #fbfcfe;
+  --wash: #eef4f7;
+  --accent: #1d4ed8;
+  --accent-soft: #dbeafe;
+  --danger: #b91c1c;
+  font-family: "Segoe UI", Tahoma, sans-serif;
 }
 
+* { box-sizing: border-box; }
 body {
   margin: 0;
-  padding: 2rem;
-  background: #f5f7fb;
-  color: #10203a;
+  color: var(--ink);
+  background: linear-gradient(180deg, #f2f7fb 0%, #ffffff 100%);
 }
-
-main {
-  max-width: 960px;
-  margin: 0 auto;
+button, input, select, textarea {
+  font: inherit;
+}
+button {
+  cursor: pointer;
+}
+.shell {
+  padding: 2rem;
+  display: grid;
+  gap: 1rem;
+}
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 2rem;
+  align-items: flex-start;
+}
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: var(--accent);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+h1, h2, h3, p {
+  margin-top: 0;
+}
+.lede {
+  max-width: 70ch;
+  color: var(--muted);
+}
+.panel {
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 1rem;
+  box-shadow: 0 18px 40px rgba(16, 32, 58, 0.07);
+}
+.login-panel {
+  max-width: 360px;
+}
+.workspace-grid {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 1rem;
+}
+.sidebar, .main-panel {
+  min-height: 70vh;
+}
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+.compact {
+  gap: 0.5rem;
+}
+.section-header, .button-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: center;
+}
+.item, .record-card, .status-chip, .file-input {
+  display: grid;
+  gap: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.75rem;
+  background: var(--panel);
+}
+.item.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.item span, .record-card span, .hint {
+  color: var(--muted);
+}
+.form-block input, .form-block select, .form-block textarea, .login-panel input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem 0.8rem;
+  background: white;
+}
+.form-block textarea {
+  min-height: 90px;
+}
+.button-row button, .login-panel button, .signout {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.75rem 1rem;
+  background: var(--accent);
+  color: white;
+}
+.button-row .secondary {
+  background: #0f766e;
+}
+.map-card {
+  min-height: 360px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+}
+.three-up {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+.point-row {
+  display: grid;
+  grid-template-columns: 36px 1fr 120px 100px;
+  gap: 0.5rem;
+  align-items: center;
+}
+.file-input input {
+  margin-top: 0.5rem;
+}
+.error {
+  color: var(--danger);
+  border-color: #fecaca;
+  background: #fff1f2;
+}
+@media (max-width: 1100px) {
+  .workspace-grid, .three-up {
+    grid-template-columns: 1fr;
+  }
 }
