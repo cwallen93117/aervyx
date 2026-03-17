@@ -1,0 +1,1 @@
+Write-Host "Copy env templates, install dependencies, and start the stack once Docker is available."

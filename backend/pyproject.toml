@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "flightcomp-api"
+version = "0.1.0"
+description = "FlightComp Platform backend"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.116.0",
+  "uvicorn[standard]>=0.35.0",
+  "sqlalchemy>=2.0.40",
+  "alembic>=1.16.0",
+  "psycopg[binary]>=3.2.0",
+  "pydantic-settings>=2.10.0",
+  "python-multipart>=0.0.20",
+  "passlib[bcrypt]>=1.7.4",
+  "python-jose[cryptography]>=3.4.0",
+  "shapely>=2.1.0",
+  "pytest>=8.4.0",
+  "httpx>=0.28.0"
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

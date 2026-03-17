@@ -1,0 +1,16 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 2rem;
+  background: #f5f7fb;
+  color: #10203a;
+}
+
+main {
+  max-width: 960px;
+  margin: 0 auto;
+}
