@@ -1,3 +1,13 @@
-"""Placeholder seed script for Phase 1 demo data."""
+from app.db import Base, SessionLocal, engine
+from app.services.seeding import bootstrap_demo_data
 
-print("Seed data will be implemented in Phase 1.")
+
+if __name__ == "__main__":
+    Base.metadata.create_all(bind=engine)
+    session = SessionLocal()
+    try:
+        bootstrap_demo_data(session)
+        session.commit()
+        print("Demo data seeded.")
+    finally:
+        session.close()

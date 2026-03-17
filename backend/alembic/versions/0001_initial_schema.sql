@@ -1,0 +1,2 @@
+-- AirScore-aligned baseline schema for FlightComp Platform Phase 1.
+-- This SQL snapshot mirrors the ORM model set and can be translated into full Alembic migrations later.
