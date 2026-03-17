@@ -1,26 +1,39 @@
 # FlightComp Platform
 
-FlightComp Platform is a self-hosted hang gliding and paragliding competition scoring platform. Phase 1 delivers a local-first scoring MVP with a FastAPI backend, PostgreSQL database, Next.js frontend, map-based task building, IGC evidence handling, and results views. Phase 2 features such as live tracking, mobile clients, Meshtastic, and replay are intentionally deferred.
+FlightComp Platform is a self-hosted hang gliding and paragliding competition scoring platform. Phase 1 targets a QNAP NAS deployment through Docker Compose while keeping the codebase friendly to desktop development when needed. The platform is being built as a FastAPI and Next.js application, but it is intentionally aligned with established open-source scoring and viewer projects instead of reinventing the domain from zero.
+
+## Open-Source Reuse Strategy
+
+Phase 1 explicitly evaluates and reuses the following projects where practical:
+
+- AirScore as the primary scoring workflow and competition-domain reference
+- IGCWebview2 as a reference for IGC and task visualization behavior
+- `igc_lib` as a Python-side reference for IGC parsing and anomaly handling
+- `igc-xc-score` as a reusable helper for GeoJSON-oriented track scoring and validation ideas where applicable
+- MapLibre GL for the map UI
+
+See [docs/oss-reuse-evaluation.md](G:\My Drive\Scoring Application\docs\oss-reuse-evaluation.md) for the concrete integration plan.
 
 ## Repository Layout
 
-- `backend/` FastAPI API, scoring engine, parsers, migrations, seeds, and tests
-- `frontend/` Next.js TypeScript app with admin and pilot workflows
-- `docs/` product and architecture documentation
-- `scripts/` helper scripts for development bootstrap
-- `docker-compose.yml` local development stack for web, api, and PostgreSQL
+- `backend/` FastAPI API, ingest pipeline, scoring services, database models, migrations, and tests
+- `frontend/` Next.js TypeScript UI for admin and pilot workflows
+- `docs/` product, architecture, OSS reuse, and NAS deployment documentation
+- `scripts/` helper scripts for bootstrap and maintenance
+- `docker-compose.yml` Compose stack intended for QNAP NAS deployment and optional local development
 
-## Quick Start
+## Runtime Target
 
-1. Copy `.env.example` to `.env` and review values.
+The intended Phase 1 runtime is your NAS, not your desktop. Docker does not need to be installed on this PC for the project structure to be valid. Docker Compose files and service configuration are being prepared so the stack can be deployed on a QNAP NAS that supports containerized workloads.
+
+## Setup Flow
+
+1. Copy `.env.example` to `.env`.
 2. Copy `backend/.env.example` to `backend/.env`.
 3. Copy `frontend/.env.local.example` to `frontend/.env.local`.
-4. Start the stack with Docker Compose once Docker is installed:
-   - `docker compose up --build`
-5. Open:
-   - Frontend: `http://localhost:3000`
-   - API docs: `http://localhost:8000/docs`
+4. Review [docs/deployment-qnap.md](G:\My Drive\Scoring Application\docs\deployment-qnap.md).
+5. Deploy the stack with Docker Compose on the NAS.
 
-## Development Notes
+## Current Status
 
-This repository is structured for local development first and later QNAP NAS deployment through Docker Compose. The initial scaffold is intentionally thin; Phase 1 feature implementation fills in the domain logic, data model, scoring workflows, and UI.
+The bootstrap repo and GitHub remote are in place. Phase 1 implementation now focuses on authentication, events, pilots, turnpoints, task building, IGC evidence handling, scoring, results, and auditability.
