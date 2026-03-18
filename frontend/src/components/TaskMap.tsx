@@ -222,7 +222,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
         zoom: 9,
         attributionControl: false,
       });
-      map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
       map.on("styledata", () => {
         map.resize();
       });
