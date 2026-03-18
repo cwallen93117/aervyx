@@ -129,6 +129,18 @@ function ensureMapLayers(map: maplibregl.Map) {
   if (!map.getLayer("task-route-layer")) {
     map.addLayer({ id: "task-route-layer", type: "line", source: "task-route", paint: { "line-color": "#1d4ed8", "line-width": 3 } });
   }
+  if (!map.getLayer("optimized-route-layer")) {
+    map.addLayer({
+      id: "optimized-route-layer",
+      type: "line",
+      source: "optimized-route",
+      paint: {
+        "line-color": "#0f172a",
+        "line-width": 2,
+        "line-dasharray": [2, 2],
+      },
+    });
+  }
   if (!map.getLayer("task-points-layer")) {
     map.addLayer({
       id: "task-points-layer",
@@ -155,7 +167,7 @@ function ensureMapLayers(map: maplibregl.Map) {
   }
 }
 
-function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], track: TrackCollection | null) {
+function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], optimizedRoute: [number, number][], track: TrackCollection | null) {
   const bounds = new maplibregl.LngLatBounds();
   let hasData = false;
 
@@ -165,6 +177,10 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
   }
   for (const point of taskPoints) {
     bounds.extend([point.longitude, point.latitude]);
+    hasData = true;
+  }
+  for (const coordinate of optimizedRoute) {
+    bounds.extend(coordinate);
     hasData = true;
   }
   if (track) {
@@ -185,7 +201,7 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
   map.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 0 });
 }
 
-export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnpoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void }) {
+export function TaskMap({ turnpoints, taskPoints, optimizedRoute = [], track, editable, onSelectTurnpoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; optimizedRoute?: [number, number][]; track: TrackCollection | null; editable: boolean; onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -198,6 +214,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
+  const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
 
   useEffect(() => {
@@ -278,17 +295,18 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
       ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
       ensureGeoJsonSource(map, "task-route", routeData as never);
+      ensureGeoJsonSource(map, "optimized-route", optimizedRouteData as never);
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
       ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
       ensureMapLayers(map);
       map.resize();
       if (shouldFitToTurnpoints || shouldFitToTrack) {
-        fitToData(map, turnpoints, taskPoints, track);
+        fitToData(map, turnpoints, taskPoints, optimizedRoute, track);
       }
       window.setTimeout(() => {
         map.resize();
         if (shouldFitToTurnpoints || shouldFitToTrack) {
-          fitToData(map, turnpoints, taskPoints, track);
+          fitToData(map, turnpoints, taskPoints, optimizedRoute, track);
         }
       }, 100);
       turnpointSignatureRef.current = nextTurnpointSignature;
@@ -299,7 +317,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
     } else {
       map.once("styledata", syncData);
     }
-  }, [basemapMode, turnpointData, taskPointData, routeData, cylinderData, track, turnpoints, taskPoints]);
+  }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
 
   return (
     <div className="map-shell">

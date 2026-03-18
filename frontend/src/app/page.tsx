@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppSidebar } from "../components/AppSidebar";
 import { SectionCard } from "../components/SectionCard";
 import { TaskMap, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../components/TaskMap";
+import { computeTaskOptimization } from "../lib/taskOptimization";
 
 type SidebarSection = "events" | "tasks" | "scoring";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
@@ -198,38 +199,6 @@ function timeOrNull(value: string): string | null {
   return value.trim() ? value : null;
 }
 
-function haversineKm(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }): number {
-  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
-  const earthRadiusKm = 6371;
-  const deltaLat = toRadians(to.latitude - from.latitude);
-  const deltaLon = toRadians(to.longitude - from.longitude);
-  const fromLat = toRadians(from.latitude);
-  const toLat = toRadians(to.latitude);
-  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLon / 2) ** 2;
-  return 2 * earthRadiusKm * Math.asin(Math.sqrt(a));
-}
-
-function entryRadiusKm(point: TaskPointRecord): number {
-  return point.point_type === "turnpoint" || point.point_type === "ESS" || point.point_type === "goal" ? point.radius_m / 1000 : 0;
-}
-
-function exitRadiusKm(point: TaskPointRecord): number {
-  return point.point_type === "launch" || point.point_type === "start" ? point.radius_m / 1000 : 0;
-}
-
-function computeTaskDistanceMetrics(points: TaskPointRecord[]) {
-  let totalDistanceKm = 0;
-  let optimizedDistanceKm = 0;
-  for (let index = 1; index < points.length; index += 1) {
-    const previousPoint = points[index - 1];
-    const currentPoint = points[index];
-    const legDistanceKm = haversineKm(previousPoint, currentPoint);
-    totalDistanceKm += legDistanceKm;
-    optimizedDistanceKm += Math.max(0, legDistanceKm - exitRadiusKm(previousPoint) - entryRadiusKm(currentPoint));
-  }
-  return { totalDistanceKm, optimizedDistanceKm };
-}
-
 function taskTypeBehavior(taskType: string) {
   switch (taskType) {
     case "race_to_goal_with_gates":
@@ -311,7 +280,7 @@ export default function HomePage() {
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
-  const taskDistanceMetrics = useMemo(() => computeTaskDistanceMetrics(taskDraft.points), [taskDraft.points]);
+  const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskDraft.points), [taskDraft.points]);
   const currentTaskTypeBehavior = useMemo(() => taskTypeBehavior(taskDraft.task_type), [taskDraft.task_type]);
 
   useEffect(() => {
@@ -942,7 +911,7 @@ export default function HomePage() {
                 </div>
                 <div className="record-card">
                   <strong>Optimized distance</strong>
-                  <span>{taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km cylinder-adjusted</span>
+                  <span>{taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km shortest path through cylinders</span>
                 </div>
               </div>
             </div>
@@ -997,8 +966,8 @@ export default function HomePage() {
                 </div>
               </div>
               <div className="task-map-panel">
-                <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={user?.role === "admin"} onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined} />
-                <p className="hint">Launch, Start, ESS, and Goal are color-themed in both the list and map to make task structure easier to scan.</p>
+                <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} optimizedRoute={taskDistanceMetrics.routeCoordinates} track={track} editable={user?.role === "admin"} onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined} />
+                <p className="hint">Launch, Start, ESS, and Goal are color-themed in both the list and map. The dashed line shows the current optimized course line through the waypoint cylinders.</p>
               </div>
             </div>
             <div className="stack">
