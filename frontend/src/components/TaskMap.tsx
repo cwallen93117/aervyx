@@ -133,9 +133,10 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
         center: [-118.18, 36.73],
         zoom: 9,
       });
+      setMapReady(true);
+      setMapNotice("Basemap loading...");
       map.addControl(new maplibregl.NavigationControl(), "top-right");
-      map.on("load", () => {
-        setMapReady(true);
+      map.on("styledata", () => {
         setMapNotice(null);
         map.resize();
         fitToData(map, turnpoints, taskPoints, track);
@@ -194,7 +195,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     if (map.isStyleLoaded()) {
       syncData();
     } else {
-      map.once("load", syncData);
+      map.once("styledata", syncData);
     }
   }, [turnpointData, taskPointData, routeData, cylinderData, track, turnpoints, taskPoints]);
 
@@ -202,11 +203,11 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     <div className="map-shell">
       <div className="map-card" ref={containerRef} />
       <div className="map-toolbar">
-        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomIn()} disabled={!mapReady}>+</button>
-        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomOut()} disabled={!mapReady}>-</button>
-        <button type="button" className="map-tool-button wide" onClick={() => { if (mapRef.current) fitToData(mapRef.current, turnpoints, taskPoints, track); }} disabled={!mapReady}>Fit to data</button>
+        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomIn()} disabled={!mapRef.current && !mapReady}>+</button>
+        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomOut()} disabled={!mapRef.current && !mapReady}>-</button>
+        <button type="button" className="map-tool-button wide" onClick={() => { if (mapRef.current) fitToData(mapRef.current, turnpoints, taskPoints, track); }} disabled={!mapRef.current && !mapReady}>Fit to data</button>
       </div>
-      <div className="map-badge">{mapReady ? `${turnpoints.length} turnpoints plotted` : "Loading map..."}</div>
+      <div className="map-badge">{mapReady ? `${turnpoints.length} turnpoints available` : "Loading map..."}</div>
       {mapNotice ? <div className="map-notice">{mapNotice}</div> : null}
     </div>
   );
