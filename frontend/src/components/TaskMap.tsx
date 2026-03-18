@@ -1,7 +1,7 @@
 "use client";
 
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
@@ -34,6 +34,25 @@ function ensureGeoJsonSource(map: maplibregl.Map, id: string, data: Record<strin
 function ensureMapLayers(map: maplibregl.Map) {
   if (!map.getLayer("turnpoints-layer")) {
     map.addLayer({ id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+  }
+  if (!map.getLayer("turnpoints-labels")) {
+    map.addLayer({
+      id: "turnpoints-labels",
+      type: "symbol",
+      source: "turnpoints",
+      layout: {
+        "text-field": ["get", "name"],
+        "text-size": 11,
+        "text-offset": [0, 1.15],
+        "text-anchor": "top",
+        "text-optional": true,
+      },
+      paint: {
+        "text-color": "#10203a",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+      },
+    });
   }
   if (!map.getLayer("task-cylinders-fill")) {
     map.addLayer({ id: "task-cylinders-fill", type: "fill", source: "task-cylinders", paint: { "fill-color": "#ef4444", "fill-opacity": 0.12 } });
@@ -85,6 +104,7 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
 export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onAddPoint?: (longitude: number, latitude: number) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const [mapNotice, setMapNotice] = useState<string | null>(null);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
@@ -103,14 +123,24 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
         sources: {
           osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenStreetMap contributors" },
         },
-        layers: [{ id: "osm", type: "raster", source: "osm" }],
+        layers: [
+          { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
+          { id: "osm", type: "raster", source: "osm" },
+        ],
       } as never,
       center: [-118.18, 36.73],
       zoom: 9,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
     map.on("load", () => {
+      setMapNotice(null);
       map.resize();
+    });
+    map.on("error", (event) => {
+      const sourceId = "sourceId" in event ? event.sourceId : undefined;
+      if (sourceId === "osm") {
+        setMapNotice("Basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
+      }
     });
     map.on("click", (event) => {
       if (editable && onAddPoint) {
@@ -151,5 +181,10 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     }
   }, [turnpointData, taskPointData, routeData, cylinderData, track, turnpoints, taskPoints]);
 
-  return <div className="map-card" ref={containerRef} />;
+  return (
+    <div className="map-shell">
+      <div className="map-card" ref={containerRef} />
+      {mapNotice ? <div className="map-notice">{mapNotice}</div> : null}
+    </div>
+  );
 }

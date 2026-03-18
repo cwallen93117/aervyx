@@ -13,6 +13,7 @@ type TaskRecord = { id: number; event_id: number; name: string; status: string; 
 type ResultRecord = { id: number; upload_id: number; pilot_name: string; status: string; distance_flown_km: number; score_points: number; rank: number | null };
 type PilotSummaryRecord = { pilot_id: number; pilot_name: string; total_score_points: number; tasks_scored: number; best_distance_km: number };
 type UploadRecord = { id: number; filename: string; sha256: string; uploaded_at: string };
+type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
@@ -42,12 +43,20 @@ export default function HomePage() {
   const [message, setMessage] = useState("Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.");
   const [error, setError] = useState("");
   const [turnpointSearch, setTurnpointSearch] = useState("");
+  const [turnpointDisplayCount, setTurnpointDisplayCount] = useState(30);
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "admin1234" });
   const [eventForm, setEventForm] = useState({ name: "", location: "", starts_on: "2026-04-18", ends_on: "2026-04-24", timezone: "America/Los_Angeles" });
   const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
   const [taskDraft, setTaskDraft] = useState<{ id: number | null; name: string; nominal_distance_km: number; nominal_time_hours: number; nominal_launch: number; minimum_distance_km: number; penalties_text: string; points: TaskPointRecord[] }>({ id: null, name: "New Task", nominal_distance_km: 60, nominal_time_hours: 1.5, nominal_launch: 0.95, minimum_distance_km: 5, penalties_text: "{}", points: [] });
 
-  const filteredTurnpoints = useMemo(() => turnpoints.filter((turnpoint) => `${turnpoint.name} ${turnpoint.code ?? ""}`.toLowerCase().includes(turnpointSearch.toLowerCase())), [turnpoints, turnpointSearch]);
+  const filteredTurnpoints = useMemo(
+    () =>
+      turnpoints
+        .filter((turnpoint) => `${turnpoint.name} ${turnpoint.code ?? ""}`.toLowerCase().includes(turnpointSearch.toLowerCase()))
+        .sort((left, right) => (right.source_id ?? 0) - (left.source_id ?? 0) || left.name.localeCompare(right.name)),
+    [turnpoints, turnpointSearch],
+  );
+  const visibleTurnpoints = useMemo(() => filteredTurnpoints.slice(0, turnpointDisplayCount), [filteredTurnpoints, turnpointDisplayCount]);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -122,11 +131,11 @@ export default function HomePage() {
     await loadEvent(token, selectedEventId);
   }
 
-  async function uploadFile(path: string, file: File) {
-    if (!token) return;
+  async function uploadFile<T>(path: string, file: File): Promise<T> {
+    if (!token) throw new Error("You must be signed in to upload files.");
     const formData = new FormData();
     formData.append("file", file);
-    await apiFetch(path, token, { method: "POST", body: formData });
+    return apiFetch<T>(path, token, { method: "POST", body: formData });
   }
 
   function addMapPoint(longitude: number, latitude: number) {
@@ -236,7 +245,7 @@ export default function HomePage() {
                     <input placeholder="Competition #" value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} />
                     <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
                     <button type="submit">Add pilot</button>
-                    <label className="file-input">Import CSV<input type="file" accept=".csv" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !selectedEventId) return; await uploadFile(`/api/events/${selectedEventId}/pilots/import-csv`, file); setMessage(`Imported pilots from ${file.name}.`); await loadEvent(token, selectedEventId); }} /></label>
+                    <label className="file-input">Import CSV<input type="file" accept=".csv" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !selectedEventId) return; await uploadFile<unknown>(`/api/events/${selectedEventId}/pilots/import-csv`, file); setMessage(`Imported pilots from ${file.name}.`); await loadEvent(token, selectedEventId); }} /></label>
                   </form>
                 ) : null}
                 {pilots.map((pilot) => <div key={pilot.id} className="record-card"><strong>{pilot.first_name} {pilot.last_name}</strong><span>{pilot.competition_number ?? "No comp #"}</span></div>)}
@@ -244,9 +253,23 @@ export default function HomePage() {
 
               <div className="stack form-block">
                 <h3>Turnpoints and task</h3>
-                <input placeholder="Search turnpoints" value={turnpointSearch} onChange={(event) => setTurnpointSearch(event.target.value)} />
-                {user.role === "admin" ? <label className="file-input">Upload turnpoints<input type="file" accept=".csv,.geojson,.json,.gpx" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !selectedEventId) return; try { setError(""); await uploadFile(`/api/events/${selectedEventId}/turnpoints/upload`, file); setMessage(`Imported turnpoints from ${file.name}.`); await loadEvent(token, selectedEventId); } catch (caught) { setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`); } finally { event.currentTarget.value = ""; } }} /></label> : null}
-                {filteredTurnpoints.slice(0, 8).map((turnpoint) => <button key={turnpoint.id} className="item" onClick={() => addTurnpoint(turnpoint)}><strong>{turnpoint.name}</strong><span>{turnpoint.code ?? "No code"}</span></button>)}
+                <input
+                  placeholder="Search turnpoints"
+                  value={turnpointSearch}
+                  onChange={(event) => {
+                    setTurnpointSearch(event.target.value);
+                    setTurnpointDisplayCount(30);
+                  }}
+                />
+                {user.role === "admin" ? <label className="file-input">Upload turnpoints<input type="file" accept=".csv,.geojson,.json,.gpx" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !selectedEventId) return; try { setError(""); const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload`, file); setTurnpointSearch(""); setTurnpointDisplayCount(30); setMessage(`Imported ${response.imported_count} turnpoints from ${file.name}. Latest import is shown first below.`); await loadEvent(token, selectedEventId); } catch (caught) { setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`); } finally { event.currentTarget.value = ""; } }} /></label> : null}
+                <div className="list-meta">
+                  <span>Showing {visibleTurnpoints.length} of {filteredTurnpoints.length} matching turnpoints.</span>
+                  <span>{turnpoints.length} total in this event.</span>
+                </div>
+                <div className="turnpoint-list">
+                  {visibleTurnpoints.map((turnpoint) => <button key={turnpoint.id} className="item" onClick={() => addTurnpoint(turnpoint)}><strong>{turnpoint.name}</strong><span>{turnpoint.code ?? "No code"}</span></button>)}
+                </div>
+                {filteredTurnpoints.length > visibleTurnpoints.length ? <button className="secondary ghost-button" onClick={() => setTurnpointDisplayCount((current) => current + 30)}>Show more turnpoints</button> : null}
                 <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
                   <option value="">Select a task</option>
                   {tasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
