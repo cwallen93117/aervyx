@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
 export type TrackCollection = { type: "FeatureCollection"; features: Array<{ type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: number[][] } }> };
+type BasemapMode = "streets" | "satellite" | "terrain";
 
 function buildCircle(point: MapTaskPoint) {
   const earthRadius = 6378137;
@@ -71,6 +72,19 @@ function ensureMapLayers(map: maplibregl.Map) {
   }
 }
 
+function applyBasemapVisibility(map: maplibregl.Map, basemapMode: BasemapMode) {
+  const modes: Array<{ layerId: string; visible: boolean }> = [
+    { layerId: "osm", visible: basemapMode === "streets" },
+    { layerId: "satellite", visible: basemapMode === "satellite" },
+    { layerId: "terrain", visible: basemapMode === "terrain" },
+  ];
+  for (const mode of modes) {
+    if (map.getLayer(mode.layerId)) {
+      map.setLayoutProperty(mode.layerId, "visibility", mode.visible ? "visible" : "none");
+    }
+  }
+}
+
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], track: TrackCollection | null) {
   const bounds = new maplibregl.LngLatBounds();
   let hasData = false;
@@ -107,7 +121,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
   const editableRef = useRef(editable);
   const onAddPointRef = useRef(onAddPoint);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
-  const [mapReady, setMapReady] = useState(false);
+  const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
@@ -131,20 +145,24 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
           version: 8,
           sources: {
             osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenStreetMap contributors" },
+            satellite: { type: "raster", tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, attribution: "Esri World Imagery" },
+            terrain: { type: "raster", tiles: ["https://tile.opentopomap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenTopoMap contributors" },
           },
           layers: [
             { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
             { id: "osm", type: "raster", source: "osm" },
+            { id: "satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
+            { id: "terrain", type: "raster", source: "terrain", layout: { visibility: "none" } },
           ],
         } as never,
         center: [-118.18, 36.73],
         zoom: 9,
       });
-      setMapReady(true);
       setMapNotice("Basemap loading...");
       map.addControl(new maplibregl.NavigationControl(), "top-right");
       map.on("styledata", () => {
         setMapNotice(null);
+        applyBasemapVisibility(map, basemapMode);
         map.resize();
         fitToData(map, turnpoints, taskPoints, track);
         window.setTimeout(() => {
@@ -154,8 +172,8 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       });
       map.on("error", (event) => {
         const sourceId = "sourceId" in event ? event.sourceId : undefined;
-        if (sourceId === "osm") {
-          setMapNotice("Basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
+        if (sourceId === "osm" || sourceId === "satellite" || sourceId === "terrain") {
+          setMapNotice("Selected basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
         }
       });
       map.on("click", (event) => {
@@ -173,14 +191,18 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
         resizeObserver.disconnect();
         map.remove();
         mapRef.current = null;
-        setMapReady(false);
       };
     } catch (error) {
       setMapNotice(error instanceof Error ? `Map failed to initialize: ${error.message}` : "Map failed to initialize.");
-      setMapReady(false);
       return;
     }
   }, []);
+
+  useEffect(() => {
+    if (mapRef.current) {
+      applyBasemapVisibility(mapRef.current, basemapMode);
+    }
+  }, [basemapMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -211,12 +233,14 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
   return (
     <div className="map-shell">
       <div className="map-card" ref={containerRef} />
-      <div className="map-toolbar">
-        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomIn()} disabled={!mapRef.current && !mapReady}>+</button>
-        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomOut()} disabled={!mapRef.current && !mapReady}>-</button>
-        <button type="button" className="map-tool-button wide" onClick={() => { if (mapRef.current) fitToData(mapRef.current, turnpoints, taskPoints, track); }} disabled={!mapRef.current && !mapReady}>Fit to data</button>
-      </div>
-      <div className="map-badge">{mapReady ? `${turnpoints.length} turnpoints available` : "Loading map..."}</div>
+      <label className="map-style-picker">
+        <span>Map</span>
+        <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>
+          <option value="streets">Streets</option>
+          <option value="satellite">Satellite</option>
+          <option value="terrain">Terrain</option>
+        </select>
+      </label>
       {mapNotice ? <div className="map-notice">{mapNotice}</div> : null}
     </div>
   );

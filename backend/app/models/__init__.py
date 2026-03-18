@@ -70,6 +70,17 @@ class TurnpointSource(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class EventTurnpointSlot(Base):
+    __tablename__ = "event_turnpoint_slots"
+    __table_args__ = (UniqueConstraint("event_id", "slot_number", name="uq_event_turnpoint_slot"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    slot_number: Mapped[int] = mapped_column(Integer)
+    source_id: Mapped[int | None] = mapped_column(ForeignKey("turnpoint_sources.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Turnpoint(Base):
     __tablename__ = "turnpoints"
 

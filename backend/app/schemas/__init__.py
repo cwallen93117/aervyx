@@ -86,6 +86,16 @@ class TurnpointUploadResponse(BaseModel):
     filename: str
 
 
+class TurnpointSlotResponse(BaseModel):
+    slot_number: int
+    source_id: int | None = None
+    filename: str | None = None
+    file_format: str | None = None
+    sha256: str | None = None
+    uploaded_at: datetime | None = None
+    turnpoint_count: int = 0
+
+
 class TaskPointInput(BaseModel):
     position: int
     point_type: str

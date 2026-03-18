@@ -11,6 +11,7 @@ type User = { id: number; username: string; full_name: string; role: "admin" | "
 type EventRecord = { id: number; name: string; location: string; starts_on: string; ends_on: string; timezone: string; pilot_count: number; task_count: number; turnpoint_count: number };
 type PilotRecord = { id: number; first_name: string; last_name: string; competition_number: string | null; portal_username: string | null; temp_password: string | null };
 type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
+type TurnpointSlotRecord = { slot_number: number; source_id: number | null; filename: string | null; file_format: string | null; sha256: string | null; uploaded_at: string | null; turnpoint_count: number };
 type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
 type TaskRecord = { id: number; event_id: number; name: string; status: string; version: number; nominal_distance_km: number; nominal_time_hours: number; nominal_launch: number; minimum_distance_km: number; penalties_json: Record<string, unknown>; published_at: string | null; points: TaskPointRecord[] };
 type ResultRecord = { id: number; upload_id: number; pilot_name: string; status: string; distance_flown_km: number; score_points: number; rank: number | null };
@@ -24,7 +25,7 @@ const TOKEN_KEY = "flightcomp-platform-token";
 const sidebarItems = [
   { id: "events", label: "Events", description: "Configure comps and dates." },
   { id: "participants", label: "Participants", description: "Manage pilots and rosters." },
-  { id: "tasks", label: "Tasks", description: "Build routes and upload turnpoints." },
+  { id: "tasks", label: "Tasks", description: "Build routes and use imported turnpoints." },
   { id: "scoring", label: "Scoring", description: "Uploads, results, and rankings." },
 ] satisfies Array<{ id: SidebarSection; label: string; description: string }>;
 
@@ -60,6 +61,7 @@ export default function HomePage() {
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
   const [pilots, setPilots] = useState<PilotRecord[]>([]);
   const [turnpoints, setTurnpoints] = useState<TurnpointRecord[]>([]);
+  const [turnpointSlots, setTurnpointSlots] = useState<TurnpointSlotRecord[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [results, setResults] = useState<ResultRecord[]>([]);
@@ -110,6 +112,7 @@ export default function HomePage() {
       setEventForm(blankEventForm());
       setPilots([]);
       setTurnpoints([]);
+      setTurnpointSlots([]);
       setTasks([]);
       setPilotSummary([]);
       setResults([]);
@@ -127,14 +130,16 @@ export default function HomePage() {
 
   async function loadEvent(activeToken: string, eventId: number) {
     setSelectedEventId(eventId);
-    const [loadedPilots, loadedTurnpoints, loadedTasks, loadedSummary] = await Promise.all([
+    const [loadedPilots, loadedTurnpoints, loadedTurnpointSlots, loadedTasks, loadedSummary] = await Promise.all([
       apiFetch<PilotRecord[]>(`/api/events/${eventId}/pilots`, activeToken),
       apiFetch<TurnpointRecord[]>(`/api/events/${eventId}/turnpoints`, activeToken),
+      apiFetch<TurnpointSlotRecord[]>(`/api/events/${eventId}/turnpoint-slots`, activeToken),
       apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
       apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
     ]);
     setPilots(loadedPilots);
     setTurnpoints(loadedTurnpoints);
+    setTurnpointSlots(loadedTurnpointSlots);
     setTasks(loadedTasks);
     setPilotSummary(loadedSummary);
     setTrack(null);
@@ -294,27 +299,73 @@ export default function HomePage() {
   function renderEventsSection() {
     return (
       <div className="section-grid two-column">
-        <SectionCard title="Current events" description="Select an event to load its participants, task builder, and scoring context." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewEvent}>New event</button> : null}>
+        <SectionCard title="Current events" description="Select an event to load its participants, turnpoint files, task builder, and scoring context." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewEvent}>New event</button> : null}>
           <div className="stack">
             {events.map((event) => (
               <button key={event.id} type="button" className={event.id === selectedEventId ? "item active" : "item"} onClick={() => selectEvent(event)}>
                 <strong>{event.name}</strong>
-                <span>{event.location} · {event.starts_on} to {event.ends_on}</span>
+                <span>{event.location} - {event.starts_on} to {event.ends_on}</span>
               </button>
             ))}
           </div>
         </SectionCard>
-        <SectionCard title={eventEditorId ? "Edit event" : "Create event"} description="Event details stay reusable across scoring, turnpoints, and participant workflows.">
-          <form className="stack form-block" onSubmit={saveEvent}>
-            <input placeholder="Name" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
-            <input placeholder="Location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
-            <div className="inline-grid">
-              <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
-              <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
-            </div>
-            <input placeholder="Timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
-            {user?.role === "admin" ? <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button> : null}
-          </form>
+        <SectionCard title={eventEditorId ? "Edit event" : "Create event"} description="Event details and turnpoint files are managed at the event level.">
+          <div className="stack">
+            <form className="stack form-block" onSubmit={saveEvent}>
+              <input placeholder="Name" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
+              <input placeholder="Location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
+              <div className="inline-grid">
+                <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
+                <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
+              </div>
+              <input placeholder="Timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+              {user?.role === "admin" ? <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button> : null}
+            </form>
+            {eventEditorId ? (
+              <div className="stack">
+                <div className="section-header">
+                  <h3>Turnpoint files</h3>
+                  <span>{turnpoints.length} turnpoints loaded</span>
+                </div>
+                <p className="hint">Each event has three stored turnpoint slots. Uploading to a slot replaces that slot’s prior file and refreshes the event turnpoints in the database.</p>
+                <div className="turnpoint-slot-grid">
+                  {turnpointSlots.map((slot) => (
+                    <div key={slot.slot_number} className="record-card slot-card">
+                      <div className="stack compact">
+                        <strong>Slot {slot.slot_number}</strong>
+                        <span>{slot.filename ? `${slot.filename} - ${slot.turnpoint_count} turnpoints` : "No file uploaded yet"}</span>
+                        {slot.uploaded_at ? <span>{new Date(slot.uploaded_at).toLocaleString()}</span> : null}
+                      </div>
+                      {user?.role === "admin" ? (
+                        <label className="file-input">
+                          {slot.filename ? "Replace file" : "Upload file"}
+                          <input
+                            type="file"
+                            accept=".csv,.geojson,.json,.gpx"
+                            onChange={async (event) => {
+                              const file = event.target.files?.[0];
+                              if (!file || !selectedEventId) return;
+                              try {
+                                setError("");
+                                const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
+                                setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
+                                await loadEvent(token, selectedEventId);
+                                await refreshEvents(token);
+                              } catch (caught) {
+                                setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                              } finally {
+                                event.currentTarget.value = "";
+                              }
+                            }}
+                          />
+                        </label>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
         </SectionCard>
       </div>
     );
@@ -355,7 +406,7 @@ export default function HomePage() {
               <div key={pilot.id} className="record-card roster-row">
                 <div>
                   <strong>{pilot.first_name} {pilot.last_name}</strong>
-                  <span>{pilot.competition_number ?? "No comp #"}{pilot.portal_username ? ` · ${pilot.portal_username}` : ""}</span>
+                  <span>{pilot.competition_number ?? "No comp #"}{pilot.portal_username ? ` - ${pilot.portal_username}` : ""}</span>
                 </div>
                 {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button> : null}
               </div>
@@ -370,15 +421,14 @@ export default function HomePage() {
     if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
     return (
       <div className="section-stack">
-        <SectionCard title="Task map builder" description="Upload turnpoints, click on the map to add points, and save draft or published task geometry." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewTask}>New task draft</button> : null}>
+        <SectionCard title="Task map builder" description="Use event turnpoints to build draft or published task geometry." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewTask}>New task draft</button> : null}>
           <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={user?.role === "admin"} onAddPoint={user?.role === "admin" ? addMapPoint : undefined} />
           <p className="hint">Map shows imported turnpoints, task route and cylinders, plus a selected uploaded track. Admins can click to add task points.</p>
         </SectionCard>
         <div className="section-grid two-column">
-          <SectionCard title="Turnpoints and uploads" description="Search imported turnpoints, upload waypoint files, and add them to the current draft.">
+          <SectionCard title="Imported turnpoints" description="Search event turnpoints and add them to the current draft.">
             <div className="stack form-block">
               <input placeholder="Search turnpoints" value={turnpointSearch} onChange={(event) => { setTurnpointSearch(event.target.value); setTurnpointDisplayCount(30); }} />
-              {user?.role === "admin" ? <label className="file-input">Upload turnpoints<input type="file" accept=".csv,.geojson,.json,.gpx" onChange={async (event) => { const file = event.target.files?.[0]; if (!file) return; try { setError(""); const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload`, file); setTurnpointSearch(""); setTurnpointDisplayCount(30); setMessage(`Imported ${response.imported_count} turnpoints from ${file.name}. Latest import is shown first below.`); await loadEvent(token, selectedEventId); await refreshEvents(token); } catch (caught) { setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`); } finally { event.currentTarget.value = ""; } }} /></label> : null}
               <div className="list-meta">
                 <span>Showing {visibleTurnpoints.length} of {filteredTurnpoints.length} matching turnpoints.</span>
                 <span>{turnpoints.length} total in this event.</span>
@@ -393,7 +443,7 @@ export default function HomePage() {
             <div className="stack form-block">
               <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
                 <option value="">Select a task</option>
-                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} · {task.status}</option>)}
+                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
               </select>
               <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" />
               <div className="inline-grid">
@@ -441,7 +491,7 @@ export default function HomePage() {
             <div className="stack form-block">
               <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
                 <option value="">Select a task</option>
-                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} · {task.status}</option>)}
+                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
               </select>
               {user?.role === "pilot" ? <label className="file-input">Upload IGC<input type="file" accept=".igc" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadIgc(file); }} /></label> : null}
               {uploads.map((upload) => <button key={upload.id} type="button" className="item" onClick={() => viewTrack(upload.id)}><strong>{upload.filename}</strong><span>{upload.sha256.slice(0, 12)}...</span></button>)}
@@ -449,8 +499,8 @@ export default function HomePage() {
           </SectionCard>
           <SectionCard title="Results" description="Existing scoring logic stays intact and is surfaced here as task standings and pilot summaries.">
             <div className="stack">
-              {results.map((result) => <button key={result.id} type="button" className="item" onClick={() => viewTrack(result.upload_id)}><strong>{result.rank ?? "-"}. {result.pilot_name}</strong><span>{result.status} · {result.distance_flown_km.toFixed(1)} km · {result.score_points.toFixed(1)} pts</span></button>)}
-              {pilotSummary.map((summary) => <div key={summary.pilot_id} className="record-card"><strong>{summary.pilot_name}</strong><span>{summary.total_score_points.toFixed(1)} pts · best {summary.best_distance_km.toFixed(1)} km</span></div>)}
+              {results.map((result) => <button key={result.id} type="button" className="item" onClick={() => viewTrack(result.upload_id)}><strong>{result.rank ?? "-"}. {result.pilot_name}</strong><span>{result.status} - {result.distance_flown_km.toFixed(1)} km - {result.score_points.toFixed(1)} pts</span></button>)}
+              {pilotSummary.map((summary) => <div key={summary.pilot_id} className="record-card"><strong>{summary.pilot_name}</strong><span>{summary.total_score_points.toFixed(1)} pts - best {summary.best_distance_km.toFixed(1)} km</span></div>)}
             </div>
           </SectionCard>
         </div>
@@ -497,7 +547,7 @@ export default function HomePage() {
               <div>
                 <p className="eyebrow">Flight Director</p>
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                <p className="lede">{selectedEvent ? `${selectedEvent.name} · ${selectedEvent.location}` : "Select or create an event to begin."}</p>
+                <p className="lede">{selectedEvent ? `${selectedEvent.name} - ${selectedEvent.location}` : "Select or create an event to begin."}</p>
               </div>
               <div className="hero-actions">
                 <div className="role-pill">{user.role}</div>
