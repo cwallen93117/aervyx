@@ -105,6 +105,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
@@ -116,47 +117,59 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       return;
     }
     const container = containerRef.current;
-    const map = new maplibregl.Map({
-      container,
-      style: {
-        version: 8,
-        sources: {
-          osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenStreetMap contributors" },
-        },
-        layers: [
-          { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
-          { id: "osm", type: "raster", source: "osm" },
-        ],
-      } as never,
-      center: [-118.18, 36.73],
-      zoom: 9,
-    });
-    map.addControl(new maplibregl.NavigationControl(), "top-right");
-    map.on("load", () => {
-      setMapNotice(null);
-      map.resize();
-    });
-    map.on("error", (event) => {
-      const sourceId = "sourceId" in event ? event.sourceId : undefined;
-      if (sourceId === "osm") {
-        setMapNotice("Basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
-      }
-    });
-    map.on("click", (event) => {
-      if (editable && onAddPoint) {
-        onAddPoint(event.lngLat.lng, event.lngLat.lat);
-      }
-    });
-    const resizeObserver = new ResizeObserver(() => {
-      map.resize();
-    });
-    resizeObserver.observe(container);
-    window.setTimeout(() => map.resize(), 0);
-    mapRef.current = map;
-    return () => {
-      resizeObserver.disconnect();
-      map.remove();
-    };
+    try {
+      const map = new maplibregl.Map({
+        container,
+        style: {
+          version: 8,
+          sources: {
+            osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenStreetMap contributors" },
+          },
+          layers: [
+            { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
+            { id: "osm", type: "raster", source: "osm" },
+          ],
+        } as never,
+        center: [-118.18, 36.73],
+        zoom: 9,
+      });
+      map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.on("load", () => {
+        setMapReady(true);
+        setMapNotice(null);
+        map.resize();
+        fitToData(map, turnpoints, taskPoints, track);
+        window.setTimeout(() => {
+          map.resize();
+          fitToData(map, turnpoints, taskPoints, track);
+        }, 150);
+      });
+      map.on("error", (event) => {
+        const sourceId = "sourceId" in event ? event.sourceId : undefined;
+        if (sourceId === "osm") {
+          setMapNotice("Basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
+        }
+      });
+      map.on("click", (event) => {
+        if (editable && onAddPoint) {
+          onAddPoint(event.lngLat.lng, event.lngLat.lat);
+        }
+      });
+      const resizeObserver = new ResizeObserver(() => {
+        map.resize();
+      });
+      resizeObserver.observe(container);
+      window.setTimeout(() => map.resize(), 0);
+      mapRef.current = map;
+      return () => {
+        resizeObserver.disconnect();
+        map.remove();
+      };
+    } catch (error) {
+      setMapNotice(error instanceof Error ? `Map failed to initialize: ${error.message}` : "Map failed to initialize.");
+      setMapReady(false);
+      return;
+    }
   }, [editable, onAddPoint]);
 
   useEffect(() => {
@@ -173,6 +186,10 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       ensureMapLayers(map);
       fitToData(map, turnpoints, taskPoints, track);
       map.resize();
+      window.setTimeout(() => {
+        map.resize();
+        fitToData(map, turnpoints, taskPoints, track);
+      }, 100);
     };
     if (map.isStyleLoaded()) {
       syncData();
@@ -184,6 +201,12 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
   return (
     <div className="map-shell">
       <div className="map-card" ref={containerRef} />
+      <div className="map-toolbar">
+        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomIn()} disabled={!mapReady}>+</button>
+        <button type="button" className="map-tool-button" onClick={() => mapRef.current?.zoomOut()} disabled={!mapReady}>-</button>
+        <button type="button" className="map-tool-button wide" onClick={() => { if (mapRef.current) fitToData(mapRef.current, turnpoints, taskPoints, track); }} disabled={!mapReady}>Fit to data</button>
+      </div>
+      <div className="map-badge">{mapReady ? `${turnpoints.length} turnpoints plotted` : "Loading map..."}</div>
       {mapNotice ? <div className="map-notice">{mapNotice}</div> : null}
     </div>
   );
