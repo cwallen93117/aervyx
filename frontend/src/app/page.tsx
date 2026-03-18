@@ -66,6 +66,14 @@ const scoringFormulaOptions = [
   { value: "PWC2016", label: "PWC 2016" },
 ] as const;
 
+const pointTypeLabels: Record<string, string> = {
+  launch: "Launch",
+  start: "Start",
+  turnpoint: "Turnpoint",
+  ESS: "ESS",
+  goal: "Goal",
+};
+
 function blankEventForm() {
   return {
     name: "",
@@ -725,10 +733,6 @@ export default function HomePage() {
     if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
     return (
       <div className="section-stack">
-        <SectionCard title="Task map builder" description="Use event turnpoints to build draft or published task geometry." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewTask}>New task draft</button> : null}>
-          <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={user?.role === "admin"} onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined} />
-          <p className="hint">Click waypoint markers on the map to add them to the draft. Task type, radius, and order are then managed in the task details below.</p>
-        </SectionCard>
         <SectionCard title="Task details" description="Choose a task, review its scoring fields, and manage the ordered task turnpoints.">
           <div className="stack form-block">
             <label className="stack compact">
@@ -742,44 +746,59 @@ export default function HomePage() {
               <span>Task name</span>
               <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" />
             </label>
-            <div className="section-header">
-              <h3>Task turnpoints</h3>
-              <span>{taskDraft.points.length} selected from {turnpoints.length} event waypoints</span>
-            </div>
-            <div className="task-point-table">
-              <div className="task-point-heading">
-                <span>Order</span>
-                <span>Turnpoint</span>
-                <span>Type</span>
-                <span>Radius (m)</span>
-                <span>Actions</span>
-              </div>
-              {taskDraft.points.map((point, index) => (
-                <div
-                  key={`${point.turnpoint_id ?? point.name}-${index}`}
-                  className="task-point-row"
-                  draggable={user?.role === "admin"}
-                  onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                  }}
-                >
-                  <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
-                  <input value={point.name} onChange={(event) => updatePoint(index, { name: event.target.value })} />
-                  <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                    <option value="launch">launch</option>
-                    <option value="start">start</option>
-                    <option value="turnpoint">turnpoint</option>
-                    <option value="ESS">ESS</option>
-                    <option value="goal">goal</option>
-                  </select>
-                  <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
-                  <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+            <div className="task-builder-layout">
+              <div className="task-turnpoint-rail">
+                <div className="section-header">
+                  <h3>Task turnpoints</h3>
+                  <span>{taskDraft.points.length} selected</span>
                 </div>
-              ))}
-              {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map above to add them to this task.</p> : null}
+                <p className="hint">Click waypoint markers on the map to add them. Drag cards to reorder the task.</p>
+                <div className="task-point-list">
+                  {taskDraft.points.map((point, index) => (
+                    <div
+                      key={`${point.turnpoint_id ?? point.name}-${index}`}
+                      className={`task-point-card point-type-${point.point_type.toLowerCase()}`}
+                      draggable={user?.role === "admin"}
+                      onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        movePoint(Number(event.dataTransfer.getData("text/plain")), index);
+                      }}
+                    >
+                      <div className="task-point-card-top">
+                        <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
+                        <strong>{point.name}</strong>
+                        <span className="task-point-type-badge">{pointTypeLabels[point.point_type] ?? point.point_type}</span>
+                      </div>
+                      <div className="task-point-card-grid">
+                        <label className="stack compact">
+                          <span>Type</span>
+                          <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                            <option value="launch">launch</option>
+                            <option value="start">start</option>
+                            <option value="turnpoint">turnpoint</option>
+                            <option value="ESS">ESS</option>
+                            <option value="goal">goal</option>
+                          </select>
+                        </label>
+                        <label className="stack compact">
+                          <span>Radius (m)</span>
+                          <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
+                        </label>
+                      </div>
+                      <div className="task-point-card-actions">
+                        <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+                      </div>
+                    </div>
+                  ))}
+                  {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map to add them to this task.</p> : null}
+                </div>
+              </div>
+              <div className="task-map-panel">
+                <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={user?.role === "admin"} onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined} />
+                <p className="hint">Launch, Start, ESS, and Goal are color-themed in both the list and map to make task structure easier to scan.</p>
+              </div>
             </div>
             <div className="stack">
               <button type="button" className="ghost-button advanced-toggle" onClick={() => setTaskAdvancedOpen((current) => !current)}>

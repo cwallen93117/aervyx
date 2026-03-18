@@ -89,16 +89,66 @@ function ensureMapLayers(map: maplibregl.Map) {
     });
   }
   if (!map.getLayer("task-cylinders-fill")) {
-    map.addLayer({ id: "task-cylinders-fill", type: "fill", source: "task-cylinders", paint: { "fill-color": "#ef4444", "fill-opacity": 0.12 } });
+    map.addLayer({
+      id: "task-cylinders-fill",
+      type: "fill",
+      source: "task-cylinders",
+      paint: {
+        "fill-color": [
+          "match",
+          ["get", "point_type"],
+          "launch", "#f97316",
+          "start", "#2563eb",
+          "ESS", "#7c3aed",
+          "goal", "#16a34a",
+          "#ef4444",
+        ],
+        "fill-opacity": 0.12,
+      },
+    });
   }
   if (!map.getLayer("task-cylinders-outline")) {
-    map.addLayer({ id: "task-cylinders-outline", type: "line", source: "task-cylinders", paint: { "line-color": "#ef4444", "line-width": 2 } });
+    map.addLayer({
+      id: "task-cylinders-outline",
+      type: "line",
+      source: "task-cylinders",
+      paint: {
+        "line-color": [
+          "match",
+          ["get", "point_type"],
+          "launch", "#f97316",
+          "start", "#2563eb",
+          "ESS", "#7c3aed",
+          "goal", "#16a34a",
+          "#ef4444",
+        ],
+        "line-width": 2,
+      },
+    });
   }
   if (!map.getLayer("task-route-layer")) {
     map.addLayer({ id: "task-route-layer", type: "line", source: "task-route", paint: { "line-color": "#1d4ed8", "line-width": 3 } });
   }
   if (!map.getLayer("task-points-layer")) {
-    map.addLayer({ id: "task-points-layer", type: "circle", source: "task-points", paint: { "circle-radius": 6, "circle-color": "#1d4ed8", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+    map.addLayer({
+      id: "task-points-layer",
+      type: "circle",
+      source: "task-points",
+      paint: {
+        "circle-radius": 7,
+        "circle-color": [
+          "match",
+          ["get", "point_type"],
+          "launch", "#f97316",
+          "start", "#2563eb",
+          "ESS", "#7c3aed",
+          "goal", "#16a34a",
+          "#dc2626",
+        ],
+        "circle-stroke-width": 1.5,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
   }
   if (!map.getLayer("track-layer")) {
     map.addLayer({ id: "track-layer", type: "line", source: "track", paint: { "line-color": "#ca8a04", "line-width": 3 } });
