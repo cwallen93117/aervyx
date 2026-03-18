@@ -252,6 +252,16 @@ h1, h2, h3, p {
   padding: 0.7rem 0.8rem;
   background: white;
 }
+.field-disabled {
+  opacity: 0.55;
+}
+.field-disabled input,
+.field-disabled select,
+.field-disabled textarea {
+  background: #eef2f7;
+  color: var(--muted);
+  cursor: not-allowed;
+}
 .form-block textarea {
   min-height: 90px;
 }

@@ -230,6 +230,19 @@ function computeTaskDistanceMetrics(points: TaskPointRecord[]) {
   return { totalDistanceKm, optimizedDistanceKm };
 }
 
+function taskTypeBehavior(taskType: string) {
+  switch (taskType) {
+    case "race_to_goal_with_gates":
+      return { usesStartWindow: true, usesMultipleGates: true };
+    case "race_to_goal":
+      return { usesStartWindow: true, usesMultipleGates: false };
+    case "elapsed_time":
+    case "open_distance":
+    default:
+      return { usesStartWindow: false, usesMultipleGates: false };
+  }
+}
+
 function eventToForm(event: EventRecord | null | undefined) {
   return event
     ? {
@@ -299,6 +312,7 @@ export default function HomePage() {
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
   const taskDistanceMetrics = useMemo(() => computeTaskDistanceMetrics(taskDraft.points), [taskDraft.points]);
+  const currentTaskTypeBehavior = useMemo(() => taskTypeBehavior(taskDraft.task_type), [taskDraft.task_type]);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -901,25 +915,25 @@ export default function HomePage() {
                 <span>Task finish (goal close)</span>
                 <input type="time" step={1} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} />
               </label>
-              <label className="stack compact">
+              <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
                 <span>Start open</span>
-                <input type="time" step={1} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} />
+                <input type="time" step={1} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
               </label>
             </div>
             <div className="inline-grid">
-              <label className="stack compact">
+              <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
                 <span>Start close</span>
-                <input type="time" step={1} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} />
+                <input type="time" step={1} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
               </label>
-              <label className="stack compact">
+              <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
                 <span>Number of start gates</span>
-                <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} />
+                <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
               </label>
             </div>
             <div className="inline-grid">
-              <label className="stack compact">
+              <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
                 <span>Gate interval (seconds)</span>
-                <input type="number" min={0} value={taskDraft.start_gate_interval_seconds} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_seconds: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} placeholder="900" />
+                <input type="number" min={0} value={taskDraft.start_gate_interval_seconds} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_seconds: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} placeholder="900" disabled={!currentTaskTypeBehavior.usesMultipleGates} />
               </label>
               <div className="distance-summary-grid">
                 <div className="record-card">
