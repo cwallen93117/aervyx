@@ -50,6 +50,7 @@ type TaskDraftState = { id: number | null; name: string; nominal_distance_km: nu
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
+const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const sidebarItems = [
   { id: "events", label: "Events", description: "Configure comps and dates." },
   { id: "tasks", label: "Tasks", description: "Build routes and use imported turnpoints." },
@@ -180,13 +181,19 @@ export default function HomePage() {
   const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
+  const [sidebarCompact, setSidebarCompact] = useState(false);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
     if (savedToken) void bootstrap(savedToken);
+    setSidebarCompact(window.localStorage.getItem(SIDEBAR_COMPACT_KEY) === "true");
   }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(SIDEBAR_COMPACT_KEY, String(sidebarCompact));
+  }, [sidebarCompact]);
 
   async function bootstrap(activeToken: string) {
     setToken(activeToken);
@@ -898,8 +905,15 @@ export default function HomePage() {
           </form>
         </>
       ) : (
-        <div className="workspace-shell">
-          <AppSidebar items={sidebarItems} activeItem={activeSection} onSelect={(id) => setActiveSection(id as SidebarSection)} eventName={selectedEvent?.name ?? null} />
+        <div className={sidebarCompact ? "workspace-shell sidebar-compact" : "workspace-shell"}>
+          <AppSidebar
+            items={sidebarItems}
+            activeItem={activeSection}
+            onSelect={(id) => setActiveSection(id as SidebarSection)}
+            eventName={selectedEvent?.name ?? null}
+            compact={sidebarCompact}
+            onToggleCompact={() => setSidebarCompact((current) => !current)}
+          />
           <section className="content-shell">
             <section className="panel hero content-hero">
               <div>
