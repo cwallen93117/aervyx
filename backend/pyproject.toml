@@ -16,6 +16,7 @@ dependencies = [
   "pydantic-settings>=2.10.0",
   "python-multipart>=0.0.20",
   "passlib[bcrypt]>=1.7.4",
+  "bcrypt<5",
   "python-jose[cryptography]>=3.4.0",
   "shapely>=2.1.0",
   "pytest>=8.4.0",
