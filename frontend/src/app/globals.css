@@ -85,6 +85,11 @@ h1, h2, h3, p {
 .login-panel {
   max-width: 360px;
 }
+.auth-panel {
+  display: grid;
+  gap: 1rem;
+  max-width: 560px;
+}
 .nav-sidebar {
   position: sticky;
   top: 1rem;

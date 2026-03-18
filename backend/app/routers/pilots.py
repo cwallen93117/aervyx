@@ -5,7 +5,7 @@ import io
 import re
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -62,6 +62,23 @@ def list_pilots(event_id: int, user: User = Depends(get_current_user), session: 
     return [_pilot_payload(session, pilot) for pilot in pilots]
 
 
+@router.get("/api/pilots", response_model=list[PilotResponse])
+def list_people(search: str | None = None, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> list[PilotResponse]:
+    query = select(Pilot)
+    if search:
+        pattern = f"%{search.lower()}%"
+        query = query.where(
+            or_(
+                func.lower(Pilot.first_name).like(pattern),
+                func.lower(Pilot.last_name).like(pattern),
+                func.lower(func.coalesce(Pilot.email, "")).like(pattern),
+                func.lower(func.coalesce(Pilot.competition_number, "")).like(pattern),
+            )
+        )
+    pilots = session.scalars(query.order_by(Pilot.last_name.asc(), Pilot.first_name.asc())).all()
+    return [_pilot_payload(session, pilot) for pilot in pilots]
+
+
 @router.post("/api/events/{event_id}/pilots", response_model=PilotResponse)
 def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> PilotResponse:
     if session.get(Event, event_id) is None:
@@ -74,6 +91,21 @@ def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(requ
     log_action(session, actor_user_id=admin.id, action="pilot.create", entity_type="pilot", entity_id=str(pilot.id), details={"event_id": event_id, "username": username})
     session.commit()
     return _pilot_payload(session, pilot, temp_password=temp_password)
+
+
+@router.post("/api/events/{event_id}/pilots/{pilot_id}/assign", response_model=PilotResponse)
+def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> PilotResponse:
+    if session.get(Event, event_id) is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    pilot = session.get(Pilot, pilot_id)
+    if pilot is None:
+        raise HTTPException(status_code=404, detail="Pilot not found")
+    existing = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == pilot_id))
+    if existing is None:
+        session.add(EventPilot(event_id=event_id, pilot_id=pilot_id))
+        log_action(session, actor_user_id=admin.id, action="pilot.assign_existing", entity_type="pilot", entity_id=str(pilot_id), details={"event_id": event_id})
+        session.commit()
+    return _pilot_payload(session, pilot)
 
 
 @router.put("/api/pilots/{pilot_id}", response_model=PilotResponse)

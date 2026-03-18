@@ -10,6 +10,16 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    first_name: str
+    last_name: str
+    email: str
+    password: str
+    competition_number: str | None = None
+    nation: str | None = None
+    civl_id: str | None = None
+
+
 class UserSummary(BaseModel):
     id: int
     username: str

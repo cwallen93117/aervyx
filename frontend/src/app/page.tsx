@@ -8,6 +8,7 @@ import { TaskMap, type MapTaskPoint, type MapTurnpoint, type TrackCollection } f
 import { computeTaskOptimization } from "../lib/taskOptimization";
 
 type SidebarSection = "events" | "tasks" | "scoring";
+type AuthMode = "login" | "register";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
 type EventRecord = {
   id: number;
@@ -38,7 +39,7 @@ type EventRecord = {
   task_count: number;
   turnpoint_count: number;
 };
-type PilotRecord = { id: number; first_name: string; last_name: string; competition_number: string | null; portal_username: string | null; temp_password: string | null };
+type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; temp_password: string | null };
 type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
 type TurnpointSlotRecord = { slot_number: number; source_id: number | null; filename: string | null; file_format: string | null; sha256: string | null; uploaded_at: string | null; turnpoint_count: number };
 type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
@@ -89,10 +90,14 @@ type ScoringTab = "task" | "overall";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
-const sidebarItems = [
+const adminSidebarItems = [
   { id: "events", label: "Events", description: "Configure comps and dates." },
   { id: "tasks", label: "Tasks", description: "Build routes and use imported turnpoints." },
   { id: "scoring", label: "Scoring", description: "Uploads, results, and rankings." },
+] satisfies Array<{ id: SidebarSection; label: string; description: string }>;
+const pilotSidebarItems = [
+  { id: "tasks", label: "Tasks", description: "View published tasks and turnpoints." },
+  { id: "scoring", label: "Scoring", description: "Upload IGC files and review results." },
 ] satisfies Array<{ id: SidebarSection; label: string; description: string }>;
 
 const scoringFormulaOptions = [
@@ -261,6 +266,7 @@ export default function HomePage() {
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
   const [pilots, setPilots] = useState<PilotRecord[]>([]);
+  const [pilotDirectory, setPilotDirectory] = useState<PilotRecord[]>([]);
   const [turnpoints, setTurnpoints] = useState<TurnpointRecord[]>([]);
   const [turnpointSlots, setTurnpointSlots] = useState<TurnpointSlotRecord[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
@@ -271,9 +277,12 @@ export default function HomePage() {
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [message, setMessage] = useState("Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.");
   const [error, setError] = useState("");
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "admin1234" });
+  const [registerForm, setRegisterForm] = useState({ first_name: "", last_name: "", email: "", password: "", competition_number: "", nation: "", civl_id: "" });
   const [eventForm, setEventForm] = useState(blankEventForm());
   const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
+  const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
@@ -282,6 +291,11 @@ export default function HomePage() {
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
   const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskDraft.points), [taskDraft.points]);
   const currentTaskTypeBehavior = useMemo(() => taskTypeBehavior(taskDraft.task_type), [taskDraft.task_type]);
+  const availableDirectoryPilots = useMemo(
+    () => pilotDirectory.filter((candidate) => !pilots.some((pilot) => pilot.id === candidate.id)),
+    [pilotDirectory, pilots],
+  );
+  const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -293,6 +307,12 @@ export default function HomePage() {
     window.localStorage.setItem(SIDEBAR_COMPACT_KEY, String(sidebarCompact));
   }, [sidebarCompact]);
 
+  useEffect(() => {
+    if (user?.role === "pilot" && activeSection === "events") {
+      setActiveSection("tasks");
+    }
+  }, [activeSection, user]);
+
   async function bootstrap(activeToken: string) {
     setToken(activeToken);
     setError("");
@@ -301,12 +321,14 @@ export default function HomePage() {
       apiFetch<EventRecord[]>("/api/events", activeToken),
     ]);
     setUser(me);
+    setActiveSection(me.role === "pilot" ? "tasks" : "events");
     setEvents(loadedEvents);
+    await refreshPilotDirectory(activeToken, me);
     if (loadedEvents[0]) {
       setSelectedEventId(loadedEvents[0].id);
       setEventEditorId(loadedEvents[0].id);
       setEventForm(eventToForm(loadedEvents[0]));
-      await loadEvent(activeToken, loadedEvents[0].id, loadedEvents[0]);
+      await loadEvent(activeToken, loadedEvents[0].id, loadedEvents[0], me);
     } else {
       setSelectedEventId(null);
       setEventEditorId(null);
@@ -329,7 +351,17 @@ export default function HomePage() {
     return loadedEvents;
   }
 
-  async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null) {
+  async function refreshPilotDirectory(activeToken: string, activeUser?: User | null) {
+    if ((activeUser ?? user)?.role !== "admin") {
+      setPilotDirectory([]);
+      return [];
+    }
+    const loadedPilots = await apiFetch<PilotRecord[]>("/api/pilots", activeToken);
+    setPilotDirectory(loadedPilots);
+    return loadedPilots;
+  }
+
+  async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null) {
     setSelectedEventId(eventId);
     const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
     setEventEditorId(eventId);
@@ -341,14 +373,16 @@ export default function HomePage() {
       apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
       apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
     ]);
+    const viewer = activeUser ?? user;
+    const visibleTasks = viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks;
     setPilots(loadedPilots);
     setTurnpoints(loadedTurnpoints);
     setTurnpointSlots(loadedTurnpointSlots);
-    setTasks(loadedTasks);
+    setTasks(visibleTasks);
     setPilotSummary(loadedSummary);
     setTrack(null);
-    if (loadedTasks[0]) {
-      await loadTask(activeToken, loadedTasks[0].id, loadedTasks[0]);
+    if (visibleTasks[0]) {
+      await loadTask(activeToken, visibleTasks[0].id, visibleTasks[0]);
     } else {
       setSelectedTaskId(null);
       setResults([]);
@@ -405,6 +439,57 @@ export default function HomePage() {
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Login failed");
     }
+  }
+
+  async function handleRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/register`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: registerForm.first_name,
+          last_name: registerForm.last_name,
+          email: registerForm.email,
+          password: registerForm.password,
+          competition_number: registerForm.competition_number || null,
+          nation: registerForm.nation || null,
+          civl_id: registerForm.civl_id || null,
+        }),
+      });
+      if (!response.ok) throw new Error(await response.text());
+      const payload = (await response.json()) as { access_token: string; user: User };
+      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+      setRegisterForm({ first_name: "", last_name: "", email: "", password: "", competition_number: "", nation: "", civl_id: "" });
+      setMessage(`Created account for ${payload.user.full_name}.`);
+      await bootstrap(payload.access_token);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Registration failed");
+    }
+  }
+
+  function signOut() {
+    window.localStorage.removeItem(TOKEN_KEY);
+    setToken("");
+    setUser(null);
+    setActiveSection("events");
+    setSelectedEventId(null);
+    setEventEditorId(null);
+    setSelectedTaskId(null);
+    setPilots([]);
+    setPilotDirectory([]);
+    setTurnpoints([]);
+    setTurnpointSlots([]);
+    setTasks([]);
+    setResults([]);
+    setPilotSummary([]);
+    setUploads([]);
+    setTrack(null);
+    setEventForm(blankEventForm());
+    setTaskDraft(blankTaskDraft());
+    setAuthMode("login");
+    setMessage("Sign in or create a pilot account to continue.");
+    setError("");
   }
 
   async function saveEvent(event: FormEvent<HTMLFormElement>) {
@@ -496,6 +581,17 @@ export default function HomePage() {
     setPilotForm({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
     setMessage(`Created pilot ${payload.first_name} ${payload.last_name}${payload.temp_password ? ` with temp password ${payload.temp_password}` : ""}.`);
     await loadEvent(token, selectedEventId);
+    await refreshPilotDirectory(token);
+    await refreshEvents(token);
+  }
+
+  async function assignExistingPilot() {
+    if (!token || !selectedEventId || !selectedDirectoryPilotId) return;
+    const payload = await apiFetch<PilotRecord>(`/api/events/${selectedEventId}/pilots/${selectedDirectoryPilotId}/assign`, token, { method: "POST" });
+    setSelectedDirectoryPilotId(null);
+    setMessage(`Added ${payload.first_name} ${payload.last_name} to ${selectedEvent?.name ?? "the event"}.`);
+    await loadEvent(token, selectedEventId);
+    await refreshPilotDirectory(token);
     await refreshEvents(token);
   }
 
@@ -504,6 +600,7 @@ export default function HomePage() {
     await apiFetch<void>(`/api/events/${selectedEventId}/pilots/${pilot.id}`, token, { method: "DELETE" });
     setMessage(`Removed ${pilot.first_name} ${pilot.last_name} from ${selectedEvent?.name ?? "the event"}.`);
     await loadEvent(token, selectedEventId);
+    await refreshPilotDirectory(token);
     await refreshEvents(token);
   }
 
@@ -616,37 +713,55 @@ export default function HomePage() {
       <div className="section-grid two-column">
         <SectionCard title="Participant intake" description="Add a pilot manually or import a roster CSV for the selected event.">
           {user?.role === "admin" ? (
-            <form className="stack form-block" onSubmit={createPilot}>
-              <div className="inline-grid">
-                <input placeholder="First name" value={pilotForm.first_name} onChange={(event) => setPilotForm({ ...pilotForm, first_name: event.target.value })} />
-                <input placeholder="Last name" value={pilotForm.last_name} onChange={(event) => setPilotForm({ ...pilotForm, last_name: event.target.value })} />
+            <div className="stack">
+              <div className="record-card stack">
+                <strong>Add existing person</strong>
+                <span>Select from the global people directory, including pilots who created their own accounts.</span>
+                <div className="inline-grid">
+                  <select value={selectedDirectoryPilotId ?? ""} onChange={(event) => setSelectedDirectoryPilotId(event.target.value ? Number(event.target.value) : null)}>
+                    <option value="">Select a person</option>
+                    {availableDirectoryPilots.map((pilot) => (
+                      <option key={pilot.id} value={pilot.id}>
+                        {pilot.first_name} {pilot.last_name}{pilot.email ? ` - ${pilot.email}` : ""}{pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" onClick={() => void assignExistingPilot()} disabled={!selectedDirectoryPilotId}>Add to event</button>
+                </div>
               </div>
-              <input placeholder="Email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} />
-              <div className="inline-grid">
-                <input placeholder="Nation" value={pilotForm.nation} onChange={(event) => setPilotForm({ ...pilotForm, nation: event.target.value })} />
-                <input placeholder="Competition #" value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} />
-              </div>
-              <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
-              <div className="button-row">
-                <button type="submit">Add pilot</button>
-                <label className="file-input">
-                  Import CSV
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={async (event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      await uploadFile<unknown>(`/api/events/${selectedEventId}/pilots/import-csv`, file);
-                      setMessage(`Imported pilots from ${file.name}.`);
-                      await loadEvent(token, selectedEventId);
-                      await refreshEvents(token);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-            </form>
+              <form className="stack form-block" onSubmit={createPilot}>
+                <div className="inline-grid">
+                  <input placeholder="First name" value={pilotForm.first_name} onChange={(event) => setPilotForm({ ...pilotForm, first_name: event.target.value })} />
+                  <input placeholder="Last name" value={pilotForm.last_name} onChange={(event) => setPilotForm({ ...pilotForm, last_name: event.target.value })} />
+                </div>
+                <input placeholder="Email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} />
+                <div className="inline-grid">
+                  <input placeholder="Nation" value={pilotForm.nation} onChange={(event) => setPilotForm({ ...pilotForm, nation: event.target.value })} />
+                  <input placeholder="Competition #" value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} />
+                </div>
+                <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
+                <div className="button-row">
+                  <button type="submit">Create new pilot</button>
+                  <label className="file-input">
+                    Import CSV
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        await uploadFile<unknown>(`/api/events/${selectedEventId}/pilots/import-csv`, file);
+                        setMessage(`Imported pilots from ${file.name}.`);
+                        await loadEvent(token, selectedEventId);
+                        await refreshPilotDirectory(token);
+                        await refreshEvents(token);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              </form>
+            </div>
           ) : (
             <p className="hint">Pilot management is available to admins. Pilots can still review the roster below.</p>
           )}
@@ -657,7 +772,7 @@ export default function HomePage() {
               <div key={pilot.id} className="record-card roster-row">
                 <div>
                   <strong>{pilot.first_name} {pilot.last_name}</strong>
-                  <span>{pilot.competition_number ?? "No comp #"}{pilot.portal_username ? ` - ${pilot.portal_username}` : ""}</span>
+                  <span>{pilot.competition_number ?? "No comp #"}{pilot.email ? ` - ${pilot.email}` : ""}{pilot.portal_username ? ` - ${pilot.portal_username}` : ""}</span>
                 </div>
                 {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button> : null}
               </div>
@@ -854,7 +969,7 @@ export default function HomePage() {
     if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
     return (
       <div className="section-stack">
-        <SectionCard title="Task details" description="Choose a task, review its scoring fields, and manage the ordered task turnpoints.">
+        <SectionCard title="Task details" description={user?.role === "admin" ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
           <div className="stack form-block">
             <label className="stack compact">
               <span>Selected task</span>
@@ -865,24 +980,24 @@ export default function HomePage() {
             </label>
             <label className="stack compact">
               <span>Task name</span>
-              <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" />
+              <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={user?.role !== "admin"} />
             </label>
             <div className="inline-grid">
-              <label className="stack compact">
+              <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task type</span>
-                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })}>
+                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={user?.role !== "admin"}>
                   {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
-              <label className="stack compact">
+              <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task start (launch open)</span>
-                <input type="time" step={1} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} />
+                <input type="time" step={1} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={user?.role !== "admin"} />
               </label>
             </div>
             <div className="inline-grid">
-              <label className="stack compact">
+              <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task finish (goal close)</span>
-                <input type="time" step={1} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} />
+                <input type="time" step={1} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={user?.role !== "admin"} />
               </label>
               <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
                 <span>Start open</span>
@@ -921,7 +1036,7 @@ export default function HomePage() {
                   <h3>Task turnpoints</h3>
                   <span>{taskDraft.points.length} selected</span>
                 </div>
-                <p className="hint">Click waypoint markers on the map to add them. Drag cards to reorder the task.</p>
+                <p className="hint">{user?.role === "admin" ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
                 <div className="task-point-list">
                   {taskDraft.points.map((point, index) => (
                     <div
@@ -942,24 +1057,41 @@ export default function HomePage() {
                         <span className="task-point-type-badge">{pointTypeLabels[point.point_type] ?? point.point_type}</span>
                       </div>
                       <div className="task-point-card-grid">
-                        <label className="stack compact">
-                          <span>Type</span>
-                          <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                            <option value="launch">launch</option>
-                            <option value="start">start</option>
-                            <option value="turnpoint">turnpoint</option>
-                            <option value="ESS">ESS</option>
-                            <option value="goal">goal</option>
-                          </select>
-                        </label>
-                        <label className="stack compact">
-                          <span>Radius (m)</span>
-                          <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
-                        </label>
+                        {user?.role === "admin" ? (
+                          <>
+                            <label className="stack compact">
+                              <span>Type</span>
+                              <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                                <option value="launch">launch</option>
+                                <option value="start">start</option>
+                                <option value="turnpoint">turnpoint</option>
+                                <option value="ESS">ESS</option>
+                                <option value="goal">goal</option>
+                              </select>
+                            </label>
+                            <label className="stack compact">
+                              <span>Radius (m)</span>
+                              <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
+                            </label>
+                          </>
+                        ) : (
+                          <>
+                            <div className="record-card">
+                              <strong>Type</strong>
+                              <span>{pointTypeLabels[point.point_type] ?? point.point_type}</span>
+                            </div>
+                            <div className="record-card">
+                              <strong>Radius</strong>
+                              <span>{point.radius_m.toFixed(0)} m</span>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      <div className="task-point-card-actions">
-                        <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                      </div>
+                      {user?.role === "admin" ? (
+                        <div className="task-point-card-actions">
+                          <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                   {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map to add them to this task.</p> : null}
@@ -977,26 +1109,26 @@ export default function HomePage() {
               {taskAdvancedOpen ? (
                 <div className="stack">
                   <div className="inline-grid">
-                    <label className="stack compact">
+                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                       <span>Nominal distance (km)</span>
-                      <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} />
+                      <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} disabled={user?.role !== "admin"} />
                     </label>
-                    <label className="stack compact">
+                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                       <span>Nominal time (hours)</span>
-                      <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} />
+                      <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} disabled={user?.role !== "admin"} />
                     </label>
-                    <label className="stack compact">
+                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                       <span>Nominal launch</span>
-                      <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} />
+                      <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} disabled={user?.role !== "admin"} />
                     </label>
-                    <label className="stack compact">
+                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                       <span>Minimum distance (km)</span>
-                      <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} />
+                      <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} disabled={user?.role !== "admin"} />
                     </label>
                   </div>
-                  <label className="stack compact">
+                  <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                     <span>Task penalty / notes JSON</span>
-                    <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} />
+                    <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} disabled={user?.role !== "admin"} />
                   </label>
                 </div>
               ) : null}
@@ -1053,6 +1185,9 @@ export default function HomePage() {
   }
 
   function renderActiveSection() {
+    if (user?.role === "pilot" && activeSection === "events") {
+      return renderTasksSection();
+    }
     switch (activeSection) {
       case "events":
         return renderEventsSection();
@@ -1071,15 +1206,68 @@ export default function HomePage() {
             <div>
               <p className="eyebrow">FlightComp Platform</p>
               <h1>AirScore-aligned scoring for NAS deployment</h1>
-              <p className="lede">Competition operations, task geometry, and scoring now live in a single admin workspace.</p>
+              <p className="lede">Admins manage events, pilots, turnpoints, tasks, and scoring. Pilots get a separate portal for view-only tasks, IGC upload, and results.</p>
             </div>
           </section>
-          <form className="panel login-panel" onSubmit={handleLogin}>
-            <h2>Log in</h2>
-            <label>Username<input value={loginForm.username} onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })} /></label>
-            <label>Password<input type="password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} /></label>
-            <button type="submit">Sign in</button>
-          </form>
+          <section className="panel login-panel auth-panel">
+            <div className="tab-row">
+              <button type="button" className={authMode === "login" ? "tab-button active" : "tab-button"} onClick={() => setAuthMode("login")}>Log in</button>
+              <button type="button" className={authMode === "register" ? "tab-button active" : "tab-button"} onClick={() => setAuthMode("register")}>Create account</button>
+            </div>
+            {authMode === "login" ? (
+              <form className="stack" onSubmit={handleLogin}>
+                <h2>Log in</h2>
+                <label className="stack compact">
+                  <span>Email or username</span>
+                  <input value={loginForm.username} onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })} placeholder="pilot@example.com" required />
+                </label>
+                <label className="stack compact">
+                  <span>Password</span>
+                  <input type="password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} required />
+                </label>
+                <p className="hint">Pilot accounts use email as the username. Seeded admin access still works with <code>admin</code>.</p>
+                <button type="submit">Sign in</button>
+              </form>
+            ) : (
+              <form className="stack" onSubmit={handleRegister}>
+                <h2>Create pilot account</h2>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>First name</span>
+                    <input value={registerForm.first_name} onChange={(event) => setRegisterForm({ ...registerForm, first_name: event.target.value })} required />
+                  </label>
+                  <label className="stack compact">
+                    <span>Last name</span>
+                    <input value={registerForm.last_name} onChange={(event) => setRegisterForm({ ...registerForm, last_name: event.target.value })} required />
+                  </label>
+                </div>
+                <label className="stack compact">
+                  <span>Email</span>
+                  <input type="email" value={registerForm.email} onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })} placeholder="pilot@example.com" required />
+                </label>
+                <label className="stack compact">
+                  <span>Password</span>
+                  <input type="password" value={registerForm.password} onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })} required />
+                </label>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>Competition number</span>
+                    <input value={registerForm.competition_number} onChange={(event) => setRegisterForm({ ...registerForm, competition_number: event.target.value })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Nation</span>
+                    <input value={registerForm.nation} onChange={(event) => setRegisterForm({ ...registerForm, nation: event.target.value })} />
+                  </label>
+                </div>
+                <label className="stack compact">
+                  <span>CIVL ID</span>
+                  <input value={registerForm.civl_id} onChange={(event) => setRegisterForm({ ...registerForm, civl_id: event.target.value })} />
+                </label>
+                <p className="hint">Creating an account also creates or links a pilot profile in the shared people directory so admins can add you to events from the roster list.</p>
+                <button type="submit">Create account</button>
+              </form>
+            )}
+          </section>
         </>
       ) : (
         <div className={sidebarCompact ? "workspace-shell sidebar-compact" : "workspace-shell"}>
@@ -1094,13 +1282,13 @@ export default function HomePage() {
           <section className="content-shell">
             <section className="panel hero content-hero">
               <div>
-                <p className="eyebrow">Flight Director</p>
+                <p className="eyebrow">{user.role === "admin" ? "Flight Director" : "Pilot Portal"}</p>
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
                 <p className="lede">{selectedEvent ? `${selectedEvent.name} - ${selectedEvent.location}` : "Select or create an event to begin."}</p>
               </div>
               <div className="hero-actions">
                 <div className="role-pill">{user.role}</div>
-                <button className="signout" onClick={() => { window.localStorage.removeItem(TOKEN_KEY); setToken(""); setUser(null); }}>Sign out</button>
+                <button className="signout" onClick={signOut}>Sign out</button>
               </div>
             </section>
             <div className="status-row">
