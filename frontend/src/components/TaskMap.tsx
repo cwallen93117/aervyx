@@ -193,7 +193,6 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
   const trackSignatureRef = useRef("");
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
-  const [mapNotice, setMapNotice] = useState<string | null>(null);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
@@ -221,18 +220,11 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
         style: createBasemapStyle(basemapMode) as never,
         center: [-118.18, 36.73],
         zoom: 9,
+        attributionControl: false,
       });
-      setMapNotice("Basemap loading...");
       map.addControl(new maplibregl.NavigationControl(), "top-right");
       map.on("styledata", () => {
-        setMapNotice(null);
         map.resize();
-      });
-      map.on("error", (event) => {
-        const sourceId = "sourceId" in event ? event.sourceId : undefined;
-        if (sourceId === "basemap") {
-          setMapNotice("Selected basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
-        }
       });
       map.on("click", (event) => {
         if (!editableRef.current || !onSelectTurnpointRef.current) {
@@ -260,14 +252,13 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
         mapRef.current = null;
       };
     } catch (error) {
-      setMapNotice(error instanceof Error ? `Map failed to initialize: ${error.message}` : "Map failed to initialize.");
+      console.error("Map failed to initialize.", error);
       return;
     }
   }, []);
 
   useEffect(() => {
     if (mapRef.current) {
-      setMapNotice(`Loading ${basemapMode} basemap...`);
       mapRef.current.setStyle(createBasemapStyle(basemapMode) as never);
     }
   }, [basemapMode]);
@@ -320,7 +311,6 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
           <option value="terrain">Terrain</option>
         </select>
       </label>
-      {mapNotice ? <div className="map-notice">{mapNotice}</div> : null}
     </div>
   );
 }
