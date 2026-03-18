@@ -97,3 +97,32 @@ async def upload_turnpoints(event_id: int, slot_number: int = Query(...), file: 
     log_action(session, actor_user_id=admin.id, action="turnpoint.upload", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "slot_number": slot_number, "filename": source.filename, "sha256": sha256, "count": len(records), "replaced_source_id": previous_source_id})
     session.commit()
     return TurnpointUploadResponse(source_id=source.id, format=file_format, imported_count=len(records), sha256=sha256, filename=source.filename)
+
+
+@router.delete("/api/events/{event_id}/turnpoint-slots/{slot_number}", status_code=204)
+def delete_turnpoint_slot(event_id: int, slot_number: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+    if session.get(Event, event_id) is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    slot_number = _validate_slot_number(slot_number)
+    slot = session.scalar(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == event_id, EventTurnpointSlot.slot_number == slot_number))
+    if slot is None or slot.source_id is None:
+        raise HTTPException(status_code=404, detail="Turnpoint slot is already empty")
+
+    source = session.get(TurnpointSource, slot.source_id)
+    source_id = slot.source_id
+    filename = source.filename if source is not None else None
+    stored_path = Path(source.stored_path) if source is not None else None
+
+    session.query(Turnpoint).filter(Turnpoint.source_id == source_id).delete()
+    if source is not None:
+        session.delete(source)
+    slot.source_id = None
+    session.flush()
+
+    if stored_path is not None and stored_path.exists():
+        stored_path.unlink(missing_ok=True)
+        if stored_path.parent.exists() and not any(stored_path.parent.iterdir()):
+            stored_path.parent.rmdir()
+
+    log_action(session, actor_user_id=admin.id, action="turnpoint.delete", entity_type="turnpoint_slot", entity_id=f"{event_id}:{slot_number}", details={"event_id": event_id, "slot_number": slot_number, "source_id": source_id, "filename": filename})
+    session.commit()

@@ -394,6 +394,17 @@ export default function HomePage() {
     return apiFetch<T>(path, token, { method: "POST", body: formData });
   }
 
+  async function deleteTurnpointSlot(slotNumber: number) {
+    if (!token || !selectedEventId) return;
+    const slot = turnpointSlots.find((candidate) => candidate.slot_number === slotNumber);
+    const confirmed = window.confirm(`Delete the turnpoint file in slot ${slotNumber}${slot?.filename ? ` (${slot.filename})` : ""}? This removes its imported waypoints from the database.`);
+    if (!confirmed) return;
+    await apiFetch<void>(`/api/events/${selectedEventId}/turnpoint-slots/${slotNumber}`, token, { method: "DELETE" });
+    setMessage(`Deleted turnpoint file from slot ${slotNumber}.`);
+    await loadEvent(token, selectedEventId, selectedEvent);
+    await refreshEvents(token);
+  }
+
   function startNewTask() {
     setSelectedTaskId(null);
     setTrack(null);
@@ -575,28 +586,31 @@ export default function HomePage() {
                           {slot.uploaded_at ? <span>{new Date(slot.uploaded_at).toLocaleString()}</span> : null}
                         </div>
                         {user?.role === "admin" ? (
-                          <label className="file-input">
-                            {slot.filename ? "Replace file" : "Upload file"}
-                            <input
-                              type="file"
-                              accept=".csv,.geojson,.json,.gpx"
-                              onChange={async (event) => {
-                                const file = event.target.files?.[0];
-                                if (!file || !selectedEventId) return;
-                                try {
-                                  setError("");
-                                  const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
-                                  setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
-                                  await loadEvent(token, selectedEventId);
-                                  await refreshEvents(token);
-                                } catch (caught) {
-                                  setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                                } finally {
-                                  event.currentTarget.value = "";
-                                }
-                              }}
-                            />
-                          </label>
+                          <div className="stack compact">
+                            <label className="file-input">
+                              {slot.filename ? "Replace file" : "Upload file"}
+                              <input
+                                type="file"
+                                accept=".csv,.geojson,.json,.gpx"
+                                onChange={async (event) => {
+                                  const file = event.target.files?.[0];
+                                  if (!file || !selectedEventId) return;
+                                  try {
+                                    setError("");
+                                    const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
+                                    setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
+                                    await loadEvent(token, selectedEventId);
+                                    await refreshEvents(token);
+                                  } catch (caught) {
+                                    setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                                  } finally {
+                                    event.currentTarget.value = "";
+                                  }
+                                }}
+                              />
+                            </label>
+                            {slot.filename ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSlot(slot.slot_number)}>Delete file</button> : null}
+                          </div>
                         ) : null}
                       </div>
                     ))}
