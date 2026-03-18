@@ -15,6 +15,16 @@ from app.services.audit import log_action
 router = APIRouter(tags=["tasks"])
 
 
+def _normalize_task_type(task_type: str | None) -> str:
+    legacy_map = {
+        None: "race_to_goal",
+        "race": "race_to_goal",
+        "speedrun": "elapsed_time",
+        "speedrun_interval": "race_to_goal_with_gates",
+    }
+    return legacy_map.get(task_type, task_type)  # type: ignore[arg-type]
+
+
 def _active_slot_source_ids(session: Session, event_id: int) -> set[int]:
     return set(
         session.scalars(
@@ -52,7 +62,7 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         event_id=task.event_id,
         name=task.name,
         status=task.status,
-        task_type=task.task_type or "race",
+        task_type=_normalize_task_type(task.task_type),
         task_start_time=task.task_start_time,
         task_finish_time=task.task_finish_time,
         start_open_time=task.start_open_time,
@@ -86,7 +96,7 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
         event_id=event_id,
         name=payload.name,
         status=payload.status,
-        task_type=payload.task_type,
+        task_type=_normalize_task_type(payload.task_type),
         task_start_time=payload.task_start_time,
         task_finish_time=payload.task_finish_time,
         start_open_time=payload.start_open_time,
@@ -123,7 +133,7 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
         raise HTTPException(status_code=404, detail="Task not found")
     task.name = payload.name
     task.status = payload.status
-    task.task_type = payload.task_type
+    task.task_type = _normalize_task_type(payload.task_type)
     task.task_start_time = payload.task_start_time
     task.task_finish_time = payload.task_finish_time
     task.start_open_time = payload.start_open_time

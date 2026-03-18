@@ -127,7 +127,7 @@ class TaskPointInput(BaseModel):
 class TaskInput(BaseModel):
     name: str
     status: str = "draft"
-    task_type: str = "race"
+    task_type: str = "race_to_goal"
     task_start_time: str | None = None
     task_finish_time: str | None = None
     start_open_time: str | None = None

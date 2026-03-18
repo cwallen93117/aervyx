@@ -112,9 +112,10 @@ const pointTypeLabels: Record<string, string> = {
   goal: "Goal",
 };
 const taskTypeOptions = [
-  { value: "race", label: "Race" },
-  { value: "speedrun", label: "Speedrun" },
-  { value: "speedrun_interval", label: "Speedrun-Interval" },
+  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "elapsed_time", label: "Elapsed Time" },
+  { value: "open_distance", label: "Open Distance" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
 ] as const;
 
 function blankEventForm() {
@@ -149,7 +150,7 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
   return {
     id: null,
     name: "New Task",
-    task_type: "race",
+    task_type: "race_to_goal",
     task_start_time: "",
     task_finish_time: "",
     start_open_time: "",
@@ -164,6 +165,19 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
     points: [],
     ...overrides,
   };
+}
+
+function normalizeTaskType(value: string | null | undefined): string {
+  switch (value) {
+    case "race":
+      return "race_to_goal";
+    case "speedrun":
+      return "elapsed_time";
+    case "speedrun_interval":
+      return "race_to_goal_with_gates";
+    default:
+      return value ?? "race_to_goal";
+  }
 }
 
 function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftState {
@@ -380,7 +394,7 @@ export default function HomePage() {
     setTaskDraft({
       id: task.id,
       name: task.name,
-      task_type: task.task_type || "race",
+      task_type: normalizeTaskType(task.task_type),
       task_start_time: normalizeTimeValue(task.task_start_time),
       task_finish_time: normalizeTimeValue(task.task_finish_time),
       start_open_time: normalizeTimeValue(task.start_open_time),

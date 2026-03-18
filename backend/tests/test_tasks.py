@@ -108,7 +108,7 @@ def test_task_response_filters_stale_turnpoints_when_slots_are_active() -> None:
     response = _task_response(session, task)
 
     assert [point.name for point in response.points] == ["East Ridge", "Manual Goal"]
-    assert response.task_type == "race"
+    assert response.task_type == "race_to_goal"
     assert response.start_gate_count == 1
 
 
@@ -138,7 +138,7 @@ def test_task_response_preserves_all_points_without_active_slots() -> None:
     task = Task(
         event_id=event.id,
         name="Task 1",
-        task_type="speedrun_interval",
+        task_type="race_to_goal_with_gates",
         task_start_time="13:30:00",
         task_finish_time="17:45:00",
         start_open_time="14:00:00",
@@ -165,10 +165,31 @@ def test_task_response_preserves_all_points_without_active_slots() -> None:
     response = _task_response(session, task)
 
     assert [point.name for point in response.points] == ["Launch Ridge"]
-    assert response.task_type == "speedrun_interval"
+    assert response.task_type == "race_to_goal_with_gates"
     assert response.task_start_time == "13:30:00"
     assert response.task_finish_time == "17:45:00"
     assert response.start_open_time == "14:00:00"
     assert response.start_close_time == "16:00:00"
     assert response.start_gate_count == 3
     assert response.start_gate_interval_seconds == 900
+
+
+def test_task_response_maps_legacy_task_types_to_new_labels() -> None:
+    session = _session()
+    event = Event(
+        name="Legacy Types Event",
+        location="Tow Ridge",
+        starts_on=date(2026, 3, 18),
+        ends_on=date(2026, 3, 19),
+        timezone="America/New_York",
+    )
+    session.add(event)
+    session.flush()
+
+    task = Task(event_id=event.id, name="Legacy Task", task_type="speedrun")
+    session.add(task)
+    session.commit()
+
+    response = _task_response(session, task)
+
+    assert response.task_type == "elapsed_time"

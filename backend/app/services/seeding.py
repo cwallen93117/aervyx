@@ -67,7 +67,7 @@ def bootstrap_demo_data(session: Session) -> None:
             event_id=event.id,
             name="Task 1",
             status="published",
-            task_type="race",
+            task_type="race_to_goal",
             task_start_time="13:30:00",
             task_finish_time="17:45:00",
             start_open_time="14:00:00",
