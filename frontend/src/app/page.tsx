@@ -75,7 +75,7 @@ type TaskDraftState = {
   start_open_time: string;
   start_close_time: string;
   start_gate_count: number;
-  start_gate_interval_seconds: number | "";
+  start_gate_interval_minutes: number | "";
   nominal_distance_km: number;
   nominal_time_hours: number;
   nominal_launch: number;
@@ -156,7 +156,7 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
     start_open_time: "",
     start_close_time: "",
     start_gate_count: 1,
-    start_gate_interval_seconds: "",
+    start_gate_interval_minutes: "",
     nominal_distance_km: 60,
     nominal_time_hours: 1.5,
     nominal_launch: 0.95,
@@ -414,7 +414,7 @@ export default function HomePage() {
       start_open_time: normalizeTimeValue(task.start_open_time),
       start_close_time: normalizeTimeValue(task.start_close_time),
       start_gate_count: task.start_gate_count || 1,
-      start_gate_interval_seconds: task.start_gate_interval_seconds ?? "",
+      start_gate_interval_minutes: task.start_gate_interval_seconds == null ? "" : task.start_gate_interval_seconds / 60,
       nominal_distance_km: task.nominal_distance_km,
       nominal_time_hours: task.nominal_time_hours,
       nominal_launch: task.nominal_launch,
@@ -599,7 +599,7 @@ export default function HomePage() {
       start_open_time: timeOrNull(taskDraft.start_open_time),
       start_close_time: timeOrNull(taskDraft.start_close_time),
       start_gate_count: taskDraft.start_gate_count,
-      start_gate_interval_seconds: taskDraft.start_gate_interval_seconds === "" ? null : taskDraft.start_gate_interval_seconds,
+      start_gate_interval_seconds: taskDraft.start_gate_interval_minutes === "" ? null : taskDraft.start_gate_interval_minutes * 60,
       nominal_distance_km: taskDraft.nominal_distance_km,
       nominal_time_hours: taskDraft.nominal_time_hours,
       nominal_launch: taskDraft.nominal_launch,
@@ -932,8 +932,8 @@ export default function HomePage() {
             </div>
             <div className="inline-grid">
               <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                <span>Gate interval (seconds)</span>
-                <input type="number" min={0} value={taskDraft.start_gate_interval_seconds} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_seconds: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} placeholder="900" disabled={!currentTaskTypeBehavior.usesMultipleGates} />
+                <span>Gate interval (minutes)</span>
+                <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} placeholder="15" disabled={!currentTaskTypeBehavior.usesMultipleGates} />
               </label>
               <div className="distance-summary-grid">
                 <div className="record-card">
