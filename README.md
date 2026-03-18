@@ -32,7 +32,15 @@ The intended Phase 1 runtime is your NAS, not your desktop. Docker does not need
 2. Copy `backend/.env.example` to `backend/.env`.
 3. Copy `frontend/.env.local.example` to `frontend/.env.local`.
 4. Review [docs/deployment-qnap.md](docs/deployment-qnap.md).
-5. Deploy the stack with Docker Compose on the NAS.
+5. For QNAP deployment, use `docker-compose.qnap.yml` on the NAS.
+
+## QNAP GitHub Pull Flow
+
+For a private GitHub repository on a QNAP that does not have host `git` installed, the supported flow is:
+
+1. Add a GitHub deploy key for the NAS.
+2. Run `scripts/qnap/github-sync.sh` to clone or pull the repo through an `alpine/git` container.
+3. Run `scripts/qnap/deploy.sh` to build and launch the stack with `docker-compose.qnap.yml`.
 
 ## Current Status
 
