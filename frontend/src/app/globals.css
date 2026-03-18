@@ -239,6 +239,12 @@ h1, h2, h3, p {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.75rem;
 }
+.distance-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  align-self: end;
+}
 .form-block input, .form-block select, .form-block textarea, .login-panel input {
   width: 100%;
   border: 1px solid var(--line);

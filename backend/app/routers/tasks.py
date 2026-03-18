@@ -52,6 +52,13 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         event_id=task.event_id,
         name=task.name,
         status=task.status,
+        task_type=task.task_type or "race",
+        task_start_time=task.task_start_time,
+        task_finish_time=task.task_finish_time,
+        start_open_time=task.start_open_time,
+        start_close_time=task.start_close_time,
+        start_gate_count=task.start_gate_count or 1,
+        start_gate_interval_seconds=task.start_gate_interval_seconds,
         version=task.version,
         nominal_distance_km=task.nominal_distance_km,
         nominal_time_hours=task.nominal_time_hours,
@@ -75,7 +82,23 @@ def list_tasks(event_id: int, user: User = Depends(get_current_user), session: S
 def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TaskResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    task = Task(event_id=event_id, name=payload.name, status=payload.status, nominal_distance_km=payload.nominal_distance_km, nominal_time_hours=payload.nominal_time_hours, nominal_launch=payload.nominal_launch, minimum_distance_km=payload.minimum_distance_km, penalties_json=payload.penalties_json)
+    task = Task(
+        event_id=event_id,
+        name=payload.name,
+        status=payload.status,
+        task_type=payload.task_type,
+        task_start_time=payload.task_start_time,
+        task_finish_time=payload.task_finish_time,
+        start_open_time=payload.start_open_time,
+        start_close_time=payload.start_close_time,
+        start_gate_count=payload.start_gate_count,
+        start_gate_interval_seconds=payload.start_gate_interval_seconds,
+        nominal_distance_km=payload.nominal_distance_km,
+        nominal_time_hours=payload.nominal_time_hours,
+        nominal_launch=payload.nominal_launch,
+        minimum_distance_km=payload.minimum_distance_km,
+        penalties_json=payload.penalties_json,
+    )
     session.add(task)
     session.flush()
     for point in payload.points:
@@ -100,6 +123,13 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
         raise HTTPException(status_code=404, detail="Task not found")
     task.name = payload.name
     task.status = payload.status
+    task.task_type = payload.task_type
+    task.task_start_time = payload.task_start_time
+    task.task_finish_time = payload.task_finish_time
+    task.start_open_time = payload.start_open_time
+    task.start_close_time = payload.start_close_time
+    task.start_gate_count = payload.start_gate_count
+    task.start_gate_interval_seconds = payload.start_gate_interval_seconds
     task.nominal_distance_km = payload.nominal_distance_km
     task.nominal_time_hours = payload.nominal_time_hours
     task.nominal_launch = payload.nominal_launch

@@ -108,6 +108,8 @@ def test_task_response_filters_stale_turnpoints_when_slots_are_active() -> None:
     response = _task_response(session, task)
 
     assert [point.name for point in response.points] == ["East Ridge", "Manual Goal"]
+    assert response.task_type == "race"
+    assert response.start_gate_count == 1
 
 
 def test_task_response_preserves_all_points_without_active_slots() -> None:
@@ -133,7 +135,17 @@ def test_task_response_preserves_all_points_without_active_slots() -> None:
     session.add(legacy_turnpoint)
     session.flush()
 
-    task = Task(event_id=event.id, name="Task 1")
+    task = Task(
+        event_id=event.id,
+        name="Task 1",
+        task_type="speedrun_interval",
+        task_start_time="13:30:00",
+        task_finish_time="17:45:00",
+        start_open_time="14:00:00",
+        start_close_time="16:00:00",
+        start_gate_count=3,
+        start_gate_interval_seconds=900,
+    )
     session.add(task)
     session.flush()
     session.add(
@@ -153,3 +165,10 @@ def test_task_response_preserves_all_points_without_active_slots() -> None:
     response = _task_response(session, task)
 
     assert [point.name for point in response.points] == ["Launch Ridge"]
+    assert response.task_type == "speedrun_interval"
+    assert response.task_start_time == "13:30:00"
+    assert response.task_finish_time == "17:45:00"
+    assert response.start_open_time == "14:00:00"
+    assert response.start_close_time == "16:00:00"
+    assert response.start_gate_count == 3
+    assert response.start_gate_interval_seconds == 900

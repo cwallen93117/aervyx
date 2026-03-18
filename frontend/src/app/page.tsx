@@ -41,12 +41,48 @@ type PilotRecord = { id: number; first_name: string; last_name: string; competit
 type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
 type TurnpointSlotRecord = { slot_number: number; source_id: number | null; filename: string | null; file_format: string | null; sha256: string | null; uploaded_at: string | null; turnpoint_count: number };
 type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
-type TaskRecord = { id: number; event_id: number; name: string; status: string; version: number; nominal_distance_km: number; nominal_time_hours: number; nominal_launch: number; minimum_distance_km: number; penalties_json: Record<string, unknown>; published_at: string | null; points: TaskPointRecord[] };
+type TaskRecord = {
+  id: number;
+  event_id: number;
+  name: string;
+  status: string;
+  task_type: string;
+  task_start_time: string | null;
+  task_finish_time: string | null;
+  start_open_time: string | null;
+  start_close_time: string | null;
+  start_gate_count: number;
+  start_gate_interval_seconds: number | null;
+  version: number;
+  nominal_distance_km: number;
+  nominal_time_hours: number;
+  nominal_launch: number;
+  minimum_distance_km: number;
+  penalties_json: Record<string, unknown>;
+  published_at: string | null;
+  points: TaskPointRecord[];
+};
 type ResultRecord = { id: number; upload_id: number; pilot_name: string; status: string; distance_flown_km: number; score_points: number; rank: number | null };
 type PilotSummaryRecord = { pilot_id: number; pilot_name: string; total_score_points: number; tasks_scored: number; best_distance_km: number };
 type UploadRecord = { id: number; filename: string; sha256: string; uploaded_at: string };
 type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
-type TaskDraftState = { id: number | null; name: string; nominal_distance_km: number; nominal_time_hours: number; nominal_launch: number; minimum_distance_km: number; penalties_text: string; points: TaskPointRecord[] };
+type TaskDraftState = {
+  id: number | null;
+  name: string;
+  task_type: string;
+  task_start_time: string;
+  task_finish_time: string;
+  start_open_time: string;
+  start_close_time: string;
+  start_gate_count: number;
+  start_gate_interval_seconds: number | "";
+  nominal_distance_km: number;
+  nominal_time_hours: number;
+  nominal_launch: number;
+  minimum_distance_km: number;
+  penalties_text: string;
+  points: TaskPointRecord[];
+};
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
@@ -74,6 +110,11 @@ const pointTypeLabels: Record<string, string> = {
   ESS: "ESS",
   goal: "Goal",
 };
+const taskTypeOptions = [
+  { value: "race", label: "Race" },
+  { value: "speedrun", label: "Speedrun" },
+  { value: "speedrun_interval", label: "Speedrun-Interval" },
+] as const;
 
 function blankEventForm() {
   return {
@@ -104,7 +145,24 @@ function blankEventForm() {
 }
 
 function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState {
-  return { id: null, name: "New Task", nominal_distance_km: 60, nominal_time_hours: 1.5, nominal_launch: 0.95, minimum_distance_km: 5, penalties_text: "{}", points: [], ...overrides };
+  return {
+    id: null,
+    name: "New Task",
+    task_type: "race",
+    task_start_time: "",
+    task_finish_time: "",
+    start_open_time: "",
+    start_close_time: "",
+    start_gate_count: 1,
+    start_gate_interval_seconds: "",
+    nominal_distance_km: 60,
+    nominal_time_hours: 1.5,
+    nominal_launch: 0.95,
+    minimum_distance_km: 5,
+    penalties_text: "{}",
+    points: [],
+    ...overrides,
+  };
 }
 
 function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftState {
@@ -115,6 +173,46 @@ function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftSta
     minimum_distance_km: event?.minimum_distance_km ?? 5,
     penalties_text: JSON.stringify(event?.penalties_json ?? {}, null, 2),
   });
+}
+
+function normalizeTimeValue(value: string | null | undefined): string {
+  return value ?? "";
+}
+
+function timeOrNull(value: string): string | null {
+  return value.trim() ? value : null;
+}
+
+function haversineKm(from: { latitude: number; longitude: number }, to: { latitude: number; longitude: number }): number {
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(to.latitude - from.latitude);
+  const deltaLon = toRadians(to.longitude - from.longitude);
+  const fromLat = toRadians(from.latitude);
+  const toLat = toRadians(to.latitude);
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLon / 2) ** 2;
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(a));
+}
+
+function entryRadiusKm(point: TaskPointRecord): number {
+  return point.point_type === "turnpoint" || point.point_type === "ESS" || point.point_type === "goal" ? point.radius_m / 1000 : 0;
+}
+
+function exitRadiusKm(point: TaskPointRecord): number {
+  return point.point_type === "launch" || point.point_type === "start" ? point.radius_m / 1000 : 0;
+}
+
+function computeTaskDistanceMetrics(points: TaskPointRecord[]) {
+  let totalDistanceKm = 0;
+  let optimizedDistanceKm = 0;
+  for (let index = 1; index < points.length; index += 1) {
+    const previousPoint = points[index - 1];
+    const currentPoint = points[index];
+    const legDistanceKm = haversineKm(previousPoint, currentPoint);
+    totalDistanceKm += legDistanceKm;
+    optimizedDistanceKm += Math.max(0, legDistanceKm - exitRadiusKm(previousPoint) - entryRadiusKm(currentPoint));
+  }
+  return { totalDistanceKm, optimizedDistanceKm };
 }
 
 function eventToForm(event: EventRecord | null | undefined) {
@@ -184,6 +282,7 @@ export default function HomePage() {
   const [sidebarCompact, setSidebarCompact] = useState(false);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
+  const taskDistanceMetrics = useMemo(() => computeTaskDistanceMetrics(taskDraft.points), [taskDraft.points]);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -279,6 +378,13 @@ export default function HomePage() {
     setTaskDraft({
       id: task.id,
       name: task.name,
+      task_type: task.task_type || "race",
+      task_start_time: normalizeTimeValue(task.task_start_time),
+      task_finish_time: normalizeTimeValue(task.task_finish_time),
+      start_open_time: normalizeTimeValue(task.start_open_time),
+      start_close_time: normalizeTimeValue(task.start_close_time),
+      start_gate_count: task.start_gate_count || 1,
+      start_gate_interval_seconds: task.start_gate_interval_seconds ?? "",
       nominal_distance_km: task.nominal_distance_km,
       nominal_time_hours: task.nominal_time_hours,
       nominal_launch: task.nominal_launch,
@@ -454,7 +560,23 @@ export default function HomePage() {
 
   async function saveTask() {
     if (!token || !selectedEventId) return;
-    const payload = { name: taskDraft.name, status: "draft", nominal_distance_km: taskDraft.nominal_distance_km, nominal_time_hours: taskDraft.nominal_time_hours, nominal_launch: taskDraft.nominal_launch, minimum_distance_km: taskDraft.minimum_distance_km, penalties_json: JSON.parse(taskDraft.penalties_text || "{}"), points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })) };
+    const payload = {
+      name: taskDraft.name,
+      status: "draft",
+      task_type: taskDraft.task_type,
+      task_start_time: timeOrNull(taskDraft.task_start_time),
+      task_finish_time: timeOrNull(taskDraft.task_finish_time),
+      start_open_time: timeOrNull(taskDraft.start_open_time),
+      start_close_time: timeOrNull(taskDraft.start_close_time),
+      start_gate_count: taskDraft.start_gate_count,
+      start_gate_interval_seconds: taskDraft.start_gate_interval_seconds === "" ? null : taskDraft.start_gate_interval_seconds,
+      nominal_distance_km: taskDraft.nominal_distance_km,
+      nominal_time_hours: taskDraft.nominal_time_hours,
+      nominal_launch: taskDraft.nominal_launch,
+      minimum_distance_km: taskDraft.minimum_distance_km,
+      penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
+      points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })),
+    };
     if (taskDraft.id) {
       await apiFetch(`/api/tasks/${taskDraft.id}`, token, { method: "PUT", body: JSON.stringify(payload) });
       setMessage(`Updated task ${taskDraft.name}.`);
@@ -753,6 +875,54 @@ export default function HomePage() {
               <span>Task name</span>
               <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" />
             </label>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Task type</span>
+                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })}>
+                  {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="stack compact">
+                <span>Task start (launch open)</span>
+                <input type="time" step={1} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Task finish (goal close)</span>
+                <input type="time" step={1} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} />
+              </label>
+              <label className="stack compact">
+                <span>Start open</span>
+                <input type="time" step={1} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Start close</span>
+                <input type="time" step={1} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} />
+              </label>
+              <label className="stack compact">
+                <span>Number of start gates</span>
+                <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Gate interval (seconds)</span>
+                <input type="number" min={0} value={taskDraft.start_gate_interval_seconds} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_seconds: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} placeholder="900" />
+              </label>
+              <div className="distance-summary-grid">
+                <div className="record-card">
+                  <strong>Total task distance</strong>
+                  <span>{taskDistanceMetrics.totalDistanceKm.toFixed(1)} km center-to-center</span>
+                </div>
+                <div className="record-card">
+                  <strong>Optimized distance</strong>
+                  <span>{taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km cylinder-adjusted</span>
+                </div>
+              </div>
+            </div>
             <div className="task-builder-layout">
               <div className="task-turnpoint-rail">
                 <div className="section-header">

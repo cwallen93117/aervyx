@@ -8,6 +8,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         return
 
     event_columns = {column["name"] for column in inspector.get_columns("events")}
+    task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in inspector.get_table_names() else set()
     statements = {
         "scoring_formula": "ALTER TABLE events ADD COLUMN scoring_formula VARCHAR(40)",
         "nominal_distance_km": "ALTER TABLE events ADD COLUMN nominal_distance_km FLOAT",
@@ -28,8 +29,20 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "use_departure_points": "ALTER TABLE events ADD COLUMN use_departure_points BOOLEAN",
         "penalties_json": "ALTER TABLE events ADD COLUMN penalties_json JSON",
     }
+    task_statements = {
+        "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
+        "task_start_time": "ALTER TABLE tasks ADD COLUMN task_start_time VARCHAR(8)",
+        "task_finish_time": "ALTER TABLE tasks ADD COLUMN task_finish_time VARCHAR(8)",
+        "start_open_time": "ALTER TABLE tasks ADD COLUMN start_open_time VARCHAR(8)",
+        "start_close_time": "ALTER TABLE tasks ADD COLUMN start_close_time VARCHAR(8)",
+        "start_gate_count": "ALTER TABLE tasks ADD COLUMN start_gate_count INTEGER DEFAULT 1",
+        "start_gate_interval_seconds": "ALTER TABLE tasks ADD COLUMN start_gate_interval_seconds INTEGER",
+    }
 
     with engine.begin() as connection:
         for column_name, statement in statements.items():
             if column_name not in event_columns:
+                connection.execute(text(statement))
+        for column_name, statement in task_statements.items():
+            if column_name not in task_columns:
                 connection.execute(text(statement))

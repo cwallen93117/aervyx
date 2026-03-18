@@ -127,6 +127,13 @@ class TaskPointInput(BaseModel):
 class TaskInput(BaseModel):
     name: str
     status: str = "draft"
+    task_type: str = "race"
+    task_start_time: str | None = None
+    task_finish_time: str | None = None
+    start_open_time: str | None = None
+    start_close_time: str | None = None
+    start_gate_count: int = Field(default=1, ge=1)
+    start_gate_interval_seconds: int | None = Field(default=None, ge=0)
     nominal_distance_km: float = 60
     nominal_time_hours: float = 1.5
     nominal_launch: float = 0.95
@@ -144,6 +151,13 @@ class TaskResponse(BaseModel):
     event_id: int
     name: str
     status: str
+    task_type: str
+    task_start_time: str | None
+    task_finish_time: str | None
+    start_open_time: str | None
+    start_close_time: str | None
+    start_gate_count: int
+    start_gate_interval_seconds: int | None
     version: int
     nominal_distance_km: float
     nominal_time_hours: float
