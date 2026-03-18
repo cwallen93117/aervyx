@@ -274,6 +274,35 @@ h1, h2, h3, p {
   gap: 0.5rem;
   align-items: center;
 }
+.task-point-table {
+  display: grid;
+  gap: 0.75rem;
+}
+.task-point-heading,
+.task-point-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1.6fr) 150px 130px 120px;
+  gap: 0.75rem;
+  align-items: center;
+}
+.task-point-heading {
+  color: var(--muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  padding: 0 0.2rem;
+}
+.task-point-row {
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+.drag-handle {
+  color: var(--muted);
+  font-weight: 600;
+  cursor: grab;
+  user-select: none;
+}
 .file-input input {
   margin-top: 0.5rem;
 }
@@ -333,6 +362,10 @@ h1, h2, h3, p {
   .section-grid.two-column,
   .inline-grid,
   .three-up {
+    grid-template-columns: 1fr;
+  }
+  .task-point-heading,
+  .task-point-row {
     grid-template-columns: 1fr;
   }
   .nav-sidebar {

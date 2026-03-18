@@ -135,23 +135,28 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
   map.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 0 });
 }
 
-export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onAddPoint?: (longitude: number, latitude: number) => void }) {
+export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnpoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const turnpointsRef = useRef(turnpoints);
   const editableRef = useRef(editable);
-  const onAddPointRef = useRef(onAddPoint);
+  const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
 
-  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
+  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
 
   useEffect(() => {
+    turnpointsRef.current = turnpoints;
+  }, [turnpoints]);
+
+  useEffect(() => {
     editableRef.current = editable;
-    onAddPointRef.current = onAddPoint;
-  }, [editable, onAddPoint]);
+    onSelectTurnpointRef.current = onSelectTurnpoint;
+  }, [editable, onSelectTurnpoint]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -178,8 +183,17 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
         }
       });
       map.on("click", (event) => {
-        if (editableRef.current && onAddPointRef.current) {
-          onAddPointRef.current(event.lngLat.lng, event.lngLat.lat);
+        if (!editableRef.current || !onSelectTurnpointRef.current) {
+          return;
+        }
+        const features = map.queryRenderedFeatures(event.point, { layers: ["turnpoints-layer"] });
+        const turnpointId = Number(features[0]?.properties?.id);
+        if (!turnpointId) {
+          return;
+        }
+        const selectedTurnpoint = turnpointsRef.current.find((turnpoint) => turnpoint.id === turnpointId);
+        if (selectedTurnpoint) {
+          onSelectTurnpointRef.current(selectedTurnpoint);
         }
       });
       const resizeObserver = new ResizeObserver(() => {

@@ -167,22 +167,12 @@ export default function HomePage() {
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [message, setMessage] = useState("Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.");
   const [error, setError] = useState("");
-  const [turnpointSearch, setTurnpointSearch] = useState("");
-  const [turnpointDisplayCount, setTurnpointDisplayCount] = useState(30);
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "admin1234" });
   const [eventForm, setEventForm] = useState(blankEventForm());
   const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
-  const filteredTurnpoints = useMemo(
-    () =>
-      turnpoints
-        .filter((turnpoint) => `${turnpoint.name} ${turnpoint.code ?? ""}`.toLowerCase().includes(turnpointSearch.toLowerCase()))
-        .sort((left, right) => (right.source_id ?? 0) - (left.source_id ?? 0) || left.name.localeCompare(right.name)),
-    [turnpoints, turnpointSearch],
-  );
-  const visibleTurnpoints = useMemo(() => filteredTurnpoints.slice(0, turnpointDisplayCount), [filteredTurnpoints, turnpointDisplayCount]);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -381,16 +371,28 @@ export default function HomePage() {
     setTaskDraft(taskDraftFromEvent(selectedEvent));
   }
 
-  function addMapPoint(longitude: number, latitude: number) {
-    setTaskDraft((current) => ({ ...current, points: [...current.points, { position: current.points.length + 1, point_type: current.points.length === 0 ? "launch" : "turnpoint", radius_m: current.points.length === 0 ? 300 : 400, turnpoint_id: null, name: `Point ${current.points.length + 1}`, latitude, longitude }] }));
-  }
-
-  function addTurnpoint(turnpoint: TurnpointRecord) {
+  function addTurnpoint(turnpoint: MapTurnpoint) {
     setTaskDraft((current) => ({ ...current, points: [...current.points, { position: current.points.length + 1, point_type: current.points.length === 0 ? "launch" : "turnpoint", radius_m: current.points.length === 0 ? 300 : 400, turnpoint_id: turnpoint.id, name: turnpoint.name, latitude: turnpoint.latitude, longitude: turnpoint.longitude }] }));
   }
 
   function updatePoint(index: number, patch: Partial<TaskPointRecord>) {
     setTaskDraft((current) => ({ ...current, points: current.points.map((point, pointIndex) => (pointIndex === index ? { ...point, ...patch } : point)).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
+  }
+
+  function removePoint(index: number) {
+    setTaskDraft((current) => ({ ...current, points: current.points.filter((_, pointIndex) => pointIndex !== index).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
+  }
+
+  function movePoint(fromIndex: number, toIndex: number) {
+    if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) {
+      return;
+    }
+    setTaskDraft((current) => {
+      const points = [...current.points];
+      const [movedPoint] = points.splice(fromIndex, 1);
+      points.splice(toIndex, 0, movedPoint);
+      return { ...current, points: points.map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) };
+    });
   }
 
   async function saveTask() {
@@ -674,59 +676,88 @@ export default function HomePage() {
     return (
       <div className="section-stack">
         <SectionCard title="Task map builder" description="Use event turnpoints to build draft or published task geometry." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewTask}>New task draft</button> : null}>
-          <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={user?.role === "admin"} onAddPoint={user?.role === "admin" ? addMapPoint : undefined} />
-          <p className="hint">Map shows imported turnpoints, task route and cylinders, plus a selected uploaded track. Admins can click to add task points.</p>
+          <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={user?.role === "admin"} onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined} />
+          <p className="hint">Click waypoint markers on the map to add them to the draft. Task type, radius, and order are then managed in the task details below.</p>
         </SectionCard>
-        <div className="section-grid two-column">
-          <SectionCard title="Imported turnpoints" description="Search event turnpoints and add them to the current draft.">
-            <div className="stack form-block">
-              <input placeholder="Search turnpoints" value={turnpointSearch} onChange={(event) => { setTurnpointSearch(event.target.value); setTurnpointDisplayCount(30); }} />
-              <div className="list-meta">
-                <span>Showing {visibleTurnpoints.length} of {filteredTurnpoints.length} matching turnpoints.</span>
-                <span>{turnpoints.length} total in this event.</span>
-              </div>
-              <div className="turnpoint-list">
-                {visibleTurnpoints.map((turnpoint) => <button key={turnpoint.id} type="button" className="item" onClick={() => addTurnpoint(turnpoint)}><strong>{turnpoint.name}</strong><span>{turnpoint.code ?? "No code"}</span></button>)}
-              </div>
-              {filteredTurnpoints.length > visibleTurnpoints.length ? <button type="button" className="ghost-button" onClick={() => setTurnpointDisplayCount((current) => current + 30)}>Show more turnpoints</button> : null}
-            </div>
-          </SectionCard>
-          <SectionCard title="Task details" description="Manage drafts, route geometry, scoring settings, and publish when ready.">
-            <div className="stack form-block">
+        <SectionCard title="Task details" description="Choose a task, review its scoring fields, and manage the ordered task turnpoints.">
+          <div className="stack form-block">
+            <label className="stack compact">
+              <span>Selected task</span>
               <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
                 <option value="">Select a task</option>
                 {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
               </select>
+            </label>
+            <label className="stack compact">
+              <span>Task name</span>
               <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" />
-              <div className="inline-grid">
-                <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} placeholder="Nominal distance" />
-                <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} placeholder="Nominal time" />
-              </div>
-              <div className="inline-grid">
-                <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} placeholder="Nominal launch" />
-                <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} placeholder="Minimum distance" />
-              </div>
-              <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} />
-              {user?.role === "admin" ? <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish</button></div> : null}
-              <div className="stack">
-                {taskDraft.points.map((point, index) => (
-                  <div key={`${point.name}-${index}`} className="point-row">
-                    <span>{point.position}</span>
-                    <input value={point.name} onChange={(event) => updatePoint(index, { name: event.target.value })} />
-                    <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                      <option value="launch">launch</option>
-                      <option value="start">start</option>
-                      <option value="turnpoint">turnpoint</option>
-                      <option value="ESS">ESS</option>
-                      <option value="goal">goal</option>
-                    </select>
-                    <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
-                  </div>
-                ))}
-              </div>
+            </label>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Nominal distance (km)</span>
+                <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} />
+              </label>
+              <label className="stack compact">
+                <span>Nominal time (hours)</span>
+                <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} />
+              </label>
             </div>
-          </SectionCard>
-        </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Nominal launch</span>
+                <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} />
+              </label>
+              <label className="stack compact">
+                <span>Minimum distance (km)</span>
+                <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} />
+              </label>
+            </div>
+            <div className="section-header">
+              <h3>Task turnpoints</h3>
+              <span>{taskDraft.points.length} selected from {turnpoints.length} event waypoints</span>
+            </div>
+            <div className="task-point-table">
+              <div className="task-point-heading">
+                <span>Order</span>
+                <span>Turnpoint</span>
+                <span>Type</span>
+                <span>Radius (m)</span>
+                <span>Actions</span>
+              </div>
+              {taskDraft.points.map((point, index) => (
+                <div
+                  key={`${point.turnpoint_id ?? point.name}-${index}`}
+                  className="task-point-row"
+                  draggable={user?.role === "admin"}
+                  onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    movePoint(Number(event.dataTransfer.getData("text/plain")), index);
+                  }}
+                >
+                  <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
+                  <input value={point.name} onChange={(event) => updatePoint(index, { name: event.target.value })} />
+                  <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                    <option value="launch">launch</option>
+                    <option value="start">start</option>
+                    <option value="turnpoint">turnpoint</option>
+                    <option value="ESS">ESS</option>
+                    <option value="goal">goal</option>
+                  </select>
+                  <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
+                  <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+                </div>
+              ))}
+              {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map above to add them to this task.</p> : null}
+            </div>
+            <label className="stack compact">
+              <span>Task penalty / notes JSON</span>
+              <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} />
+            </label>
+            {user?.role === "admin" ? <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button></div> : null}
+          </div>
+        </SectionCard>
       </div>
     );
   }
