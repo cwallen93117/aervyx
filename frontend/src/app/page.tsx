@@ -806,30 +806,32 @@ export default function HomePage() {
                 {taskAdvancedOpen ? "Hide Advanced Settings" : "Advanced Settings"}
               </button>
               {taskAdvancedOpen ? (
-                <div className="inline-grid">
+                <div className="stack">
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Nominal distance (km)</span>
+                      <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Nominal time (hours)</span>
+                      <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Nominal launch</span>
+                      <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Minimum distance (km)</span>
+                      <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} />
+                    </label>
+                  </div>
                   <label className="stack compact">
-                    <span>Nominal distance (km)</span>
-                    <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Nominal time (hours)</span>
-                    <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Nominal launch</span>
-                    <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Minimum distance (km)</span>
-                    <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} />
+                    <span>Task penalty / notes JSON</span>
+                    <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} />
                   </label>
                 </div>
               ) : null}
             </div>
-            <label className="stack compact">
-              <span>Task penalty / notes JSON</span>
-              <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} />
-            </label>
             {user?.role === "admin" ? <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button></div> : null}
           </div>
         </SectionCard>
