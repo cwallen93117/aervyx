@@ -1,6 +1,4 @@
-﻿"use client";
-
-import "maplibre-gl/dist/maplibre-gl.css";
+"use client";
 
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import { useEffect, useMemo, useRef } from "react";
@@ -24,6 +22,36 @@ function buildCircle(point: MapTaskPoint) {
   return { type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Polygon", coordinates: [coordinates] } };
 }
 
+function ensureGeoJsonSource(map: maplibregl.Map, id: string, data: Record<string, unknown>) {
+  const source = map.getSource(id) as GeoJSONSource | undefined;
+  if (source) {
+    source.setData(data as never);
+    return;
+  }
+  map.addSource(id, { type: "geojson", data: data as never });
+}
+
+function ensureMapLayers(map: maplibregl.Map) {
+  if (!map.getLayer("turnpoints-layer")) {
+    map.addLayer({ id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+  }
+  if (!map.getLayer("task-cylinders-fill")) {
+    map.addLayer({ id: "task-cylinders-fill", type: "fill", source: "task-cylinders", paint: { "fill-color": "#ef4444", "fill-opacity": 0.12 } });
+  }
+  if (!map.getLayer("task-cylinders-outline")) {
+    map.addLayer({ id: "task-cylinders-outline", type: "line", source: "task-cylinders", paint: { "line-color": "#ef4444", "line-width": 2 } });
+  }
+  if (!map.getLayer("task-route-layer")) {
+    map.addLayer({ id: "task-route-layer", type: "line", source: "task-route", paint: { "line-color": "#1d4ed8", "line-width": 3 } });
+  }
+  if (!map.getLayer("task-points-layer")) {
+    map.addLayer({ id: "task-points-layer", type: "circle", source: "task-points", paint: { "circle-radius": 6, "circle-color": "#1d4ed8", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+  }
+  if (!map.getLayer("track-layer")) {
+    map.addLayer({ id: "track-layer", type: "line", source: "track", paint: { "line-color": "#ca8a04", "line-width": 3 } });
+  }
+}
+
 export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onAddPoint?: (longitude: number, latitude: number) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -37,8 +65,9 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     if (!containerRef.current || mapRef.current) {
       return;
     }
+    const container = containerRef.current;
     const map = new maplibregl.Map({
-      container: containerRef.current,
+      container,
       style: {
         version: 8,
         sources: {
@@ -50,13 +79,24 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       zoom: 9,
     });
     map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.on("load", () => {
+      map.resize();
+    });
     map.on("click", (event) => {
       if (editable && onAddPoint) {
         onAddPoint(event.lngLat.lng, event.lngLat.lat);
       }
     });
+    const resizeObserver = new ResizeObserver(() => {
+      map.resize();
+    });
+    resizeObserver.observe(container);
+    window.setTimeout(() => map.resize(), 0);
     mapRef.current = map;
-    return () => map.remove();
+    return () => {
+      resizeObserver.disconnect();
+      map.remove();
+    };
   }, [editable, onAddPoint]);
 
   useEffect(() => {
@@ -64,33 +104,19 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     if (!map) {
       return;
     }
-    const syncSource = (id: string, data: Record<string, unknown>) => {
-      const source = map.getSource(id) as GeoJSONSource | undefined;
-      if (source) {
-        source.setData(data as never);
-      } else {
-        map.addSource(id, { type: "geojson", data: data as never });
-      }
-    };
-    const ensureLayers = () => {
-      syncSource("turnpoints", turnpointData as never);
-      syncSource("task-points", taskPointData as never);
-      syncSource("task-route", routeData as never);
-      syncSource("task-cylinders", cylinderData as never);
-      syncSource("track", (track ?? { type: "FeatureCollection", features: [] }) as never);
-      if (!map.getLayer("turnpoints-layer")) {
-        map.addLayer({ id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
-        map.addLayer({ id: "task-cylinders-fill", type: "fill", source: "task-cylinders", paint: { "fill-color": "#ef4444", "fill-opacity": 0.12 } });
-        map.addLayer({ id: "task-cylinders-outline", type: "line", source: "task-cylinders", paint: { "line-color": "#ef4444", "line-width": 2 } });
-        map.addLayer({ id: "task-route-layer", type: "line", source: "task-route", paint: { "line-color": "#1d4ed8", "line-width": 3 } });
-        map.addLayer({ id: "task-points-layer", type: "circle", source: "task-points", paint: { "circle-radius": 6, "circle-color": "#1d4ed8", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
-        map.addLayer({ id: "track-layer", type: "line", source: "track", paint: { "line-color": "#ca8a04", "line-width": 3 } });
-      }
+    const syncData = () => {
+      ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
+      ensureGeoJsonSource(map, "task-points", taskPointData as never);
+      ensureGeoJsonSource(map, "task-route", routeData as never);
+      ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
+      ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
+      ensureMapLayers(map);
+      map.resize();
     };
     if (map.isStyleLoaded()) {
-      ensureLayers();
+      syncData();
     } else {
-      map.once("load", ensureLayers);
+      map.once("load", syncData);
     }
   }, [turnpointData, taskPointData, routeData, cylinderData, track]);
 

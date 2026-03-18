@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   color-scheme: light;
   --ink: #10203a;
   --muted: #58657a;
@@ -115,10 +115,16 @@ h1, h2, h3, p {
   background: #0f766e;
 }
 .map-card {
+  width: 100%;
   min-height: 360px;
   border-radius: 18px;
   overflow: hidden;
   border: 1px solid var(--line);
+  background: var(--wash);
+  position: relative;
+}
+.map-card .maplibregl-map {
+  min-height: 360px;
 }
 .three-up {
   display: grid;

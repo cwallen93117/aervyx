@@ -245,7 +245,7 @@ export default function HomePage() {
               <div className="stack form-block">
                 <h3>Turnpoints and task</h3>
                 <input placeholder="Search turnpoints" value={turnpointSearch} onChange={(event) => setTurnpointSearch(event.target.value)} />
-                {user.role === "admin" ? <label className="file-input">Upload turnpoints<input type="file" accept=".csv,.geojson,.json" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !selectedEventId) return; await uploadFile(`/api/events/${selectedEventId}/turnpoints/upload`, file); setMessage(`Imported turnpoints from ${file.name}.`); await loadEvent(token, selectedEventId); }} /></label> : null}
+                {user.role === "admin" ? <label className="file-input">Upload turnpoints<input type="file" accept=".csv,.geojson,.json,.gpx" onChange={async (event) => { const file = event.target.files?.[0]; if (!file || !selectedEventId) return; await uploadFile(`/api/events/${selectedEventId}/turnpoints/upload`, file); setMessage(`Imported turnpoints from ${file.name}.`); await loadEvent(token, selectedEventId); }} /></label> : null}
                 {filteredTurnpoints.slice(0, 8).map((turnpoint) => <button key={turnpoint.id} className="item" onClick={() => addTurnpoint(turnpoint)}><strong>{turnpoint.name}</strong><span>{turnpoint.code ?? "No code"}</span></button>)}
                 <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
                   <option value="">Select a task</option>

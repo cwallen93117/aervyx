@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -16,7 +17,7 @@ class TurnpointRecord:
     elevation_m: float | None
 
 
-SUPPORTED_FORMATS = {".csv": "csv", ".geojson": "geojson", ".json": "geojson"}
+SUPPORTED_FORMATS = {".csv": "csv", ".geojson": "geojson", ".json": "geojson", ".gpx": "gpx"}
 
 
 def validate_coordinate(latitude: float, longitude: float) -> None:
@@ -29,7 +30,7 @@ def validate_coordinate(latitude: float, longitude: float) -> None:
 def detect_format(filename: str) -> str:
     extension = Path(filename).suffix.lower()
     if extension not in SUPPORTED_FORMATS:
-        raise ValueError("Unsupported turnpoint format. Use CSV or GeoJSON.")
+        raise ValueError("Unsupported turnpoint format. Use CSV, GPX, or GeoJSON.")
     return SUPPORTED_FORMATS[extension]
 
 
@@ -37,6 +38,8 @@ def parse_turnpoint_upload(filename: str, content: bytes) -> tuple[str, list[Tur
     file_format = detect_format(filename)
     if file_format == "csv":
         return file_format, parse_csv_turnpoints(content.decode("utf-8-sig"))
+    if file_format == "gpx":
+        return file_format, parse_gpx_turnpoints(content.decode("utf-8"))
     return file_format, parse_geojson_turnpoints(content.decode("utf-8"))
 
 
@@ -58,6 +61,45 @@ def parse_csv_turnpoints(text: str) -> list[TurnpointRecord]:
         records.append(TurnpointRecord(name=name, code=code, latitude=latitude, longitude=longitude, elevation_m=elevation_m))
     if not records:
         raise ValueError("No turnpoints found in upload.")
+    return records
+
+
+def _local_name(tag: str) -> str:
+    return tag.split("}", 1)[-1]
+
+
+def _child_text(element: ET.Element, *names: str) -> str | None:
+    wanted = {name.lower() for name in names}
+    for child in element:
+        if _local_name(child.tag).lower() in wanted and child.text:
+            text = child.text.strip()
+            if text:
+                return text
+    return None
+
+
+def parse_gpx_turnpoints(text: str) -> list[TurnpointRecord]:
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ValueError("Invalid GPX upload.") from exc
+
+    records: list[TurnpointRecord] = []
+    point_index = 1
+    for element in root.iter():
+        if _local_name(element.tag).lower() not in {"wpt", "rtept"}:
+            continue
+        latitude = float(element.attrib["lat"])
+        longitude = float(element.attrib["lon"])
+        validate_coordinate(latitude, longitude)
+        name = _child_text(element, "name", "desc") or f"Turnpoint {point_index}"
+        code = _child_text(element, "sym", "type", "cmt")
+        elevation_text = _child_text(element, "ele")
+        elevation_m = float(elevation_text) if elevation_text is not None else None
+        records.append(TurnpointRecord(name=name, code=code, latitude=latitude, longitude=longitude, elevation_m=elevation_m))
+        point_index += 1
+    if not records:
+        raise ValueError("No waypoint records found in GPX upload.")
     return records
 
 
