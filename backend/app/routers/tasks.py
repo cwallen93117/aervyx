@@ -8,15 +8,45 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, Task, TaskPoint, User
+from app.models import Event, EventTurnpointSlot, Task, TaskPoint, Turnpoint, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse
 from app.services.audit import log_action
 
 router = APIRouter(tags=["tasks"])
 
 
-def _task_response(session: Session, task: Task) -> TaskResponse:
+def _active_slot_source_ids(session: Session, event_id: int) -> set[int]:
+    return set(
+        session.scalars(
+            select(EventTurnpointSlot.source_id).where(
+                EventTurnpointSlot.event_id == event_id,
+                EventTurnpointSlot.source_id.is_not(None),
+            )
+        ).all()
+    )
+
+
+def _task_points_for_response(session: Session, task: Task) -> list[TaskPoint]:
     points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task.id).order_by(TaskPoint.position)).all()
+    active_source_ids = _active_slot_source_ids(session, task.event_id)
+    if not active_source_ids:
+        return points
+
+    turnpoint_source_by_id = {
+        turnpoint_id: source_id
+        for turnpoint_id, source_id in session.execute(
+            select(Turnpoint.id, Turnpoint.source_id).where(Turnpoint.id.in_([point.turnpoint_id for point in points if point.turnpoint_id is not None]))
+        ).all()
+    }
+    return [
+        point
+        for point in points
+        if point.turnpoint_id is None or turnpoint_source_by_id.get(point.turnpoint_id) in active_source_ids
+    ]
+
+
+def _task_response(session: Session, task: Task) -> TaskResponse:
+    points = _task_points_for_response(session, task)
     return TaskResponse(
         id=task.id,
         event_id=task.event_id,
