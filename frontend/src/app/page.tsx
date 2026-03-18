@@ -83,6 +83,7 @@ type TaskDraftState = {
   penalties_text: string;
   points: TaskPointRecord[];
 };
+type ScoringTab = "task" | "overall";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
@@ -280,6 +281,7 @@ export default function HomePage() {
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
+  const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
   const taskDistanceMetrics = useMemo(() => computeTaskDistanceMetrics(taskDraft.points), [taskDraft.points]);
@@ -603,13 +605,6 @@ export default function HomePage() {
     await apiFetch(`/api/tasks/${selectedTaskId}/uploads`, token, { method: "POST", body: formData });
     setMessage(`Uploaded ${file.name}.`);
     await loadTask(token, selectedTaskId);
-  }
-
-  async function viewTrack(uploadId: number) {
-    if (!token) return;
-    const data = await apiFetch<TrackCollection>(`/api/uploads/${uploadId}/track`, token);
-    setTrack(data);
-    setActiveSection("scoring");
   }
 
   function renderParticipantCards() {
@@ -1020,27 +1015,42 @@ export default function HomePage() {
     if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
     return (
       <div className="section-stack">
-        <SectionCard title="Scoring map" description="Review the selected task overlay and any uploaded track you open from the results or upload list.">
-          <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} track={track} editable={false} />
+        <SectionCard title="Results" description="Review task standings or switch to the overall event results summary.">
+          <div className="stack">
+            <div className="tab-row">
+              <button type="button" className={scoringTab === "task" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("task")}>Task results</button>
+              <button type="button" className={scoringTab === "overall" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("overall")}>Overall results</button>
+            </div>
+            {scoringTab === "task" ? (
+              <div className="stack form-block">
+                <label className="stack compact">
+                  <span>Selected task</span>
+                  <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
+                    <option value="">Select a task</option>
+                    {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                  </select>
+                </label>
+                {user?.role === "pilot" ? <label className="file-input">Upload IGC<input type="file" accept=".igc" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadIgc(file); }} /></label> : null}
+                {uploads.length ? (
+                  <div className="stack">
+                    {uploads.map((upload) => <div key={upload.id} className="record-card"><strong>{upload.filename}</strong><span>{upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span></div>)}
+                  </div>
+                ) : <p className="hint">No IGC uploads have been stored for this task yet.</p>}
+                {results.length ? (
+                  <div className="stack">
+                    {results.map((result) => <div key={result.id} className="record-card"><strong>{result.rank ?? "-"}. {result.pilot_name}</strong><span>{result.status} - {result.distance_flown_km.toFixed(1)} km - {result.score_points.toFixed(1)} pts</span></div>)}
+                  </div>
+                ) : <p className="hint">No scored task results are available yet for the selected task.</p>}
+              </div>
+            ) : (
+              <div className="stack">
+                {pilotSummary.length ? (
+                  pilotSummary.map((summary) => <div key={summary.pilot_id} className="record-card"><strong>{summary.pilot_name}</strong><span>{summary.total_score_points.toFixed(1)} pts - {summary.tasks_scored} tasks scored - best {summary.best_distance_km.toFixed(1)} km</span></div>)
+                ) : <p className="hint">No overall event results are available yet.</p>}
+              </div>
+            )}
+          </div>
         </SectionCard>
-        <div className="section-grid two-column">
-          <SectionCard title="Task scoring workflow" description="Select a task, upload IGC evidence, and review task results.">
-            <div className="stack form-block">
-              <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
-                <option value="">Select a task</option>
-                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-              </select>
-              {user?.role === "pilot" ? <label className="file-input">Upload IGC<input type="file" accept=".igc" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadIgc(file); }} /></label> : null}
-              {uploads.map((upload) => <button key={upload.id} type="button" className="item" onClick={() => viewTrack(upload.id)}><strong>{upload.filename}</strong><span>{upload.sha256.slice(0, 12)}...</span></button>)}
-            </div>
-          </SectionCard>
-          <SectionCard title="Results" description="Existing scoring logic stays intact and is surfaced here as task standings and pilot summaries.">
-            <div className="stack">
-              {results.map((result) => <button key={result.id} type="button" className="item" onClick={() => viewTrack(result.upload_id)}><strong>{result.rank ?? "-"}. {result.pilot_name}</strong><span>{result.status} - {result.distance_flown_km.toFixed(1)} km - {result.score_points.toFixed(1)} pts</span></button>)}
-              {pilotSummary.map((summary) => <div key={summary.pilot_id} className="record-card"><strong>{summary.pilot_name}</strong><span>{summary.total_score_points.toFixed(1)} pts - best {summary.best_distance_km.toFixed(1)} km</span></div>)}
-            </div>
-          </SectionCard>
-        </div>
       </div>
     );
   }
