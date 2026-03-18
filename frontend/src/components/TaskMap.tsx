@@ -8,6 +8,39 @@ export type MapTaskPoint = { position: number; point_type: string; radius_m: num
 export type TrackCollection = { type: "FeatureCollection"; features: Array<{ type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: number[][] } }> };
 type BasemapMode = "streets" | "satellite" | "terrain";
 
+function createBasemapStyle(basemapMode: BasemapMode) {
+  const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
+    streets: {
+      tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
+      attribution: "OpenStreetMap contributors",
+    },
+    satellite: {
+      tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+      attribution: "Esri World Imagery",
+    },
+    terrain: {
+      tiles: ["https://tile.opentopomap.org/{z}/{x}/{y}.png"],
+      attribution: "OpenTopoMap contributors",
+    },
+  };
+
+  return {
+    version: 8,
+    sources: {
+      basemap: {
+        type: "raster",
+        tiles: basemapSourceByMode[basemapMode].tiles,
+        tileSize: 256,
+        attribution: basemapSourceByMode[basemapMode].attribution,
+      },
+    },
+    layers: [
+      { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
+      { id: "basemap", type: "raster", source: "basemap" },
+    ],
+  } as const;
+}
+
 function buildCircle(point: MapTaskPoint) {
   const earthRadius = 6378137;
   const angularDistance = point.radius_m / earthRadius;
@@ -72,19 +105,6 @@ function ensureMapLayers(map: maplibregl.Map) {
   }
 }
 
-function applyBasemapVisibility(map: maplibregl.Map, basemapMode: BasemapMode) {
-  const modes: Array<{ layerId: string; visible: boolean }> = [
-    { layerId: "osm", visible: basemapMode === "streets" },
-    { layerId: "satellite", visible: basemapMode === "satellite" },
-    { layerId: "terrain", visible: basemapMode === "terrain" },
-  ];
-  for (const mode of modes) {
-    if (map.getLayer(mode.layerId)) {
-      map.setLayoutProperty(mode.layerId, "visibility", mode.visible ? "visible" : "none");
-    }
-  }
-}
-
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], track: TrackCollection | null) {
   const bounds = new maplibregl.LngLatBounds();
   let hasData = false;
@@ -141,20 +161,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     try {
       const map = new maplibregl.Map({
         container,
-        style: {
-          version: 8,
-          sources: {
-            osm: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenStreetMap contributors" },
-            satellite: { type: "raster", tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, attribution: "Esri World Imagery" },
-            terrain: { type: "raster", tiles: ["https://tile.opentopomap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "OpenTopoMap contributors" },
-          },
-          layers: [
-            { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
-            { id: "osm", type: "raster", source: "osm" },
-            { id: "satellite", type: "raster", source: "satellite", layout: { visibility: "none" } },
-            { id: "terrain", type: "raster", source: "terrain", layout: { visibility: "none" } },
-          ],
-        } as never,
+        style: createBasemapStyle(basemapMode) as never,
         center: [-118.18, 36.73],
         zoom: 9,
       });
@@ -162,17 +169,11 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       map.addControl(new maplibregl.NavigationControl(), "top-right");
       map.on("styledata", () => {
         setMapNotice(null);
-        applyBasemapVisibility(map, basemapMode);
         map.resize();
-        fitToData(map, turnpoints, taskPoints, track);
-        window.setTimeout(() => {
-          map.resize();
-          fitToData(map, turnpoints, taskPoints, track);
-        }, 150);
       });
       map.on("error", (event) => {
         const sourceId = "sourceId" in event ? event.sourceId : undefined;
-        if (sourceId === "osm" || sourceId === "satellite" || sourceId === "terrain") {
+        if (sourceId === "basemap") {
           setMapNotice("Selected basemap tiles are unavailable right now, but your turnpoints and task overlays should still appear.");
         }
       });
@@ -200,7 +201,8 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
 
   useEffect(() => {
     if (mapRef.current) {
-      applyBasemapVisibility(mapRef.current, basemapMode);
+      setMapNotice(`Loading ${basemapMode} basemap...`);
+      mapRef.current.setStyle(createBasemapStyle(basemapMode) as never);
     }
   }, [basemapMode]);
 
@@ -228,7 +230,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     } else {
       map.once("styledata", syncData);
     }
-  }, [turnpointData, taskPointData, routeData, cylinderData, track, turnpoints, taskPoints]);
+  }, [basemapMode, turnpointData, taskPointData, routeData, cylinderData, track, turnpoints, taskPoints]);
 
   return (
     <div className="map-shell">

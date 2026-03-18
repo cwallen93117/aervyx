@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
-from app.db import Base, SessionLocal, engine
+from app.db import Base, SessionLocal, engine, ensure_runtime_schema
 from app.routers import auth, events, pilots, results, tasks, turnpoints, uploads
 from app.services.seeding import bootstrap_demo_data
 
@@ -12,6 +12,7 @@ from app.services.seeding import bootstrap_demo_data
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
     session = SessionLocal()
     try:
         bootstrap_demo_data(session)

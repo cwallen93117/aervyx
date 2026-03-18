@@ -30,6 +30,11 @@ class Event(Base):
     starts_on: Mapped[date] = mapped_column(Date)
     ends_on: Mapped[date] = mapped_column(Date)
     timezone: Mapped[str] = mapped_column(String(80), default="UTC")
+    nominal_distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nominal_time_hours: Mapped[float | None] = mapped_column(Float, nullable=True)
+    nominal_launch: Mapped[float | None] = mapped_column(Float, nullable=True)
+    minimum_distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    penalties_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 

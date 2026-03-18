@@ -32,6 +32,11 @@ class EventCreate(BaseModel):
     starts_on: date
     ends_on: date
     timezone: str = "UTC"
+    nominal_distance_km: float = 60
+    nominal_time_hours: float = 1.5
+    nominal_launch: float = 0.95
+    minimum_distance_km: float = 5
+    penalties_json: dict = Field(default_factory=dict)
 
 
 class EventResponse(EventCreate):

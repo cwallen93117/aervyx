@@ -26,7 +26,18 @@ def bootstrap_demo_data(session: Session) -> None:
 
     event = session.scalar(select(Event).where(Event.name == "Spring Ridge Open"))
     if event is None:
-        event = Event(name="Spring Ridge Open", location="Owens Valley, CA", starts_on=date(2026, 4, 18), ends_on=date(2026, 4, 24), timezone="America/Los_Angeles")
+        event = Event(
+            name="Spring Ridge Open",
+            location="Owens Valley, CA",
+            starts_on=date(2026, 4, 18),
+            ends_on=date(2026, 4, 24),
+            timezone="America/Los_Angeles",
+            nominal_distance_km=72,
+            nominal_time_hours=1.8,
+            nominal_launch=0.95,
+            minimum_distance_km=5,
+            penalties_json={"jump_the_gun": 0, "airspace": 0},
+        )
         session.add(event)
         session.flush()
         pilot = session.scalar(select(Pilot).where(Pilot.competition_number == "101"))
@@ -39,7 +50,16 @@ def bootstrap_demo_data(session: Session) -> None:
         goal = Turnpoint(event_id=event.id, name="Goal Field", code="GL1", latitude=36.810, longitude=-118.320, elevation_m=1500)
         session.add_all([launch, start, turn, ess, goal])
         session.flush()
-        task = Task(event_id=event.id, name="Task 1", status="published", nominal_distance_km=72, nominal_time_hours=1.8, nominal_launch=0.95, minimum_distance_km=5)
+        task = Task(
+            event_id=event.id,
+            name="Task 1",
+            status="published",
+            nominal_distance_km=event.nominal_distance_km or 72,
+            nominal_time_hours=event.nominal_time_hours or 1.8,
+            nominal_launch=event.nominal_launch or 0.95,
+            minimum_distance_km=event.minimum_distance_km or 5,
+            penalties_json=event.penalties_json or {},
+        )
         session.add(task)
         session.flush()
         session.add_all([
