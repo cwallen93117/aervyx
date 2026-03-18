@@ -303,6 +303,9 @@ h1, h2, h3, p {
   cursor: grab;
   user-select: none;
 }
+.advanced-toggle {
+  justify-self: start;
+}
 .file-input input {
   margin-top: 0.5rem;
 }

@@ -171,6 +171,7 @@ export default function HomePage() {
   const [eventForm, setEventForm] = useState(blankEventForm());
   const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
+  const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
 
@@ -692,26 +693,6 @@ export default function HomePage() {
               <span>Task name</span>
               <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" />
             </label>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Nominal distance (km)</span>
-                <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} />
-              </label>
-              <label className="stack compact">
-                <span>Nominal time (hours)</span>
-                <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Nominal launch</span>
-                <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} />
-              </label>
-              <label className="stack compact">
-                <span>Minimum distance (km)</span>
-                <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} />
-              </label>
-            </div>
             <div className="section-header">
               <h3>Task turnpoints</h3>
               <span>{taskDraft.points.length} selected from {turnpoints.length} event waypoints</span>
@@ -750,6 +731,31 @@ export default function HomePage() {
                 </div>
               ))}
               {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map above to add them to this task.</p> : null}
+            </div>
+            <div className="stack">
+              <button type="button" className="ghost-button advanced-toggle" onClick={() => setTaskAdvancedOpen((current) => !current)}>
+                {taskAdvancedOpen ? "Hide Advanced Settings" : "Advanced Settings"}
+              </button>
+              {taskAdvancedOpen ? (
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>Nominal distance (km)</span>
+                    <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Nominal time (hours)</span>
+                    <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Nominal launch</span>
+                    <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Minimum distance (km)</span>
+                    <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} />
+                  </label>
+                </div>
+              ) : null}
             </div>
             <label className="stack compact">
               <span>Task penalty / notes JSON</span>
