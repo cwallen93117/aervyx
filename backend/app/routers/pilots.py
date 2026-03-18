@@ -4,7 +4,7 @@ import csv
 import io
 import re
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -87,6 +87,19 @@ def update_pilot(pilot_id: int, payload: PilotUpsert, admin: User = Depends(requ
     log_action(session, actor_user_id=admin.id, action="pilot.update", entity_type="pilot", entity_id=str(pilot.id), details={"competition_number": pilot.competition_number})
     session.commit()
     return _pilot_payload(session, pilot, temp_password=temp_password)
+
+
+@router.delete("/api/events/{event_id}/pilots/{pilot_id}", status_code=204)
+def remove_pilot(event_id: int, pilot_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> Response:
+    if session.get(Event, event_id) is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    event_pilot = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == pilot_id))
+    if event_pilot is None:
+        raise HTTPException(status_code=404, detail="Pilot is not assigned to this event")
+    session.delete(event_pilot)
+    log_action(session, actor_user_id=admin.id, action="pilot.remove", entity_type="pilot", entity_id=str(pilot_id), details={"event_id": event_id})
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.post("/api/events/{event_id}/pilots/import-csv", response_model=list[PilotResponse])
