@@ -223,6 +223,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
         attributionControl: false,
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+      map.addControl(new maplibregl.FullscreenControl(), "top-right");
       map.on("styledata", () => {
         map.resize();
       });
