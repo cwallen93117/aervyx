@@ -104,6 +104,8 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
 export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onAddPoint?: (longitude: number, latitude: number) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const editableRef = useRef(editable);
+  const onAddPointRef = useRef(onAddPoint);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
   const [mapReady, setMapReady] = useState(false);
 
@@ -111,6 +113,11 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
+
+  useEffect(() => {
+    editableRef.current = editable;
+    onAddPointRef.current = onAddPoint;
+  }, [editable, onAddPoint]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -152,8 +159,8 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
         }
       });
       map.on("click", (event) => {
-        if (editable && onAddPoint) {
-          onAddPoint(event.lngLat.lng, event.lngLat.lat);
+        if (editableRef.current && onAddPointRef.current) {
+          onAddPointRef.current(event.lngLat.lng, event.lngLat.lat);
         }
       });
       const resizeObserver = new ResizeObserver(() => {
@@ -165,13 +172,15 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       return () => {
         resizeObserver.disconnect();
         map.remove();
+        mapRef.current = null;
+        setMapReady(false);
       };
     } catch (error) {
       setMapNotice(error instanceof Error ? `Map failed to initialize: ${error.message}` : "Map failed to initialize.");
       setMapReady(false);
       return;
     }
-  }, [editable, onAddPoint]);
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
