@@ -52,6 +52,36 @@ function ensureMapLayers(map: maplibregl.Map) {
   }
 }
 
+function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], track: TrackCollection | null) {
+  const bounds = new maplibregl.LngLatBounds();
+  let hasData = false;
+
+  for (const turnpoint of turnpoints) {
+    bounds.extend([turnpoint.longitude, turnpoint.latitude]);
+    hasData = true;
+  }
+  for (const point of taskPoints) {
+    bounds.extend([point.longitude, point.latitude]);
+    hasData = true;
+  }
+  if (track) {
+    for (const feature of track.features) {
+      if (feature.geometry.type !== "LineString") {
+        continue;
+      }
+      for (const coordinate of feature.geometry.coordinates) {
+        bounds.extend(coordinate as [number, number]);
+        hasData = true;
+      }
+    }
+  }
+
+  if (!hasData) {
+    return;
+  }
+  map.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 0 });
+}
+
 export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; track: TrackCollection | null; editable: boolean; onAddPoint?: (longitude: number, latitude: number) => void }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -111,6 +141,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
       ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
       ensureMapLayers(map);
+      fitToData(map, turnpoints, taskPoints, track);
       map.resize();
     };
     if (map.isStyleLoaded()) {
@@ -118,7 +149,7 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onAddPoint }:
     } else {
       map.once("load", syncData);
     }
-  }, [turnpointData, taskPointData, routeData, cylinderData, track]);
+  }, [turnpointData, taskPointData, routeData, cylinderData, track, turnpoints, taskPoints]);
 
   return <div className="map-card" ref={containerRef} />;
 }

@@ -6,6 +6,7 @@ import json
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 @dataclass
@@ -78,6 +79,20 @@ def _child_text(element: ET.Element, *names: str) -> str | None:
     return None
 
 
+def _normalize_code(value: str | None) -> str | None:
+    if value is None:
+        return None
+    code = value.strip()
+    if not code:
+        return None
+    parsed = urlparse(code)
+    if parsed.scheme and parsed.netloc:
+        return None
+    if len(code) > 40:
+        return code[:40]
+    return code
+
+
 def parse_gpx_turnpoints(text: str) -> list[TurnpointRecord]:
     try:
         root = ET.fromstring(text)
@@ -93,7 +108,7 @@ def parse_gpx_turnpoints(text: str) -> list[TurnpointRecord]:
         longitude = float(element.attrib["lon"])
         validate_coordinate(latitude, longitude)
         name = _child_text(element, "name", "desc") or f"Turnpoint {point_index}"
-        code = _child_text(element, "sym", "type", "cmt")
+        code = _normalize_code(_child_text(element, "type", "cmt", "sym"))
         elevation_text = _child_text(element, "ele")
         elevation_m = float(elevation_text) if elevation_text is not None else None
         records.append(TurnpointRecord(name=name, code=code, latitude=latitude, longitude=longitude, elevation_m=elevation_m))
