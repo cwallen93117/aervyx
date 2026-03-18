@@ -6,9 +6,37 @@ import { AppSidebar } from "../components/AppSidebar";
 import { SectionCard } from "../components/SectionCard";
 import { TaskMap, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../components/TaskMap";
 
-type SidebarSection = "events" | "participants" | "tasks" | "scoring";
+type SidebarSection = "events" | "tasks" | "scoring";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
-type EventRecord = { id: number; name: string; location: string; starts_on: string; ends_on: string; timezone: string; nominal_distance_km: number; nominal_time_hours: number; nominal_launch: number; minimum_distance_km: number; penalties_json: Record<string, unknown>; pilot_count: number; task_count: number; turnpoint_count: number };
+type EventRecord = {
+  id: number;
+  name: string;
+  location: string;
+  starts_on: string;
+  ends_on: string;
+  timezone: string;
+  scoring_formula: string;
+  nominal_distance_km: number;
+  nominal_time_hours: number;
+  nominal_launch: number;
+  minimum_distance_km: number;
+  nominal_goal_percent: number;
+  score_back_time_minutes: number;
+  goal_ss_penalty: number;
+  jump_the_gun_factor: number;
+  jump_the_gun_max_seconds: number;
+  stopped_glide_bonus: number;
+  use_distance_points: boolean;
+  use_time_points: boolean;
+  use_leading_points: boolean;
+  use_arrival_position_points: boolean;
+  use_arrival_time_points: boolean;
+  use_departure_points: boolean;
+  penalties_json: Record<string, unknown>;
+  pilot_count: number;
+  task_count: number;
+  turnpoint_count: number;
+};
 type PilotRecord = { id: number; first_name: string; last_name: string; competition_number: string | null; portal_username: string | null; temp_password: string | null };
 type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
 type TurnpointSlotRecord = { slot_number: number; source_id: number | null; filename: string | null; file_format: string | null; sha256: string | null; uploaded_at: string | null; turnpoint_count: number };
@@ -24,10 +52,19 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 const TOKEN_KEY = "flightcomp-platform-token";
 const sidebarItems = [
   { id: "events", label: "Events", description: "Configure comps and dates." },
-  { id: "participants", label: "Participants", description: "Manage pilots and rosters." },
   { id: "tasks", label: "Tasks", description: "Build routes and use imported turnpoints." },
   { id: "scoring", label: "Scoring", description: "Uploads, results, and rankings." },
 ] satisfies Array<{ id: SidebarSection; label: string; description: string }>;
+
+const scoringFormulaOptions = [
+  { value: "GAP2021", label: "GAP 2021" },
+  { value: "GAP2020", label: "GAP 2020" },
+  { value: "GAP2018", label: "GAP 2018" },
+  { value: "GAP2016", label: "GAP 2016" },
+  { value: "GAP2008", label: "GAP 2008" },
+  { value: "OzGAP2005", label: "OzGAP 2005" },
+  { value: "PWC2016", label: "PWC 2016" },
+] as const;
 
 function blankEventForm() {
   return {
@@ -36,10 +73,23 @@ function blankEventForm() {
     starts_on: "2026-04-18",
     ends_on: "2026-04-24",
     timezone: "America/Los_Angeles",
+    scoring_formula: "GAP2021",
     nominal_distance_km: 60,
     nominal_time_hours: 1.5,
     nominal_launch: 0.95,
     minimum_distance_km: 5,
+    nominal_goal_percent: 0.3,
+    score_back_time_minutes: 15,
+    goal_ss_penalty: 0,
+    jump_the_gun_factor: 0,
+    jump_the_gun_max_seconds: 0,
+    stopped_glide_bonus: 0,
+    use_distance_points: true,
+    use_time_points: true,
+    use_leading_points: true,
+    use_arrival_position_points: false,
+    use_arrival_time_points: false,
+    use_departure_points: false,
     penalties_text: "{}",
   };
 }
@@ -66,10 +116,23 @@ function eventToForm(event: EventRecord | null | undefined) {
         starts_on: event.starts_on,
         ends_on: event.ends_on,
         timezone: event.timezone,
+        scoring_formula: event.scoring_formula,
         nominal_distance_km: event.nominal_distance_km,
         nominal_time_hours: event.nominal_time_hours,
         nominal_launch: event.nominal_launch,
         minimum_distance_km: event.minimum_distance_km,
+        nominal_goal_percent: event.nominal_goal_percent,
+        score_back_time_minutes: event.score_back_time_minutes,
+        goal_ss_penalty: event.goal_ss_penalty,
+        jump_the_gun_factor: event.jump_the_gun_factor,
+        jump_the_gun_max_seconds: event.jump_the_gun_max_seconds,
+        stopped_glide_bonus: event.stopped_glide_bonus,
+        use_distance_points: event.use_distance_points,
+        use_time_points: event.use_time_points,
+        use_leading_points: event.use_leading_points,
+        use_arrival_position_points: event.use_arrival_position_points,
+        use_arrival_time_points: event.use_arrival_time_points,
+        use_departure_points: event.use_departure_points,
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
       }
     : blankEventForm();
@@ -139,7 +202,7 @@ export default function HomePage() {
       setSelectedEventId(loadedEvents[0].id);
       setEventEditorId(loadedEvents[0].id);
       setEventForm(eventToForm(loadedEvents[0]));
-      await loadEvent(activeToken, loadedEvents[0].id);
+      await loadEvent(activeToken, loadedEvents[0].id, loadedEvents[0]);
     } else {
       setSelectedEventId(null);
       setEventEditorId(null);
@@ -162,9 +225,9 @@ export default function HomePage() {
     return loadedEvents;
   }
 
-  async function loadEvent(activeToken: string, eventId: number) {
+  async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null) {
     setSelectedEventId(eventId);
-    const activeEvent = events.find((event) => event.id === eventId) ?? null;
+    const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
     setEventEditorId(eventId);
     setEventForm(eventToForm(activeEvent));
     const [loadedPilots, loadedTurnpoints, loadedTurnpointSlots, loadedTasks, loadedSummary] = await Promise.all([
@@ -194,7 +257,7 @@ export default function HomePage() {
     if (!token) return;
     setEventEditorId(event.id);
     setEventForm(eventToForm(event));
-    await loadEvent(token, event.id);
+    await loadEvent(token, event.id, event);
   }
 
   async function loadTask(activeToken: string, taskId: number, loadedTask?: TaskRecord) {
@@ -249,10 +312,23 @@ export default function HomePage() {
       starts_on: eventForm.starts_on,
       ends_on: eventForm.ends_on,
       timezone: eventForm.timezone,
+      scoring_formula: eventForm.scoring_formula,
       nominal_distance_km: eventForm.nominal_distance_km,
       nominal_time_hours: eventForm.nominal_time_hours,
       nominal_launch: eventForm.nominal_launch,
       minimum_distance_km: eventForm.minimum_distance_km,
+      nominal_goal_percent: eventForm.nominal_goal_percent,
+      score_back_time_minutes: eventForm.score_back_time_minutes,
+      goal_ss_penalty: eventForm.goal_ss_penalty,
+      jump_the_gun_factor: eventForm.jump_the_gun_factor,
+      jump_the_gun_max_seconds: eventForm.jump_the_gun_max_seconds,
+      stopped_glide_bonus: eventForm.stopped_glide_bonus,
+      use_distance_points: eventForm.use_distance_points,
+      use_time_points: eventForm.use_time_points,
+      use_leading_points: eventForm.use_leading_points,
+      use_arrival_position_points: eventForm.use_arrival_position_points,
+      use_arrival_time_points: eventForm.use_arrival_time_points,
+      use_departure_points: eventForm.use_departure_points,
       penalties_json: penaltiesJson,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
@@ -261,7 +337,7 @@ export default function HomePage() {
     setEventEditorId(nextEvent.id);
     setEventForm(eventToForm(nextEvent));
     setMessage(`${eventEditorId ? "Updated" : "Created"} event ${savedEvent.name}.`);
-    await loadEvent(token, nextEvent.id);
+    await loadEvent(token, nextEvent.id, nextEvent);
     if (!selectedTaskId) {
       setTaskDraft(taskDraftFromEvent(nextEvent));
     }
@@ -492,18 +568,96 @@ export default function HomePage() {
             </div>
           </SectionCard>
         </div>
-        <SectionCard title="Scoring parameters" description="Event-level defaults for GAP-style scoring. New task drafts inherit these values for the selected event.">
+        <SectionCard title="Scoring parameters" description="AirScore-style event defaults for GAP scoring. New task drafts inherit the core values for the selected event.">
           {eventEditorId ? (
             <form className="stack form-block" onSubmit={saveEvent}>
+              <label className="stack compact">
+                <span>Scoring formula</span>
+                <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
+                  {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
               <div className="inline-grid">
-                <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} placeholder="Nominal distance (km)" />
-                <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} placeholder="Nominal time (hours)" />
+                <label className="stack compact">
+                  <span>Nominal distance (km)</span>
+                  <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} />
+                </label>
+                <label className="stack compact">
+                  <span>Nominal time (hours)</span>
+                  <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} />
+                </label>
               </div>
               <div className="inline-grid">
-                <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} placeholder="Nominal launch" />
-                <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} placeholder="Minimum distance (km)" />
+                <label className="stack compact">
+                  <span>Nominal launch</span>
+                  <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} />
+                </label>
+                <label className="stack compact">
+                  <span>Minimum distance (km)</span>
+                  <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
+                </label>
               </div>
-              <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={4} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
+              <div className="inline-grid">
+                <label className="stack compact">
+                  <span>Nominal goal (%)</span>
+                  <input type="number" step="0.01" value={eventForm.nominal_goal_percent} onChange={(event) => setEventForm({ ...eventForm, nominal_goal_percent: Number(event.target.value) })} />
+                </label>
+                <label className="stack compact">
+                  <span>Score-back time (minutes)</span>
+                  <input type="number" value={eventForm.score_back_time_minutes} onChange={(event) => setEventForm({ ...eventForm, score_back_time_minutes: Number(event.target.value) })} />
+                </label>
+              </div>
+              <div className="inline-grid">
+                <label className="stack compact">
+                  <span>Goal / SS penalty</span>
+                  <input type="number" step="0.1" value={eventForm.goal_ss_penalty} onChange={(event) => setEventForm({ ...eventForm, goal_ss_penalty: Number(event.target.value) })} />
+                </label>
+                <label className="stack compact">
+                  <span>Stopped-task glide bonus</span>
+                  <input type="number" step="0.1" value={eventForm.stopped_glide_bonus} onChange={(event) => setEventForm({ ...eventForm, stopped_glide_bonus: Number(event.target.value) })} />
+                </label>
+              </div>
+              <div className="inline-grid">
+                <label className="stack compact">
+                  <span>Jump-the-gun factor</span>
+                  <input type="number" step="0.1" value={eventForm.jump_the_gun_factor} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_factor: Number(event.target.value) })} />
+                </label>
+                <label className="stack compact">
+                  <span>Jump-the-gun max (seconds)</span>
+                  <input type="number" value={eventForm.jump_the_gun_max_seconds} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_max_seconds: Number(event.target.value) })} />
+                </label>
+              </div>
+              <div className="three-up">
+                <label className="record-card checkbox-card">
+                  <input type="checkbox" checked={eventForm.use_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_distance_points: event.target.checked })} />
+                  <span>Distance points</span>
+                </label>
+                <label className="record-card checkbox-card">
+                  <input type="checkbox" checked={eventForm.use_time_points} onChange={(event) => setEventForm({ ...eventForm, use_time_points: event.target.checked })} />
+                  <span>Time points</span>
+                </label>
+                <label className="record-card checkbox-card">
+                  <input type="checkbox" checked={eventForm.use_leading_points} onChange={(event) => setEventForm({ ...eventForm, use_leading_points: event.target.checked })} />
+                  <span>Leading points</span>
+                </label>
+                <label className="record-card checkbox-card">
+                  <input type="checkbox" checked={eventForm.use_arrival_position_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_position_points: event.target.checked })} />
+                  <span>Arrival position points</span>
+                </label>
+                <label className="record-card checkbox-card">
+                  <input type="checkbox" checked={eventForm.use_arrival_time_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_time_points: event.target.checked })} />
+                  <span>Arrival time points</span>
+                </label>
+                <label className="record-card checkbox-card">
+                  <input type="checkbox" checked={eventForm.use_departure_points} onChange={(event) => setEventForm({ ...eventForm, use_departure_points: event.target.checked })} />
+                  <span>Departure points</span>
+                </label>
+              </div>
+              <label className="stack compact">
+                <span>Penalty rules JSON</span>
+                <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={4} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
+              </label>
+              <p className="hint">Formula choices and labels follow the AirScore/GAP workflow, while the current MVP scorer still uses the stored event config as its setup source rather than full AirScore parity for every toggle yet.</p>
               {user?.role === "admin" ? <button type="submit">Save scoring parameters</button> : null}
             </form>
           ) : (
@@ -513,10 +667,6 @@ export default function HomePage() {
         {renderParticipantCards()}
       </div>
     );
-  }
-
-  function renderParticipantsSection() {
-    return renderParticipantCards();
   }
 
   function renderTasksSection() {
@@ -614,8 +764,6 @@ export default function HomePage() {
     switch (activeSection) {
       case "events":
         return renderEventsSection();
-      case "participants":
-        return renderParticipantsSection();
       case "tasks":
         return renderTasksSection();
       case "scoring":

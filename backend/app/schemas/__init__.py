@@ -32,10 +32,23 @@ class EventCreate(BaseModel):
     starts_on: date
     ends_on: date
     timezone: str = "UTC"
+    scoring_formula: str = "GAP2021"
     nominal_distance_km: float = 60
     nominal_time_hours: float = 1.5
     nominal_launch: float = 0.95
     minimum_distance_km: float = 5
+    nominal_goal_percent: float = 0.3
+    score_back_time_minutes: int = 15
+    goal_ss_penalty: float = 0.0
+    jump_the_gun_factor: float = 0.0
+    jump_the_gun_max_seconds: int = 0
+    stopped_glide_bonus: float = 0.0
+    use_distance_points: bool = True
+    use_time_points: bool = True
+    use_leading_points: bool = True
+    use_arrival_position_points: bool = False
+    use_arrival_time_points: bool = False
+    use_departure_points: bool = False
     penalties_json: dict = Field(default_factory=dict)
 
 
