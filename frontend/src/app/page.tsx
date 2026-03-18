@@ -339,6 +339,36 @@ export default function HomePage() {
     setEventForm(blankEventForm());
   }
 
+  async function deleteEvent() {
+    if (!token || !eventEditorId) return;
+    const eventToDelete = events.find((event) => event.id === eventEditorId);
+    const confirmed = window.confirm(`Delete event "${eventToDelete?.name ?? "this event"}"? This will remove its tasks, turnpoints, uploads, and scoring records.`);
+    if (!confirmed) return;
+    await apiFetch<void>(`/api/events/${eventEditorId}`, token, { method: "DELETE" });
+    const loadedEvents = await refreshEvents(token);
+    if (loadedEvents[0]) {
+      const nextEvent = loadedEvents[0];
+      setMessage(`Deleted event ${eventToDelete?.name ?? ""}.`);
+      setEventEditorId(nextEvent.id);
+      setEventForm(eventToForm(nextEvent));
+      await loadEvent(token, nextEvent.id, nextEvent);
+    } else {
+      setMessage(`Deleted event ${eventToDelete?.name ?? ""}.`);
+      setSelectedEventId(null);
+      setEventEditorId(null);
+      setEventForm(blankEventForm());
+      setPilots([]);
+      setTurnpoints([]);
+      setTurnpointSlots([]);
+      setTasks([]);
+      setResults([]);
+      setPilotSummary([]);
+      setUploads([]);
+      setTrack(null);
+      setTaskDraft(taskDraftFromEvent(null));
+    }
+  }
+
   async function createPilot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token || !selectedEventId) return;
@@ -522,7 +552,12 @@ export default function HomePage() {
                   <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
                 </div>
                 <input placeholder="Timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
-                {user?.role === "admin" ? <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button> : null}
+                {user?.role === "admin" ? (
+                  <div className="button-row">
+                    <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
+                    {eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
+                  </div>
+                ) : null}
               </form>
               {eventEditorId ? (
                 <div className="stack">
