@@ -769,6 +769,7 @@ export default function HomePage() {
                       <div className="task-point-card-top">
                         <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
                         <strong>{point.name}</strong>
+                        <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? "No waypoint code"}</span>
                         <span className="task-point-type-badge">{pointTypeLabels[point.point_type] ?? point.point_type}</span>
                       </div>
                       <div className="task-point-card-grid">

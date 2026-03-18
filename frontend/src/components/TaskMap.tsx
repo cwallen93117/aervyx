@@ -189,6 +189,8 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const turnpointsRef = useRef(turnpoints);
+  const turnpointSignatureRef = useRef("");
+  const trackSignatureRef = useRef("");
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const [mapNotice, setMapNotice] = useState<string | null>(null);
@@ -275,6 +277,11 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
     if (!map) {
       return;
     }
+    const nextTurnpointSignature = turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(4)}:${turnpoint.longitude.toFixed(4)}`).join("|");
+    const nextTrackSignature = track ? `${track.features.length}:${JSON.stringify(track.features[0]?.geometry?.coordinates?.[0] ?? [])}` : "";
+    const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
+    const shouldFitToTrack = nextTrackSignature !== trackSignatureRef.current;
+
     const syncData = () => {
       ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
@@ -282,12 +289,18 @@ export function TaskMap({ turnpoints, taskPoints, track, editable, onSelectTurnp
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
       ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
       ensureMapLayers(map);
-      fitToData(map, turnpoints, taskPoints, track);
       map.resize();
+      if (shouldFitToTurnpoints || shouldFitToTrack) {
+        fitToData(map, turnpoints, taskPoints, track);
+      }
       window.setTimeout(() => {
         map.resize();
-        fitToData(map, turnpoints, taskPoints, track);
+        if (shouldFitToTurnpoints || shouldFitToTrack) {
+          fitToData(map, turnpoints, taskPoints, track);
+        }
       }, 100);
+      turnpointSignatureRef.current = nextTurnpointSignature;
+      trackSignatureRef.current = nextTrackSignature;
     };
     if (map.isStyleLoaded()) {
       syncData();

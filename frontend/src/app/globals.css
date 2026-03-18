@@ -308,6 +308,10 @@ h1, h2, h3, p {
   display: grid;
   gap: 0.45rem;
 }
+.task-point-description {
+  color: var(--muted);
+  font-size: 0.92rem;
+}
 .task-point-card-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
