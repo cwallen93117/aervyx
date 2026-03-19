@@ -1086,23 +1086,23 @@ export default function HomePage() {
               </label>
               <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task start (launch open)</span>
-                <input type="time" step={1} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={user?.role !== "admin"} />
+                <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={user?.role !== "admin"} />
               </label>
             </div>
             <div className="inline-grid">
               <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task finish (goal close)</span>
-                <input type="time" step={1} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={user?.role !== "admin"} />
+                <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={user?.role !== "admin"} />
               </label>
               <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
                 <span>Start open</span>
-                <input type="time" step={1} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
+                <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
               </label>
             </div>
             <div className="inline-grid">
               <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
                 <span>Start close</span>
-                <input type="time" step={1} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
+                <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
               </label>
               <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
                 <span>Number of start gates</span>
