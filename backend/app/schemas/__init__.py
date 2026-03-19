@@ -87,6 +87,7 @@ class EventCreate(BaseModel):
 class EventResponse(EventCreate):
     id: int
     created_at: datetime
+    updated_at: datetime
     pilot_count: int = 0
     task_count: int = 0
     turnpoint_count: int = 0

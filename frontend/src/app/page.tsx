@@ -57,6 +57,7 @@ type EventRecord = {
   number_of_decimals_task_results: number;
   number_of_decimals_competition_results: number;
   penalties_json: Record<string, unknown>;
+  updated_at: string;
   pilot_count: number;
   task_count: number;
   turnpoint_count: number;
@@ -112,6 +113,7 @@ type ScoringTab = "task" | "overall";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
+const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 const adminSidebarItems = [
   { id: "events", label: "Events", description: "Configure comps and dates." },
@@ -337,6 +339,15 @@ function eventToForm(event: EventRecord | null | undefined) {
     : blankEventForm();
 }
 
+function sortEventsByUpdatedAt(eventList: EventRecord[]): EventRecord[] {
+  return [...eventList].sort((left, right) => {
+    const leftTime = Date.parse(left.updated_at || "") || 0;
+    const rightTime = Date.parse(right.updated_at || "") || 0;
+    if (leftTime !== rightTime) return rightTime - leftTime;
+    return left.name.localeCompare(right.name);
+  });
+}
+
 async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Authorization", `Bearer ${token}`);
@@ -407,19 +418,23 @@ export default function HomePage() {
   async function bootstrap(activeToken: string) {
     setToken(activeToken);
     setError("");
-    const [me, loadedEvents] = await Promise.all([
+    const [me, rawEvents] = await Promise.all([
       apiFetch<User>("/api/auth/me", activeToken),
       apiFetch<EventRecord[]>("/api/events", activeToken),
     ]);
+    const loadedEvents = sortEventsByUpdatedAt(rawEvents);
+    const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
+    const preferredEvent = loadedEvents.find((event) => event.id === storedEventId) ?? loadedEvents[0] ?? null;
     setUser(me);
     setActiveSection(me.role === "pilot" ? "tasks" : "events");
     setEvents(loadedEvents);
     await refreshPilotDirectory(activeToken, me);
-    if (loadedEvents[0]) {
-      setSelectedEventId(loadedEvents[0].id);
-      setEventEditorId(loadedEvents[0].id);
-      setEventForm(eventToForm(loadedEvents[0]));
-      await loadEvent(activeToken, loadedEvents[0].id, loadedEvents[0], me);
+    if (preferredEvent) {
+      window.localStorage.setItem(LAST_EVENT_KEY, String(preferredEvent.id));
+      setSelectedEventId(preferredEvent.id);
+      setEventEditorId(preferredEvent.id);
+      setEventForm(eventToForm(preferredEvent));
+      await loadEvent(activeToken, preferredEvent.id, preferredEvent, me);
     } else {
       setSelectedEventId(null);
       setEventEditorId(null);
@@ -438,7 +453,7 @@ export default function HomePage() {
   }
 
   async function refreshEvents(activeToken: string) {
-    const loadedEvents = await apiFetch<EventRecord[]>("/api/events", activeToken);
+    const loadedEvents = sortEventsByUpdatedAt(await apiFetch<EventRecord[]>("/api/events", activeToken));
     setEvents(loadedEvents);
     return loadedEvents;
   }
@@ -455,6 +470,7 @@ export default function HomePage() {
 
   async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null) {
     setSelectedEventId(eventId);
+    window.localStorage.setItem(LAST_EVENT_KEY, String(eventId));
     const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
     setEventEditorId(eventId);
     setEventForm(eventToForm(activeEvent));
@@ -648,6 +664,7 @@ export default function HomePage() {
     const nextEvent = loadedEvents.find((candidate) => candidate.id === savedEvent.id) ?? savedEvent;
     setEventEditorId(nextEvent.id);
     setEventForm(eventToForm(nextEvent));
+    window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
     setMessage(`${eventEditorId ? "Updated" : "Created"} event ${savedEvent.name}.`);
     await loadEvent(token, nextEvent.id, nextEvent);
     if (!selectedTaskId) {
@@ -672,11 +689,13 @@ export default function HomePage() {
       setMessage(`Deleted event ${eventToDelete?.name ?? ""}.`);
       setEventEditorId(nextEvent.id);
       setEventForm(eventToForm(nextEvent));
+      window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
       await loadEvent(token, nextEvent.id, nextEvent);
     } else {
       setMessage(`Deleted event ${eventToDelete?.name ?? ""}.`);
       setSelectedEventId(null);
       setEventEditorId(null);
+      window.localStorage.removeItem(LAST_EVENT_KEY);
       setEventForm(blankEventForm());
       setPilots([]);
       setTurnpoints([]);

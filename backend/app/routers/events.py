@@ -63,6 +63,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         number_of_decimals_competition_results=event.number_of_decimals_competition_results if event.number_of_decimals_competition_results is not None else 1,
         penalties_json=event.penalties_json or {},
         created_at=event.created_at,
+        updated_at=event.updated_at,
         pilot_count=pilot_count,
         task_count=task_count,
         turnpoint_count=turnpoint_count,
@@ -71,7 +72,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
 
 @router.get("", response_model=list[EventResponse])
 def list_events(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[EventResponse]:
-    events = session.scalars(select(Event).order_by(Event.starts_on.desc(), Event.name.asc())).all()
+    events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
     return [_event_payload(session, event) for event in events]
 
 
