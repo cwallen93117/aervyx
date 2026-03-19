@@ -81,7 +81,7 @@ class EventCreate(BaseModel):
     turnpoint_radius_minimum_absolute_tolerance_m: float = 5.0
     number_of_decimals_task_results: int = 2
     number_of_decimals_competition_results: int = 1
-    visible_airspace_classes_json: list[str] = Field(default_factory=lambda: ["B", "C", "D", "P", "Q", "R", "OTHER"])
+    visible_airspace_classes_json: list[str] = Field(default_factory=lambda: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"])
     show_restricted_fields: bool = True
     penalties_json: dict = Field(default_factory=dict)
 

@@ -57,3 +57,18 @@ def test_parse_geojson_airspace_polygons() -> None:
     assert len(records) == 1
     assert records[0].display_category == "R"
     assert records[0].lower_limit_m == 0
+
+
+def test_parse_openair_tfr_from_name() -> None:
+    payload = """AC R
+AN TFR - Presidential Movement
+AL SFC
+AH FL180
+DP 28.9000 N 81.5000 W
+DP 28.9500 N 81.4500 W
+DP 29.0000 N 81.5000 W
+DP 28.9000 N 81.5000 W
+"""
+    records = parse_openair(payload, kind="airspace")
+    assert len(records) == 1
+    assert records[0].display_category == "TFR"

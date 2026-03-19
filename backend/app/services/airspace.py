@@ -31,7 +31,7 @@ SUPPORTED_AIRSPACE_FORMATS = {
     ".json": "geojson",
 }
 
-AIRSPACE_FILTER_OPTIONS = ["B", "C", "D", "P", "Q", "R", "OTHER"]
+AIRSPACE_FILTER_OPTIONS = ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]
 
 
 def detect_airspace_format(filename: str) -> str:
@@ -73,7 +73,7 @@ def parse_geojson_airspaces(text: str, *, kind: str) -> list[AirspaceRecord]:
                 name=name,
                 class_code=class_code,
                 type_code=type_code,
-                display_category=_display_category(kind=kind, class_code=class_code, type_code=type_code),
+                display_category=_display_category(kind=kind, name=name, class_code=class_code, type_code=type_code),
                 lower_limit_label=lower_label,
                 upper_limit_label=upper_label,
                 lower_limit_m=lower_limit_m,
@@ -193,7 +193,7 @@ class _OpenAirBlock:
             name=self.name,
             class_code=self.class_code,
             type_code=self.type_code,
-            display_category=_display_category(kind=kind, class_code=self.class_code, type_code=self.type_code),
+            display_category=_display_category(kind=kind, name=self.name, class_code=self.class_code, type_code=self.type_code),
             lower_limit_label=self.lower_limit_label,
             upper_limit_label=self.upper_limit_label,
             lower_limit_m=self.lower_limit_m,
@@ -217,11 +217,14 @@ def _clean_code(value: object) -> str | None:
     return text.upper() if text else None
 
 
-def _display_category(*, kind: str, class_code: str | None, type_code: str | None) -> str:
+def _display_category(*, kind: str, name: str | None, class_code: str | None, type_code: str | None) -> str:
     if kind == "restricted_field":
         return "RESTRICTED_FIELD"
+    upper_name = (name or "").upper()
     upper_class = (class_code or "").upper()
     upper_type = (type_code or "").upper()
+    if "TFR" in upper_name or upper_class == "TFR" or upper_type == "TFR":
+        return "TFR"
     for code in (upper_class, upper_type):
         if code in {"B", "C", "D", "P", "Q", "R"}:
             return code

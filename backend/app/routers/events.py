@@ -63,7 +63,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         turnpoint_radius_minimum_absolute_tolerance_m=event.turnpoint_radius_minimum_absolute_tolerance_m if event.turnpoint_radius_minimum_absolute_tolerance_m is not None else 5,
         number_of_decimals_task_results=event.number_of_decimals_task_results if event.number_of_decimals_task_results is not None else 2,
         number_of_decimals_competition_results=event.number_of_decimals_competition_results if event.number_of_decimals_competition_results is not None else 1,
-        visible_airspace_classes_json=list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "OTHER"]),
+        visible_airspace_classes_json=list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]),
         show_restricted_fields=True if event.show_restricted_fields is None else event.show_restricted_fields,
         penalties_json=event.penalties_json or {},
         created_at=event.created_at,

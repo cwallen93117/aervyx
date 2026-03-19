@@ -125,7 +125,7 @@ type TaskDraftState = {
   points: TaskPointRecord[];
 };
 type ScoringTab = "task" | "overall";
-type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "OTHER";
+type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "TFR" | "OTHER";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
@@ -175,6 +175,7 @@ const airspaceCategoryOptions = [
   { value: "P", label: "Prohibited" },
   { value: "Q", label: "Danger" },
   { value: "R", label: "Restricted" },
+  { value: "TFR", label: "TFR" },
   { value: "OTHER", label: "Other / advisory" },
 ] satisfies Array<{ value: AirspaceCategoryOption; label: string }>;
 
@@ -239,7 +240,7 @@ function blankEventForm() {
     turnpoint_radius_minimum_absolute_tolerance_m: 5,
     number_of_decimals_task_results: 2,
     number_of_decimals_competition_results: 1,
-    visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "OTHER"],
+    visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"],
     show_restricted_fields: true,
     penalties_text: "{}",
   };
