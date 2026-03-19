@@ -2328,6 +2328,45 @@ export default function HomePage() {
                     {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                   </select>
                 </label>
+                {taskDefinitionRows.length ? (
+                  <div className="results-sheet task-definition-sheet">
+                    <div className="results-sheet-header">
+                      <h3>Task definition</h3>
+                      <p>{selectedTask?.name ?? taskDraft.name} {taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type) ? `- ${taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)}` : ""}</p>
+                    </div>
+                    <div className="results-table-wrap">
+                      <table className="results-table results-table-compact">
+                        <thead>
+                          <tr>
+                            <th>No</th>
+                            <th>Leg Dist.</th>
+                            <th>Id</th>
+                            <th>Radius</th>
+                            <th>Open</th>
+                            <th>Close</th>
+                            <th>Coordinates</th>
+                            <th>Altitude</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {taskDefinitionRows.map((row) => (
+                            <tr key={row.label}>
+                              <td><strong>{row.label}</strong></td>
+                              <td>{row.legDistanceKm.toFixed(1)} km</td>
+                              <td>{row.identifier}</td>
+                              <td>{row.radiusLabel}</td>
+                              <td>{row.openLabel}</td>
+                              <td>{row.closeLabel}</td>
+                              <td>{row.coordinatesLabel}</td>
+                              <td>{row.altitudeLabel}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {startGateLabels.length ? <p className="hint task-definition-gates">Start gates: {startGateLabels.join(", ")}</p> : null}
+                  </div>
+                ) : null}
                 {results.length ? (
                   <div className="results-sheet">
                     <div className="results-sheet-header">

@@ -527,7 +527,9 @@ export function TaskMap({
       return;
     }
     const nextTurnpointSignature = turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(4)}:${turnpoint.longitude.toFixed(4)}`).join("|");
-    const nextTaskSignature = taskPoints.map((point) => `${point.position}:${point.point_type}:${point.radius_m}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join("|");
+    const nextTaskSignature = taskPoints
+      .map((point, index) => `${index}:${point.position}:${point.name}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`)
+      .join("|");
     const nextTrackSignature = track ? `${track.features.length}:${JSON.stringify(track.features[0]?.geometry?.coordinates?.[0] ?? [])}` : "";
     const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
     const shouldFitToTask = nextTaskSignature !== taskSignatureRef.current;
