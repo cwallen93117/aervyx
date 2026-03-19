@@ -136,7 +136,7 @@ function ensureMapLayers(map: maplibregl.Map) {
       type: "line",
       source: "optimized-route",
       paint: {
-        "line-color": "#0f172a",
+        "line-color": "#2563eb",
         "line-width": 2,
         "line-dasharray": [2, 2],
       },
