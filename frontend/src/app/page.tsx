@@ -2425,7 +2425,11 @@ export default function HomePage() {
             </div>
             {user?.role === "admin" ? (
               <div className="stack compact task-action-stack">
-                <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button><button type="button" className="ghost-button danger-button" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button></div>
+                <div className="button-row">
+                  <button type="button" onClick={saveTask}>Save task</button>
+                  <button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button>
+                  <button type="button" className="ghost-button danger-button task-delete-button" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
+                </div>
                 {taskFeedback ? <div className={`status-chip ${taskFeedback.type}`}>{taskFeedback.text}</div> : null}
               </div>
             ) : null}

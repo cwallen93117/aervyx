@@ -740,6 +740,15 @@ button[type="submit"]:hover {
   background: var(--danger-soft);
 }
 
+.task-delete-button {
+  margin-left: auto;
+}
+
+.task-delete-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .three-up.compact-checkbox-grid {
   display: flex;
   flex-wrap: wrap;
