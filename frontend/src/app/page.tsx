@@ -2633,7 +2633,7 @@ export default function HomePage() {
                         <thead>
                           <tr>
                             <th>Task</th>
-                            <th>Start</th>
+                            <th>Date</th>
                             <th>Distance [km]</th>
                             <th>Day Quality</th>
                             <th>Type</th>
