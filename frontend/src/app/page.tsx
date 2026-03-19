@@ -2110,11 +2110,9 @@ export default function HomePage() {
                         <thead>
                           <tr>
                             <th>#</th>
-                            <th>Id</th>
                             <th>Name</th>
                             <th>Nat</th>
                             <th>Glider</th>
-                            <th>Sponsor</th>
                             <th>SS</th>
                             <th>ES</th>
                             <th>Time [h:m:s]</th>
@@ -2132,13 +2130,11 @@ export default function HomePage() {
                             return (
                               <tr key={result.id}>
                                 <td>{result.rank ?? "-"}</td>
-                                <td>{result.competition_number ?? result.pilot_id}</td>
                                 <td>
                                   <strong>{result.pilot_name}</strong>
                                   <div className="results-name-meta">{result.status.toUpperCase()}</div>
                                 </td>
                                 <td>{pilot?.nation ?? "-"}</td>
-                                <td>-</td>
                                 <td>-</td>
                                 <td>{formatClockTime(result.started_at)}</td>
                                 <td>{formatClockTime(result.goal_at ?? result.ess_at)}</td>
@@ -2190,11 +2186,9 @@ export default function HomePage() {
                         <thead>
                           <tr>
                             <th>#</th>
-                            <th>Id</th>
                             <th>Name</th>
                             <th>Nat</th>
                             <th>Glider</th>
-                            <th>Sponsor</th>
                             {scoredTasks.map((task, index) => <th key={task.id}>{`T ${index + 1}`}</th>)}
                             <th>Total</th>
                           </tr>
@@ -2205,10 +2199,8 @@ export default function HomePage() {
                             return (
                               <tr key={summary.pilot_id}>
                                 <td>{index + 1}</td>
-                                <td>{summary.competition_number ?? summary.pilot_id}</td>
                                 <td><strong>{summary.pilot_name}</strong></td>
                                 <td>{pilot?.nation ?? "-"}</td>
-                                <td>-</td>
                                 <td>-</td>
                                 {scoredTasks.map((task) => <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatResultPoints(summary.task_scores[String(task.id)]) : "-"}</td>)}
                                 <td className="results-table-total">{summary.total_score_points.toFixed(1)}</td>
