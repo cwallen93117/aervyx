@@ -126,6 +126,7 @@ type TaskDraftState = {
   penalties_text: string;
   points: TaskPointRecord[];
 };
+type ScoresPortalTab = "admin" | "results";
 type ScoringTab = "task" | "overall";
 type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "TFR" | "OTHER";
 type TaskPointMode = "simple" | "advanced";
@@ -568,6 +569,7 @@ export default function HomePage() {
   const [uploadFeedback, setUploadFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
+  const [scoresPortalTab, setScoresPortalTab] = useState<ScoresPortalTab>("results");
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
 
@@ -2366,6 +2368,12 @@ export default function HomePage() {
     return (
       <div className="section-stack">
         {user?.role === "admin" ? (
+          <div className="tab-row">
+            <button type="button" className={scoresPortalTab === "admin" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("admin")}>Admin scoring portal</button>
+            <button type="button" className={scoresPortalTab === "results" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("results")}>Results portal</button>
+          </div>
+        ) : null}
+        {user?.role === "admin" && scoresPortalTab === "admin" ? (
           <SectionCard title="Admin scoring portal" description="Upload missing IGC files on behalf of pilots, then run scoring manually for the selected task.">
             <div className="stack form-block">
               <label className="stack compact">
@@ -2437,6 +2445,7 @@ export default function HomePage() {
             </div>
           </SectionCard>
         ) : null}
+        {user?.role !== "admin" || scoresPortalTab === "results" ? (
         <SectionCard title="Results portal" description="Task results and overall standings are visible to all signed-in users.">
           <div className="stack">
             <div className="tab-row">
@@ -2603,6 +2612,7 @@ export default function HomePage() {
             )}
           </div>
         </SectionCard>
+        ) : null}
       </div>
     );
   }
