@@ -1,7 +1,7 @@
 "use client";
 
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
@@ -345,6 +345,7 @@ export function TaskMap({
   track,
   editable,
   onSelectTurnpoint,
+  taskEditorOverlay,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -356,6 +357,7 @@ export function TaskMap({
   track: TrackCollection | null;
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
+  taskEditorOverlay?: ReactNode;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -559,6 +561,7 @@ export function TaskMap({
           <span>{optimizedDistanceKm.toFixed(1)} km</span>
         </div>
       </div>
+      {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
       <label className="map-style-picker">
         <span>Map</span>
         <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>

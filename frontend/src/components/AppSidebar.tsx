@@ -3,7 +3,7 @@
 type SidebarItem = {
   id: string;
   label: string;
-  description: string;
+  description?: string;
 };
 
 function SidebarIcon({ id }: { id: string }) {
@@ -28,6 +28,21 @@ function SidebarIcon({ id }: { id: string }) {
           <path d="M5 19.5h14M7.5 17V11M12 17V7.5M16.5 17v-4.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
       );
+    case "live_tracking":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <path d="M12 20.5s6-5.6 6-10a6 6 0 1 0-12 0c0 4.4 6 10 6 10Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          <circle cx="12" cy="10.5" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.8" />
+        </svg>
+      );
+    case "drivers":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <path d="M6 8.5h12l1.5 4v5h-2.5v-1.8h-10V17.5H4.5v-5l1.5-4Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          <circle cx="8" cy="17.5" r="1.4" fill="currentColor" />
+          <circle cx="16" cy="17.5" r="1.4" fill="currentColor" />
+        </svg>
+      );
     default:
       return <span>{id.slice(0, 1).toUpperCase()}</span>;
   }
@@ -37,6 +52,8 @@ const itemThemes: Record<string, string> = {
   events: "theme-events",
   tasks: "theme-tasks",
   scoring: "theme-scoring",
+  live_tracking: "theme-live-tracking",
+  drivers: "theme-drivers",
 };
 
 export function AppSidebar({
@@ -60,7 +77,8 @@ export function AppSidebar({
         <div className="sidebar-brand-row">
           {!compact ? (
             <div>
-              <p className="eyebrow">FlightComp Platform</p>
+              <span className="context-label">Selected event</span>
+              <p className="eyebrow">{eventName ?? "No event selected"}</p>
             </div>
           ) : null}
           <button
@@ -74,12 +92,6 @@ export function AppSidebar({
           </button>
         </div>
       </div>
-      {!compact ? (
-        <div className="sidebar-context">
-          <span className="context-label">Selected event</span>
-          <strong>{eventName ?? "No event selected"}</strong>
-        </div>
-      ) : null}
       <nav className="sidebar-nav" aria-label="Primary">
         {items.map((item) => (
           <button
@@ -96,7 +108,6 @@ export function AppSidebar({
               {!compact ? (
                 <div className="nav-item-copy">
                   <strong>{item.label}</strong>
-                  <span>{item.description}</span>
                 </div>
               ) : null}
             </div>

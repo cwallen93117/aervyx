@@ -7,7 +7,7 @@ import { SectionCard } from "../components/SectionCard";
 import { TaskMap, type MapAirspaceRegion, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../components/TaskMap";
 import { computeTaskOptimization } from "../lib/taskOptimization";
 
-type SidebarSection = "events" | "tasks" | "scoring";
+type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers";
 type AuthMode = "login" | "register";
 type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
@@ -136,14 +136,18 @@ const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 const adminSidebarItems = [
-  { id: "events", label: "Events", description: "Configure comps and dates." },
-  { id: "tasks", label: "Tasks", description: "Build routes and use imported turnpoints." },
-  { id: "scoring", label: "Scoring", description: "Uploads, results, and rankings." },
-] satisfies Array<{ id: SidebarSection; label: string; description: string }>;
+  { id: "events", label: "Events" },
+  { id: "tasks", label: "Tasks" },
+  { id: "scoring", label: "Scores" },
+  { id: "live_tracking", label: "Live Tracking" },
+  { id: "drivers", label: "Drivers" },
+] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
-  { id: "tasks", label: "Tasks", description: "View published tasks and turnpoints." },
-  { id: "scoring", label: "Scoring", description: "Upload IGC files and review results." },
-] satisfies Array<{ id: SidebarSection; label: string; description: string }>;
+  { id: "tasks", label: "Tasks" },
+  { id: "scoring", label: "Scores" },
+  { id: "live_tracking", label: "Live Tracking" },
+  { id: "drivers", label: "Drivers" },
+] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 
 const scoringFormulaOptions = [
   { value: "GAP2021", label: "GAP 2021" },
@@ -504,26 +508,39 @@ export default function HomePage() {
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "admin1234" });
   const [registerForm, setRegisterForm] = useState({ first_name: "", last_name: "", email: "", password: "", competition_number: "", nation: "", civl_id: "" });
   const [eventForm, setEventForm] = useState(blankEventForm());
-  const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
-  const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
-  const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
-  const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
-  const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
-  const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
-  const [sidebarCompact, setSidebarCompact] = useState(false);
+    const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
+    const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
+    const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
+    const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
+    const [turnpointSearch, setTurnpointSearch] = useState("");
+    const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
+    const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
+    const [sidebarCompact, setSidebarCompact] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
-  const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
-  const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskDraft.points), [taskDraft.points]);
-  const currentTaskTypeBehavior = useMemo(() => taskTypeBehavior(taskDraft.task_type), [taskDraft.task_type]);
-  const availableDirectoryPilots = useMemo(
-    () => pilotDirectory.filter((candidate) => !pilots.some((pilot) => pilot.id === candidate.id)),
-    [pilotDirectory, pilots],
-  );
-  const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
-  const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
+    const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
+    const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskDraft.points), [taskDraft.points]);
+    const currentTaskTypeBehavior = useMemo(() => taskTypeBehavior(taskDraft.task_type), [taskDraft.task_type]);
+    const taskPointMode: TaskPointMode = taskPointAdvanced ? "advanced" : "simple";
+    const taskPointTypeOptions = useMemo(() => pointTypeOptionsForMode(taskPointMode), [taskPointMode]);
+    const availableDirectoryPilots = useMemo(
+      () => pilotDirectory.filter((candidate) => !pilots.some((pilot) => pilot.id === candidate.id)),
+      [pilotDirectory, pilots],
+    );
+    const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
+    const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
+    const filteredTurnpoints = useMemo(() => {
+      const query = turnpointSearch.trim().toLowerCase();
+      if (!query) return [];
+      return turnpoints
+        .filter((turnpoint) => {
+          const haystack = `${turnpoint.name} ${turnpoint.code ?? ""}`.toLowerCase();
+          return haystack.includes(query);
+        })
+        .slice(0, 12);
+    }, [turnpointSearch, turnpoints]);
   const visibleAirspaces = useMemo(() => {
     const enabled = new Set<string>(eventForm.visible_airspace_classes_json ?? []);
     const enabledSourceIds = new Set(airspaceSources.filter((source) => source.enabled ?? true).map((source) => source.id));
@@ -996,25 +1013,18 @@ export default function HomePage() {
   }
 
   function addTurnpoint(turnpoint: MapTurnpoint) {
-    setRadiusDrafts({});
-    setTaskDraft((current) => {
-      const existingIndex = current.points.findIndex((point) => point.turnpoint_id === turnpoint.id);
-      if (existingIndex >= 0) {
+      setRadiusDrafts({});
+      setTaskDraft((current) => {
         return {
           ...current,
-          points: current.points.filter((_, pointIndex) => pointIndex !== existingIndex).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })),
-        };
-      }
-      return {
-        ...current,
-        points: [
-          ...current.points,
-          {
-            position: current.points.length + 1,
-            point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint",
-            radius_m: current.points.length === 0 ? 300 : 400,
-            turnpoint_id: turnpoint.id,
-            name: turnpoint.name,
+          points: [
+            ...current.points,
+            {
+              position: current.points.length + 1,
+              point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint",
+              radius_m: current.points.length === 0 ? 300 : 400,
+              turnpoint_id: turnpoint.id,
+              name: turnpoint.name,
             latitude: turnpoint.latitude,
             longitude: turnpoint.longitude,
           },
@@ -1183,9 +1193,15 @@ export default function HomePage() {
   }
 
   async function rescoreSelectedTask() {
-    if (!token || !selectedTaskId) return;
+    if (!token) return;
+    if (!selectedTaskId) {
+      setMessage("");
+      setError("Select a task before running scoring.");
+      return;
+    }
+    setError("");
     await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
-    setMessage("Ran scoring for the selected task.");
+    setMessage("Scoring completed for the selected task.");
     await loadTask(token, selectedTaskId);
     if (selectedEventId) {
       const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
@@ -1826,9 +1842,75 @@ export default function HomePage() {
   }
 
   function renderTasksSection() {
-    if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
-    return (
-      <div className="section-stack">
+      if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
+      const fullscreenTaskEditor = user?.role === "admin" ? (
+        <div className="map-task-editor">
+          <div className="map-task-editor-header">
+            <strong>Task turnpoints</strong>
+            <span>{taskDraft.points.length ? `${taskDraft.points.length} in task` : "No turnpoints yet"}</span>
+          </div>
+          <div className="map-task-editor-table-wrap">
+            <table className="map-task-editor-table">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Radius (m)</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {taskDraft.points.length ? (
+                  taskDraft.points.map((point, index) => (
+                    <tr
+                      key={`fullscreen-${point.turnpoint_id ?? point.name}-${index}`}
+                      draggable
+                      onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        movePoint(Number(event.dataTransfer.getData("text/plain")), index);
+                      }}
+                    >
+                      <td className="map-task-editor-drag">{point.position}. ⋮⋮</td>
+                      <td>
+                        <strong>{point.name}</strong>
+                      </td>
+                      <td>
+                        <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                          {taskPointTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          value={radiusInputValue(index, point)}
+                          onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onBlur={() => handleRadiusInputBlur(index, point)}
+                          onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
+                          inputMode="numeric"
+                        />
+                      </td>
+                      <td>
+                        <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : undefined;
+      return (
+        <div className="section-stack">
         <SectionCard title="Task details" description={user?.role === "admin" ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
           <div className="stack form-block">
             <div className="participant-intake-row">
@@ -1898,62 +1980,79 @@ export default function HomePage() {
               </div>
             </div>
             <div className="task-builder-layout">
-              <div className="task-turnpoint-rail">
-                <div className="section-header">
-                  <h3>Task turnpoints</h3>
-                  <div className="task-turnpoint-toolbar">
-                    {user?.role === "admin" ? (
+                <div className="task-turnpoint-rail">
+                  <div className="section-header">
+                    <h3>Task turnpoints</h3>
+                    <div className="task-turnpoint-toolbar">
+                      {user?.role === "admin" ? (
                       <label className="task-advanced-toggle">
-                        <input type="checkbox" checked={taskPointAdvanced} onChange={(event) => toggleTaskPointAdvanced(event.target.checked)} />
-                        <span>Advanced</span>
-                      </label>
-                    ) : null}
-                    <span>{taskDraft.points.length} selected</span>
+                          <input type="checkbox" checked={taskPointAdvanced} onChange={(event) => toggleTaskPointAdvanced(event.target.checked)} />
+                          <span>Advanced</span>
+                        </label>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-                <p className="hint">{user?.role === "admin" ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
-                <div className="task-point-list">
-                  {taskDraft.points.map((point, index) => (
-                    <div
-                      key={`${point.turnpoint_id ?? point.name}-${index}`}
-                      className={`task-point-card point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
-                      draggable={user?.role === "admin"}
-                      onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+                  <p className="hint">{user?.role === "admin" ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
+                  {user?.role === "admin" ? (
+                    <div className="task-search-panel">
+                      <label className="stack compact">
+                        <span>Search turnpoints</span>
+                        <input
+                          type="text"
+                          value={turnpointSearch}
+                          onChange={(event) => setTurnpointSearch(event.target.value)}
+                          placeholder="Search by name or waypoint code"
+                        />
+                      </label>
+                      {turnpointSearch.trim() ? (
+                        filteredTurnpoints.length ? (
+                          <div className="task-search-results">
+                            {filteredTurnpoints.map((turnpoint) => (
+                              <div key={`search-${turnpoint.id}`} className="task-search-row">
+                                <div>
+                                  <strong>{turnpoint.name}</strong>
+                                  <span>{turnpoint.code ?? "No waypoint code"}</span>
+                                </div>
+                                <button type="button" className="ghost-button" onClick={() => addTurnpoint(turnpoint)}>Add</button>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="hint">No turnpoints match that search.</p>
+                        )
+                      ) : null}
+                    </div>
+                  ) : null}
+                  <div className="task-point-list">
+                    {taskDraft.points.map((point, index) => (
+                      <div
+                        key={`${point.turnpoint_id ?? point.name}-${index}`}
+                        className={`task-point-card point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
+                        draggable={user?.role === "admin"}
+                        onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => {
                         event.preventDefault();
                         movePoint(Number(event.dataTransfer.getData("text/plain")), index);
                       }}
                     >
-                      <div className="task-point-card-top">
-                        <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
-                        <strong>{point.name}</strong>
-                        <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? "No waypoint code"}</span>
-                        <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                      </div>
-                      <div className="task-point-card-grid">
-                        {user?.role === "admin" ? (
-                          <>
-                            <label className="stack compact">
-                              <span>Type</span>
-                              <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                                {taskPointAdvanced ? (
-                                  <>
-                                    <option value="launch">launch</option>
-                                    <option value="start">start</option>
-                                    <option value="turnpoint">turnpoint</option>
-                                    <option value="ESS">ESS</option>
-                                    <option value="goal">goal</option>
-                                  </>
-                                ) : (
-                                  <>
-                                    <option value="start">start</option>
-                                    <option value="turnpoint">turnpoint</option>
-                                    <option value="goal">goal</option>
-                                  </>
-                                )}
-                              </select>
-                            </label>
+                        <div className="task-point-card-top">
+                          <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
+                          <strong>{point.name}</strong>
+                          <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? "No waypoint code"}</span>
+                          <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
+                        </div>
+                        <div className="task-point-card-grid">
+                          {user?.role === "admin" ? (
+                            <>
+                              <label className="stack compact">
+                                <span>Type</span>
+                                <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                                  {taskPointTypeOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                              </label>
                             <label className="stack compact">
                               <span>Radius (m)</span>
                               <input
@@ -1994,18 +2093,19 @@ export default function HomePage() {
                 <p className="hint">{taskPointAdvanced ? "Advanced mode keeps Launch, Start, ESS, and Goal separate for scoring." : "Simple mode uses Start, Turnpoint, and Goal only. Launch scores as Start, and ESS scores as Goal."}</p>
               </div>
               <div className="task-map-panel">
-                <TaskMap
-                  turnpoints={turnpoints}
-                  airspaces={visibleAirspaces}
-                  taskPoints={taskDraft.points}
+                  <TaskMap
+                    turnpoints={turnpoints}
+                    airspaces={visibleAirspaces}
+                    taskPoints={taskDraft.points}
                   optimizedRoute={taskDistanceMetrics.routeCoordinates}
                   legMetrics={taskDistanceMetrics.legMetrics}
-                  totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
-                  optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
-                  track={track}
-                  editable={user?.role === "admin"}
-                  onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined}
-                />
+                    totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
+                    optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
+                    track={track}
+                    editable={user?.role === "admin"}
+                    onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined}
+                    taskEditorOverlay={fullscreenTaskEditor}
+                  />
                 <p className="hint">Launch, Start, ESS, and Goal are color-themed in both the list and map. The dashed line shows the current optimized course line through the waypoint cylinders.</p>
               </div>
             </div>
@@ -2103,8 +2203,8 @@ export default function HomePage() {
               </label>
               <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
               <div className="button-row">
-                <button type="button" onClick={() => void rescoreSelectedTask()} disabled={!selectedTaskId}>Run scoring</button>
-              </div>
+                  <button type="button" onClick={() => void rescoreSelectedTask()}>Run scoring</button>
+                </div>
               {uploads.length ? (
                 <div className="stack">
                   {uploads.map((upload) => (
@@ -2258,18 +2358,22 @@ export default function HomePage() {
   }
 
   function renderActiveSection() {
-    if (user?.role === "pilot" && activeSection === "events") {
-      return renderTasksSection();
-    }
-    switch (activeSection) {
-      case "events":
-        return renderEventsSection();
-      case "tasks":
+      if (user?.role === "pilot" && activeSection === "events") {
         return renderTasksSection();
-      case "scoring":
-        return renderScoringSection();
+      }
+      switch (activeSection) {
+        case "events":
+          return renderEventsSection();
+        case "tasks":
+          return renderTasksSection();
+        case "scoring":
+          return renderScoringSection();
+        case "live_tracking":
+          return <SectionCard title="Live Tracking" description="Live tracking tools will be added here next."><p className="hint">This area is reserved for future live tracking workflows.</p></SectionCard>;
+        case "drivers":
+          return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
+      }
     }
-  }
 
   return (
     <main className="shell">
