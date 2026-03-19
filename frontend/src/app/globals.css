@@ -1358,6 +1358,17 @@ button[type="submit"]:hover {
   z-index: 10;
 }
 
+.map-fullscreen-sidebar {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(480px, calc(100vw - 24px));
+}
+
 .map-distance-box,
 .map-distance-overlay > div {
   padding: 8px 16px;
@@ -1411,12 +1422,9 @@ button[type="submit"]:hover {
 }
 
 .map-task-editor-overlay {
-  position: absolute;
-  top: 72px;
-  right: 12px;
-  z-index: 10;
-  width: min(460px, calc(100vw - 24px));
-  max-height: calc(100vh - 96px);
+  position: relative;
+  width: 100%;
+  max-height: calc(100vh - 170px);
   overflow: hidden;
 }
 
@@ -1458,6 +1466,7 @@ button[type="submit"]:hover {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.75rem;
+  table-layout: fixed;
 }
 
 .map-task-editor-table th,
@@ -1480,9 +1489,26 @@ button[type="submit"]:hover {
   font-size: 0.75rem;
 }
 
+.map-task-editor-name {
+  width: auto;
+}
+
+.map-task-editor-type {
+  width: 148px;
+}
+
+.map-task-editor-radius {
+  width: 116px;
+}
+
+.map-task-editor-actions {
+  width: 86px;
+}
+
 .map-task-editor-table select,
 .map-task-editor-table input {
   height: 32px;
+  width: 100%;
   min-width: 0;
   padding: 6px 10px;
   font-size: 0.75rem;
@@ -1503,6 +1529,18 @@ button[type="submit"]:hover {
 .map-task-editor-empty {
   text-align: center;
   color: var(--muted);
+}
+
+.map-distance-overlay-stacked {
+  position: relative;
+  top: auto;
+  left: auto;
+  gap: 10px;
+}
+
+.map-fullscreen-sidebar .map-distance-overlay-stacked {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
 }
 
 .login-panel {

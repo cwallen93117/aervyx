@@ -1874,17 +1874,17 @@ export default function HomePage() {
                       }}
                     >
                       <td className="map-task-editor-drag">{point.position}. ⋮⋮</td>
-                      <td>
+                      <td className="map-task-editor-name">
                         <strong>{point.name}</strong>
                       </td>
-                      <td>
+                      <td className="map-task-editor-type">
                         <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
                           {taskPointTypeOptions.map((option) => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
                       </td>
-                      <td>
+                      <td className="map-task-editor-radius">
                         <input
                           value={radiusInputValue(index, point)}
                           onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
@@ -1894,7 +1894,7 @@ export default function HomePage() {
                           inputMode="numeric"
                         />
                       </td>
-                      <td>
+                      <td className="map-task-editor-actions">
                         <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
                       </td>
                     </tr>

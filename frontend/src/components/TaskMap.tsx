@@ -551,17 +551,19 @@ export function TaskMap({
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
       <div className="map-card" ref={containerRef} style={isFullscreen ? { height: "100vh", minHeight: "100vh" } : undefined} />
-      <div className="map-distance-overlay" aria-label="Task distance summary">
-        <div className="map-distance-box">
-          <strong>Total task</strong>
-          <span>{totalDistanceKm.toFixed(1)} km</span>
-        </div>
-        <div className="map-distance-box">
-          <strong>Optimized</strong>
-          <span>{optimizedDistanceKm.toFixed(1)} km</span>
+      <div className={isFullscreen ? "map-fullscreen-sidebar" : undefined}>
+        {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
+        <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
+          <div className="map-distance-box">
+            <strong>Total task</strong>
+            <span>{totalDistanceKm.toFixed(1)} km</span>
+          </div>
+          <div className="map-distance-box">
+            <strong>Optimized</strong>
+            <span>{optimizedDistanceKm.toFixed(1)} km</span>
+          </div>
         </div>
       </div>
-      {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
       <label className="map-style-picker">
         <span>Map</span>
         <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>
