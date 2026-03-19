@@ -786,27 +786,66 @@ export default function HomePage() {
   function renderEventsSection() {
     return (
       <div className="section-stack">
-        <div className="section-grid two-column">
-          <SectionCard title="Current events" description="Select an event to load its participants, turnpoint files, task builder, and scoring context." actions={user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewEvent}>New event</button> : null}>
-            <div className="stack">
-              {events.map((event) => (
-                <button key={event.id} type="button" className={event.id === selectedEventId ? "item active" : "item"} onClick={() => selectEvent(event)}>
-                  <strong>{event.name}</strong>
-                  <span>{event.location} - {event.starts_on} to {event.ends_on}</span>
-                </button>
-              ))}
+        <SectionCard title="Event selection" description="Choose an event from the database or start a new one. Everything below follows the currently selected event.">
+          <div className="event-selector-bar">
+            <label className="stack compact event-selector-field">
+              <span>Current event</span>
+              <select value={selectedEventId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextEvent = events.find((candidate) => candidate.id === nextId); if (nextEvent) void selectEvent(nextEvent); }}>
+                <option value="">Select an event</option>
+                {events.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    {event.name} - {event.location}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewEvent}>New event</button> : null}
+          </div>
+          <div className="event-summary-strip">
+            <div className="record-card compact-stat">
+              <strong>{selectedEvent?.pilot_count ?? 0}</strong>
+              <span>Pilots</span>
             </div>
-          </SectionCard>
-          <SectionCard title={eventEditorId ? "Edit event" : "Create event"} description="Event details, participants, and turnpoint files are managed at the event level.">
-            <div className="stack">
+            <div className="record-card compact-stat">
+              <strong>{selectedEvent?.task_count ?? 0}</strong>
+              <span>Tasks</span>
+            </div>
+            <div className="record-card compact-stat">
+              <strong>{turnpoints.length}</strong>
+              <span>Turnpoints</span>
+            </div>
+            <div className="record-card compact-stat">
+              <strong>{selectedEvent ? `${selectedEvent.starts_on} to ${selectedEvent.ends_on}` : "--"}</strong>
+              <span>Dates</span>
+            </div>
+          </div>
+        </SectionCard>
+        <div className="event-workspace-grid">
+          <div className="event-main-column">
+            <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Compact event metadata lives here so the rest of the screen can stay focused on files and scoring.">
               <form className="stack form-block" onSubmit={saveEvent}>
-                <input placeholder="Name" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
-                <input placeholder="Location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
+                <label className="stack compact">
+                  <span>Event name</span>
+                  <input placeholder="Spring Ridge Open" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
+                </label>
+                <label className="stack compact">
+                  <span>Location</span>
+                  <input placeholder="Owens Valley, CA" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
+                </label>
                 <div className="inline-grid">
-                  <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
-                  <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
+                  <label className="stack compact">
+                    <span>Starts on</span>
+                    <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Ends on</span>
+                    <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
+                  </label>
                 </div>
-                <input placeholder="Timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+                <label className="stack compact">
+                  <span>Timezone</span>
+                  <input placeholder="America/Los_Angeles" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+                </label>
                 {user?.role === "admin" ? (
                   <div className="button-row">
                     <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
@@ -814,152 +853,152 @@ export default function HomePage() {
                   </div>
                 ) : null}
               </form>
+            </SectionCard>
+            <SectionCard title="Scoring parameters" description="AirScore-style event defaults for GAP scoring. New task drafts inherit the core values for the selected event.">
               {eventEditorId ? (
-                <div className="stack">
-                  <div className="section-header">
-                    <h3>Turnpoint files</h3>
-                    <span>{turnpoints.length} turnpoints loaded</span>
+                <form className="stack form-block" onSubmit={saveEvent}>
+                  <label className="stack compact">
+                    <span>Scoring formula</span>
+                    <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
+                      {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </label>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Nominal distance (km)</span>
+                      <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Nominal time (hours)</span>
+                      <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} />
+                    </label>
                   </div>
-                  <p className="hint">Each event has three stored turnpoint slots. Uploading to a slot replaces that slot&apos;s prior file and refreshes the event turnpoints in the database.</p>
-                  <div className="turnpoint-slot-grid">
-                    {turnpointSlots.map((slot) => (
-                      <div key={slot.slot_number} className="record-card slot-card">
-                        <div className="stack compact">
-                          <strong>Slot {slot.slot_number}</strong>
-                          <span>{slot.filename ? `${slot.filename} - ${slot.turnpoint_count} turnpoints` : "No file uploaded yet"}</span>
-                          {slot.uploaded_at ? <span>{new Date(slot.uploaded_at).toLocaleString()}</span> : null}
-                        </div>
-                        {user?.role === "admin" ? (
-                          <div className="stack compact">
-                            <label className="file-input">
-                              {slot.filename ? "Replace file" : "Upload file"}
-                              <input
-                                type="file"
-                                accept=".csv,.geojson,.json,.gpx"
-                                onChange={async (event) => {
-                                  const file = event.target.files?.[0];
-                                  if (!file || !selectedEventId) return;
-                                  try {
-                                    setError("");
-                                    const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
-                                    setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
-                                    await loadEvent(token, selectedEventId);
-                                    await refreshEvents(token);
-                                  } catch (caught) {
-                                    setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                                  } finally {
-                                    event.currentTarget.value = "";
-                                  }
-                                }}
-                              />
-                            </label>
-                            {slot.filename ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSlot(slot.slot_number)}>Delete file</button> : null}
-                          </div>
-                        ) : null}
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Nominal launch</span>
+                      <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Minimum distance (km)</span>
+                      <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Nominal goal (%)</span>
+                      <input type="number" step="0.01" value={eventForm.nominal_goal_percent} onChange={(event) => setEventForm({ ...eventForm, nominal_goal_percent: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Score-back time (minutes)</span>
+                      <input type="number" value={eventForm.score_back_time_minutes} onChange={(event) => setEventForm({ ...eventForm, score_back_time_minutes: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Goal / SS penalty</span>
+                      <input type="number" step="0.1" value={eventForm.goal_ss_penalty} onChange={(event) => setEventForm({ ...eventForm, goal_ss_penalty: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Stopped-task glide bonus</span>
+                      <input type="number" step="0.1" value={eventForm.stopped_glide_bonus} onChange={(event) => setEventForm({ ...eventForm, stopped_glide_bonus: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Jump-the-gun factor</span>
+                      <input type="number" step="0.1" value={eventForm.jump_the_gun_factor} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_factor: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Jump-the-gun max (seconds)</span>
+                      <input type="number" value={eventForm.jump_the_gun_max_seconds} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_max_seconds: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="three-up">
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_distance_points: event.target.checked })} />
+                      <span>Distance points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_time_points} onChange={(event) => setEventForm({ ...eventForm, use_time_points: event.target.checked })} />
+                      <span>Time points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_leading_points} onChange={(event) => setEventForm({ ...eventForm, use_leading_points: event.target.checked })} />
+                      <span>Leading points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_arrival_position_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_position_points: event.target.checked })} />
+                      <span>Arrival position points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_arrival_time_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_time_points: event.target.checked })} />
+                      <span>Arrival time points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_departure_points} onChange={(event) => setEventForm({ ...eventForm, use_departure_points: event.target.checked })} />
+                      <span>Departure points</span>
+                    </label>
+                  </div>
+                  <label className="stack compact">
+                    <span>Penalty rules JSON</span>
+                    <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={4} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
+                  </label>
+                  <p className="hint">Formula choices and labels follow the AirScore/GAP workflow, while the current MVP scorer still uses the stored event config as its setup source rather than full AirScore parity for every toggle yet.</p>
+                  {user?.role === "admin" ? <button type="submit">Save scoring parameters</button> : null}
+                </form>
+              ) : (
+                <p className="hint">Create or select an event to define its scoring defaults.</p>
+              )}
+            </SectionCard>
+          </div>
+          <div className="event-side-column">
+            <SectionCard title="Turnpoint files" description="Three compact event-level waypoint slots. Uploading to a slot replaces that slot and refreshes the event turnpoints.">
+              {eventEditorId ? (
+                <div className="compact-slot-list">
+                  {turnpointSlots.map((slot) => (
+                    <div key={slot.slot_number} className="record-card compact-slot-row">
+                      <div className="compact-slot-meta">
+                        <strong>Slot {slot.slot_number}</strong>
+                        <span>{slot.filename ?? "No file uploaded yet"}</span>
+                        <span>{slot.filename ? `${slot.turnpoint_count} turnpoints` : "CSV, GeoJSON, or GPX"}</span>
+                        {slot.uploaded_at ? <span>{new Date(slot.uploaded_at).toLocaleString()}</span> : null}
                       </div>
-                    ))}
-                  </div>
+                      {user?.role === "admin" ? (
+                        <div className="compact-slot-actions">
+                          <label className="file-input compact-file-input">
+                            {slot.filename ? "Replace" : "Upload"}
+                            <input
+                              type="file"
+                              accept=".csv,.geojson,.json,.gpx"
+                              onChange={async (event) => {
+                                const file = event.target.files?.[0];
+                                if (!file || !selectedEventId) return;
+                                try {
+                                  setError("");
+                                  const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
+                                  setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
+                                  await loadEvent(token, selectedEventId);
+                                  await refreshEvents(token);
+                                } catch (caught) {
+                                  setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                                } finally {
+                                  event.currentTarget.value = "";
+                                }
+                              }}
+                            />
+                          </label>
+                          {slot.filename ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSlot(slot.slot_number)}>Delete</button> : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
                 </div>
-              ) : null}
-            </div>
-          </SectionCard>
+              ) : (
+                <p className="hint">Create or select an event before uploading turnpoint files.</p>
+              )}
+            </SectionCard>
+          </div>
         </div>
-        <SectionCard title="Scoring parameters" description="AirScore-style event defaults for GAP scoring. New task drafts inherit the core values for the selected event.">
-          {eventEditorId ? (
-            <form className="stack form-block" onSubmit={saveEvent}>
-              <label className="stack compact">
-                <span>Scoring formula</span>
-                <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
-                  {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Nominal distance (km)</span>
-                  <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} />
-                </label>
-                <label className="stack compact">
-                  <span>Nominal time (hours)</span>
-                  <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} />
-                </label>
-              </div>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Nominal launch</span>
-                  <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} />
-                </label>
-                <label className="stack compact">
-                  <span>Minimum distance (km)</span>
-                  <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
-                </label>
-              </div>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Nominal goal (%)</span>
-                  <input type="number" step="0.01" value={eventForm.nominal_goal_percent} onChange={(event) => setEventForm({ ...eventForm, nominal_goal_percent: Number(event.target.value) })} />
-                </label>
-                <label className="stack compact">
-                  <span>Score-back time (minutes)</span>
-                  <input type="number" value={eventForm.score_back_time_minutes} onChange={(event) => setEventForm({ ...eventForm, score_back_time_minutes: Number(event.target.value) })} />
-                </label>
-              </div>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Goal / SS penalty</span>
-                  <input type="number" step="0.1" value={eventForm.goal_ss_penalty} onChange={(event) => setEventForm({ ...eventForm, goal_ss_penalty: Number(event.target.value) })} />
-                </label>
-                <label className="stack compact">
-                  <span>Stopped-task glide bonus</span>
-                  <input type="number" step="0.1" value={eventForm.stopped_glide_bonus} onChange={(event) => setEventForm({ ...eventForm, stopped_glide_bonus: Number(event.target.value) })} />
-                </label>
-              </div>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Jump-the-gun factor</span>
-                  <input type="number" step="0.1" value={eventForm.jump_the_gun_factor} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_factor: Number(event.target.value) })} />
-                </label>
-                <label className="stack compact">
-                  <span>Jump-the-gun max (seconds)</span>
-                  <input type="number" value={eventForm.jump_the_gun_max_seconds} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_max_seconds: Number(event.target.value) })} />
-                </label>
-              </div>
-              <div className="three-up">
-                <label className="record-card checkbox-card">
-                  <input type="checkbox" checked={eventForm.use_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_distance_points: event.target.checked })} />
-                  <span>Distance points</span>
-                </label>
-                <label className="record-card checkbox-card">
-                  <input type="checkbox" checked={eventForm.use_time_points} onChange={(event) => setEventForm({ ...eventForm, use_time_points: event.target.checked })} />
-                  <span>Time points</span>
-                </label>
-                <label className="record-card checkbox-card">
-                  <input type="checkbox" checked={eventForm.use_leading_points} onChange={(event) => setEventForm({ ...eventForm, use_leading_points: event.target.checked })} />
-                  <span>Leading points</span>
-                </label>
-                <label className="record-card checkbox-card">
-                  <input type="checkbox" checked={eventForm.use_arrival_position_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_position_points: event.target.checked })} />
-                  <span>Arrival position points</span>
-                </label>
-                <label className="record-card checkbox-card">
-                  <input type="checkbox" checked={eventForm.use_arrival_time_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_time_points: event.target.checked })} />
-                  <span>Arrival time points</span>
-                </label>
-                <label className="record-card checkbox-card">
-                  <input type="checkbox" checked={eventForm.use_departure_points} onChange={(event) => setEventForm({ ...eventForm, use_departure_points: event.target.checked })} />
-                  <span>Departure points</span>
-                </label>
-              </div>
-              <label className="stack compact">
-                <span>Penalty rules JSON</span>
-                <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={4} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
-              </label>
-              <p className="hint">Formula choices and labels follow the AirScore/GAP workflow, while the current MVP scorer still uses the stored event config as its setup source rather than full AirScore parity for every toggle yet.</p>
-              {user?.role === "admin" ? <button type="submit">Save scoring parameters</button> : null}
-            </form>
-          ) : (
-            <p className="hint">Create or select an event to define its scoring defaults.</p>
-          )}
-        </SectionCard>
         {renderParticipantCards()}
       </div>
     );
