@@ -363,7 +363,11 @@ export function TaskMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const turnpointsRef = useRef(turnpoints);
+  const taskPointsRef = useRef(taskPoints);
+  const optimizedRouteRef = useRef(optimizedRoute);
+  const trackRef = useRef(track);
   const turnpointSignatureRef = useRef("");
+  const taskSignatureRef = useRef("");
   const trackSignatureRef = useRef("");
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
@@ -429,6 +433,18 @@ export function TaskMap({
   }, [turnpoints]);
 
   useEffect(() => {
+    taskPointsRef.current = taskPoints;
+  }, [taskPoints]);
+
+  useEffect(() => {
+    optimizedRouteRef.current = optimizedRoute;
+  }, [optimizedRoute]);
+
+  useEffect(() => {
+    trackRef.current = track;
+  }, [track]);
+
+  useEffect(() => {
     editableRef.current = editable;
     onSelectTurnpointRef.current = onSelectTurnpoint;
   }, [editable, onSelectTurnpoint]);
@@ -477,7 +493,10 @@ export function TaskMap({
         const fullscreenElement = document.fullscreenElement ?? ((document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ?? null);
         setIsFullscreen(fullscreenElement === shell);
         window.setTimeout(() => map.resize(), 0);
-        window.setTimeout(() => map.resize(), 150);
+        window.setTimeout(() => {
+          map.resize();
+          fitToData(map, turnpointsRef.current, taskPointsRef.current, optimizedRouteRef.current, trackRef.current ?? null);
+        }, 150);
       };
       document.addEventListener("fullscreenchange", handleFullscreenChange);
       document.addEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
@@ -508,8 +527,10 @@ export function TaskMap({
       return;
     }
     const nextTurnpointSignature = turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(4)}:${turnpoint.longitude.toFixed(4)}`).join("|");
+    const nextTaskSignature = taskPoints.map((point) => `${point.position}:${point.point_type}:${point.radius_m}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`).join("|");
     const nextTrackSignature = track ? `${track.features.length}:${JSON.stringify(track.features[0]?.geometry?.coordinates?.[0] ?? [])}` : "";
     const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
+    const shouldFitToTask = nextTaskSignature !== taskSignatureRef.current;
     const shouldFitToTrack = nextTrackSignature !== trackSignatureRef.current;
 
     const syncData = () => {
@@ -525,16 +546,17 @@ export function TaskMap({
       ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
       ensureMapLayers(map);
       map.resize();
-      if (shouldFitToTurnpoints || shouldFitToTrack) {
+      if (shouldFitToTurnpoints || shouldFitToTask || shouldFitToTrack) {
         fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
       }
       window.setTimeout(() => {
         map.resize();
-        if (shouldFitToTurnpoints || shouldFitToTrack) {
+        if (shouldFitToTurnpoints || shouldFitToTask || shouldFitToTrack) {
           fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
         }
       }, 100);
       turnpointSignatureRef.current = nextTurnpointSignature;
+      taskSignatureRef.current = nextTaskSignature;
       trackSignatureRef.current = nextTrackSignature;
     };
     if (map.isStyleLoaded()) {

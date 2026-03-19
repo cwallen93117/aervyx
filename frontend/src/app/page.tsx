@@ -511,11 +511,12 @@ export default function HomePage() {
     const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
     const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
     const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
-    const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
-    const [turnpointSearch, setTurnpointSearch] = useState("");
-    const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
-    const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
-    const [sidebarCompact, setSidebarCompact] = useState(false);
+  const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
+  const [turnpointSearch, setTurnpointSearch] = useState("");
+  const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
+  const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
+  const [scoringFeedback, setScoringFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [sidebarCompact, setSidebarCompact] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
 
@@ -680,6 +681,7 @@ export default function HomePage() {
       setResults([]);
       setUploads([]);
       setTaskPointAdvanced(false);
+      setScoringFeedback(null);
       setTaskDraft(taskDraftFromEvent(activeEvent));
     }
   }
@@ -703,6 +705,7 @@ export default function HomePage() {
     setTrack(null);
     setRadiusDrafts({});
     setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
+    setScoringFeedback(null);
     setTaskDraft({
       id: task.id,
       name: task.name,
@@ -785,6 +788,7 @@ export default function HomePage() {
     setEventForm(blankEventForm());
     setTaskDraft(blankTaskDraft());
     setTaskPointAdvanced(false);
+    setScoringFeedback(null);
     setAuthMode("login");
     setMessage("Sign in or create a pilot account to continue.");
     setError("");
@@ -1004,6 +1008,7 @@ export default function HomePage() {
     setResults([]);
     setUploads([]);
     setTaskPointAdvanced(false);
+    setScoringFeedback(null);
     setRadiusDrafts({});
     setTaskDraft({
       ...taskDraftFromEvent(selectedEvent),
@@ -1195,17 +1200,20 @@ export default function HomePage() {
   async function rescoreSelectedTask() {
     if (!token) return;
     if (!selectedTaskId) {
-      setMessage("");
-      setError("Select a task before running scoring.");
+      setScoringFeedback({ type: "error", text: "Select a task before running scoring." });
       return;
     }
-    setError("");
-    await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
-    setMessage("Scoring completed for the selected task.");
-    await loadTask(token, selectedTaskId);
-    if (selectedEventId) {
-      const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
-      setPilotSummary(loadedSummary);
+    try {
+      setScoringFeedback(null);
+      await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
+      await loadTask(token, selectedTaskId);
+      if (selectedEventId) {
+        const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
+        setPilotSummary(loadedSummary);
+      }
+      setScoringFeedback({ type: "success", text: "Scoring completed for the selected task." });
+    } catch (caught) {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Scoring failed." });
     }
   }
 
@@ -2201,11 +2209,12 @@ export default function HomePage() {
                   }}
                 />
               </label>
-              <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
-              <div className="button-row">
+                <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
+                <div className="button-row">
                   <button type="button" onClick={() => void rescoreSelectedTask()}>Run scoring</button>
+                  {scoringFeedback ? <div className={`status-chip ${scoringFeedback.type}`}>{scoringFeedback.text}</div> : null}
                 </div>
-              {uploads.length ? (
+                {uploads.length ? (
                 <div className="stack">
                   {uploads.map((upload) => (
                     <div key={upload.id} className="record-card upload-record">
