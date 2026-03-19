@@ -131,7 +131,7 @@ function blankEventForm() {
     location: "",
     starts_on: "2026-04-18",
     ends_on: "2026-04-24",
-    timezone: "America/Los_Angeles",
+    timezone: "",
     scoring_formula: "GAP2021",
     nominal_distance_km: 60,
     nominal_time_hours: 1.5,
@@ -887,11 +887,11 @@ export default function HomePage() {
             <form className="stack form-block compact-event-form" onSubmit={saveEvent}>
               <label className="stack compact">
                 <span>Event name</span>
-                <input placeholder="Spring Ridge Open" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
+                <input placeholder="Enter event name" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
               </label>
               <label className="stack compact">
                 <span>Location</span>
-                <input placeholder="Owens Valley, CA" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
+                <input placeholder="Enter location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
               </label>
               <div className="inline-grid">
                 <label className="stack compact">
@@ -905,7 +905,7 @@ export default function HomePage() {
               </div>
               <label className="stack compact">
                 <span>Timezone</span>
-                <input placeholder="America/Los_Angeles" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+                <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
               </label>
               {user?.role === "admin" ? (
                 <div className="button-row">
