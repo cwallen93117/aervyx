@@ -9,6 +9,13 @@ type XYPoint = {
   y: number;
 };
 
+type LegMetric = {
+  index: number;
+  centerDistanceKm: number;
+  optimizedDistanceKm: number;
+  midpoint: [number, number];
+};
+
 function toRadians(degrees: number): number {
   return (degrees * Math.PI) / 180;
 }
@@ -86,7 +93,7 @@ function toLngLat(referenceLatitude: number, referenceLongitude: number, point: 
 
 export function computeTaskOptimization(points: RoutePointLike[]) {
   if (!points.length) {
-    return { totalDistanceKm: 0, optimizedDistanceKm: 0, routeCoordinates: [] as [number, number][] };
+    return { totalDistanceKm: 0, optimizedDistanceKm: 0, routeCoordinates: [] as [number, number][], legMetrics: [] as LegMetric[] };
   }
 
   if (points.length === 1) {
@@ -94,6 +101,7 @@ export function computeTaskOptimization(points: RoutePointLike[]) {
       totalDistanceKm: 0,
       optimizedDistanceKm: 0,
       routeCoordinates: [[points[0].longitude, points[0].latitude]] as [number, number][],
+      legMetrics: [] as LegMetric[],
     };
   }
 
@@ -122,14 +130,27 @@ export function computeTaskOptimization(points: RoutePointLike[]) {
 
   let totalDistanceKm = 0;
   let optimizedDistanceKm = 0;
+  const legMetrics: LegMetric[] = [];
   for (let index = 1; index < points.length; index += 1) {
-    totalDistanceKm += haversineKm(points[index - 1], points[index]);
-    optimizedDistanceKm += distance(optimized[index - 1], optimized[index]);
+    const centerDistanceKm = haversineKm(points[index - 1], points[index]);
+    const optimizedLegDistanceKm = distance(optimized[index - 1], optimized[index]);
+    totalDistanceKm += centerDistanceKm;
+    optimizedDistanceKm += optimizedLegDistanceKm;
+    legMetrics.push({
+      index,
+      centerDistanceKm,
+      optimizedDistanceKm: optimizedLegDistanceKm,
+      midpoint: toLngLat(referenceLatitude, referenceLongitude, {
+        x: (optimized[index - 1].x + optimized[index].x) / 2,
+        y: (optimized[index - 1].y + optimized[index].y) / 2,
+      }),
+    });
   }
 
   return {
     totalDistanceKm,
     optimizedDistanceKm,
     routeCoordinates: optimized.map((point) => toLngLat(referenceLatitude, referenceLongitude, point)),
+    legMetrics,
   };
 }

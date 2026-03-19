@@ -6,6 +6,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
 export type TrackCollection = { type: "FeatureCollection"; features: Array<{ type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: number[][] } }> };
+export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
 
 function createBasemapStyle(basemapMode: BasemapMode) {
@@ -141,6 +142,26 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
+  if (!map.getLayer("optimized-leg-labels")) {
+    map.addLayer({
+      id: "optimized-leg-labels",
+      type: "symbol",
+      source: "optimized-leg-labels",
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": 11,
+        "text-anchor": "center",
+        "text-offset": [0, -0.2],
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+      },
+      paint: {
+        "text-color": "#0f172a",
+        "text-halo-color": "rgba(255,255,255,0.96)",
+        "text-halo-width": 1.4,
+      },
+    });
+  }
   if (!map.getLayer("task-points-layer")) {
     map.addLayer({
       id: "task-points-layer",
@@ -201,7 +222,28 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
   map.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 0 });
 }
 
-export function TaskMap({ turnpoints, taskPoints, optimizedRoute = [], track, editable, onSelectTurnpoint }: { turnpoints: MapTurnpoint[]; taskPoints: MapTaskPoint[]; optimizedRoute?: [number, number][]; track: TrackCollection | null; editable: boolean; onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void }) {
+export function TaskMap({
+  turnpoints,
+  taskPoints,
+  optimizedRoute = [],
+  legMetrics = [],
+  totalDistanceKm = 0,
+  optimizedDistanceKm = 0,
+  track,
+  editable,
+  onSelectTurnpoint,
+}: {
+  turnpoints: MapTurnpoint[];
+  taskPoints: MapTaskPoint[];
+  optimizedRoute?: [number, number][];
+  legMetrics?: MapLegMetric[];
+  totalDistanceKm?: number;
+  optimizedDistanceKm?: number;
+  track: TrackCollection | null;
+  editable: boolean;
+  onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
+}) {
+  const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -215,6 +257,14 @@ export function TaskMap({ turnpoints, taskPoints, optimizedRoute = [], track, ed
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
+  const legLabelData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: legMetrics.map((leg) => ({
+      type: "Feature",
+      properties: { label: `${leg.optimizedDistanceKm.toFixed(1)} km` },
+      geometry: { type: "Point", coordinates: leg.midpoint },
+    })),
+  }), [legMetrics]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
 
   useEffect(() => {
@@ -240,7 +290,7 @@ export function TaskMap({ turnpoints, taskPoints, optimizedRoute = [], track, ed
         attributionControl: false,
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-      map.addControl(new maplibregl.FullscreenControl(), "top-right");
+      map.addControl(new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined }), "top-right");
       map.on("styledata", () => {
         map.resize();
       });
@@ -296,6 +346,7 @@ export function TaskMap({ turnpoints, taskPoints, optimizedRoute = [], track, ed
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
       ensureGeoJsonSource(map, "task-route", routeData as never);
       ensureGeoJsonSource(map, "optimized-route", optimizedRouteData as never);
+      ensureGeoJsonSource(map, "optimized-leg-labels", legLabelData as never);
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
       ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
       ensureMapLayers(map);
@@ -317,11 +368,21 @@ export function TaskMap({ turnpoints, taskPoints, optimizedRoute = [], track, ed
     } else {
       map.once("styledata", syncData);
     }
-  }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
+  }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
 
   return (
-    <div className="map-shell">
+    <div className="map-shell" ref={shellRef}>
       <div className="map-card" ref={containerRef} />
+      <div className="map-distance-overlay" aria-label="Task distance summary">
+        <div className="map-distance-box">
+          <strong>Total task</strong>
+          <span>{totalDistanceKm.toFixed(1)} km</span>
+        </div>
+        <div className="map-distance-box">
+          <strong>Optimized</strong>
+          <span>{optimizedDistanceKm.toFixed(1)} km</span>
+        </div>
+      </div>
       <label className="map-style-picker">
         <span>Map</span>
         <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>

@@ -1203,7 +1203,17 @@ export default function HomePage() {
                 </div>
               </div>
               <div className="task-map-panel">
-                <TaskMap turnpoints={turnpoints} taskPoints={taskDraft.points} optimizedRoute={taskDistanceMetrics.routeCoordinates} track={track} editable={user?.role === "admin"} onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined} />
+                <TaskMap
+                  turnpoints={turnpoints}
+                  taskPoints={taskDraft.points}
+                  optimizedRoute={taskDistanceMetrics.routeCoordinates}
+                  legMetrics={taskDistanceMetrics.legMetrics}
+                  totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
+                  optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
+                  track={track}
+                  editable={user?.role === "admin"}
+                  onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined}
+                />
                 <p className="hint">Launch, Start, ESS, and Goal are color-themed in both the list and map. The dashed line shows the current optimized course line through the waypoint cylinders.</p>
               </div>
             </div>

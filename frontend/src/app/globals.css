@@ -597,6 +597,19 @@ button { cursor: pointer; }
 
 .map-shell { position: relative; }
 
+.map-shell:fullscreen,
+.map-shell:-webkit-full-screen {
+  background: #0b1220;
+  padding: 0;
+}
+
+.map-shell:fullscreen .map-card,
+.map-shell:-webkit-full-screen .map-card {
+  height: 100vh;
+  border-radius: 0;
+  border: none;
+}
+
 .map-card .maplibregl-map,
 .map-card .maplibregl-canvas-container,
 .map-card .maplibregl-canvas {
@@ -627,6 +640,40 @@ button { cursor: pointer; }
   background: white;
   padding: 0.2rem 0.4rem;
   font-size: 0.78rem;
+}
+
+.map-distance-overlay {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
+  z-index: 2;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  pointer-events: none;
+}
+
+.map-distance-box {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 128px;
+  padding: 0.45rem 0.6rem;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(13, 30, 58, 0.16);
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 14px rgba(13, 30, 58, 0.12);
+}
+
+.map-distance-box strong {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.map-distance-box span {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 /* â”€â”€â”€ Task point table (dense, monospace data) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
