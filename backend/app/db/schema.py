@@ -75,9 +75,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text(statement))
         table_names = set(inspector.get_table_names())
         if "turnpoint_sources" in table_names and "enabled" not in turnpoint_source_columns:
-            connection.execute(text("ALTER TABLE turnpoint_sources ADD COLUMN enabled BOOLEAN DEFAULT 1"))
+            connection.execute(text("ALTER TABLE turnpoint_sources ADD COLUMN enabled BOOLEAN DEFAULT TRUE"))
         if "turnpoint_sources" in table_names:
-            connection.execute(text("UPDATE turnpoint_sources SET enabled = 1 WHERE enabled IS NULL"))
+            connection.execute(text("UPDATE turnpoint_sources SET enabled = TRUE WHERE enabled IS NULL"))
         if "airspace_sources" not in table_names:
             connection.execute(
                 text(
@@ -91,7 +91,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       file_format VARCHAR(20) NOT NULL,
                       sha256 VARCHAR(64) NOT NULL,
                       stored_path TEXT NOT NULL,
-                      enabled BOOLEAN DEFAULT 1,
+                      enabled BOOLEAN DEFAULT TRUE,
                       uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       FOREIGN KEY(event_id) REFERENCES events (id) ON DELETE CASCADE
                     )
@@ -102,7 +102,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_airspace_sources_kind ON airspace_sources (kind)"))
             connection.execute(text("CREATE INDEX ix_airspace_sources_sha256 ON airspace_sources (sha256)"))
         elif "enabled" not in airspace_source_columns:
-            connection.execute(text("ALTER TABLE airspace_sources ADD COLUMN enabled BOOLEAN DEFAULT 1"))
+            connection.execute(text("ALTER TABLE airspace_sources ADD COLUMN enabled BOOLEAN DEFAULT TRUE"))
         if "airspace_regions" not in table_names:
             connection.execute(
                 text(
