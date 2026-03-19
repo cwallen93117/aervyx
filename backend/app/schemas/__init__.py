@@ -282,3 +282,4 @@ class PilotSummaryResponse(BaseModel):
     total_score_points: float
     tasks_scored: int
     best_distance_km: float
+    task_scores: dict[int, float] = Field(default_factory=dict)

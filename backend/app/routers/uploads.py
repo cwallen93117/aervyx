@@ -4,13 +4,13 @@ import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import EventPilot, IGCUpload, Pilot, Task, TrackPoint, User
+from app.models import EventPilot, IGCUpload, Pilot, ScoreResult, Task, TrackPoint, User
 from app.schemas import UploadResponse
 from app.services.audit import log_action
 from app.services.igc import parse_igc
@@ -57,6 +57,31 @@ def list_uploads(task_id: int, user: User = Depends(get_current_user), session: 
         query = query.where(IGCUpload.pilot_id == user.pilot_id)
     uploads = session.scalars(query).all()
     return [UploadResponse.model_validate(upload) for upload in uploads]
+
+
+@router.delete("/api/uploads/{upload_id}")
+def delete_upload(upload_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> dict:
+    upload = session.get(IGCUpload, upload_id)
+    if upload is None:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    if user.role == "pilot" and user.pilot_id != upload.pilot_id:
+        raise HTTPException(status_code=403, detail="Pilots can only delete their own uploads")
+
+    stored_path = Path(upload.stored_path)
+    session.execute(delete(ScoreResult).where(ScoreResult.upload_id == upload_id))
+    session.execute(delete(TrackPoint).where(TrackPoint.upload_id == upload_id))
+    session.execute(delete(IGCUpload).where(IGCUpload.id == upload_id))
+    log_action(session, actor_user_id=user.id, action="igc.delete", entity_type="igc_upload", entity_id=str(upload_id), details={"task_id": upload.task_id, "pilot_id": upload.pilot_id, "sha256": upload.sha256})
+    session.commit()
+
+    if stored_path.exists():
+        stored_path.unlink()
+        try:
+            stored_path.parent.rmdir()
+        except OSError:
+            pass
+
+    return {"status": "deleted", "upload_id": upload_id}
 
 
 @router.get("/api/uploads/{upload_id}/track")

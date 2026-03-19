@@ -37,11 +37,20 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     summaries: list[PilotSummaryResponse] = []
     for pilot_id in pilot_ids:
         pilot = session.get(Pilot, pilot_id)
+        task_scores = {
+            int(task_id): float(score_points or 0)
+            for task_id, score_points in session.execute(
+                select(ScoreResult.task_id, ScoreResult.score_points)
+                .join(Task, Task.id == ScoreResult.task_id)
+                .where(Task.event_id == event_id, ScoreResult.pilot_id == pilot_id)
+                .order_by(ScoreResult.task_id.asc())
+            ).all()
+        }
         aggregates = session.execute(
             select(func.coalesce(func.sum(ScoreResult.score_points), 0), func.count(ScoreResult.id), func.coalesce(func.max(ScoreResult.distance_flown_km), 0))
             .select_from(ScoreResult)
             .join(Task, Task.id == ScoreResult.task_id)
             .where(Task.event_id == event_id, ScoreResult.pilot_id == pilot_id)
         ).one()
-        summaries.append(PilotSummaryResponse(pilot_id=pilot_id, pilot_name=f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown", competition_number=pilot.competition_number if pilot else None, total_score_points=float(aggregates[0] or 0), tasks_scored=int(aggregates[1] or 0), best_distance_km=float(aggregates[2] or 0)))
+        summaries.append(PilotSummaryResponse(pilot_id=pilot_id, pilot_name=f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown", competition_number=pilot.competition_number if pilot else None, total_score_points=float(aggregates[0] or 0), tasks_scored=int(aggregates[1] or 0), best_distance_km=float(aggregates[2] or 0), task_scores=task_scores))
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

@@ -541,8 +541,12 @@ export function TaskMap({
   }, [basemapMode, turnpointData, airspaceData, airspaceLabelData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
 
   return (
-    <div className={isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"} ref={shellRef}>
-      <div className="map-card" ref={containerRef} />
+    <div
+      className={isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}
+      ref={shellRef}
+      style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
+    >
+      <div className="map-card" ref={containerRef} style={isFullscreen ? { height: "100vh", minHeight: "100vh" } : undefined} />
       <div className="map-distance-overlay" aria-label="Task distance summary">
         <div className="map-distance-box">
           <strong>Total task</strong>

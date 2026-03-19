@@ -92,8 +92,8 @@ type TaskRecord = {
   published_at: string | null;
   points: TaskPointRecord[];
 };
-type ResultRecord = { id: number; upload_id: number; pilot_name: string; status: string; distance_flown_km: number; score_points: number; rank: number | null };
-type PilotSummaryRecord = { pilot_id: number; pilot_name: string; total_score_points: number; tasks_scored: number; best_distance_km: number };
+type ResultRecord = { id: number; upload_id: number; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; score_points: number; rank: number | null; details_json: Record<string, unknown> };
+type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number> };
 type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; metadata_json: Record<string, unknown> };
 type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
 type AirspaceSourceRecord = {
@@ -293,6 +293,34 @@ function formatMeters(value: number): string {
   return meterFormatter.format(Math.max(0, Math.round(value || 0)));
 }
 
+function formatClockTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function formatElapsedSeconds(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const totalSeconds = Math.max(0, Math.round(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatResultPoints(value: number | null | undefined): string {
+  return (value ?? 0).toFixed(1);
+}
+
+function isAdvancedPointType(pointType: string): boolean {
+  return pointType === "launch" || pointType === "ESS";
+}
+
+function toSimplePointType(pointType: string): string {
+  if (pointType === "launch") return "start";
+  if (pointType === "ESS") return "goal";
+  return pointType;
+}
+
 function sanitizeMeterInput(rawValue: string): string {
   return rawValue.replace(/[^\d]/g, "").replace(/^0+(?=\d)/, "");
 }
@@ -427,11 +455,13 @@ export default function HomePage() {
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
   const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
+  const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
+  const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
   const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskDraft.points), [taskDraft.points]);
   const currentTaskTypeBehavior = useMemo(() => taskTypeBehavior(taskDraft.task_type), [taskDraft.task_type]);
   const availableDirectoryPilots = useMemo(
@@ -448,6 +478,10 @@ export default function HomePage() {
       return enabled.has(region.display_category);
     });
   }, [airspaces, eventForm.show_restricted_fields, eventForm.visible_airspace_classes_json]);
+  const scoredTasks = useMemo(
+    () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)).sort((left, right) => left.id - right.id),
+    [tasks, pilotSummary],
+  );
   const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
 
   useEffect(() => {
@@ -568,6 +602,7 @@ export default function HomePage() {
       setSelectedTaskId(null);
       setResults([]);
       setUploads([]);
+      setTaskPointAdvanced(false);
       setTaskDraft(taskDraftFromEvent(activeEvent));
     }
   }
@@ -590,6 +625,7 @@ export default function HomePage() {
     setUploads(loadedUploads);
     setTrack(null);
     setRadiusDrafts({});
+    setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
     setTaskDraft({
       id: task.id,
       name: task.name,
@@ -671,6 +707,7 @@ export default function HomePage() {
     setTrack(null);
     setEventForm(blankEventForm());
     setTaskDraft(blankTaskDraft());
+    setTaskPointAdvanced(false);
     setAuthMode("login");
     setMessage("Sign in or create a pilot account to continue.");
     setError("");
@@ -783,6 +820,7 @@ export default function HomePage() {
       setPilotSummary([]);
       setUploads([]);
       setTrack(null);
+      setTaskPointAdvanced(false);
       setTaskDraft(taskDraftFromEvent(null));
     }
   }
@@ -868,11 +906,12 @@ export default function HomePage() {
     setTrack(null);
     setResults([]);
     setUploads([]);
+    setTaskPointAdvanced(false);
     setTaskDraft(taskDraftFromEvent(selectedEvent));
   }
 
   function addTurnpoint(turnpoint: MapTurnpoint) {
-    setTaskDraft((current) => ({ ...current, points: [...current.points, { position: current.points.length + 1, point_type: current.points.length === 0 ? "launch" : "turnpoint", radius_m: current.points.length === 0 ? 300 : 400, turnpoint_id: turnpoint.id, name: turnpoint.name, latitude: turnpoint.latitude, longitude: turnpoint.longitude }] }));
+    setTaskDraft((current) => ({ ...current, points: [...current.points, { position: current.points.length + 1, point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint", radius_m: current.points.length === 0 ? 300 : 400, turnpoint_id: turnpoint.id, name: turnpoint.name, latitude: turnpoint.latitude, longitude: turnpoint.longitude }] }));
   }
 
   function updatePoint(index: number, patch: Partial<TaskPointRecord>) {
@@ -989,6 +1028,28 @@ export default function HomePage() {
     const pilotLabel = pilotId ? pilotNameById.get(pilotId) ?? `pilot ${pilotId}` : "pilot";
     setMessage(`Uploaded ${file.name} for ${pilotLabel}.`);
     await loadTask(token, selectedTaskId);
+  }
+
+  async function deleteUpload(upload: UploadRecord) {
+    if (!token || !selectedTaskId) return;
+    await apiFetch(`/api/uploads/${upload.id}`, token, { method: "DELETE" });
+    setMessage(`Deleted ${upload.filename}.`);
+    await loadTask(token, selectedTaskId);
+    if (selectedEventId) {
+      const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
+      setPilotSummary(loadedSummary);
+    }
+    setTrack(null);
+  }
+
+  function toggleTaskPointAdvanced(checked: boolean) {
+    setTaskPointAdvanced(checked);
+    if (!checked) {
+      setTaskDraft((current) => ({
+        ...current,
+        points: current.points.map((point) => ({ ...point, point_type: toSimplePointType(point.point_type) })),
+      }));
+    }
   }
 
   async function rescoreSelectedTask() {
@@ -1641,14 +1702,22 @@ export default function HomePage() {
               <div className="task-turnpoint-rail">
                 <div className="section-header">
                   <h3>Task turnpoints</h3>
-                  <span>{taskDraft.points.length} selected</span>
+                  <div className="task-turnpoint-toolbar">
+                    {user?.role === "admin" ? (
+                      <label className="task-advanced-toggle">
+                        <input type="checkbox" checked={taskPointAdvanced} onChange={(event) => toggleTaskPointAdvanced(event.target.checked)} />
+                        <span>Advanced</span>
+                      </label>
+                    ) : null}
+                    <span>{taskDraft.points.length} selected</span>
+                  </div>
                 </div>
                 <p className="hint">{user?.role === "admin" ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
                 <div className="task-point-list">
                   {taskDraft.points.map((point, index) => (
                     <div
                       key={`${point.turnpoint_id ?? point.name}-${index}`}
-                      className={`task-point-card point-type-${point.point_type.toLowerCase()}`}
+                      className={`task-point-card point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
                       draggable={user?.role === "admin"}
                       onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
                       onDragOver={(event) => event.preventDefault()}
@@ -1661,19 +1730,29 @@ export default function HomePage() {
                         <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
                         <strong>{point.name}</strong>
                         <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? "No waypoint code"}</span>
-                        <span className="task-point-type-badge">{pointTypeLabels[point.point_type] ?? point.point_type}</span>
+                        <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
                       </div>
                       <div className="task-point-card-grid">
                         {user?.role === "admin" ? (
                           <>
                             <label className="stack compact">
                               <span>Type</span>
-                              <select value={point.point_type} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                                <option value="launch">launch</option>
-                                <option value="start">start</option>
-                                <option value="turnpoint">turnpoint</option>
-                                <option value="ESS">ESS</option>
-                                <option value="goal">goal</option>
+                              <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                                {taskPointAdvanced ? (
+                                  <>
+                                    <option value="launch">launch</option>
+                                    <option value="start">start</option>
+                                    <option value="turnpoint">turnpoint</option>
+                                    <option value="ESS">ESS</option>
+                                    <option value="goal">goal</option>
+                                  </>
+                                ) : (
+                                  <>
+                                    <option value="start">start</option>
+                                    <option value="turnpoint">turnpoint</option>
+                                    <option value="goal">goal</option>
+                                  </>
+                                )}
                               </select>
                             </label>
                             <label className="stack compact">
@@ -1695,7 +1774,7 @@ export default function HomePage() {
                           <>
                             <div className="record-card">
                               <strong>Type</strong>
-                              <span>{pointTypeLabels[point.point_type] ?? point.point_type}</span>
+                              <span>{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
                             </div>
                             <div className="record-card">
                               <strong>Radius</strong>
@@ -1713,6 +1792,7 @@ export default function HomePage() {
                   ))}
                   {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map to add them to this task.</p> : null}
                 </div>
+                <p className="hint">{taskPointAdvanced ? "Advanced mode keeps Launch, Start, ESS, and Goal separate for scoring." : "Simple mode uses Start, Turnpoint, and Goal only. Launch scores as Start, and ESS scores as Goal."}</p>
               </div>
               <div className="task-map-panel">
                 <TaskMap
