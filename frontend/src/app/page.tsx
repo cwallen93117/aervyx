@@ -1319,6 +1319,18 @@ export default function HomePage() {
     }
   }
 
+  async function unpublishTask() {
+    if (!token || !taskDraft.id) return;
+    try {
+      setTaskFeedback(null);
+      const unpublishedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}/unpublish`, token, { method: "POST" });
+      setTaskFeedback({ type: "success", text: `Unpublished task ${taskDraft.name}.` });
+      if (selectedEventId) await loadEvent(token, selectedEventId, undefined, undefined, unpublishedTask.id);
+    } catch (caught) {
+      setTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task unpublish failed." });
+    }
+  }
+
   async function deleteTask() {
     if (!token || !taskDraft.id || !selectedEventId) return;
     const confirmed = window.confirm(`Delete task "${taskDraft.name}"? This will remove its uploaded tracks and score results for this task.`);
@@ -2428,6 +2440,7 @@ export default function HomePage() {
                 <div className="button-row">
                   <button type="button" onClick={saveTask}>Save task</button>
                   <button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button>
+                  <button type="button" className="secondary" onClick={unpublishTask} disabled={!taskDraft.id || selectedTask?.status !== "published"}>Unpublish task</button>
                   <button type="button" className="ghost-button danger-button task-delete-button" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
                 </div>
                 {taskFeedback ? <div className={`status-chip ${taskFeedback.type}`}>{taskFeedback.text}</div> : null}

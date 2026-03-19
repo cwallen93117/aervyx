@@ -171,6 +171,19 @@ def publish_task(task_id: int, admin: User = Depends(require_admin), session: Se
     return _task_response(session, task)
 
 
+@router.post("/api/tasks/{task_id}/unpublish", response_model=TaskResponse)
+def unpublish_task(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TaskResponse:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.status = "draft"
+    task.published_at = None
+    task.version += 1
+    log_action(session, actor_user_id=admin.id, action="task.unpublish", entity_type="task", entity_id=str(task.id), details={"version": task.version})
+    session.commit()
+    return _task_response(session, task)
+
+
 @router.delete("/api/tasks/{task_id}", status_code=204)
 def delete_task(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
     task = session.get(Task, task_id)

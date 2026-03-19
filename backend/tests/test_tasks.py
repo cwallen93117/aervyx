@@ -1,11 +1,11 @@
-from datetime import date
+from datetime import UTC, date, datetime
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.tasks import _task_response, delete_task
+from app.routers.tasks import _task_response, delete_task, unpublish_task
 
 
 def _session() -> Session:
@@ -229,3 +229,30 @@ def test_delete_task_removes_task_and_points() -> None:
 
     assert session.get(Task, task.id) is None
     assert session.query(TaskPoint).filter(TaskPoint.task_id == task.id).count() == 0
+
+
+def test_unpublish_task_marks_task_as_draft() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    event = Event(
+        name="Publish Event",
+        location="Tow Ridge",
+        starts_on=date(2026, 3, 18),
+        ends_on=date(2026, 3, 19),
+        timezone="America/New_York",
+    )
+    session.add_all([admin, event])
+    session.flush()
+
+    task = Task(event_id=event.id, name="Task 3", status="published", published_at=datetime(2026, 3, 18, tzinfo=UTC))
+    session.add(task)
+    session.commit()
+
+    response = unpublish_task(task.id, admin, session)
+
+    assert response.status == "draft"
+    assert response.published_at is None
+    refreshed = session.get(Task, task.id)
+    assert refreshed is not None
+    assert refreshed.status == "draft"
+    assert refreshed.published_at is None
