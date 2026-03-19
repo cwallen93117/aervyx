@@ -1319,6 +1319,24 @@ export default function HomePage() {
     }
   }
 
+  async function deleteTask() {
+    if (!token || !taskDraft.id || !selectedEventId) return;
+    const confirmed = window.confirm(`Delete task "${taskDraft.name}"? This will remove its uploaded tracks and score results for this task.`);
+    if (!confirmed) return;
+    try {
+      setTaskFeedback(null);
+      const remainingTasks = tasks.filter((task) => task.id !== taskDraft.id);
+      const fallbackTaskId = remainingTasks[0]?.id ?? null;
+      await apiFetch<void>(`/api/tasks/${taskDraft.id}`, token, { method: "DELETE" });
+      setTaskFeedback({ type: "success", text: `Deleted task ${taskDraft.name}.` });
+      await loadEvent(token, selectedEventId, undefined, undefined, fallbackTaskId);
+      await refreshEvents(token);
+      setActiveSection("tasks");
+    } catch (caught) {
+      setTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task delete failed." });
+    }
+  }
+
   async function uploadIgc(file: File, pilotId?: number | null) {
     if (!token || !selectedTaskId) return;
     setUploadFeedback({ type: "pending", text: `Uploading ${file.name}...` });
@@ -2407,7 +2425,7 @@ export default function HomePage() {
             </div>
             {user?.role === "admin" ? (
               <div className="stack compact task-action-stack">
-                <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button></div>
+                <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button><button type="button" className="ghost-button danger-button" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button></div>
                 {taskFeedback ? <div className={`status-chip ${taskFeedback.type}`}>{taskFeedback.text}</div> : null}
               </div>
             ) : null}

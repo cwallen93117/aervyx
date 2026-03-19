@@ -4,8 +4,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource
-from app.routers.tasks import _task_response
+from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.routers.tasks import _task_response, delete_task
 
 
 def _session() -> Session:
@@ -193,3 +193,39 @@ def test_task_response_maps_legacy_task_types_to_new_labels() -> None:
     response = _task_response(session, task)
 
     assert response.task_type == "elapsed_time"
+
+
+def test_delete_task_removes_task_and_points() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    event = Event(
+        name="Delete Task Event",
+        location="Tow Ridge",
+        starts_on=date(2026, 3, 18),
+        ends_on=date(2026, 3, 19),
+        timezone="America/New_York",
+    )
+    session.add_all([admin, event])
+    session.flush()
+
+    task = Task(event_id=event.id, name="Task 9")
+    session.add(task)
+    session.flush()
+    session.add(
+        TaskPoint(
+            task_id=task.id,
+            position=1,
+            point_type="goal",
+            radius_m=400,
+            turnpoint_id=None,
+            name="Goal",
+            latitude=38.0,
+            longitude=-75.0,
+        )
+    )
+    session.commit()
+
+    delete_task(task.id, admin, session)
+
+    assert session.get(Task, task.id) is None
+    assert session.query(TaskPoint).filter(TaskPoint.task_id == task.id).count() == 0

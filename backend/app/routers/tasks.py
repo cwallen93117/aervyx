@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.models import Event, IGCUpload, ScoreResult, Task, TaskPoint, TrackPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse
 from app.services.audit import log_action
 
@@ -169,3 +169,28 @@ def publish_task(task_id: int, admin: User = Depends(require_admin), session: Se
     log_action(session, actor_user_id=admin.id, action="task.publish", entity_type="task", entity_id=str(task.id), details={"version": task.version})
     session.commit()
     return _task_response(session, task)
+
+
+@router.delete("/api/tasks/{task_id}", status_code=204)
+def delete_task(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task_name = task.name
+    event_id = task.event_id
+    upload_ids = session.scalars(select(IGCUpload.id).where(IGCUpload.task_id == task.id)).all()
+    if upload_ids:
+        session.query(TrackPoint).filter(TrackPoint.upload_id.in_(upload_ids)).delete(synchronize_session=False)
+    session.query(ScoreResult).filter(ScoreResult.task_id == task.id).delete(synchronize_session=False)
+    session.query(IGCUpload).filter(IGCUpload.task_id == task.id).delete(synchronize_session=False)
+    session.query(TaskPoint).filter(TaskPoint.task_id == task.id).delete(synchronize_session=False)
+    session.delete(task)
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="task.delete",
+        entity_type="task",
+        entity_id=str(task_id),
+        details={"name": task_name, "event_id": event_id},
+    )
+    session.commit()
