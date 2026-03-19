@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 
 import { AppSidebar } from "../components/AppSidebar";
 import { SectionCard } from "../components/SectionCard";
@@ -118,11 +118,12 @@ const pointTypeLabels: Record<string, string> = {
   goal: "Goal",
 };
 const taskTypeOptions = [
+  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
   { value: "race_to_goal", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
 ] as const;
+const meterFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 
 function blankEventForm() {
   return {
@@ -194,6 +195,18 @@ function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftSta
     minimum_distance_km: event?.minimum_distance_km ?? 5,
     penalties_text: JSON.stringify(event?.penalties_json ?? {}, null, 2),
   });
+}
+
+function formatMeters(value: number): string {
+  return meterFormatter.format(Math.max(0, Math.round(value || 0)));
+}
+
+function sanitizeMeterInput(rawValue: string): string {
+  return rawValue.replace(/[^\d]/g, "").replace(/^0+(?=\d)/, "");
+}
+
+function taskPointInputKey(point: TaskPointRecord, index: number): string {
+  return `${point.id ?? point.turnpoint_id ?? point.name}-${index}`;
 }
 
 function normalizeTimeValue(value: string | null | undefined): string {
@@ -284,6 +297,7 @@ export default function HomePage() {
   const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
   const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
   const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
+  const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
@@ -341,6 +355,7 @@ export default function HomePage() {
       setResults([]);
       setUploads([]);
       setTrack(null);
+      setRadiusDrafts({});
       setTaskDraft(taskDraftFromEvent(null));
     }
   }
@@ -381,6 +396,7 @@ export default function HomePage() {
     setTasks(visibleTasks);
     setPilotSummary(loadedSummary);
     setTrack(null);
+    setRadiusDrafts({});
     if (visibleTasks[0]) {
       await loadTask(activeToken, visibleTasks[0].id, visibleTasks[0]);
     } else {
@@ -408,6 +424,7 @@ export default function HomePage() {
     setResults(loadedResults);
     setUploads(loadedUploads);
     setTrack(null);
+    setRadiusDrafts({});
     setTaskDraft({
       id: task.id,
       name: task.name,
@@ -638,7 +655,51 @@ export default function HomePage() {
     setTaskDraft((current) => ({ ...current, points: current.points.map((point, pointIndex) => (pointIndex === index ? { ...point, ...patch } : point)).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
   }
 
+  function handleRadiusInputChange(index: number, point: TaskPointRecord, rawValue: string) {
+    const key = taskPointInputKey(point, index);
+    const sanitized = sanitizeMeterInput(rawValue);
+    if (!sanitized) {
+      setRadiusDrafts((current) => ({ ...current, [key]: "" }));
+      return;
+    }
+    const nextRadius = Number(sanitized);
+    updatePoint(index, { radius_m: nextRadius });
+    setRadiusDrafts((current) => ({ ...current, [key]: formatMeters(nextRadius) }));
+  }
+
+  function handleRadiusInputBlur(index: number, point: TaskPointRecord) {
+    const key = taskPointInputKey(point, index);
+    const sanitized = sanitizeMeterInput(radiusDrafts[key] ?? "");
+    if (!sanitized) {
+      setRadiusDrafts((current) => {
+        const next = { ...current };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    const nextRadius = Number(sanitized);
+    updatePoint(index, { radius_m: nextRadius });
+    setRadiusDrafts((current) => ({ ...current, [key]: formatMeters(nextRadius) }));
+  }
+
+  function handleRadiusInputKeyDown(event: KeyboardEvent<HTMLInputElement>, index: number, point: TaskPointRecord) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
+    event.preventDefault();
+    const key = taskPointInputKey(point, index);
+    const draftValue = sanitizeMeterInput(radiusDrafts[key] ?? "");
+    const baseRadius = draftValue ? Number(draftValue) : Math.max(0, Math.round(point.radius_m || 0));
+    const nextRadius = Math.max(0, baseRadius + (event.key === "ArrowUp" ? 100 : -100));
+    updatePoint(index, { radius_m: nextRadius });
+    setRadiusDrafts((current) => ({ ...current, [key]: formatMeters(nextRadius) }));
+  }
+
+  function radiusInputValue(index: number, point: TaskPointRecord) {
+    return radiusDrafts[taskPointInputKey(point, index)] ?? formatMeters(point.radius_m);
+  }
+
   function removePoint(index: number) {
+    setRadiusDrafts({});
     setTaskDraft((current) => ({ ...current, points: current.points.filter((_, pointIndex) => pointIndex !== index).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
   }
 
@@ -646,6 +707,7 @@ export default function HomePage() {
     if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0) {
       return;
     }
+    setRadiusDrafts({});
     setTaskDraft((current) => {
       const points = [...current.points];
       const [movedPoint] = points.splice(fromIndex, 1);
@@ -820,184 +882,178 @@ export default function HomePage() {
             </div>
           </div>
         </SectionCard>
-        <div className="event-workspace-grid">
-          <div className="event-main-column">
-            <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Compact event metadata lives here so the rest of the screen can stay focused on files and scoring.">
-              <form className="stack form-block" onSubmit={saveEvent}>
+        <div className="event-workspace-grid event-three-up">
+          <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Keep the active event compact and quick to edit.">
+            <form className="stack form-block compact-event-form" onSubmit={saveEvent}>
+              <label className="stack compact">
+                <span>Event name</span>
+                <input placeholder="Spring Ridge Open" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
+              </label>
+              <label className="stack compact">
+                <span>Location</span>
+                <input placeholder="Owens Valley, CA" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
+              </label>
+              <div className="inline-grid">
                 <label className="stack compact">
-                  <span>Event name</span>
-                  <input placeholder="Spring Ridge Open" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
+                  <span>Starts on</span>
+                  <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
                 </label>
                 <label className="stack compact">
-                  <span>Location</span>
-                  <input placeholder="Owens Valley, CA" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
+                  <span>Ends on</span>
+                  <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
+                </label>
+              </div>
+              <label className="stack compact">
+                <span>Timezone</span>
+                <input placeholder="America/Los_Angeles" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+              </label>
+              {user?.role === "admin" ? (
+                <div className="button-row">
+                  <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
+                  {eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
+                </div>
+              ) : null}
+            </form>
+          </SectionCard>
+          <SectionCard title="Scoring parameters" description="Event-level GAP defaults.">
+            {eventEditorId ? (
+              <form className="stack form-block compact-scoring-form" onSubmit={saveEvent}>
+                <label className="stack compact">
+                  <span>Scoring formula</span>
+                  <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
+                    {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
                 </label>
                 <div className="inline-grid">
                   <label className="stack compact">
-                    <span>Starts on</span>
-                    <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
+                    <span>Nominal distance (km)</span>
+                    <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} />
                   </label>
                   <label className="stack compact">
-                    <span>Ends on</span>
-                    <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
+                    <span>Nominal time (hours)</span>
+                    <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} />
+                  </label>
+                </div>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>Nominal launch</span>
+                    <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Minimum distance (km)</span>
+                    <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
+                  </label>
+                </div>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>Nominal goal (%)</span>
+                    <input type="number" step="0.01" value={eventForm.nominal_goal_percent} onChange={(event) => setEventForm({ ...eventForm, nominal_goal_percent: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Score-back time (minutes)</span>
+                    <input type="number" value={eventForm.score_back_time_minutes} onChange={(event) => setEventForm({ ...eventForm, score_back_time_minutes: Number(event.target.value) })} />
+                  </label>
+                </div>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>Goal / SS penalty</span>
+                    <input type="number" step="0.1" value={eventForm.goal_ss_penalty} onChange={(event) => setEventForm({ ...eventForm, goal_ss_penalty: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Stopped-task glide bonus</span>
+                    <input type="number" step="0.1" value={eventForm.stopped_glide_bonus} onChange={(event) => setEventForm({ ...eventForm, stopped_glide_bonus: Number(event.target.value) })} />
+                  </label>
+                </div>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>Jump-the-gun factor</span>
+                    <input type="number" step="0.1" value={eventForm.jump_the_gun_factor} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_factor: Number(event.target.value) })} />
+                  </label>
+                  <label className="stack compact">
+                    <span>Jump-the-gun max (seconds)</span>
+                    <input type="number" value={eventForm.jump_the_gun_max_seconds} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_max_seconds: Number(event.target.value) })} />
+                  </label>
+                </div>
+                <div className="three-up compact-checkbox-grid">
+                  <label className="record-card checkbox-card">
+                    <input type="checkbox" checked={eventForm.use_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_distance_points: event.target.checked })} />
+                    <span>Distance points</span>
+                  </label>
+                  <label className="record-card checkbox-card">
+                    <input type="checkbox" checked={eventForm.use_time_points} onChange={(event) => setEventForm({ ...eventForm, use_time_points: event.target.checked })} />
+                    <span>Time points</span>
+                  </label>
+                  <label className="record-card checkbox-card">
+                    <input type="checkbox" checked={eventForm.use_leading_points} onChange={(event) => setEventForm({ ...eventForm, use_leading_points: event.target.checked })} />
+                    <span>Leading points</span>
+                  </label>
+                  <label className="record-card checkbox-card">
+                    <input type="checkbox" checked={eventForm.use_arrival_position_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_position_points: event.target.checked })} />
+                    <span>Arrival position points</span>
+                  </label>
+                  <label className="record-card checkbox-card">
+                    <input type="checkbox" checked={eventForm.use_arrival_time_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_time_points: event.target.checked })} />
+                    <span>Arrival time points</span>
+                  </label>
+                  <label className="record-card checkbox-card">
+                    <input type="checkbox" checked={eventForm.use_departure_points} onChange={(event) => setEventForm({ ...eventForm, use_departure_points: event.target.checked })} />
+                    <span>Departure points</span>
                   </label>
                 </div>
                 <label className="stack compact">
-                  <span>Timezone</span>
-                  <input placeholder="America/Los_Angeles" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+                  <span>Penalty rules JSON</span>
+                  <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={3} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
                 </label>
-                {user?.role === "admin" ? (
-                  <div className="button-row">
-                    <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
-                    {eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
-                  </div>
-                ) : null}
+                {user?.role === "admin" ? <button type="submit">Save scoring parameters</button> : null}
               </form>
-            </SectionCard>
-            <SectionCard title="Scoring parameters" description="AirScore-style event defaults for GAP scoring. New task drafts inherit the core values for the selected event.">
-              {eventEditorId ? (
-                <form className="stack form-block" onSubmit={saveEvent}>
-                  <label className="stack compact">
-                    <span>Scoring formula</span>
-                    <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
-                      {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  </label>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Nominal distance (km)</span>
-                      <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Nominal time (hours)</span>
-                      <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Nominal launch</span>
-                      <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Minimum distance (km)</span>
-                      <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Nominal goal (%)</span>
-                      <input type="number" step="0.01" value={eventForm.nominal_goal_percent} onChange={(event) => setEventForm({ ...eventForm, nominal_goal_percent: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Score-back time (minutes)</span>
-                      <input type="number" value={eventForm.score_back_time_minutes} onChange={(event) => setEventForm({ ...eventForm, score_back_time_minutes: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Goal / SS penalty</span>
-                      <input type="number" step="0.1" value={eventForm.goal_ss_penalty} onChange={(event) => setEventForm({ ...eventForm, goal_ss_penalty: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Stopped-task glide bonus</span>
-                      <input type="number" step="0.1" value={eventForm.stopped_glide_bonus} onChange={(event) => setEventForm({ ...eventForm, stopped_glide_bonus: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Jump-the-gun factor</span>
-                      <input type="number" step="0.1" value={eventForm.jump_the_gun_factor} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_factor: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Jump-the-gun max (seconds)</span>
-                      <input type="number" value={eventForm.jump_the_gun_max_seconds} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_max_seconds: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="three-up">
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_distance_points: event.target.checked })} />
-                      <span>Distance points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_time_points} onChange={(event) => setEventForm({ ...eventForm, use_time_points: event.target.checked })} />
-                      <span>Time points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_leading_points} onChange={(event) => setEventForm({ ...eventForm, use_leading_points: event.target.checked })} />
-                      <span>Leading points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_arrival_position_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_position_points: event.target.checked })} />
-                      <span>Arrival position points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_arrival_time_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_time_points: event.target.checked })} />
-                      <span>Arrival time points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_departure_points} onChange={(event) => setEventForm({ ...eventForm, use_departure_points: event.target.checked })} />
-                      <span>Departure points</span>
-                    </label>
-                  </div>
-                  <label className="stack compact">
-                    <span>Penalty rules JSON</span>
-                    <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={4} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
-                  </label>
-                  <p className="hint">Formula choices and labels follow the AirScore/GAP workflow, while the current MVP scorer still uses the stored event config as its setup source rather than full AirScore parity for every toggle yet.</p>
-                  {user?.role === "admin" ? <button type="submit">Save scoring parameters</button> : null}
-                </form>
-              ) : (
-                <p className="hint">Create or select an event to define its scoring defaults.</p>
-              )}
-            </SectionCard>
-          </div>
-          <div className="event-side-column">
-            <SectionCard title="Turnpoint files" description="Three compact event-level waypoint slots. Uploading to a slot replaces that slot and refreshes the event turnpoints.">
-              {eventEditorId ? (
-                <div className="compact-slot-list">
-                  {turnpointSlots.map((slot) => (
-                    <div key={slot.slot_number} className="record-card compact-slot-row">
-                      <div className="compact-slot-meta">
-                        <strong>Slot {slot.slot_number}</strong>
-                        <span>{slot.filename ?? "No file uploaded yet"}</span>
-                        <span>{slot.filename ? `${slot.turnpoint_count} turnpoints` : "CSV, GeoJSON, or GPX"}</span>
-                        {slot.uploaded_at ? <span>{new Date(slot.uploaded_at).toLocaleString()}</span> : null}
-                      </div>
-                      {user?.role === "admin" ? (
-                        <div className="compact-slot-actions">
-                          <label className="file-input compact-file-input">
-                            {slot.filename ? "Replace" : "Upload"}
-                            <input
-                              type="file"
-                              accept=".csv,.geojson,.json,.gpx"
-                              onChange={async (event) => {
-                                const file = event.target.files?.[0];
-                                if (!file || !selectedEventId) return;
-                                try {
-                                  setError("");
-                                  const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
-                                  setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
-                                  await loadEvent(token, selectedEventId);
-                                  await refreshEvents(token);
-                                } catch (caught) {
-                                  setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                                } finally {
-                                  event.currentTarget.value = "";
-                                }
-                              }}
-                            />
-                          </label>
-                          {slot.filename ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSlot(slot.slot_number)}>Delete</button> : null}
-                        </div>
-                      ) : null}
+            ) : (
+              <p className="hint">Create or select an event to define its scoring defaults.</p>
+            )}
+          </SectionCard>
+          <SectionCard title="Turnpoint files" description="Three compact event waypoint slots.">
+            {eventEditorId ? (
+              <div className="compact-slot-list">
+                {turnpointSlots.map((slot) => (
+                  <div key={slot.slot_number} className="record-card compact-slot-row">
+                    <div className="compact-slot-meta">
+                      <strong>Slot {slot.slot_number}</strong>
+                      <span>{slot.filename ?? "No file uploaded yet"}</span>
+                      <span>{slot.filename ? `${slot.turnpoint_count} turnpoints` : "CSV, GeoJSON, or GPX"}</span>
                     </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="hint">Create or select an event before uploading turnpoint files.</p>
-              )}
-            </SectionCard>
-          </div>
+                    {user?.role === "admin" ? (
+                      <div className="compact-slot-actions">
+                        <label className="file-input compact-file-input">
+                          {slot.filename ? "Replace" : "Upload"}
+                          <input
+                            type="file"
+                            accept=".csv,.geojson,.json,.gpx"
+                            onChange={async (event) => {
+                              const file = event.target.files?.[0];
+                              if (!file || !selectedEventId) return;
+                              try {
+                                setError("");
+                                const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
+                                setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
+                                await loadEvent(token, selectedEventId);
+                                await refreshEvents(token);
+                              } catch (caught) {
+                                setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                              } finally {
+                                event.currentTarget.value = "";
+                              }
+                            }}
+                          />
+                        </label>
+                        {slot.filename ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSlot(slot.slot_number)}>Delete</button> : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="hint">Create or select an event before uploading turnpoint files.</p>
+            )}
+          </SectionCard>
         </div>
         {renderParticipantCards()}
       </div>
@@ -1110,7 +1166,17 @@ export default function HomePage() {
                             </label>
                             <label className="stack compact">
                               <span>Radius (m)</span>
-                              <input type="number" value={point.radius_m} onChange={(event) => updatePoint(index, { radius_m: Number(event.target.value) })} />
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                value={radiusInputValue(index, point)}
+                                onFocus={(event) => event.currentTarget.select()}
+                                onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
+                                onBlur={() => handleRadiusInputBlur(index, point)}
+                                onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
+                                placeholder="400"
+                                aria-label={`Radius in meters for ${point.name}`}
+                              />
                             </label>
                           </>
                         ) : (
