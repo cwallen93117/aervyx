@@ -69,7 +69,7 @@ type EventRecord = {
 };
 type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; temp_password: string | null };
 type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
-type TurnpointSlotRecord = { slot_number: number; source_id: number | null; filename: string | null; file_format: string | null; sha256: string | null; uploaded_at: string | null; turnpoint_count: number };
+type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
 type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
 type TaskRecord = {
   id: number;
@@ -105,6 +105,7 @@ type AirspaceSourceRecord = {
   sha256: string;
   uploaded_at: string;
   region_count: number;
+  enabled?: boolean;
 };
 type AirspaceUploadResponse = { source_id: number; kind: "airspace" | "restricted_field"; format: string; imported_count: number; sha256: string; filename: string };
 type TaskDraftState = {
@@ -126,6 +127,7 @@ type TaskDraftState = {
 };
 type ScoringTab = "task" | "overall";
 type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "TFR" | "OTHER";
+type TaskPointMode = "simple" | "advanced";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
@@ -312,6 +314,35 @@ function formatResultPoints(value: number | null | undefined): string {
   return (value ?? 0).toFixed(1);
 }
 
+function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure") {
+  const gap = result.details_json?.gap as { awarded_points?: Record<string, number> } | undefined;
+  return Number(gap?.awarded_points?.[key] ?? 0);
+}
+
+function taskTypeLabel(value: string): string {
+  return taskTypeOptions.find((option) => option.value === normalizeTaskType(value))?.label ?? value;
+}
+
+function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | undefined): string {
+  if (!elapsedSeconds || elapsedSeconds <= 0) return "-";
+  return (distanceKm / (elapsedSeconds / 3600)).toFixed(1);
+}
+
+function formatDateLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function taskDayQuality(results: ResultRecord[]): string {
+  const firstGap = results.find((result) => result.details_json?.gap)?.details_json?.gap as
+    | { validity?: { overall?: number } }
+    | undefined;
+  const overall = Number(firstGap?.validity?.overall ?? NaN);
+  return Number.isFinite(overall) ? overall.toFixed(3) : "-";
+}
+
 function isAdvancedPointType(pointType: string): boolean {
   return pointType === "launch" || pointType === "ESS";
 }
@@ -320,6 +351,22 @@ function toSimplePointType(pointType: string): string {
   if (pointType === "launch") return "start";
   if (pointType === "ESS") return "goal";
   return pointType;
+}
+
+function pointTypeOptionsForMode(mode: TaskPointMode): Array<{ value: string; label: string }> {
+  return mode === "advanced"
+    ? [
+        { value: "launch", label: "Launch" },
+        { value: "start", label: "Start" },
+        { value: "turnpoint", label: "Turnpoint" },
+        { value: "ESS", label: "ESS" },
+        { value: "goal", label: "Goal" },
+      ]
+    : [
+        { value: "start", label: "Start" },
+        { value: "turnpoint", label: "Turnpoint" },
+        { value: "goal", label: "Goal" },
+      ];
 }
 
 function sanitizeMeterInput(rawValue: string): string {
@@ -436,7 +483,7 @@ export default function HomePage() {
   const [pilots, setPilots] = useState<PilotRecord[]>([]);
   const [pilotDirectory, setPilotDirectory] = useState<PilotRecord[]>([]);
   const [turnpoints, setTurnpoints] = useState<TurnpointRecord[]>([]);
-  const [turnpointSlots, setTurnpointSlots] = useState<TurnpointSlotRecord[]>([]);
+  const [turnpointSources, setTurnpointSources] = useState<TurnpointSourceRecord[]>([]);
   const [airspaces, setAirspaces] = useState<MapAirspaceRegion[]>([]);
   const [airspaceSources, setAirspaceSources] = useState<AirspaceSourceRecord[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
@@ -469,20 +516,26 @@ export default function HomePage() {
     () => pilotDirectory.filter((candidate) => !pilots.some((pilot) => pilot.id === candidate.id)),
     [pilotDirectory, pilots],
   );
+  const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
   const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
   const visibleAirspaces = useMemo(() => {
     const enabled = new Set<string>(eventForm.visible_airspace_classes_json ?? []);
+    const enabledSourceIds = new Set(airspaceSources.filter((source) => source.enabled ?? true).map((source) => source.id));
     return airspaces.filter((region) => {
+      if (!enabledSourceIds.has(region.source_id)) {
+        return false;
+      }
       if (region.is_restricted_field) {
         return eventForm.show_restricted_fields;
       }
       return enabled.has(region.display_category);
     });
-  }, [airspaces, eventForm.show_restricted_fields, eventForm.visible_airspace_classes_json]);
+  }, [airspaces, airspaceSources, eventForm.show_restricted_fields, eventForm.visible_airspace_classes_json]);
   const scoredTasks = useMemo(
     () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)).sort((left, right) => left.id - right.id),
     [tasks, pilotSummary],
   );
+  const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
   const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
 
   useEffect(() => {
@@ -542,7 +595,7 @@ export default function HomePage() {
       setEventForm(blankEventForm());
       setPilots([]);
       setTurnpoints([]);
-      setTurnpointSlots([]);
+      setTurnpointSources([]);
       setAirspaces([]);
       setAirspaceSources([]);
       setTasks([]);
@@ -577,10 +630,10 @@ export default function HomePage() {
     const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
     setEventEditorId(eventId);
     setEventForm(eventToForm(activeEvent));
-    const [loadedPilots, loadedTurnpoints, loadedTurnpointSlots, loadedAirspaces, loadedAirspaceSources, loadedTasks, loadedSummary] = await Promise.all([
+    const [loadedPilots, loadedTurnpoints, loadedTurnpointSources, loadedAirspaces, loadedAirspaceSources, loadedTasks, loadedSummary] = await Promise.all([
       apiFetch<PilotRecord[]>(`/api/events/${eventId}/pilots`, activeToken),
       apiFetch<TurnpointRecord[]>(`/api/events/${eventId}/turnpoints`, activeToken),
-      apiFetch<TurnpointSlotRecord[]>(`/api/events/${eventId}/turnpoint-slots`, activeToken),
+      apiFetch<TurnpointSourceRecord[]>(`/api/events/${eventId}/turnpoint-sources`, activeToken),
       apiFetch<MapAirspaceRegion[]>(`/api/events/${eventId}/airspaces`, activeToken),
       apiFetch<AirspaceSourceRecord[]>(`/api/events/${eventId}/airspace-sources`, activeToken),
       apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
@@ -590,7 +643,7 @@ export default function HomePage() {
     const visibleTasks = viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks;
     setPilots(loadedPilots);
     setTurnpoints(loadedTurnpoints);
-    setTurnpointSlots(loadedTurnpointSlots);
+    setTurnpointSources(loadedTurnpointSources);
     setAirspaces(loadedAirspaces);
     setAirspaceSources(loadedAirspaceSources);
     setTasks(visibleTasks);
@@ -698,7 +751,7 @@ export default function HomePage() {
     setPilots([]);
     setPilotDirectory([]);
     setTurnpoints([]);
-    setTurnpointSlots([]);
+    setTurnpointSources([]);
     setAirspaces([]);
     setAirspaceSources([]);
     setTasks([]);
@@ -813,7 +866,7 @@ export default function HomePage() {
       setEventForm(blankEventForm());
       setPilots([]);
       setTurnpoints([]);
-      setTurnpointSlots([]);
+      setTurnpointSources([]);
       setAirspaces([]);
       setAirspaceSources([]);
       setTasks([]);
@@ -863,13 +916,22 @@ export default function HomePage() {
     return apiFetch<T>(path, token, { method: "POST", body: formData });
   }
 
-  async function deleteTurnpointSlot(slotNumber: number) {
+  async function toggleTurnpointSource(source: TurnpointSourceRecord, enabled: boolean) {
     if (!token || !selectedEventId) return;
-    const slot = turnpointSlots.find((candidate) => candidate.slot_number === slotNumber);
-    const confirmed = window.confirm(`Delete the turnpoint file in slot ${slotNumber}${slot?.filename ? ` (${slot.filename})` : ""}? This removes its imported waypoints from the database.`);
+    await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+    setMessage(`${enabled ? "Enabled" : "Hidden"} ${source.filename} on the event map.`);
+    await loadEvent(token, selectedEventId, selectedEvent);
+  }
+
+  async function deleteTurnpointSource(source: TurnpointSourceRecord) {
+    if (!token || !selectedEventId) return;
+    const confirmed = window.confirm(`Delete ${source.filename}? This removes its imported waypoints from the database.`);
     if (!confirmed) return;
-    await apiFetch<void>(`/api/events/${selectedEventId}/turnpoint-slots/${slotNumber}`, token, { method: "DELETE" });
-    setMessage(`Deleted turnpoint file from slot ${slotNumber}.`);
+    await apiFetch<void>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, { method: "DELETE" });
+    setMessage(`Deleted ${source.filename}.`);
     await loadEvent(token, selectedEventId, selectedEvent);
     await refreshEvents(token);
   }
@@ -892,6 +954,16 @@ export default function HomePage() {
     await refreshEvents(token);
   }
 
+  async function toggleAirspaceSource(source: AirspaceSourceRecord, enabled: boolean) {
+    if (!token || !selectedEventId) return;
+    await apiFetch<AirspaceSourceRecord>(`/api/events/${selectedEventId}/airspace-sources/${source.id}`, token, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    });
+    setMessage(`${enabled ? "Enabled" : "Hidden"} ${source.filename} on the event map.`);
+    await loadEvent(token, selectedEventId, selectedEvent);
+  }
+
   function toggleVisibleAirspaceClass(category: AirspaceCategoryOption) {
     const existing = new Set(eventForm.visible_airspace_classes_json);
     if (existing.has(category)) {
@@ -912,7 +984,31 @@ export default function HomePage() {
   }
 
   function addTurnpoint(turnpoint: MapTurnpoint) {
-    setTaskDraft((current) => ({ ...current, points: [...current.points, { position: current.points.length + 1, point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint", radius_m: current.points.length === 0 ? 300 : 400, turnpoint_id: turnpoint.id, name: turnpoint.name, latitude: turnpoint.latitude, longitude: turnpoint.longitude }] }));
+    setRadiusDrafts({});
+    setTaskDraft((current) => {
+      const existingIndex = current.points.findIndex((point) => point.turnpoint_id === turnpoint.id);
+      if (existingIndex >= 0) {
+        return {
+          ...current,
+          points: current.points.filter((_, pointIndex) => pointIndex !== existingIndex).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })),
+        };
+      }
+      return {
+        ...current,
+        points: [
+          ...current.points,
+          {
+            position: current.points.length + 1,
+            point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint",
+            radius_m: current.points.length === 0 ? 300 : 400,
+            turnpoint_id: turnpoint.id,
+            name: turnpoint.name,
+            latitude: turnpoint.latitude,
+            longitude: turnpoint.longitude,
+          },
+        ],
+      };
+    });
   }
 
   function updatePoint(index: number, patch: Partial<TaskPointRecord>) {
@@ -1456,45 +1552,85 @@ export default function HomePage() {
           </SectionCard>
           ) : null}
           {eventTab === "turnpoints" ? (
-          <SectionCard title="Turnpoint files" description="Three compact event waypoint slots.">
+          <SectionCard title="Turnpoint files" description="Upload as many waypoint files as you need for the event, then control which ones are visible on the map.">
             {eventEditorId ? (
-              <div className="compact-slot-list">
-                {turnpointSlots.map((slot) => (
-                  <div key={slot.slot_number} className="record-card compact-slot-row">
-                    <div className="compact-slot-meta">
-                      <strong>Slot {slot.slot_number}</strong>
-                      <span>{slot.filename ?? "No file uploaded yet"}</span>
-                      <span>{slot.filename ? `${slot.turnpoint_count} turnpoints` : "CSV, GeoJSON, or GPX"}</span>
+              <div className="stack form-block">
+                {user?.role === "admin" ? (
+                  <div className="participant-intake-row">
+                    <div className="stack compact">
+                      <span>Upload turnpoint file</span>
+                      <p className="hint">CSV, GeoJSON, or GPX. Each upload is stored separately so you can mix multiple waypoint datasets on the same event.</p>
                     </div>
-                    {user?.role === "admin" ? (
-                      <div className="compact-slot-actions">
-                        <label className="file-input compact-file-input">
-                          {slot.filename ? "Replace" : "Upload"}
-                          <input
-                            type="file"
-                            accept=".csv,.geojson,.json,.gpx"
-                            onChange={async (event) => {
-                              const file = event.target.files?.[0];
-                              if (!file || !selectedEventId) return;
-                              try {
-                                setError("");
-                                const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload?slot_number=${slot.slot_number}`, file);
-                                setMessage(`Stored ${response.imported_count} turnpoints in event slot ${slot.slot_number} from ${file.name}.`);
-                                await loadEvent(token, selectedEventId);
-                                await refreshEvents(token);
-                              } catch (caught) {
-                                setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                              } finally {
-                                event.currentTarget.value = "";
-                              }
-                            }}
-                          />
-                        </label>
-                        {slot.filename ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSlot(slot.slot_number)}>Delete</button> : null}
-                      </div>
-                    ) : null}
+                    <label className="file-input">
+                      Upload turnpoints
+                      <input
+                        type="file"
+                        accept=".csv,.geojson,.json,.gpx"
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          if (!file || !selectedEventId) return;
+                          try {
+                            setError("");
+                            const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload`, file);
+                            setMessage(`Stored ${response.imported_count} turnpoints from ${file.name}.`);
+                            await loadEvent(token, selectedEventId);
+                            await refreshEvents(token);
+                          } catch (caught) {
+                            setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                          } finally {
+                            event.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                    </label>
                   </div>
-                ))}
+                ) : null}
+                <div className="participant-table-wrap">
+                  <table className="participant-table">
+                    <thead>
+                      <tr>
+                        <th>File name</th>
+                        <th>Format</th>
+                        <th>Turnpoints</th>
+                        <th>Visible</th>
+                        <th>Uploaded</th>
+                        {user?.role === "admin" ? <th className="participant-table-actions">Actions</th> : null}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {turnpointSources.length ? (
+                        turnpointSources.map((source) => (
+                          <tr key={source.id}>
+                            <td><strong>{source.filename}</strong></td>
+                            <td>{source.file_format.toUpperCase()}</td>
+                            <td>{source.turnpoint_count}</td>
+                            <td>
+                              <label className="task-advanced-toggle">
+                                <input
+                                  type="checkbox"
+                                  checked={source.enabled}
+                                  disabled={user?.role !== "admin"}
+                                  onChange={(event) => void toggleTurnpointSource(source, event.target.checked)}
+                                />
+                                <span>{source.enabled ? "Visible" : "Hidden"}</span>
+                              </label>
+                            </td>
+                            <td>{new Date(source.uploaded_at).toLocaleString()}</td>
+                            {user?.role === "admin" ? (
+                              <td className="participant-table-actions">
+                                <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
+                              </td>
+                            ) : null}
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={user?.role === "admin" ? 6 : 5} className="participant-table-empty">No turnpoint files uploaded for this event yet.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (
               <p className="hint">Create or select an event before uploading turnpoint files.</p>
@@ -1602,7 +1738,18 @@ export default function HomePage() {
                         <strong>{source.filename}</strong>
                         <span>{source.region_count} regions - {source.file_format} - uploaded {new Date(source.uploaded_at).toLocaleString()}</span>
                       </div>
-                      {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                      <div className="compact-slot-actions">
+                        <label className="task-advanced-toggle">
+                          <input
+                            type="checkbox"
+                            checked={source.enabled ?? true}
+                            disabled={user?.role !== "admin"}
+                            onChange={(event) => void toggleAirspaceSource(source, event.target.checked)}
+                          />
+                          <span>{source.enabled ?? true ? "Visible" : "Hidden"}</span>
+                        </label>
+                        {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -1619,7 +1766,18 @@ export default function HomePage() {
                         <strong>{source.filename}</strong>
                         <span>{source.region_count} fields - {source.file_format} - uploaded {new Date(source.uploaded_at).toLocaleString()}</span>
                       </div>
-                      {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                      <div className="compact-slot-actions">
+                        <label className="task-advanced-toggle">
+                          <input
+                            type="checkbox"
+                            checked={source.enabled ?? true}
+                            disabled={user?.role !== "admin"}
+                            onChange={(event) => void toggleAirspaceSource(source, event.target.checked)}
+                          />
+                          <span>{source.enabled ?? true ? "Visible" : "Hidden"}</span>
+                        </label>
+                        {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                      </div>
                     </div>
                   ))
                 ) : (
@@ -1895,9 +2053,12 @@ export default function HomePage() {
               {uploads.length ? (
                 <div className="stack">
                   {uploads.map((upload) => (
-                    <div key={upload.id} className="record-card">
-                      <strong>{upload.filename}</strong>
-                      <span>{pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}`} - {upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span>
+                    <div key={upload.id} className="record-card upload-record">
+                      <div>
+                        <strong>{upload.filename}</strong>
+                        <span>{pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}`} - {upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span>
+                      </div>
+                      <button type="button" className="ghost-button danger-button" onClick={() => void deleteUpload(upload)}>Delete</button>
                     </div>
                   ))}
                 </div>
@@ -1921,15 +2082,125 @@ export default function HomePage() {
                   </select>
                 </label>
                 {results.length ? (
-                  <div className="stack">
-                    {results.map((result) => <div key={result.id} className="record-card"><strong>{result.rank ?? "-"}. {result.pilot_name}</strong><span>{result.status} - {result.distance_flown_km.toFixed(1)} km - {result.score_points.toFixed(1)} pts</span></div>)}
+                  <div className="results-sheet">
+                    <div className="results-sheet-header">
+                      <h3>{selectedTask?.name ?? "Task results"}</h3>
+                      <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
+                    </div>
+                    <div className="results-table-wrap">
+                      <table className="results-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Id</th>
+                            <th>Name</th>
+                            <th>Nat</th>
+                            <th>Glider</th>
+                            <th>Sponsor</th>
+                            <th>SS</th>
+                            <th>ES</th>
+                            <th>Time [h:m:s]</th>
+                            <th>Speed [km/h]</th>
+                            <th>Distance [km]</th>
+                            <th>Dist. Points</th>
+                            <th>Time Points</th>
+                            <th>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {results.map((result) => {
+                            const pilot = pilotById.get(result.pilot_id);
+                            const bonusPoints = gapAwardedPoints(result, "arrival") + gapAwardedPoints(result, "departure");
+                            return (
+                              <tr key={result.id}>
+                                <td>{result.rank ?? "-"}</td>
+                                <td>{result.competition_number ?? result.pilot_id}</td>
+                                <td>
+                                  <strong>{result.pilot_name}</strong>
+                                  <div className="results-name-meta">{result.status.toUpperCase()}</div>
+                                </td>
+                                <td>{pilot?.nation ?? "-"}</td>
+                                <td>-</td>
+                                <td>-</td>
+                                <td>{formatClockTime(result.started_at)}</td>
+                                <td>{formatClockTime(result.goal_at ?? result.ess_at)}</td>
+                                <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
+                                <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
+                                <td>{result.distance_flown_km.toFixed(1)}</td>
+                                <td>{formatResultPoints(gapAwardedPoints(result, "distance"))}</td>
+                                <td>{formatResultPoints(gapAwardedPoints(result, "speed") + bonusPoints)}</td>
+                                <td className="results-table-total">{result.score_points.toFixed(1)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 ) : <p className="hint">No scored task results are available yet for the selected task.</p>}
               </div>
             ) : (
-              <div className="stack">
+              <div className="stack form-block">
                 {pilotSummary.length ? (
-                  pilotSummary.map((summary) => <div key={summary.pilot_id} className="record-card"><strong>{summary.pilot_name}</strong><span>{summary.total_score_points.toFixed(1)} pts - {summary.tasks_scored} tasks scored - best {summary.best_distance_km.toFixed(1)} km</span></div>)
+                  <>
+                    <div className="results-table-wrap">
+                      <table className="results-table results-table-compact">
+                        <thead>
+                          <tr>
+                            <th>Task</th>
+                            <th>Start</th>
+                            <th>Distance [km]</th>
+                            <th>Day Quality</th>
+                            <th>Type</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {scoredTasks.map((task) => (
+                            <tr key={task.id}>
+                              <td><strong>{task.name}</strong></td>
+                              <td>{formatDateLabel(task.published_at)}</td>
+                              <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
+                              <td>{selectedTaskId === task.id ? taskDayQuality(results) : "-"}</td>
+                              <td>{taskTypeLabel(task.task_type)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="results-table-wrap">
+                      <table className="results-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Id</th>
+                            <th>Name</th>
+                            <th>Nat</th>
+                            <th>Glider</th>
+                            <th>Sponsor</th>
+                            {scoredTasks.map((task, index) => <th key={task.id}>{`T ${index + 1}`}</th>)}
+                            <th>Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pilotSummary.map((summary, index) => {
+                            const pilot = pilotById.get(summary.pilot_id);
+                            return (
+                              <tr key={summary.pilot_id}>
+                                <td>{index + 1}</td>
+                                <td>{summary.competition_number ?? summary.pilot_id}</td>
+                                <td><strong>{summary.pilot_name}</strong></td>
+                                <td>{pilot?.nation ?? "-"}</td>
+                                <td>-</td>
+                                <td>-</td>
+                                {scoredTasks.map((task) => <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatResultPoints(summary.task_scores[String(task.id)]) : "-"}</td>)}
+                                <td className="results-table-total">{summary.total_score_points.toFixed(1)}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 ) : <p className="hint">No overall event results are available yet.</p>}
               </div>
             )}

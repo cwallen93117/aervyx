@@ -141,14 +141,19 @@ class TurnpointUploadResponse(BaseModel):
     filename: str
 
 
-class TurnpointSlotResponse(BaseModel):
-    slot_number: int
-    source_id: int | None = None
-    filename: str | None = None
-    file_format: str | None = None
-    sha256: str | None = None
-    uploaded_at: datetime | None = None
+class TurnpointSourceResponse(BaseModel):
+    id: int
+    event_id: int
+    filename: str
+    file_format: str
+    sha256: str
+    enabled: bool = True
+    uploaded_at: datetime
     turnpoint_count: int = 0
+
+
+class TurnpointSourceUpdate(BaseModel):
+    enabled: bool
 
 
 class AirspaceSourceResponse(BaseModel):
@@ -158,6 +163,7 @@ class AirspaceSourceResponse(BaseModel):
     filename: str
     file_format: str
     sha256: str
+    enabled: bool = True
     uploaded_at: datetime
     region_count: int = 0
 
@@ -169,6 +175,10 @@ class AirspaceUploadResponse(BaseModel):
     imported_count: int
     sha256: str
     filename: str
+
+
+class AirspaceSourceUpdate(BaseModel):
+    enabled: bool
 
 
 class AirspaceRegionResponse(BaseModel):

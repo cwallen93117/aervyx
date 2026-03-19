@@ -4,51 +4,40 @@ import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from sqlalchemy import func, or_, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventTurnpointSlot, TaskPoint, Turnpoint, TurnpointSource, User
-from app.schemas import TurnpointResponse, TurnpointSlotResponse, TurnpointUploadResponse
+from app.models import Event, TaskPoint, Turnpoint, TurnpointSource, User
+from app.schemas import TurnpointResponse, TurnpointSourceResponse, TurnpointSourceUpdate, TurnpointUploadResponse
 from app.services.audit import log_action
 from app.services.turnpoints import parse_turnpoint_upload
 
 router = APIRouter(tags=["turnpoints"])
 
 
-def _validate_slot_number(slot_number: int) -> int:
-    if slot_number not in {1, 2, 3}:
-        raise HTTPException(status_code=400, detail="Turnpoint slot must be 1, 2, or 3.")
-    return slot_number
-
-
-def _slot_payload(session: Session, event_id: int, slot_number: int) -> TurnpointSlotResponse:
-    slot = session.scalar(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == event_id, EventTurnpointSlot.slot_number == slot_number))
-    if slot is None or slot.source_id is None:
-        return TurnpointSlotResponse(slot_number=slot_number, turnpoint_count=0)
-    source = session.get(TurnpointSource, slot.source_id)
-    if source is None:
-        return TurnpointSlotResponse(slot_number=slot_number, turnpoint_count=0)
+def _source_payload(session: Session, source: TurnpointSource) -> TurnpointSourceResponse:
     turnpoint_count = session.scalar(select(func.count()).select_from(Turnpoint).where(Turnpoint.source_id == source.id)) or 0
-    return TurnpointSlotResponse(
-        slot_number=slot_number,
-        source_id=source.id,
+    return TurnpointSourceResponse(
+        id=source.id,
+        event_id=source.event_id,
         filename=source.filename,
         file_format=source.file_format,
         sha256=source.sha256,
+        enabled=source.enabled,
         uploaded_at=source.uploaded_at,
         turnpoint_count=turnpoint_count,
     )
 
 
-def _active_slot_source_ids(session: Session, event_id: int) -> list[int]:
+def _enabled_source_ids(session: Session, event_id: int) -> list[int]:
     return list(
         session.scalars(
-            select(EventTurnpointSlot.source_id).where(
-                EventTurnpointSlot.event_id == event_id,
-                EventTurnpointSlot.source_id.is_not(None),
+            select(TurnpointSource.id).where(
+                TurnpointSource.event_id == event_id,
+                TurnpointSource.enabled.is_(True),
             )
         ).all()
     )
@@ -60,9 +49,7 @@ def _delete_task_points_for_turnpoints(session: Session, turnpoint_ids: list[int
     session.query(TaskPoint).filter(TaskPoint.turnpoint_id.in_(turnpoint_ids)).delete(synchronize_session=False)
 
 
-def _clear_legacy_unslotted_turnpoints(session: Session, event_id: int) -> None:
-    if not _active_slot_source_ids(session, event_id):
-        return
+def _delete_legacy_unsourced_turnpoints(session: Session, event_id: int) -> None:
     legacy_turnpoint_ids = list(
         session.scalars(
             select(Turnpoint.id).where(
@@ -81,9 +68,10 @@ def list_turnpoints(event_id: int, search: str | None = Query(default=None), use
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
     query = select(Turnpoint).where(Turnpoint.event_id == event_id)
-    active_source_ids = _active_slot_source_ids(session, event_id)
-    if active_source_ids:
-        query = query.where(Turnpoint.source_id.in_(active_source_ids))
+    source_ids = list(session.scalars(select(TurnpointSource.id).where(TurnpointSource.event_id == event_id)).all())
+    enabled_source_ids = _enabled_source_ids(session, event_id)
+    if source_ids:
+        query = query.where(Turnpoint.source_id.in_(enabled_source_ids)) if enabled_source_ids else query.where(false())
     if search:
         pattern = f"%{search}%"
         query = query.where(or_(Turnpoint.name.ilike(pattern), Turnpoint.code.ilike(pattern)))
@@ -91,18 +79,18 @@ def list_turnpoints(event_id: int, search: str | None = Query(default=None), use
     return [TurnpointResponse.model_validate(turnpoint) for turnpoint in turnpoints]
 
 
-@router.get("/api/events/{event_id}/turnpoint-slots", response_model=list[TurnpointSlotResponse])
-def list_turnpoint_slots(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TurnpointSlotResponse]:
+@router.get("/api/events/{event_id}/turnpoint-sources", response_model=list[TurnpointSourceResponse])
+def list_turnpoint_sources(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TurnpointSourceResponse]:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    return [_slot_payload(session, event_id, slot_number) for slot_number in (1, 2, 3)]
+    sources = session.scalars(select(TurnpointSource).where(TurnpointSource.event_id == event_id).order_by(TurnpointSource.uploaded_at.desc(), TurnpointSource.id.desc())).all()
+    return [_source_payload(session, source) for source in sources]
 
 
 @router.post("/api/events/{event_id}/turnpoints/upload", response_model=TurnpointUploadResponse)
-async def upload_turnpoints(event_id: int, slot_number: int = Query(...), file: UploadFile = File(...), admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
+async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    slot_number = _validate_slot_number(slot_number)
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
     file_format, records = parse_turnpoint_upload(file.filename or "turnpoints.csv", content)
@@ -112,58 +100,59 @@ async def upload_turnpoints(event_id: int, slot_number: int = Query(...), file: 
     stored_path = upload_dir / (file.filename or f"turnpoints.{file_format}")
     if not stored_path.exists():
         stored_path.write_bytes(content)
-    slot = session.scalar(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == event_id, EventTurnpointSlot.slot_number == slot_number))
-    previous_source_id = slot.source_id if slot else None
-    if previous_source_id is not None:
-        previous_turnpoint_ids = list(session.scalars(select(Turnpoint.id).where(Turnpoint.source_id == previous_source_id)).all())
-        _delete_task_points_for_turnpoints(session, previous_turnpoint_ids)
-        session.query(Turnpoint).filter(Turnpoint.source_id == previous_source_id).delete()
-        previous_source = session.get(TurnpointSource, previous_source_id)
-        if previous_source is not None:
-            session.delete(previous_source)
-        session.flush()
-    source = TurnpointSource(event_id=event_id, filename=file.filename or stored_path.name, content_type=file.content_type, file_format=file_format, sha256=sha256, stored_path=str(stored_path))
+    source = TurnpointSource(
+        event_id=event_id,
+        filename=file.filename or stored_path.name,
+        content_type=file.content_type,
+        file_format=file_format,
+        sha256=sha256,
+        stored_path=str(stored_path),
+        enabled=True,
+    )
     session.add(source)
     session.flush()
-    if slot is None:
-        slot = EventTurnpointSlot(event_id=event_id, slot_number=slot_number, source_id=source.id)
-        session.add(slot)
-    else:
-        slot.source_id = source.id
     for record in records:
         session.add(Turnpoint(event_id=event_id, source_id=source.id, code=record.code, name=record.name, latitude=record.latitude, longitude=record.longitude, elevation_m=record.elevation_m))
-    _clear_legacy_unslotted_turnpoints(session, event_id)
-    log_action(session, actor_user_id=admin.id, action="turnpoint.upload", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "slot_number": slot_number, "filename": source.filename, "sha256": sha256, "count": len(records), "replaced_source_id": previous_source_id})
+    _delete_legacy_unsourced_turnpoints(session, event_id)
+    log_action(session, actor_user_id=admin.id, action="turnpoint.upload", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "filename": source.filename, "sha256": sha256, "count": len(records)})
     session.commit()
     return TurnpointUploadResponse(source_id=source.id, format=file_format, imported_count=len(records), sha256=sha256, filename=source.filename)
 
 
-@router.delete("/api/events/{event_id}/turnpoint-slots/{slot_number}", status_code=204)
-def delete_turnpoint_slot(event_id: int, slot_number: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+@router.patch("/api/events/{event_id}/turnpoint-sources/{source_id}", response_model=TurnpointSourceResponse)
+def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSourceUpdate, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    slot_number = _validate_slot_number(slot_number)
-    slot = session.scalar(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == event_id, EventTurnpointSlot.slot_number == slot_number))
-    if slot is None or slot.source_id is None:
-        raise HTTPException(status_code=404, detail="Turnpoint slot is already empty")
+    source = session.get(TurnpointSource, source_id)
+    if source is None or source.event_id != event_id:
+        raise HTTPException(status_code=404, detail="Turnpoint source not found")
+    source.enabled = payload.enabled
+    log_action(session, actor_user_id=admin.id, action="turnpoint.toggle", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "enabled": payload.enabled, "filename": source.filename})
+    session.commit()
+    session.refresh(source)
+    return _source_payload(session, source)
 
-    source = session.get(TurnpointSource, slot.source_id)
-    source_id = slot.source_id
-    filename = source.filename if source is not None else None
-    stored_path = Path(source.stored_path) if source is not None else None
 
-    deleted_turnpoint_ids = list(session.scalars(select(Turnpoint.id).where(Turnpoint.source_id == source_id)).all())
+@router.delete("/api/events/{event_id}/turnpoint-sources/{source_id}", status_code=204)
+def delete_turnpoint_source(event_id: int, source_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+    if session.get(Event, event_id) is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    source = session.get(TurnpointSource, source_id)
+    if source is None or source.event_id != event_id:
+        raise HTTPException(status_code=404, detail="Turnpoint source not found")
+
+    filename = source.filename
+    stored_path = Path(source.stored_path)
+    deleted_turnpoint_ids = list(session.scalars(select(Turnpoint.id).where(Turnpoint.source_id == source.id)).all())
     _delete_task_points_for_turnpoints(session, deleted_turnpoint_ids)
-    session.query(Turnpoint).filter(Turnpoint.source_id == source_id).delete()
-    if source is not None:
-        session.delete(source)
-    slot.source_id = None
+    session.query(Turnpoint).filter(Turnpoint.source_id == source.id).delete()
+    session.delete(source)
     session.flush()
 
-    if stored_path is not None and stored_path.exists():
+    if stored_path.exists():
         stored_path.unlink(missing_ok=True)
         if stored_path.parent.exists() and not any(stored_path.parent.iterdir()):
             stored_path.parent.rmdir()
 
-    log_action(session, actor_user_id=admin.id, action="turnpoint.delete", entity_type="turnpoint_slot", entity_id=f"{event_id}:{slot_number}", details={"event_id": event_id, "slot_number": slot_number, "source_id": source_id, "filename": filename})
+    log_action(session, actor_user_id=admin.id, action="turnpoint.delete", entity_type="turnpoint_source", entity_id=str(source_id), details={"event_id": event_id, "source_id": source_id, "filename": filename})
     session.commit()

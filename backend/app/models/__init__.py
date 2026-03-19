@@ -109,6 +109,7 @@ class TurnpointSource(Base):
     file_format: Mapped[str] = mapped_column(String(20))
     sha256: Mapped[str] = mapped_column(String(64), index=True)
     stored_path: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -148,6 +149,7 @@ class AirspaceSource(Base):
     file_format: Mapped[str] = mapped_column(String(20))
     sha256: Mapped[str] = mapped_column(String(64), index=True)
     stored_path: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

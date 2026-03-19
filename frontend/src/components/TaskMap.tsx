@@ -524,12 +524,12 @@ export function TaskMap({
       ensureMapLayers(map);
       map.resize();
       if (shouldFitToTurnpoints || shouldFitToTrack) {
-        fitToData(map, turnpoints, taskPoints, optimizedRoute, track);
+        fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
       }
       window.setTimeout(() => {
         map.resize();
         if (shouldFitToTurnpoints || shouldFitToTrack) {
-          fitToData(map, turnpoints, taskPoints, optimizedRoute, track);
+          fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
         }
       }, 100);
       turnpointSignatureRef.current = nextTurnpointSignature;

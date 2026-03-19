@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventTurnpointSlot, Task, TaskPoint, Turnpoint, User
+from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse
 from app.services.audit import log_action
 
@@ -25,12 +25,12 @@ def _normalize_task_type(task_type: str | None) -> str:
     return legacy_map.get(task_type, task_type)  # type: ignore[arg-type]
 
 
-def _active_slot_source_ids(session: Session, event_id: int) -> set[int]:
+def _enabled_turnpoint_source_ids(session: Session, event_id: int) -> set[int]:
     return set(
         session.scalars(
-            select(EventTurnpointSlot.source_id).where(
-                EventTurnpointSlot.event_id == event_id,
-                EventTurnpointSlot.source_id.is_not(None),
+            select(TurnpointSource.id).where(
+                TurnpointSource.event_id == event_id,
+                TurnpointSource.enabled.is_(True),
             )
         ).all()
     )
@@ -38,7 +38,10 @@ def _active_slot_source_ids(session: Session, event_id: int) -> set[int]:
 
 def _task_points_for_response(session: Session, task: Task) -> list[TaskPoint]:
     points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task.id).order_by(TaskPoint.position)).all()
-    active_source_ids = _active_slot_source_ids(session, task.event_id)
+    source_ids = set(session.scalars(select(TurnpointSource.id).where(TurnpointSource.event_id == task.event_id)).all())
+    active_source_ids = _enabled_turnpoint_source_ids(session, task.event_id)
+    if source_ids and not active_source_ids:
+        return [point for point in points if point.turnpoint_id is None]
     if not active_source_ids:
         return points
 

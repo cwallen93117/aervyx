@@ -11,7 +11,7 @@ from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import AirspaceRegion, AirspaceSource, Event, User
-from app.schemas import AirspaceRegionResponse, AirspaceSourceResponse, AirspaceUploadResponse
+from app.schemas import AirspaceRegionResponse, AirspaceSourceResponse, AirspaceSourceUpdate, AirspaceUploadResponse
 from app.services.airspace import parse_airspace_upload
 from app.services.audit import log_action
 
@@ -34,6 +34,7 @@ def _source_payload(session: Session, source: AirspaceSource) -> AirspaceSourceR
         filename=source.filename,
         file_format=source.file_format,
         sha256=source.sha256,
+        enabled=source.enabled,
         uploaded_at=source.uploaded_at,
         region_count=region_count,
     )
@@ -83,6 +84,7 @@ async def upload_airspace(
         file_format=file_format,
         sha256=sha256,
         stored_path=str(stored_path),
+        enabled=True,
     )
     session.add(source)
     session.flush()
@@ -115,6 +117,25 @@ async def upload_airspace(
     )
     session.commit()
     return AirspaceUploadResponse(source_id=source.id, kind=kind, format=file_format, imported_count=len(records), sha256=sha256, filename=source.filename)
+
+
+@router.patch("/api/events/{event_id}/airspace-sources/{source_id}", response_model=AirspaceSourceResponse)
+def update_airspace_source(event_id: int, source_id: int, payload: AirspaceSourceUpdate, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> AirspaceSourceResponse:
+    source = session.get(AirspaceSource, source_id)
+    if source is None or source.event_id != event_id:
+        raise HTTPException(status_code=404, detail="Airspace source not found")
+    source.enabled = payload.enabled
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="airspace.toggle",
+        entity_type="airspace_source",
+        entity_id=str(source_id),
+        details={"event_id": event_id, "enabled": payload.enabled, "filename": source.filename},
+    )
+    session.commit()
+    session.refresh(source)
+    return _source_payload(session, source)
 
 
 @router.delete("/api/events/{event_id}/airspace-sources/{source_id}", status_code=204)

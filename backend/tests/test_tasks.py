@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import Event, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource
+from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource
 from app.routers.tasks import _task_response
 
 
@@ -14,7 +14,7 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
-def test_task_response_filters_stale_turnpoints_when_slots_are_active() -> None:
+def test_task_response_filters_stale_turnpoints_when_sources_are_disabled() -> None:
     session = _session()
     event = Event(
         name="Test Event",
@@ -33,6 +33,7 @@ def test_task_response_filters_stale_turnpoints_when_slots_are_active() -> None:
         file_format="gpx",
         sha256="a" * 64,
         stored_path="/tmp/east.gpx",
+        enabled=True,
     )
     stale_source = TurnpointSource(
         event_id=event.id,
@@ -41,11 +42,10 @@ def test_task_response_filters_stale_turnpoints_when_slots_are_active() -> None:
         file_format="gpx",
         sha256="b" * 64,
         stored_path="/tmp/west.gpx",
+        enabled=False,
     )
     session.add_all([active_source, stale_source])
     session.flush()
-
-    session.add(EventTurnpointSlot(event_id=event.id, slot_number=1, source_id=active_source.id))
 
     active_turnpoint = Turnpoint(
         event_id=event.id,
