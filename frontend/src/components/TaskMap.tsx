@@ -346,6 +346,7 @@ export function TaskMap({
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
+  fitKey,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -358,6 +359,7 @@ export function TaskMap({
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: ReactNode;
+  fitKey?: string | number | null;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -369,6 +371,7 @@ export function TaskMap({
   const turnpointSignatureRef = useRef("");
   const taskSignatureRef = useRef("");
   const trackSignatureRef = useRef("");
+  const fitKeyRef = useRef<string>("");
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
@@ -531,8 +534,9 @@ export function TaskMap({
       .map((point, index) => `${index}:${point.position}:${point.name}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`)
       .join("|");
     const nextTrackSignature = track ? `${track.features.length}:${JSON.stringify(track.features[0]?.geometry?.coordinates?.[0] ?? [])}` : "";
+    const nextFitKey = String(fitKey ?? "");
     const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
-    const shouldFitToTask = nextTaskSignature !== taskSignatureRef.current;
+    const shouldFitToTask = nextFitKey !== fitKeyRef.current;
     const shouldFitToTrack = nextTrackSignature !== trackSignatureRef.current;
 
     const syncData = () => {
@@ -560,13 +564,14 @@ export function TaskMap({
       turnpointSignatureRef.current = nextTurnpointSignature;
       taskSignatureRef.current = nextTaskSignature;
       trackSignatureRef.current = nextTrackSignature;
+      fitKeyRef.current = nextFitKey;
     };
     if (map.isStyleLoaded()) {
       syncData();
     } else {
       map.once("styledata", syncData);
     }
-  }, [basemapMode, turnpointData, airspaceData, airspaceLabelData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
+  }, [basemapMode, turnpointData, airspaceData, airspaceLabelData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints, fitKey]);
 
   return (
     <div

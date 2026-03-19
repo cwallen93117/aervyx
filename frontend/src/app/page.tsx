@@ -2393,14 +2393,15 @@ export default function HomePage() {
                     turnpoints={turnpoints}
                     airspaces={visibleAirspaces}
                     taskPoints={taskDraft.points}
-                  optimizedRoute={taskDistanceMetrics.routeCoordinates}
-                  legMetrics={taskDistanceMetrics.legMetrics}
+                    optimizedRoute={taskDistanceMetrics.routeCoordinates}
+                    legMetrics={taskDistanceMetrics.legMetrics}
                     totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
                     optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
                     track={track}
                     editable={user?.role === "admin"}
                     onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined}
                     taskEditorOverlay={fullscreenTaskEditor}
+                    fitKey={selectedTaskId}
                   />
                 </div>
               </div>
@@ -2651,6 +2652,7 @@ export default function HomePage() {
                           optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
                           track={null}
                           editable={false}
+                          fitKey={selectedTaskId}
                         />
                       </div>
                     ) : null}
