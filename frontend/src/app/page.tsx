@@ -687,6 +687,20 @@ export default function HomePage() {
       })),
     [taskDraft.points, turnpoints],
   );
+  const taskSectionMapTurnpoints = useMemo<MapTurnpoint[]>(
+    () => (
+      user?.role === "admin"
+        ? turnpoints
+        : taskDraft.points.map((point, index) => ({
+            id: point.turnpoint_id ?? -(index + 1),
+            name: point.name,
+            code: turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? null,
+            latitude: point.latitude,
+            longitude: point.longitude,
+          }))
+    ),
+    [taskDraft.points, turnpoints, user?.role],
+  );
   const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
 
   useEffect(() => {
@@ -2390,7 +2404,7 @@ export default function HomePage() {
               </div>
               <div className="task-map-panel">
                   <TaskMap
-                    turnpoints={turnpoints}
+                    turnpoints={taskSectionMapTurnpoints}
                     airspaces={visibleAirspaces}
                     taskPoints={taskDraft.points}
                     optimizedRoute={taskDistanceMetrics.routeCoordinates}
