@@ -664,6 +664,17 @@ export default function HomePage() {
     [tasks, pilotSummary],
   );
   const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
+  const resultsTaskMapTurnpoints = useMemo<MapTurnpoint[]>(
+    () =>
+      taskDraft.points.map((point, index) => ({
+        id: point.turnpoint_id ?? -(index + 1),
+        name: point.name,
+        code: turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? null,
+        latitude: point.latitude,
+        longitude: point.longitude,
+      })),
+    [taskDraft.points, turnpoints],
+  );
   const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
 
   useEffect(() => {
@@ -2546,6 +2557,25 @@ export default function HomePage() {
                         </tbody>
                       </table>
                     </div>
+                    {taskDraft.points.length ? (
+                      <div className="results-task-map">
+                        <div className="results-sheet-header">
+                          <h3>Task map</h3>
+                          <p>Waypoints, cylinders, and course line for the selected task.</p>
+                        </div>
+                        <TaskMap
+                          turnpoints={resultsTaskMapTurnpoints}
+                          airspaces={[]}
+                          taskPoints={taskDraft.points}
+                          optimizedRoute={taskDistanceMetrics.routeCoordinates}
+                          legMetrics={taskDistanceMetrics.legMetrics}
+                          totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
+                          optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
+                          track={null}
+                          editable={false}
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 ) : <p className="hint">No scored task results are available yet for the selected task.</p>}
               </div>

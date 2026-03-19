@@ -1377,6 +1377,29 @@ button[type="submit"]:hover {
   color: var(--ink);
 }
 
+.results-task-map {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel);
+}
+
+.results-task-map .results-sheet-header {
+  padding: 16px 18px 0;
+}
+
+.results-task-map .map-shell {
+  min-height: 420px;
+}
+
+.results-task-map .map-card {
+  min-height: 420px;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
 .results-table-compact thead th,
 .results-table-compact tbody td {
   padding: 9px 12px;
