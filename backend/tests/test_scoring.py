@@ -31,6 +31,12 @@ def _track_point(sequence: int, lat: float, lon: float) -> TrackPoint:
     return point
 
 
+def _track_point_at(sequence: int, recorded_at: datetime, lat: float, lon: float) -> TrackPoint:
+    point = TrackPoint(upload_id=1, sequence=sequence, recorded_at=recorded_at, latitude=lat, longitude=lon)
+    point.id = sequence
+    return point
+
+
 def test_scoring_detects_goal_completion() -> None:
     task_points = [
         _task_point(1, 1, "launch", 36.600, -118.000, 500),
@@ -46,7 +52,7 @@ def test_scoring_detects_goal_completion() -> None:
         _track_point(4, 36.750, -118.150),
         _track_point(5, 36.800, -118.200),
     ]
-    result = evaluate_task(task_points, track_points)
+    result = evaluate_task(_task(), task_points, track_points)
     assert result["status"] == "goal"
     assert result["distance_flown_km"] > 0
 
@@ -63,7 +69,7 @@ def test_cursor_does_not_reuse_same_fix_for_next_turnpoint() -> None:
         _track_point(2, 36.650, -118.050),
         _track_point(3, 36.700, -118.100),
     ]
-    result = evaluate_task(task_points, track_points)
+    result = evaluate_task(_task(), task_points, track_points)
     hit_flags = [hit["hit"] for hit in result["details"]["hits"]]
     assert hit_flags == [True, True, False, False]
 
@@ -95,8 +101,8 @@ def test_gap_breakdown_contains_airscore_style_point_buckets() -> None:
         _task(nominal_time_hours=0.05),
         2,
         [
-            {"upload": upload_a, "evaluation": evaluate_task(task_points, winning_track)},
-            {"upload": upload_b, "evaluation": evaluate_task(task_points, trailing_track)},
+            {"upload": upload_a, "evaluation": evaluate_task(_task(nominal_time_hours=0.05), task_points, winning_track)},
+            {"upload": upload_b, "evaluation": evaluate_task(_task(nominal_time_hours=0.05), task_points, trailing_track)},
         ],
     )
 
@@ -106,3 +112,62 @@ def test_gap_breakdown_contains_airscore_style_point_buckets() -> None:
     assert gap["available_points"]["distance"] > 0
     assert gap["awarded_points"]["speed"] >= 0
     assert gap["validity"]["overall"] > 0
+
+
+def test_start_time_uses_exit_of_start_cylinder_after_open_time() -> None:
+    task = _task()
+    task.start_open_time = "13:30:00"
+    task.start_close_time = "20:00:00"
+    task.task_start_time = "13:30:00"
+    task.task_finish_time = "20:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 39.09639, -75.89061, 5000),
+        _task_point(2, 2, "goal", 38.68586, -75.07051, 400),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2025, 6, 2, 18, 22, 23, tzinfo=UTC), 39.09703, -75.89203),
+        _track_point_at(2, datetime(2025, 6, 2, 18, 30, 0, tzinfo=UTC), 39.096, -75.94),
+        _track_point_at(3, datetime(2025, 6, 2, 18, 33, 53, tzinfo=UTC), 39.05, -75.96),
+        _track_point_at(4, datetime(2025, 6, 2, 20, 46, 11, tzinfo=UTC), 38.68586, -75.07051),
+    ]
+    result = evaluate_task(task, task_points, track_points, event_timezone="Eastern")
+    assert result["started_at"] == track_points[2].recorded_at
+    assert result["goal_at"] == track_points[3].recorded_at
+
+
+def test_launch_validity_saturates_at_one_for_well_launched_day() -> None:
+    task = _task(nominal_time_hours=0.05)
+    winning_track = [
+        _track_point(1, 36.600, -118.000),
+        _track_point(2, 36.650, -118.050),
+        _track_point(3, 36.700, -118.100),
+        _track_point(4, 36.750, -118.150),
+        _track_point(5, 36.800, -118.200),
+    ]
+    upload = type("UploadStub", (), {"id": 10, "pilot_id": 1})()
+
+    event = type(
+        "EventStub",
+        (),
+        {
+            "nominal_goal_percent": 0.2,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_departure_points": False,
+            "use_arrival_position_points": False,
+            "use_arrival_time_points": False,
+            "use_difficulty_for_distance_points": True,
+            "goal_ss_penalty": 0.0,
+        },
+    )()
+
+    scored = _score_evaluations(
+        task,
+        1,
+        [{"upload": upload, "evaluation": evaluate_task(task, [_task_point(1, 1, "launch", 36.600, -118.000, 500), _task_point(2, 2, "start", 36.650, -118.050, 1000), _task_point(3, 3, "turnpoint", 36.700, -118.100, 600), _task_point(4, 4, "ESS", 36.750, -118.150, 1000), _task_point(5, 5, "goal", 36.800, -118.200, 500)], winning_track)}],
+        event,
+    )
+    gap = scored[0]["details_json"]["gap"]
+    assert gap["validity"]["launch"] == 1.0
+    assert gap["available_points"]["distance"] > 0
+    assert gap["available_points"]["speed"] > 0
