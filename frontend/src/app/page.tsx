@@ -1630,9 +1630,7 @@ export default function HomePage() {
                     <span>Departure points</span>
                   </label>
                 </div>
-                <details className="stack compact">
-                  <summary>AirScore advanced settings</summary>
-                  <p className="hint">The FS scoring sheet also shows computed outputs like day validity and available points. Only the editable AirScore formula settings are exposed here.</p>
+                <p className="hint">The FS scoring sheet also shows computed outputs like day validity and available points. Only the editable AirScore formula settings are exposed here.</p>
                   <div className="inline-grid">
                     <label className="stack compact">
                       <span>Day quality override</span>
@@ -1737,7 +1735,6 @@ export default function HomePage() {
                       <span>Use flat decline of time points</span>
                     </label>
                   </div>
-                </details>
                 <label className="stack compact">
                   <span>Penalty rules JSON</span>
                   <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={3} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
