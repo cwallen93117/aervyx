@@ -25,15 +25,37 @@ type EventRecord = {
   nominal_goal_percent: number;
   score_back_time_minutes: number;
   goal_ss_penalty: number;
+  day_quality_override: number;
+  time_points_if_not_in_goal: number;
   jump_the_gun_factor: number;
   jump_the_gun_max_seconds: number;
   stopped_glide_bonus: number;
+  use_1000_points_for_max_day_quality: boolean;
+  normalize_1000_before_day_quality: boolean;
   use_distance_points: boolean;
   use_time_points: boolean;
   use_leading_points: boolean;
   use_arrival_position_points: boolean;
   use_arrival_time_points: boolean;
   use_departure_points: boolean;
+  use_difficulty_for_distance_points: boolean;
+  use_distance_squared_for_lc: boolean;
+  use_semi_circle_control_zone_for_goal_line: boolean;
+  use_proportional_leading_weight_if_nobody_in_goal: boolean;
+  redistribute_removed_time_points_as_distance_points: boolean;
+  use_best_score_for_ftv_validity: boolean;
+  use_constant_leading_weight: boolean;
+  use_pwca2019_for_lc: boolean;
+  use_flat_decline_of_timepoints: boolean;
+  scoring_altitude: string;
+  final_glide_decelerator: string;
+  no_final_glide_decelerator_reason: string;
+  min_time_span_for_valid_task_minutes: number;
+  leading_weight_factor: number;
+  turnpoint_radius_tolerance: number;
+  turnpoint_radius_minimum_absolute_tolerance_m: number;
+  number_of_decimals_task_results: number;
+  number_of_decimals_competition_results: number;
   penalties_json: Record<string, unknown>;
   pilot_count: number;
   task_count: number;
@@ -110,6 +132,16 @@ const scoringFormulaOptions = [
   { value: "OzGAP2005", label: "OzGAP 2005" },
   { value: "PWC2016", label: "PWC 2016" },
 ] as const;
+const scoringAltitudeOptions = [
+  { value: "GPS", label: "GPS altitude" },
+  { value: "QNH", label: "QNH altitude" },
+  { value: "pressure", label: "Pressure altitude" },
+] as const;
+const finalGlideDeceleratorOptions = [
+  { value: "none", label: "None" },
+  { value: "default", label: "Default decelerator" },
+  { value: "stopped_task", label: "Stopped-task decelerator" },
+] as const;
 
 const pointTypeLabels: Record<string, string> = {
   launch: "Launch",
@@ -141,15 +173,37 @@ function blankEventForm() {
     nominal_goal_percent: 0.3,
     score_back_time_minutes: 15,
     goal_ss_penalty: 0,
+    day_quality_override: 0,
+    time_points_if_not_in_goal: 1,
     jump_the_gun_factor: 0,
     jump_the_gun_max_seconds: 0,
     stopped_glide_bonus: 0,
+    use_1000_points_for_max_day_quality: false,
+    normalize_1000_before_day_quality: false,
     use_distance_points: true,
     use_time_points: true,
     use_leading_points: true,
     use_arrival_position_points: false,
     use_arrival_time_points: false,
     use_departure_points: false,
+    use_difficulty_for_distance_points: true,
+    use_distance_squared_for_lc: false,
+    use_semi_circle_control_zone_for_goal_line: true,
+    use_proportional_leading_weight_if_nobody_in_goal: true,
+    redistribute_removed_time_points_as_distance_points: false,
+    use_best_score_for_ftv_validity: true,
+    use_constant_leading_weight: false,
+    use_pwca2019_for_lc: false,
+    use_flat_decline_of_timepoints: false,
+    scoring_altitude: "GPS",
+    final_glide_decelerator: "none",
+    no_final_glide_decelerator_reason: "",
+    min_time_span_for_valid_task_minutes: 60,
+    leading_weight_factor: 1,
+    turnpoint_radius_tolerance: 0.0005,
+    turnpoint_radius_minimum_absolute_tolerance_m: 5,
+    number_of_decimals_task_results: 2,
+    number_of_decimals_competition_results: 1,
     penalties_text: "{}",
   };
 }
@@ -247,15 +301,37 @@ function eventToForm(event: EventRecord | null | undefined) {
         nominal_goal_percent: event.nominal_goal_percent,
         score_back_time_minutes: event.score_back_time_minutes,
         goal_ss_penalty: event.goal_ss_penalty,
+        day_quality_override: event.day_quality_override,
+        time_points_if_not_in_goal: event.time_points_if_not_in_goal,
         jump_the_gun_factor: event.jump_the_gun_factor,
         jump_the_gun_max_seconds: event.jump_the_gun_max_seconds,
         stopped_glide_bonus: event.stopped_glide_bonus,
+        use_1000_points_for_max_day_quality: event.use_1000_points_for_max_day_quality,
+        normalize_1000_before_day_quality: event.normalize_1000_before_day_quality,
         use_distance_points: event.use_distance_points,
         use_time_points: event.use_time_points,
         use_leading_points: event.use_leading_points,
         use_arrival_position_points: event.use_arrival_position_points,
         use_arrival_time_points: event.use_arrival_time_points,
         use_departure_points: event.use_departure_points,
+        use_difficulty_for_distance_points: event.use_difficulty_for_distance_points,
+        use_distance_squared_for_lc: event.use_distance_squared_for_lc,
+        use_semi_circle_control_zone_for_goal_line: event.use_semi_circle_control_zone_for_goal_line,
+        use_proportional_leading_weight_if_nobody_in_goal: event.use_proportional_leading_weight_if_nobody_in_goal,
+        redistribute_removed_time_points_as_distance_points: event.redistribute_removed_time_points_as_distance_points,
+        use_best_score_for_ftv_validity: event.use_best_score_for_ftv_validity,
+        use_constant_leading_weight: event.use_constant_leading_weight,
+        use_pwca2019_for_lc: event.use_pwca2019_for_lc,
+        use_flat_decline_of_timepoints: event.use_flat_decline_of_timepoints,
+        scoring_altitude: event.scoring_altitude,
+        final_glide_decelerator: event.final_glide_decelerator,
+        no_final_glide_decelerator_reason: event.no_final_glide_decelerator_reason,
+        min_time_span_for_valid_task_minutes: event.min_time_span_for_valid_task_minutes,
+        leading_weight_factor: event.leading_weight_factor,
+        turnpoint_radius_tolerance: event.turnpoint_radius_tolerance,
+        turnpoint_radius_minimum_absolute_tolerance_m: event.turnpoint_radius_minimum_absolute_tolerance_m,
+        number_of_decimals_task_results: event.number_of_decimals_task_results,
+        number_of_decimals_competition_results: event.number_of_decimals_competition_results,
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
       }
     : blankEventForm();
@@ -534,15 +610,37 @@ export default function HomePage() {
       nominal_goal_percent: eventForm.nominal_goal_percent,
       score_back_time_minutes: eventForm.score_back_time_minutes,
       goal_ss_penalty: eventForm.goal_ss_penalty,
+      day_quality_override: eventForm.day_quality_override,
+      time_points_if_not_in_goal: eventForm.time_points_if_not_in_goal,
       jump_the_gun_factor: eventForm.jump_the_gun_factor,
       jump_the_gun_max_seconds: eventForm.jump_the_gun_max_seconds,
       stopped_glide_bonus: eventForm.stopped_glide_bonus,
+      use_1000_points_for_max_day_quality: eventForm.use_1000_points_for_max_day_quality,
+      normalize_1000_before_day_quality: eventForm.normalize_1000_before_day_quality,
       use_distance_points: eventForm.use_distance_points,
       use_time_points: eventForm.use_time_points,
       use_leading_points: eventForm.use_leading_points,
       use_arrival_position_points: eventForm.use_arrival_position_points,
       use_arrival_time_points: eventForm.use_arrival_time_points,
       use_departure_points: eventForm.use_departure_points,
+      use_difficulty_for_distance_points: eventForm.use_difficulty_for_distance_points,
+      use_distance_squared_for_lc: eventForm.use_distance_squared_for_lc,
+      use_semi_circle_control_zone_for_goal_line: eventForm.use_semi_circle_control_zone_for_goal_line,
+      use_proportional_leading_weight_if_nobody_in_goal: eventForm.use_proportional_leading_weight_if_nobody_in_goal,
+      redistribute_removed_time_points_as_distance_points: eventForm.redistribute_removed_time_points_as_distance_points,
+      use_best_score_for_ftv_validity: eventForm.use_best_score_for_ftv_validity,
+      use_constant_leading_weight: eventForm.use_constant_leading_weight,
+      use_pwca2019_for_lc: eventForm.use_pwca2019_for_lc,
+      use_flat_decline_of_timepoints: eventForm.use_flat_decline_of_timepoints,
+      scoring_altitude: eventForm.scoring_altitude,
+      final_glide_decelerator: eventForm.final_glide_decelerator,
+      no_final_glide_decelerator_reason: eventForm.no_final_glide_decelerator_reason,
+      min_time_span_for_valid_task_minutes: eventForm.min_time_span_for_valid_task_minutes,
+      leading_weight_factor: eventForm.leading_weight_factor,
+      turnpoint_radius_tolerance: eventForm.turnpoint_radius_tolerance,
+      turnpoint_radius_minimum_absolute_tolerance_m: eventForm.turnpoint_radius_minimum_absolute_tolerance_m,
+      number_of_decimals_task_results: eventForm.number_of_decimals_task_results,
+      number_of_decimals_competition_results: eventForm.number_of_decimals_competition_results,
       penalties_json: penaltiesJson,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
@@ -1001,6 +1099,114 @@ export default function HomePage() {
                     <span>Departure points</span>
                   </label>
                 </div>
+                <details className="stack compact">
+                  <summary>AirScore advanced settings</summary>
+                  <p className="hint">The FS scoring sheet also shows computed outputs like day validity and available points. Only the editable AirScore formula settings are exposed here.</p>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Day quality override</span>
+                      <input type="number" step="0.01" value={eventForm.day_quality_override} onChange={(event) => setEventForm({ ...eventForm, day_quality_override: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Time points if not in goal</span>
+                      <input type="number" step="0.01" value={eventForm.time_points_if_not_in_goal} onChange={(event) => setEventForm({ ...eventForm, time_points_if_not_in_goal: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Min time span for valid task (minutes)</span>
+                      <input type="number" value={eventForm.min_time_span_for_valid_task_minutes} onChange={(event) => setEventForm({ ...eventForm, min_time_span_for_valid_task_minutes: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Leading weight factor</span>
+                      <input type="number" step="0.01" value={eventForm.leading_weight_factor} onChange={(event) => setEventForm({ ...eventForm, leading_weight_factor: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Turnpoint radius tolerance</span>
+                      <input type="number" step="0.0001" value={eventForm.turnpoint_radius_tolerance} onChange={(event) => setEventForm({ ...eventForm, turnpoint_radius_tolerance: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Turnpoint min absolute tolerance (m)</span>
+                      <input type="number" step="0.1" value={eventForm.turnpoint_radius_minimum_absolute_tolerance_m} onChange={(event) => setEventForm({ ...eventForm, turnpoint_radius_minimum_absolute_tolerance_m: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Task results decimals</span>
+                      <input type="number" min={0} max={6} value={eventForm.number_of_decimals_task_results} onChange={(event) => setEventForm({ ...eventForm, number_of_decimals_task_results: Number(event.target.value) })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Competition results decimals</span>
+                      <input type="number" min={0} max={6} value={eventForm.number_of_decimals_competition_results} onChange={(event) => setEventForm({ ...eventForm, number_of_decimals_competition_results: Number(event.target.value) })} />
+                    </label>
+                  </div>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Scoring altitude</span>
+                      <select value={eventForm.scoring_altitude} onChange={(event) => setEventForm({ ...eventForm, scoring_altitude: event.target.value })}>
+                        {scoringAltitudeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="stack compact">
+                      <span>Final glide decelerator</span>
+                      <select value={eventForm.final_glide_decelerator} onChange={(event) => setEventForm({ ...eventForm, final_glide_decelerator: event.target.value })}>
+                        {finalGlideDeceleratorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                  <label className="stack compact">
+                    <span>No final glide decelerator reason</span>
+                    <input type="text" value={eventForm.no_final_glide_decelerator_reason} onChange={(event) => setEventForm({ ...eventForm, no_final_glide_decelerator_reason: event.target.value })} placeholder="Optional override note" />
+                  </label>
+                  <div className="three-up compact-checkbox-grid">
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_1000_points_for_max_day_quality} onChange={(event) => setEventForm({ ...eventForm, use_1000_points_for_max_day_quality: event.target.checked })} />
+                      <span>Use 1000 points for max day quality</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.normalize_1000_before_day_quality} onChange={(event) => setEventForm({ ...eventForm, normalize_1000_before_day_quality: event.target.checked })} />
+                      <span>Normalize 1000 before day quality</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_difficulty_for_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_difficulty_for_distance_points: event.target.checked })} />
+                      <span>Use difficulty for distance points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_distance_squared_for_lc} onChange={(event) => setEventForm({ ...eventForm, use_distance_squared_for_lc: event.target.checked })} />
+                      <span>Use distance squared for LC</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_semi_circle_control_zone_for_goal_line} onChange={(event) => setEventForm({ ...eventForm, use_semi_circle_control_zone_for_goal_line: event.target.checked })} />
+                      <span>Use semi-circle goal line control zone</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_proportional_leading_weight_if_nobody_in_goal} onChange={(event) => setEventForm({ ...eventForm, use_proportional_leading_weight_if_nobody_in_goal: event.target.checked })} />
+                      <span>Proportional leading weight if nobody in goal</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.redistribute_removed_time_points_as_distance_points} onChange={(event) => setEventForm({ ...eventForm, redistribute_removed_time_points_as_distance_points: event.target.checked })} />
+                      <span>Redistribute removed time points as distance points</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_best_score_for_ftv_validity} onChange={(event) => setEventForm({ ...eventForm, use_best_score_for_ftv_validity: event.target.checked })} />
+                      <span>Use best score for FTV validity</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_constant_leading_weight} onChange={(event) => setEventForm({ ...eventForm, use_constant_leading_weight: event.target.checked })} />
+                      <span>Use constant leading weight</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_pwca2019_for_lc} onChange={(event) => setEventForm({ ...eventForm, use_pwca2019_for_lc: event.target.checked })} />
+                      <span>Use PWCA 2019 for LC</span>
+                    </label>
+                    <label className="record-card checkbox-card">
+                      <input type="checkbox" checked={eventForm.use_flat_decline_of_timepoints} onChange={(event) => setEventForm({ ...eventForm, use_flat_decline_of_timepoints: event.target.checked })} />
+                      <span>Use flat decline of time points</span>
+                    </label>
+                  </div>
+                </details>
                 <label className="stack compact">
                   <span>Penalty rules JSON</span>
                   <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={3} placeholder='{"jump_the_gun": 0, "airspace": 0}' />

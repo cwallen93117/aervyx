@@ -50,15 +50,37 @@ class EventCreate(BaseModel):
     nominal_goal_percent: float = 0.3
     score_back_time_minutes: int = 15
     goal_ss_penalty: float = 0.0
+    day_quality_override: float = 0.0
+    time_points_if_not_in_goal: float = 1.0
     jump_the_gun_factor: float = 0.0
     jump_the_gun_max_seconds: int = 0
     stopped_glide_bonus: float = 0.0
+    use_1000_points_for_max_day_quality: bool = False
+    normalize_1000_before_day_quality: bool = False
     use_distance_points: bool = True
     use_time_points: bool = True
     use_leading_points: bool = True
     use_arrival_position_points: bool = False
     use_arrival_time_points: bool = False
     use_departure_points: bool = False
+    use_difficulty_for_distance_points: bool = True
+    use_distance_squared_for_lc: bool = False
+    use_semi_circle_control_zone_for_goal_line: bool = True
+    use_proportional_leading_weight_if_nobody_in_goal: bool = True
+    redistribute_removed_time_points_as_distance_points: bool = False
+    use_best_score_for_ftv_validity: bool = True
+    use_constant_leading_weight: bool = False
+    use_pwca2019_for_lc: bool = False
+    use_flat_decline_of_timepoints: bool = False
+    scoring_altitude: str = "GPS"
+    final_glide_decelerator: str = "none"
+    no_final_glide_decelerator_reason: str = ""
+    min_time_span_for_valid_task_minutes: int = 60
+    leading_weight_factor: float = 1.0
+    turnpoint_radius_tolerance: float = 0.0005
+    turnpoint_radius_minimum_absolute_tolerance_m: float = 5.0
+    number_of_decimals_task_results: int = 2
+    number_of_decimals_competition_results: int = 1
     penalties_json: dict = Field(default_factory=dict)
 
 
