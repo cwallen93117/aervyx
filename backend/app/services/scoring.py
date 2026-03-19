@@ -328,35 +328,47 @@ def _points_weight(task_stats: dict, formula: dict) -> dict:
 def _calc_kmdiff(task_stats: dict, evaluations: list[dict], formula: dict) -> list[float]:
     max_distance = task_stats["max_distance_km"]
     if max_distance <= 0:
-        return [0.0]
+        return [0.5]
 
-    bucket_count = max(int(math.ceil(max_distance * 10)), 1)
+    bucket_count = max(int(math.floor(max_distance * 10)), 1)
+    min_bucket = max(0, min(bucket_count, int(math.floor(formula["mindist_km"] * 10))))
     landed_counts = [0] * (bucket_count + 1)
+    landed_out_count = 0
     for entry in evaluations:
         evaluation = entry["evaluation"]
-        if evaluation["status"] == "goal":
+        if evaluation["status"] in {"goal", "ess"}:
             continue
-        distance = min(max(evaluation["distance_flown_km"], 0.0), max_distance)
-        bucket = min(bucket_count, int(distance * 10))
+        if evaluation["distance_flown_km"] <= 0 and evaluation["started_at"] is None:
+            continue
+        distance = min(max(evaluation["distance_flown_km"], formula["mindist_km"]), max_distance)
+        bucket = min(bucket_count, max(min_bucket, int(math.floor(distance * 10))))
         landed_counts[bucket] += 1
+        landed_out_count += 1
 
-    if not any(landed_counts):
-        return [round(index / bucket_count, 6) for index in range(bucket_count + 1)]
+    if landed_out_count <= 0:
+        return [round(0.5 * (index / bucket_count), 6) for index in range(bucket_count + 1)]
 
-    lookahead = formula["lookahead"]
+    lookahead = min(bucket_count, max(30, int(round((30.0 * max_distance) / landed_out_count))))
     difficulty = [0.0] * (bucket_count + 1)
-    for bucket in range(bucket_count + 1):
-        upper = min(bucket_count + 1, bucket + lookahead)
-        difficulty[bucket] = sum(landed_counts[bucket:upper])
+    for bucket in range(min_bucket, bucket_count + 1):
+        upper = min(bucket_count, bucket + lookahead)
+        difficulty[bucket] = float(sum(landed_counts[bucket : upper + 1]))
 
-    cumulative = 0.0
-    kmdiff = [0.0] * (bucket_count + 1)
-    for bucket in range(bucket_count + 1):
-        cumulative += difficulty[bucket]
-        kmdiff[bucket] = cumulative
+    sum_of_difficulty = sum(difficulty[min_bucket : bucket_count + 1])
+    if sum_of_difficulty <= 0:
+        return [round(0.5 * (index / bucket_count), 6) for index in range(bucket_count + 1)]
 
-    normalizer = kmdiff[-1] or 1.0
-    return [round(value / normalizer, 6) for value in kmdiff]
+    running = 0.0
+    diffscore = [0.0] * (bucket_count + 1)
+    for bucket in range(bucket_count + 1):
+        if bucket < min_bucket:
+            diffscore[bucket] = 0.0
+            continue
+        running += difficulty[bucket] / (2.0 * sum_of_difficulty)
+        diffscore[bucket] = min(running, 0.5)
+
+    diffscore[bucket_count] = 0.5
+    return [round(value, 6) for value in diffscore]
 
 
 def _pilot_distance_score(evaluation: dict, available_points: dict, task_stats: dict, kmdiff: list[float], formula: dict) -> float:
@@ -366,13 +378,16 @@ def _pilot_distance_score(evaluation: dict, available_points: dict, task_stats: 
     if max_distance <= 0:
         return 0.0
     distance = min(max(evaluation["distance_flown_km"], 0.0), max_distance)
-    linear_ratio = distance / max_distance
-    bucket = min(len(kmdiff) - 1, max(0, int(distance * 10)))
-    difficulty_ratio = kmdiff[bucket]
     if formula["use_difficulty_for_distance_points"]:
-        ratio = linear_ratio * formula["lineardist"] + difficulty_ratio * (1.0 - formula["lineardist"])
+        linear_fraction = (distance / max_distance) / 2.0
+        distance_tenths = distance * 10.0
+        lower_bucket = min(len(kmdiff) - 1, max(0, int(math.floor(distance_tenths))))
+        upper_bucket = min(len(kmdiff) - 1, lower_bucket + 1)
+        interpolation = min(max(distance_tenths - lower_bucket, 0.0), 1.0)
+        difficulty_fraction = kmdiff[lower_bucket] + (kmdiff[upper_bucket] - kmdiff[lower_bucket]) * interpolation
+        ratio = linear_fraction + difficulty_fraction
     else:
-        ratio = linear_ratio
+        ratio = distance / max_distance
     return round(available_points["distance"] * _clamp(ratio), 2)
 
 
