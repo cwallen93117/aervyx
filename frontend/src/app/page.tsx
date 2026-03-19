@@ -90,6 +90,7 @@ type ScoringTab = "task" | "overall";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
+const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 const adminSidebarItems = [
   { id: "events", label: "Events", description: "Configure comps and dates." },
   { id: "tasks", label: "Tasks", description: "Build routes and use imported turnpoints." },
@@ -288,7 +289,7 @@ export default function HomePage() {
   const [pilotSummary, setPilotSummary] = useState<PilotSummaryRecord[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [track, setTrack] = useState<TrackCollection | null>(null);
-  const [message, setMessage] = useState("Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.");
+  const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [error, setError] = useState("");
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "admin1234" });
@@ -1409,6 +1410,11 @@ export default function HomePage() {
             {error ? (
               <div className="status-row">
                 <div className="status-chip error">{error}</div>
+              </div>
+            ) : null}
+            {message && message !== DEFAULT_MESSAGE ? (
+              <div className="status-row">
+                <div className="status-chip success">{message}</div>
               </div>
             ) : null}
             {renderActiveSection()}

@@ -1048,6 +1048,12 @@ button { cursor: pointer; }
   background: #fff5f5;
 }
 
+.success {
+  color: #166534;
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
 /* â”€â”€â”€ Responsive â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 @media (max-width: 1100px) {
   .workspace-shell,
