@@ -565,6 +565,7 @@ export default function HomePage() {
     airspace: null,
   });
   const [taskFeedback, setTaskFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [uploadFeedback, setUploadFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
@@ -1215,45 +1216,56 @@ export default function HomePage() {
 
   async function saveTask() {
     if (!token || !selectedEventId) return;
-    const payload = {
-      name: taskDraft.name,
-      status: "draft",
-      task_type: taskDraft.task_type,
-      task_start_time: timeOrNull(taskDraft.task_start_time),
-      task_finish_time: timeOrNull(taskDraft.task_finish_time),
-      start_open_time: timeOrNull(taskDraft.start_open_time),
-      start_close_time: timeOrNull(taskDraft.start_close_time),
-      start_gate_count: taskDraft.start_gate_count,
-      start_gate_interval_seconds: taskDraft.start_gate_interval_minutes === "" ? null : taskDraft.start_gate_interval_minutes * 60,
-      nominal_distance_km: taskDraft.nominal_distance_km,
-      nominal_time_hours: taskDraft.nominal_time_hours,
-      nominal_launch: taskDraft.nominal_launch,
-      minimum_distance_km: taskDraft.minimum_distance_km,
-      penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
-      points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })),
-    };
-    let savedTask: TaskRecord;
-    if (taskDraft.id) {
-      savedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}`, token, { method: "PUT", body: JSON.stringify(payload) });
-      setMessage(`Updated task ${taskDraft.name}.`);
-    } else {
-      savedTask = await apiFetch<TaskRecord>(`/api/events/${selectedEventId}/tasks`, token, { method: "POST", body: JSON.stringify(payload) });
-      setMessage(`Created task ${taskDraft.name}.`);
+    try {
+      setTaskFeedback(null);
+      const payload = {
+        name: taskDraft.name,
+        status: "draft",
+        task_type: taskDraft.task_type,
+        task_start_time: timeOrNull(taskDraft.task_start_time),
+        task_finish_time: timeOrNull(taskDraft.task_finish_time),
+        start_open_time: timeOrNull(taskDraft.start_open_time),
+        start_close_time: timeOrNull(taskDraft.start_close_time),
+        start_gate_count: taskDraft.start_gate_count,
+        start_gate_interval_seconds: taskDraft.start_gate_interval_minutes === "" ? null : taskDraft.start_gate_interval_minutes * 60,
+        nominal_distance_km: taskDraft.nominal_distance_km,
+        nominal_time_hours: taskDraft.nominal_time_hours,
+        nominal_launch: taskDraft.nominal_launch,
+        minimum_distance_km: taskDraft.minimum_distance_km,
+        penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
+        points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })),
+      };
+      let savedTask: TaskRecord;
+      if (taskDraft.id) {
+        savedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}`, token, { method: "PUT", body: JSON.stringify(payload) });
+        setTaskFeedback({ type: "success", text: `Updated task ${taskDraft.name}.` });
+      } else {
+        savedTask = await apiFetch<TaskRecord>(`/api/events/${selectedEventId}/tasks`, token, { method: "POST", body: JSON.stringify(payload) });
+        setTaskFeedback({ type: "success", text: `Created task ${taskDraft.name}.` });
+      }
+      await loadEvent(token, selectedEventId, undefined, undefined, savedTask.id);
+      await refreshEvents(token);
+      setActiveSection("tasks");
+    } catch (caught) {
+      setTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task save failed." });
     }
-    await loadEvent(token, selectedEventId, undefined, undefined, savedTask.id);
-    await refreshEvents(token);
-    setActiveSection("tasks");
   }
 
   async function publishTask() {
     if (!token || !taskDraft.id) return;
-    const publishedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}/publish`, token, { method: "POST" });
-    setMessage(`Published task ${taskDraft.name}.`);
-    if (selectedEventId) await loadEvent(token, selectedEventId, undefined, undefined, publishedTask.id);
+    try {
+      setTaskFeedback(null);
+      const publishedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}/publish`, token, { method: "POST" });
+      setTaskFeedback({ type: "success", text: `Published task ${taskDraft.name}.` });
+      if (selectedEventId) await loadEvent(token, selectedEventId, undefined, undefined, publishedTask.id);
+    } catch (caught) {
+      setTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task publish failed." });
+    }
   }
 
   async function uploadIgc(file: File, pilotId?: number | null) {
     if (!token || !selectedTaskId) return;
+    setUploadFeedback({ type: "pending", text: `Uploading ${file.name}...` });
     const formData = new FormData();
     formData.append("file", file);
     if (pilotId) {
@@ -1261,28 +1273,33 @@ export default function HomePage() {
     }
     await apiFetch(`/api/tasks/${selectedTaskId}/uploads`, token, { method: "POST", body: formData });
     const pilotLabel = pilotId ? pilotNameById.get(pilotId) ?? `pilot ${pilotId}` : "pilot";
-    setMessage(`Uploaded ${file.name} for ${pilotLabel}.`);
+    setUploadFeedback({ type: "success", text: `Uploaded ${file.name} for ${pilotLabel}.` });
     await loadTask(token, selectedTaskId);
   }
 
   async function uploadIgcBatch(files: FileList | File[]) {
     if (!token || !selectedTaskId) return;
-    const formData = new FormData();
-    Array.from(files).forEach((file) => formData.append("files", file));
-    const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${selectedTaskId}/uploads/bulk`, token, {
-      method: "POST",
-      body: formData,
-    });
-    const matchedCount = batchResults.filter((item) => item.matched).length;
-    const unmatched = batchResults.filter((item) => !item.matched);
-    const unmatchedSummary = unmatched.length
-      ? ` Unmatched: ${unmatched.map((item) => `${item.filename} (${item.message})`).join("; ")}`
-      : "";
-    setMessage(`Uploaded ${matchedCount} of ${batchResults.length} IGC files automatically.${unmatchedSummary}`);
-    await loadTask(token, selectedTaskId);
-    if (selectedEventId) {
-      const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
-      setPilotSummary(loadedSummary);
+    try {
+      setUploadFeedback({ type: "pending", text: `Uploading ${Array.from(files).length} IGC files...` });
+      const formData = new FormData();
+      Array.from(files).forEach((file) => formData.append("files", file));
+      const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${selectedTaskId}/uploads/bulk`, token, {
+        method: "POST",
+        body: formData,
+      });
+      const matchedCount = batchResults.filter((item) => item.matched).length;
+      const unmatched = batchResults.filter((item) => !item.matched);
+      const unmatchedSummary = unmatched.length
+        ? ` Unmatched: ${unmatched.map((item) => `${item.filename} (${item.message})`).join("; ")}`
+        : "";
+      setUploadFeedback({ type: "success", text: `Uploaded ${matchedCount} of ${batchResults.length} IGC files automatically.${unmatchedSummary}` });
+      await loadTask(token, selectedTaskId);
+      if (selectedEventId) {
+        const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
+        setPilotSummary(loadedSummary);
+      }
+    } catch (caught) {
+      setUploadFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Bulk upload failed." });
     }
   }
 
@@ -2130,7 +2147,7 @@ export default function HomePage() {
                               <div key={`search-${turnpoint.id}`} className="task-search-row">
                                 <div>
                                   <strong>{turnpoint.name}</strong>
-                                  <span>{turnpoint.code ?? "No waypoint code"}</span>
+                                  <span>{turnpoint.code ?? ""}</span>
                                 </div>
                                 <button type="button" className="ghost-button" onClick={() => addTurnpoint(turnpoint)}>Add</button>
                               </div>
@@ -2142,7 +2159,81 @@ export default function HomePage() {
                       ) : null}
                     </div>
                   ) : null}
-                  <div className="task-point-list">
+                  <div className="task-point-list-table-wrap">
+                    {taskDraft.points.length ? (
+                      <table className="task-point-list-table">
+                        <thead>
+                          <tr>
+                            <th></th>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Radius (m)</th>
+                            {user?.role === "admin" ? <th></th> : null}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {taskDraft.points.map((point, index) => {
+                            const waypointCode = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code;
+                            return (
+                              <tr
+                                key={`compact-${point.turnpoint_id ?? point.name}-${index}`}
+                                className={`point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
+                                draggable={user?.role === "admin"}
+                                onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+                                onDragOver={(event) => event.preventDefault()}
+                                onDrop={(event) => {
+                                  event.preventDefault();
+                                  movePoint(Number(event.dataTransfer.getData("text/plain")), index);
+                                }}
+                              >
+                                <td className="task-point-row-order">
+                                  <span className="drag-handle" title="Drag to reorder">{point.position}. :::</span>
+                                </td>
+                                <td className="task-point-row-name">
+                                  <strong>{point.name}</strong>
+                                  {waypointCode ? <span>{waypointCode}</span> : null}
+                                </td>
+                                <td className="task-point-row-type">
+                                  {user?.role === "admin" ? (
+                                    <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                                      {taskPointTypeOptions.map((option) => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
+                                  )}
+                                </td>
+                                <td className="task-point-row-radius">
+                                  {user?.role === "admin" ? (
+                                    <input
+                                      type="text"
+                                      inputMode="numeric"
+                                      value={radiusInputValue(index, point)}
+                                      onFocus={(event) => event.currentTarget.select()}
+                                      onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
+                                      onBlur={() => handleRadiusInputBlur(index, point)}
+                                      onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
+                                      placeholder="400"
+                                      aria-label={`Radius in meters for ${point.name}`}
+                                    />
+                                  ) : (
+                                    <span>{formatMeters(point.radius_m)}</span>
+                                  )}
+                                </td>
+                                {user?.role === "admin" ? (
+                                  <td className="task-point-row-actions">
+                                    <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+                                  </td>
+                                ) : null}
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    ) : null}
+                  </div>
+                  <div className="task-point-list task-point-list-legacy" aria-hidden="true">
                     {taskDraft.points.map((point, index) => (
                       <div
                         key={`${point.turnpoint_id ?? point.name}-${index}`}
@@ -2158,7 +2249,7 @@ export default function HomePage() {
                         <div className="task-point-card-top">
                           <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
                           <strong>{point.name}</strong>
-                          <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? "No waypoint code"}</span>
+                          <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? ""}</span>
                           <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
                         </div>
                         <div className="task-point-card-grid">
@@ -2258,7 +2349,12 @@ export default function HomePage() {
                 </div>
               ) : null}
             </div>
-            {user?.role === "admin" ? <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button></div> : null}
+            {user?.role === "admin" ? (
+              <div className="stack compact task-action-stack">
+                <div className="button-row"><button type="button" onClick={saveTask}>Save task</button><button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button></div>
+                {taskFeedback ? <div className={`status-chip ${taskFeedback.type}`}>{taskFeedback.text}</div> : null}
+              </div>
+            ) : null}
           </div>
         </SectionCard>
       </div>
@@ -2319,6 +2415,7 @@ export default function HomePage() {
                   }}
                 />
               </label>
+                {uploadFeedback ? <div className={`status-chip ${uploadFeedback.type}`}>{uploadFeedback.text}</div> : null}
                 <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
                 <div className="button-row">
                   <button type="button" onClick={() => void rescoreSelectedTask()}>Run scoring</button>
