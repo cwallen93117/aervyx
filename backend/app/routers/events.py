@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, Task, Turnpoint, User
+from app.models import AirspaceRegion, Event, EventPilot, Task, Turnpoint, User
 from app.schemas import EventCreate, EventResponse
 from app.services.audit import log_action
 
@@ -15,6 +15,8 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
     pilot_count = session.scalar(select(func.count()).select_from(EventPilot).where(EventPilot.event_id == event.id)) or 0
     task_count = session.scalar(select(func.count()).select_from(Task).where(Task.event_id == event.id)) or 0
     turnpoint_count = session.scalar(select(func.count()).select_from(Turnpoint).where(Turnpoint.event_id == event.id)) or 0
+    airspace_count = session.scalar(select(func.count()).select_from(AirspaceRegion).where(AirspaceRegion.event_id == event.id, AirspaceRegion.is_restricted_field.is_(False))) or 0
+    restricted_field_count = session.scalar(select(func.count()).select_from(AirspaceRegion).where(AirspaceRegion.event_id == event.id, AirspaceRegion.is_restricted_field.is_(True))) or 0
     return EventResponse(
         id=event.id,
         name=event.name,
@@ -61,12 +63,16 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         turnpoint_radius_minimum_absolute_tolerance_m=event.turnpoint_radius_minimum_absolute_tolerance_m if event.turnpoint_radius_minimum_absolute_tolerance_m is not None else 5,
         number_of_decimals_task_results=event.number_of_decimals_task_results if event.number_of_decimals_task_results is not None else 2,
         number_of_decimals_competition_results=event.number_of_decimals_competition_results if event.number_of_decimals_competition_results is not None else 1,
+        visible_airspace_classes_json=list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "OTHER"]),
+        show_restricted_fields=True if event.show_restricted_fields is None else event.show_restricted_fields,
         penalties_json=event.penalties_json or {},
         created_at=event.created_at,
         updated_at=event.updated_at,
         pilot_count=pilot_count,
         task_count=task_count,
         turnpoint_count=turnpoint_count,
+        airspace_count=airspace_count,
+        restricted_field_count=restricted_field_count,
     )
 
 

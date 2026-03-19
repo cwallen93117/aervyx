@@ -49,6 +49,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "turnpoint_radius_minimum_absolute_tolerance_m": "ALTER TABLE events ADD COLUMN turnpoint_radius_minimum_absolute_tolerance_m FLOAT",
         "number_of_decimals_task_results": "ALTER TABLE events ADD COLUMN number_of_decimals_task_results INTEGER",
         "number_of_decimals_competition_results": "ALTER TABLE events ADD COLUMN number_of_decimals_competition_results INTEGER",
+        "visible_airspace_classes_json": "ALTER TABLE events ADD COLUMN visible_airspace_classes_json JSON",
+        "show_restricted_fields": "ALTER TABLE events ADD COLUMN show_restricted_fields BOOLEAN",
         "penalties_json": "ALTER TABLE events ADD COLUMN penalties_json JSON",
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     }
@@ -69,3 +71,56 @@ def ensure_runtime_schema(engine: Engine) -> None:
         for column_name, statement in task_statements.items():
             if column_name not in task_columns:
                 connection.execute(text(statement))
+        table_names = set(inspector.get_table_names())
+        if "airspace_sources" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE airspace_sources (
+                      id INTEGER PRIMARY KEY,
+                      event_id INTEGER NOT NULL,
+                      kind VARCHAR(30) NOT NULL,
+                      filename VARCHAR(255) NOT NULL,
+                      content_type VARCHAR(120),
+                      file_format VARCHAR(20) NOT NULL,
+                      sha256 VARCHAR(64) NOT NULL,
+                      stored_path TEXT NOT NULL,
+                      uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(event_id) REFERENCES events (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_airspace_sources_event_id ON airspace_sources (event_id)"))
+            connection.execute(text("CREATE INDEX ix_airspace_sources_kind ON airspace_sources (kind)"))
+            connection.execute(text("CREATE INDEX ix_airspace_sources_sha256 ON airspace_sources (sha256)"))
+        if "airspace_regions" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE airspace_regions (
+                      id INTEGER PRIMARY KEY,
+                      event_id INTEGER NOT NULL,
+                      source_id INTEGER NOT NULL,
+                      name VARCHAR(255) NOT NULL,
+                      class_code VARCHAR(20),
+                      type_code VARCHAR(40),
+                      display_category VARCHAR(40) NOT NULL,
+                      lower_limit_label VARCHAR(80),
+                      upper_limit_label VARCHAR(80),
+                      lower_limit_m FLOAT,
+                      upper_limit_m FLOAT,
+                      geometry_json JSON,
+                      label_latitude FLOAT,
+                      label_longitude FLOAT,
+                      is_restricted_field BOOLEAN DEFAULT 0,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(event_id) REFERENCES events (id) ON DELETE CASCADE,
+                      FOREIGN KEY(source_id) REFERENCES airspace_sources (id) ON DELETE CASCADE
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_airspace_regions_event_id ON airspace_regions (event_id)"))
+            connection.execute(text("CREATE INDEX ix_airspace_regions_source_id ON airspace_regions (source_id)"))
+            connection.execute(text("CREATE INDEX ix_airspace_regions_display_category ON airspace_regions (display_category)"))

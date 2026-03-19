@@ -4,11 +4,12 @@ import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
 
 import { AppSidebar } from "../components/AppSidebar";
 import { SectionCard } from "../components/SectionCard";
-import { TaskMap, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../components/TaskMap";
+import { TaskMap, type MapAirspaceRegion, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../components/TaskMap";
 import { computeTaskOptimization } from "../lib/taskOptimization";
 
 type SidebarSection = "events" | "tasks" | "scoring";
 type AuthMode = "login" | "register";
+type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
 type EventRecord = {
   id: number;
@@ -56,11 +57,15 @@ type EventRecord = {
   turnpoint_radius_minimum_absolute_tolerance_m: number;
   number_of_decimals_task_results: number;
   number_of_decimals_competition_results: number;
+  visible_airspace_classes_json: string[];
+  show_restricted_fields: boolean;
   penalties_json: Record<string, unknown>;
   updated_at: string;
   pilot_count: number;
   task_count: number;
   turnpoint_count: number;
+  airspace_count: number;
+  restricted_field_count: number;
 };
 type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; temp_password: string | null };
 type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
@@ -89,8 +94,19 @@ type TaskRecord = {
 };
 type ResultRecord = { id: number; upload_id: number; pilot_name: string; status: string; distance_flown_km: number; score_points: number; rank: number | null };
 type PilotSummaryRecord = { pilot_id: number; pilot_name: string; total_score_points: number; tasks_scored: number; best_distance_km: number };
-type UploadRecord = { id: number; filename: string; sha256: string; uploaded_at: string };
+type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; metadata_json: Record<string, unknown> };
 type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
+type AirspaceSourceRecord = {
+  id: number;
+  event_id: number;
+  kind: "airspace" | "restricted_field";
+  filename: string;
+  file_format: string;
+  sha256: string;
+  uploaded_at: string;
+  region_count: number;
+};
+type AirspaceUploadResponse = { source_id: number; kind: "airspace" | "restricted_field"; format: string; imported_count: number; sha256: string; filename: string };
 type TaskDraftState = {
   id: number | null;
   name: string;
@@ -109,6 +125,7 @@ type TaskDraftState = {
   points: TaskPointRecord[];
 };
 type ScoringTab = "task" | "overall";
+type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "OTHER";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
 const TOKEN_KEY = "flightcomp-platform-token";
@@ -144,6 +161,22 @@ const finalGlideDeceleratorOptions = [
   { value: "default", label: "Default decelerator" },
   { value: "stopped_task", label: "Stopped-task decelerator" },
 ] as const;
+const eventTabItems = [
+  { id: "details", label: "Event Details" },
+  { id: "turnpoints", label: "Turnpoint Files" },
+  { id: "airspace", label: "Airspace / Restricted Fields" },
+  { id: "participants", label: "Participants" },
+  { id: "scoring", label: "Scoring Parameters" },
+] satisfies Array<{ id: EventTab; label: string }>;
+const airspaceCategoryOptions = [
+  { value: "B", label: "Class B" },
+  { value: "C", label: "Class C" },
+  { value: "D", label: "Class D" },
+  { value: "P", label: "Prohibited" },
+  { value: "Q", label: "Danger" },
+  { value: "R", label: "Restricted" },
+  { value: "OTHER", label: "Other / advisory" },
+] satisfies Array<{ value: AirspaceCategoryOption; label: string }>;
 
 const pointTypeLabels: Record<string, string> = {
   launch: "Launch",
@@ -206,6 +239,8 @@ function blankEventForm() {
     turnpoint_radius_minimum_absolute_tolerance_m: 5,
     number_of_decimals_task_results: 2,
     number_of_decimals_competition_results: 1,
+    visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "OTHER"],
+    show_restricted_fields: true,
     penalties_text: "{}",
   };
 }
@@ -334,6 +369,8 @@ function eventToForm(event: EventRecord | null | undefined) {
         turnpoint_radius_minimum_absolute_tolerance_m: event.turnpoint_radius_minimum_absolute_tolerance_m,
         number_of_decimals_task_results: event.number_of_decimals_task_results,
         number_of_decimals_competition_results: event.number_of_decimals_competition_results,
+        visible_airspace_classes_json: event.visible_airspace_classes_json,
+        show_restricted_fields: event.show_restricted_fields,
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
       }
     : blankEventForm();
@@ -366,10 +403,13 @@ export default function HomePage() {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
+  const [eventTab, setEventTab] = useState<EventTab>("details");
   const [pilots, setPilots] = useState<PilotRecord[]>([]);
   const [pilotDirectory, setPilotDirectory] = useState<PilotRecord[]>([]);
   const [turnpoints, setTurnpoints] = useState<TurnpointRecord[]>([]);
   const [turnpointSlots, setTurnpointSlots] = useState<TurnpointSlotRecord[]>([]);
+  const [airspaces, setAirspaces] = useState<MapAirspaceRegion[]>([]);
+  const [airspaceSources, setAirspaceSources] = useState<AirspaceSourceRecord[]>([]);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [results, setResults] = useState<ResultRecord[]>([]);
@@ -389,6 +429,7 @@ export default function HomePage() {
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
+  const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
   const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskDraft.points), [taskDraft.points]);
@@ -397,6 +438,16 @@ export default function HomePage() {
     () => pilotDirectory.filter((candidate) => !pilots.some((pilot) => pilot.id === candidate.id)),
     [pilotDirectory, pilots],
   );
+  const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
+  const visibleAirspaces = useMemo(() => {
+    const enabled = new Set<string>(eventForm.visible_airspace_classes_json ?? []);
+    return airspaces.filter((region) => {
+      if (region.is_restricted_field) {
+        return eventForm.show_restricted_fields;
+      }
+      return enabled.has(region.display_category);
+    });
+  }, [airspaces, eventForm.show_restricted_fields, eventForm.visible_airspace_classes_json]);
   const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
 
   useEffect(() => {
@@ -414,6 +465,21 @@ export default function HomePage() {
       setActiveSection("tasks");
     }
   }, [activeSection, user]);
+
+  useEffect(() => {
+    if (user?.role !== "admin") {
+      setAdminUploadPilotId(null);
+      return;
+    }
+    if (!pilots.length) {
+      setAdminUploadPilotId(null);
+      return;
+    }
+    if (adminUploadPilotId && pilots.some((pilot) => pilot.id === adminUploadPilotId)) {
+      return;
+    }
+    setAdminUploadPilotId(pilots[0].id);
+  }, [adminUploadPilotId, pilots, user]);
 
   async function bootstrap(activeToken: string) {
     setToken(activeToken);
@@ -442,6 +508,8 @@ export default function HomePage() {
       setPilots([]);
       setTurnpoints([]);
       setTurnpointSlots([]);
+      setAirspaces([]);
+      setAirspaceSources([]);
       setTasks([]);
       setPilotSummary([]);
       setResults([]);
@@ -474,10 +542,12 @@ export default function HomePage() {
     const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
     setEventEditorId(eventId);
     setEventForm(eventToForm(activeEvent));
-    const [loadedPilots, loadedTurnpoints, loadedTurnpointSlots, loadedTasks, loadedSummary] = await Promise.all([
+    const [loadedPilots, loadedTurnpoints, loadedTurnpointSlots, loadedAirspaces, loadedAirspaceSources, loadedTasks, loadedSummary] = await Promise.all([
       apiFetch<PilotRecord[]>(`/api/events/${eventId}/pilots`, activeToken),
       apiFetch<TurnpointRecord[]>(`/api/events/${eventId}/turnpoints`, activeToken),
       apiFetch<TurnpointSlotRecord[]>(`/api/events/${eventId}/turnpoint-slots`, activeToken),
+      apiFetch<MapAirspaceRegion[]>(`/api/events/${eventId}/airspaces`, activeToken),
+      apiFetch<AirspaceSourceRecord[]>(`/api/events/${eventId}/airspace-sources`, activeToken),
       apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
       apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
     ]);
@@ -486,6 +556,8 @@ export default function HomePage() {
     setPilots(loadedPilots);
     setTurnpoints(loadedTurnpoints);
     setTurnpointSlots(loadedTurnpointSlots);
+    setAirspaces(loadedAirspaces);
+    setAirspaceSources(loadedAirspaceSources);
     setTasks(visibleTasks);
     setPilotSummary(loadedSummary);
     setTrack(null);
@@ -590,6 +662,8 @@ export default function HomePage() {
     setPilotDirectory([]);
     setTurnpoints([]);
     setTurnpointSlots([]);
+    setAirspaces([]);
+    setAirspaceSources([]);
     setTasks([]);
     setResults([]);
     setPilotSummary([]);
@@ -657,6 +731,8 @@ export default function HomePage() {
       turnpoint_radius_minimum_absolute_tolerance_m: eventForm.turnpoint_radius_minimum_absolute_tolerance_m,
       number_of_decimals_task_results: eventForm.number_of_decimals_task_results,
       number_of_decimals_competition_results: eventForm.number_of_decimals_competition_results,
+      visible_airspace_classes_json: eventForm.visible_airspace_classes_json,
+      show_restricted_fields: eventForm.show_restricted_fields,
       penalties_json: penaltiesJson,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
@@ -700,6 +776,8 @@ export default function HomePage() {
       setPilots([]);
       setTurnpoints([]);
       setTurnpointSlots([]);
+      setAirspaces([]);
+      setAirspaceSources([]);
       setTasks([]);
       setResults([]);
       setPilotSummary([]);
@@ -755,6 +833,34 @@ export default function HomePage() {
     setMessage(`Deleted turnpoint file from slot ${slotNumber}.`);
     await loadEvent(token, selectedEventId, selectedEvent);
     await refreshEvents(token);
+  }
+
+  async function uploadAirspaceFile(kind: "airspace" | "restricted_field", file: File) {
+    if (!selectedEventId) return;
+    const response = await uploadFile<AirspaceUploadResponse>(`/api/events/${selectedEventId}/airspaces/upload?kind=${kind}`, file);
+    setMessage(`Stored ${response.imported_count} ${kind === "airspace" ? "airspace regions" : "restricted fields"} from ${file.name}.`);
+    await loadEvent(token, selectedEventId, selectedEvent);
+    await refreshEvents(token);
+  }
+
+  async function deleteAirspaceSource(source: AirspaceSourceRecord) {
+    if (!token || !selectedEventId) return;
+    const confirmed = window.confirm(`Delete ${source.filename}? This removes its ${source.kind === "airspace" ? "airspace polygons" : "restricted fields"} from the database.`);
+    if (!confirmed) return;
+    await apiFetch<void>(`/api/events/${selectedEventId}/airspace-sources/${source.id}`, token, { method: "DELETE" });
+    setMessage(`Deleted ${source.filename}.`);
+    await loadEvent(token, selectedEventId, selectedEvent);
+    await refreshEvents(token);
+  }
+
+  function toggleVisibleAirspaceClass(category: AirspaceCategoryOption) {
+    const existing = new Set(eventForm.visible_airspace_classes_json);
+    if (existing.has(category)) {
+      existing.delete(category);
+    } else {
+      existing.add(category);
+    }
+    setEventForm({ ...eventForm, visible_airspace_classes_json: Array.from(existing) });
   }
 
   function startNewTask() {
@@ -872,13 +978,28 @@ export default function HomePage() {
     if (selectedEventId) await loadEvent(token, selectedEventId);
   }
 
-  async function uploadIgc(file: File) {
+  async function uploadIgc(file: File, pilotId?: number | null) {
     if (!token || !selectedTaskId) return;
     const formData = new FormData();
     formData.append("file", file);
+    if (pilotId) {
+      formData.append("pilot_id", String(pilotId));
+    }
     await apiFetch(`/api/tasks/${selectedTaskId}/uploads`, token, { method: "POST", body: formData });
-    setMessage(`Uploaded ${file.name}.`);
+    const pilotLabel = pilotId ? pilotNameById.get(pilotId) ?? `pilot ${pilotId}` : "pilot";
+    setMessage(`Uploaded ${file.name} for ${pilotLabel}.`);
     await loadTask(token, selectedTaskId);
+  }
+
+  async function rescoreSelectedTask() {
+    if (!token || !selectedTaskId) return;
+    await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
+    setMessage("Ran scoring for the selected task.");
+    await loadTask(token, selectedTaskId);
+    if (selectedEventId) {
+      const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
+      setPilotSummary(loadedSummary);
+    }
   }
 
   function renderParticipantCards() {
@@ -1000,7 +1121,15 @@ export default function HomePage() {
             </div>
           </div>
         </SectionCard>
+        <div className="tab-row">
+          {eventTabItems.map((tab) => (
+            <button key={tab.id} type="button" className={eventTab === tab.id ? "tab-button active" : "tab-button"} onClick={() => setEventTab(tab.id)}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
         <div className="event-workspace-grid event-three-up">
+          {eventTab === "details" ? (
           <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Keep the active event compact and quick to edit.">
             <form className="stack form-block compact-event-form" onSubmit={saveEvent}>
               <label className="stack compact">
@@ -1033,6 +1162,8 @@ export default function HomePage() {
               ) : null}
             </form>
           </SectionCard>
+          ) : null}
+          {eventTab === "scoring" ? (
           <SectionCard title="Scoring parameters" description="Event-level GAP defaults.">
             {eventEditorId ? (
               <form className="stack form-block compact-scoring-form" onSubmit={saveEvent}>
@@ -1236,6 +1367,8 @@ export default function HomePage() {
               <p className="hint">Create or select an event to define its scoring defaults.</p>
             )}
           </SectionCard>
+          ) : null}
+          {eventTab === "turnpoints" ? (
           <SectionCard title="Turnpoint files" description="Three compact event waypoint slots.">
             {eventEditorId ? (
               <div className="compact-slot-list">
@@ -1280,8 +1413,136 @@ export default function HomePage() {
               <p className="hint">Create or select an event before uploading turnpoint files.</p>
             )}
           </SectionCard>
+          ) : null}
         </div>
-        {renderParticipantCards()}
+        {eventTab === "airspace" ? (
+          <div className="section-grid two-column">
+            <SectionCard title="Overlay settings" description="Choose which airspace classes should appear on the task map for this event.">
+              {eventEditorId ? (
+                <form className="stack form-block" onSubmit={saveEvent}>
+                  <div className="three-up compact-checkbox-grid">
+                    {airspaceCategoryOptions.map((option) => (
+                      <label key={option.value} className="record-card checkbox-card">
+                        <input
+                          type="checkbox"
+                          checked={eventForm.visible_airspace_classes_json.includes(option.value)}
+                          onChange={() => toggleVisibleAirspaceClass(option.value)}
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    ))}
+                    <label className="record-card checkbox-card">
+                      <input
+                        type="checkbox"
+                        checked={eventForm.show_restricted_fields}
+                        onChange={(event) => setEventForm({ ...eventForm, show_restricted_fields: event.target.checked })}
+                      />
+                      <span>Restricted fields</span>
+                    </label>
+                  </div>
+                  <div className="record-card">
+                    <strong>{visibleAirspaces.length} visible overlays</strong>
+                    <span>{selectedEvent?.airspace_count ?? 0} airspace regions and {selectedEvent?.restricted_field_count ?? 0} restricted fields stored for this event.</span>
+                  </div>
+                  {user?.role === "admin" ? <button type="submit">Save overlay settings</button> : null}
+                </form>
+              ) : (
+                <p className="hint">Create or select an event to configure airspace overlays.</p>
+              )}
+            </SectionCard>
+            <SectionCard title="Upload datasets" description="Use OpenAir for airspace and restricted field polygons. GeoJSON is also accepted for general airspace overlays.">
+              <div className="stack form-block">
+                {user?.role === "admin" ? (
+                  <>
+                    <div className="record-card">
+                      <strong>Competition airspace</strong>
+                      <span>Upload OpenAir or GeoJSON around the selected event.</span>
+                      <label className="file-input">
+                        Upload airspace
+                        <input
+                          type="file"
+                          accept=".txt,.openair,.air,.geojson,.json"
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              setError("");
+                              await uploadAirspaceFile("airspace", file);
+                            } catch (caught) {
+                              setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                            } finally {
+                              event.currentTarget.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                    <div className="record-card">
+                      <strong>Restricted landing fields</strong>
+                      <span>Upload OpenAir polygons for do-not-land or field exclusion zones.</span>
+                      <label className="file-input">
+                        Upload restricted fields
+                        <input
+                          type="file"
+                          accept=".txt,.openair,.air"
+                          onChange={async (event) => {
+                            const file = event.target.files?.[0];
+                            if (!file) return;
+                            try {
+                              setError("");
+                              await uploadAirspaceFile("restricted_field", file);
+                            } catch (caught) {
+                              setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
+                            } finally {
+                              event.currentTarget.value = "";
+                            }
+                          }}
+                        />
+                      </label>
+                    </div>
+                  </>
+                ) : (
+                  <p className="hint">Only admins can upload airspace files. Pilots still see the saved overlays on the task map.</p>
+                )}
+              </div>
+            </SectionCard>
+            <SectionCard title="Stored airspace files" description="Uploaded overlays attached to this event.">
+              <div className="stack form-block">
+                {airspaceSources.filter((source) => source.kind === "airspace").length ? (
+                  airspaceSources.filter((source) => source.kind === "airspace").map((source) => (
+                    <div key={source.id} className="record-card roster-row">
+                      <div>
+                        <strong>{source.filename}</strong>
+                        <span>{source.region_count} regions - {source.file_format} - uploaded {new Date(source.uploaded_at).toLocaleString()}</span>
+                      </div>
+                      {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                    </div>
+                  ))
+                ) : (
+                  <p className="hint">No airspace overlays uploaded yet.</p>
+                )}
+              </div>
+            </SectionCard>
+            <SectionCard title="Stored restricted fields" description="Do-not-land and restricted field polygons for this event.">
+              <div className="stack form-block">
+                {airspaceSources.filter((source) => source.kind === "restricted_field").length ? (
+                  airspaceSources.filter((source) => source.kind === "restricted_field").map((source) => (
+                    <div key={source.id} className="record-card roster-row">
+                      <div>
+                        <strong>{source.filename}</strong>
+                        <span>{source.region_count} fields - {source.file_format} - uploaded {new Date(source.uploaded_at).toLocaleString()}</span>
+                      </div>
+                      {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                    </div>
+                  ))
+                ) : (
+                  <p className="hint">No restricted field files uploaded yet.</p>
+                )}
+              </div>
+            </SectionCard>
+          </div>
+        ) : null}
+        {eventTab === "participants" ? renderParticipantCards() : null}
       </div>
     );
   }
@@ -1431,6 +1692,7 @@ export default function HomePage() {
               <div className="task-map-panel">
                 <TaskMap
                   turnpoints={turnpoints}
+                  airspaces={visibleAirspaces}
                   taskPoints={taskDraft.points}
                   optimizedRoute={taskDistanceMetrics.routeCoordinates}
                   legMetrics={taskDistanceMetrics.legMetrics}
@@ -1485,7 +1747,59 @@ export default function HomePage() {
     if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
     return (
       <div className="section-stack">
-        <SectionCard title="Results" description="Review task standings or switch to the overall event results summary.">
+        {user?.role === "admin" ? (
+          <SectionCard title="Admin scoring portal" description="Upload missing IGC files on behalf of pilots, then run scoring manually for the selected task.">
+            <div className="stack form-block">
+              <label className="stack compact">
+                <span>Selected task</span>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
+                  <option value="">Select a task</option>
+                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                </select>
+              </label>
+              <div className="inline-grid">
+                <label className="stack compact">
+                  <span>Pilot for upload</span>
+                  <select value={adminUploadPilotId ?? ""} onChange={(event) => setAdminUploadPilotId(event.target.value ? Number(event.target.value) : null)}>
+                    <option value="">Select a pilot</option>
+                    {pilots.map((pilot) => (
+                      <option key={pilot.id} value={pilot.id}>
+                        {pilot.first_name} {pilot.last_name}{pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="file-input">
+                  Upload IGC for pilot
+                  <input
+                    type="file"
+                    accept=".igc"
+                    disabled={!selectedTaskId || !adminUploadPilotId}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file && adminUploadPilotId) void uploadIgc(file, adminUploadPilotId);
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="button-row">
+                <button type="button" onClick={() => void rescoreSelectedTask()} disabled={!selectedTaskId}>Run scoring</button>
+              </div>
+              {uploads.length ? (
+                <div className="stack">
+                  {uploads.map((upload) => (
+                    <div key={upload.id} className="record-card">
+                      <strong>{upload.filename}</strong>
+                      <span>{pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}`} - {upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <p className="hint">No IGC uploads have been stored for this task yet.</p>}
+            </div>
+          </SectionCard>
+        ) : null}
+        <SectionCard title="Results portal" description="Task results and overall standings are visible to all signed-in users.">
           <div className="stack">
             <div className="tab-row">
               <button type="button" className={scoringTab === "task" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("task")}>Task results</button>
@@ -1500,12 +1814,6 @@ export default function HomePage() {
                     {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                   </select>
                 </label>
-                {user?.role === "pilot" ? <label className="file-input">Upload IGC<input type="file" accept=".igc" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadIgc(file); }} /></label> : null}
-                {uploads.length ? (
-                  <div className="stack">
-                    {uploads.map((upload) => <div key={upload.id} className="record-card"><strong>{upload.filename}</strong><span>{upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span></div>)}
-                  </div>
-                ) : <p className="hint">No IGC uploads have been stored for this task yet.</p>}
                 {results.length ? (
                   <div className="stack">
                     {results.map((result) => <div key={result.id} className="record-card"><strong>{result.rank ?? "-"}. {result.pilot_name}</strong><span>{result.status} - {result.distance_flown_km.toFixed(1)} km - {result.score_points.toFixed(1)} pts</span></div>)}

@@ -5,6 +5,20 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
+export type MapAirspaceRegion = {
+  id: number;
+  source_id: number;
+  name: string;
+  class_code: string | null;
+  type_code: string | null;
+  display_category: string;
+  lower_limit_label: string | null;
+  upper_limit_label: string | null;
+  geometry_json: { type: string; coordinates: number[][][] };
+  label_latitude: number | null;
+  label_longitude: number | null;
+  is_restricted_field: boolean;
+};
 export type TrackCollection = { type: "FeatureCollection"; features: Array<{ type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: number[][] } }> };
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
@@ -67,6 +81,85 @@ function ensureGeoJsonSource(map: maplibregl.Map, id: string, data: Record<strin
 }
 
 function ensureMapLayers(map: maplibregl.Map) {
+  if (!map.getLayer("airspaces-fill")) {
+    map.addLayer({
+      id: "airspaces-fill",
+      type: "fill",
+      source: "airspaces",
+      paint: {
+        "fill-color": [
+          "match",
+          ["get", "display_category"],
+          "B", "#2563eb",
+          "C", "#f59e0b",
+          "D", "#14b8a6",
+          "P", "#dc2626",
+          "Q", "#db2777",
+          "R", "#7c3aed",
+          "RESTRICTED_FIELD", "#b91c1c",
+          "#64748b",
+        ],
+        "fill-opacity": [
+          "case",
+          ["get", "is_restricted_field"],
+          0.22,
+          0.12,
+        ],
+      },
+    });
+  }
+  if (!map.getLayer("airspaces-outline")) {
+    map.addLayer({
+      id: "airspaces-outline",
+      type: "line",
+      source: "airspaces",
+      paint: {
+        "line-color": [
+          "match",
+          ["get", "display_category"],
+          "B", "#2563eb",
+          "C", "#d97706",
+          "D", "#0f766e",
+          "P", "#dc2626",
+          "Q", "#db2777",
+          "R", "#7c3aed",
+          "RESTRICTED_FIELD", "#991b1b",
+          "#475569",
+        ],
+        "line-width": [
+          "case",
+          ["get", "is_restricted_field"],
+          2.5,
+          1.5,
+        ],
+        "line-dasharray": [
+          "case",
+          ["get", "is_restricted_field"],
+          ["literal", [2, 1]],
+          ["literal", [1, 0]],
+        ],
+      },
+    });
+  }
+  if (!map.getLayer("airspace-labels")) {
+    map.addLayer({
+      id: "airspace-labels",
+      type: "symbol",
+      source: "airspace-labels",
+      layout: {
+        "text-field": ["get", "label"],
+        "text-size": 10,
+        "text-anchor": "center",
+        "text-allow-overlap": false,
+        "text-max-width": 14,
+      },
+      paint: {
+        "text-color": "#0f172a",
+        "text-halo-color": "rgba(255,255,255,0.96)",
+        "text-halo-width": 1.2,
+      },
+    });
+  }
   if (!map.getLayer("turnpoints-layer")) {
     map.addLayer({ id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
   }
@@ -241,6 +334,7 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
 
 export function TaskMap({
   turnpoints,
+  airspaces = [],
   taskPoints,
   optimizedRoute = [],
   legMetrics = [],
@@ -251,6 +345,7 @@ export function TaskMap({
   onSelectTurnpoint,
 }: {
   turnpoints: MapTurnpoint[];
+  airspaces?: MapAirspaceRegion[];
   taskPoints: MapTaskPoint[];
   optimizedRoute?: [number, number][];
   legMetrics?: MapLegMetric[];
@@ -272,6 +367,38 @@ export function TaskMap({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
+  const airspaceData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: airspaces.map((airspace) => ({
+      type: "Feature",
+      properties: {
+        id: airspace.id,
+        name: airspace.name,
+        display_category: airspace.display_category,
+        class_code: airspace.class_code ?? "",
+        type_code: airspace.type_code ?? "",
+        lower_limit_label: airspace.lower_limit_label ?? "",
+        upper_limit_label: airspace.upper_limit_label ?? "",
+        is_restricted_field: airspace.is_restricted_field,
+      },
+      geometry: airspace.geometry_json,
+    })),
+  }), [airspaces]);
+  const airspaceLabelData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: airspaces
+      .filter((airspace) => airspace.label_latitude !== null && airspace.label_longitude !== null)
+      .map((airspace) => ({
+        type: "Feature",
+        properties: {
+          label: `${airspace.name}\n${airspace.lower_limit_label ?? "SFC"} - ${airspace.upper_limit_label ?? "UNL"}`,
+        },
+        geometry: {
+          type: "Point",
+          coordinates: [airspace.label_longitude as number, airspace.label_latitude as number],
+        },
+      })),
+  }), [airspaces]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
@@ -383,6 +510,8 @@ export function TaskMap({
 
     const syncData = () => {
       ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
+      ensureGeoJsonSource(map, "airspaces", airspaceData as never);
+      ensureGeoJsonSource(map, "airspace-labels", airspaceLabelData as never);
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
       ensureGeoJsonSource(map, "task-route", routeData as never);
       ensureGeoJsonSource(map, "optimized-route", optimizedRouteData as never);
@@ -409,7 +538,7 @@ export function TaskMap({
     } else {
       map.once("styledata", syncData);
     }
-  }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
+  }, [basemapMode, turnpointData, airspaceData, airspaceLabelData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
 
   return (
     <div className={isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"} ref={shellRef}>

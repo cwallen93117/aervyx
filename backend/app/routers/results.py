@@ -17,8 +17,6 @@ def get_task_results(task_id: int, user: User = Depends(get_current_user), sessi
     if session.get(Task, task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
     query = select(ScoreResult).where(ScoreResult.task_id == task_id).order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
-    if user.role == "pilot":
-        query = query.where(ScoreResult.pilot_id == user.pilot_id)
     results = session.scalars(query).all()
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
 
@@ -38,8 +36,6 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
     summaries: list[PilotSummaryResponse] = []
     for pilot_id in pilot_ids:
-        if user.role == "pilot" and user.pilot_id != pilot_id:
-            continue
         pilot = session.get(Pilot, pilot_id)
         aggregates = session.execute(
             select(func.coalesce(func.sum(ScoreResult.score_points), 0), func.count(ScoreResult.id), func.coalesce(func.max(ScoreResult.distance_flown_km), 0))

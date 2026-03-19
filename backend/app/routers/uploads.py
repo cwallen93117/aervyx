@@ -14,8 +14,6 @@ from app.models import EventPilot, IGCUpload, Pilot, Task, TrackPoint, User
 from app.schemas import UploadResponse
 from app.services.audit import log_action
 from app.services.igc import parse_igc
-from app.services.scoring import rescore_task
-
 router = APIRouter(tags=["uploads"])
 
 
@@ -46,8 +44,6 @@ async def upload_igc(task_id: int, file: UploadFile = File(...), pilot_id: int |
     for sequence, fix in enumerate(parsed.fixes, start=1):
         session.add(TrackPoint(upload_id=upload.id, sequence=sequence, recorded_at=fix.recorded_at, latitude=fix.latitude, longitude=fix.longitude, pressure_altitude_m=fix.pressure_altitude_m, gps_altitude_m=fix.gps_altitude_m))
     log_action(session, actor_user_id=user.id, action="igc.upload", entity_type="igc_upload", entity_id=str(upload.id), details={"task_id": task.id, "pilot_id": effective_pilot_id, "sha256": sha256, "fix_count": parsed.metadata.get("fix_count")})
-    session.flush()
-    rescore_task(session, task.id)
     session.commit()
     return UploadResponse.model_validate(upload)
 

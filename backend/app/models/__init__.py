@@ -69,6 +69,8 @@ class Event(Base):
     turnpoint_radius_minimum_absolute_tolerance_m: Mapped[float | None] = mapped_column(Float, nullable=True)
     number_of_decimals_task_results: Mapped[int | None] = mapped_column(Integer, nullable=True)
     number_of_decimals_competition_results: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    visible_airspace_classes_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    show_restricted_fields: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     penalties_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -132,6 +134,41 @@ class Turnpoint(Base):
     latitude: Mapped[float] = mapped_column(Float)
     longitude: Mapped[float] = mapped_column(Float)
     elevation_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AirspaceSource(Base):
+    __tablename__ = "airspace_sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(30), index=True)
+    filename: Mapped[str] = mapped_column(String(255))
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    file_format: Mapped[str] = mapped_column(String(20))
+    sha256: Mapped[str] = mapped_column(String(64), index=True)
+    stored_path: Mapped[str] = mapped_column(Text)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class AirspaceRegion(Base):
+    __tablename__ = "airspace_regions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("airspace_sources.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(255), index=True)
+    class_code: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
+    type_code: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    display_category: Mapped[str] = mapped_column(String(40), index=True)
+    lower_limit_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    upper_limit_label: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    lower_limit_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    upper_limit_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    geometry_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    label_latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    label_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    is_restricted_field: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

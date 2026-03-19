@@ -81,6 +81,8 @@ class EventCreate(BaseModel):
     turnpoint_radius_minimum_absolute_tolerance_m: float = 5.0
     number_of_decimals_task_results: int = 2
     number_of_decimals_competition_results: int = 1
+    visible_airspace_classes_json: list[str] = Field(default_factory=lambda: ["B", "C", "D", "P", "Q", "R", "OTHER"])
+    show_restricted_fields: bool = True
     penalties_json: dict = Field(default_factory=dict)
 
 
@@ -91,6 +93,8 @@ class EventResponse(EventCreate):
     pilot_count: int = 0
     task_count: int = 0
     turnpoint_count: int = 0
+    airspace_count: int = 0
+    restricted_field_count: int = 0
 
 
 class PilotUpsert(BaseModel):
@@ -145,6 +149,46 @@ class TurnpointSlotResponse(BaseModel):
     sha256: str | None = None
     uploaded_at: datetime | None = None
     turnpoint_count: int = 0
+
+
+class AirspaceSourceResponse(BaseModel):
+    id: int
+    event_id: int
+    kind: str
+    filename: str
+    file_format: str
+    sha256: str
+    uploaded_at: datetime
+    region_count: int = 0
+
+
+class AirspaceUploadResponse(BaseModel):
+    source_id: int
+    kind: str
+    format: str
+    imported_count: int
+    sha256: str
+    filename: str
+
+
+class AirspaceRegionResponse(BaseModel):
+    id: int
+    event_id: int
+    source_id: int
+    name: str
+    class_code: str | None
+    type_code: str | None
+    display_category: str
+    lower_limit_label: str | None
+    upper_limit_label: str | None
+    lower_limit_m: float | None
+    upper_limit_m: float | None
+    geometry_json: dict
+    label_latitude: float | None
+    label_longitude: float | None
+    is_restricted_field: bool
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class TaskPointInput(BaseModel):
