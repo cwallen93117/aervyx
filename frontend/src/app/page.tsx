@@ -310,6 +310,18 @@ function formatClockTime(value: string | null | undefined, includeSeconds = fals
   return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined });
 }
 
+function formatTaskClockLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return value;
+  const hours24 = Number(match[1]);
+  const minutes = match[2];
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${minutes} ${suffix}`;
+}
+
 function formatElapsedSeconds(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "-";
   const totalSeconds = Math.max(0, Math.round(value));
@@ -579,11 +591,9 @@ export default function HomePage() {
         label: `${index + 1}${suffix ? ` ${suffix}` : ""}`,
         legDistanceKm: cumulativeDistance,
         identifier: sourceTurnpoint?.code || point.name,
-        radiusLabel: `${point.radius_m.toFixed(0)} m`,
-        openLabel: taskDraft.start_open_time || taskDraft.task_start_time || "-",
-        closeLabel: taskDraft.start_close_time || taskDraft.task_finish_time || "-",
-        coordinatesLabel: `Lat: ${point.latitude.toFixed(5)} Lon: ${point.longitude.toFixed(5)}`,
-        altitudeLabel: `${sourceTurnpoint?.elevation_m != null ? sourceTurnpoint.elevation_m.toFixed(0) : "0"} m`,
+        radiusLabel: `${formatMeters(point.radius_m)} m`,
+        openLabel: formatTaskClockLabel(taskDraft.start_open_time || taskDraft.task_start_time || "-"),
+        closeLabel: formatTaskClockLabel(taskDraft.start_close_time || taskDraft.task_finish_time || "-"),
       };
     });
   }, [taskDistanceMetrics.legMetrics, taskDraft.points, taskDraft.start_open_time, taskDraft.start_close_time, taskDraft.task_finish_time, taskDraft.task_start_time, turnpoints]);
@@ -597,7 +607,7 @@ export default function HomePage() {
       const totalMinutes = baseMinutes + index * Number(taskDraft.start_gate_interval_minutes || 0);
       const hours = Math.floor(totalMinutes / 60) % 24;
       const minutes = totalMinutes % 60;
-      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+      return formatTaskClockLabel(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`);
     });
   }, [currentTaskTypeBehavior.usesMultipleGates, taskDraft.start_gate_count, taskDraft.start_gate_interval_minutes, taskDraft.start_open_time]);
   const visibleAirspaces = useMemo(() => {
@@ -2344,8 +2354,6 @@ export default function HomePage() {
                             <th>Radius</th>
                             <th>Open</th>
                             <th>Close</th>
-                            <th>Coordinates</th>
-                            <th>Altitude</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2357,8 +2365,6 @@ export default function HomePage() {
                               <td>{row.radiusLabel}</td>
                               <td>{row.openLabel}</td>
                               <td>{row.closeLabel}</td>
-                              <td>{row.coordinatesLabel}</td>
-                              <td>{row.altitudeLabel}</td>
                             </tr>
                           ))}
                         </tbody>
