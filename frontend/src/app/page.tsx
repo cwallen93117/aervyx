@@ -378,7 +378,12 @@ function taskPointInputKey(point: TaskPointRecord, index: number): string {
 }
 
 function normalizeTimeValue(value: string | null | undefined): string {
-  return value ?? "";
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (/^\d{2}:\d{2}:\d{2}$/.test(trimmed)) {
+    return trimmed.slice(0, 5);
+  }
+  return trimmed;
 }
 
 function timeOrNull(value: string): string | null {
