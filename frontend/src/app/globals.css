@@ -1294,6 +1294,32 @@ button[type="submit"]:hover {
   padding: 9px 12px;
 }
 
+.results-header-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.15;
+}
+
+.results-table-task thead th,
+.results-table-task tbody td {
+  text-align: center;
+}
+
+.results-table-task thead th {
+  padding: 8px 8px;
+  white-space: normal;
+}
+
+.results-table-task tbody td {
+  padding: 9px 8px;
+}
+
+.results-table-task thead th:nth-child(2),
+.results-table-task tbody td:nth-child(2) {
+  text-align: left;
+}
+
 .field-disabled {
   opacity: 0.5;
   pointer-events: none;

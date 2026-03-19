@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
 
 import { AppSidebar } from "../components/AppSidebar";
 import { SectionCard } from "../components/SectionCard";
@@ -333,6 +333,23 @@ function formatElapsedSeconds(value: number | null | undefined): string {
 
 function formatResultPoints(value: number | null | undefined): string {
   return (value ?? 0).toFixed(1);
+}
+
+function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
+  switch (key) {
+    case "distance":
+      return <span className="results-header-stack"><span>Dist.</span><span>Points</span></span>;
+    case "speed":
+      return <span className="results-header-stack"><span>Time</span><span>Points</span></span>;
+    case "arrival":
+      return <span className="results-header-stack"><span>Arrival</span><span>Points</span></span>;
+    case "departure":
+      return <span className="results-header-stack"><span>Departure</span><span>Points</span></span>;
+    case "leading":
+      return <span className="results-header-stack"><span>Leading</span><span>Points</span></span>;
+    default:
+      return key;
+  }
 }
 
 function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure" | "leading") {
@@ -2380,7 +2397,7 @@ export default function HomePage() {
                       <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
                     </div>
                     <div className="results-table-wrap">
-                      <table className="results-table">
+                      <table className="results-table results-table-task">
                           <thead>
                             <tr>
                               <th>#</th>
@@ -2389,10 +2406,10 @@ export default function HomePage() {
                               <th>Glider</th>
                               <th>SS</th>
                               <th>ES</th>
-                              <th>Time [h:m:s]</th>
-                              <th>Speed [km/h]</th>
-                              <th>Distance [km]</th>
-                              {taskResultsColumns.map((column) => <th key={column.key}>{column.label}</th>)}
+                              <th><span className="results-header-stack"><span>Time</span><span>[h:m:s]</span></span></th>
+                              <th><span className="results-header-stack"><span>Speed</span><span>[km/h]</span></span></th>
+                              <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
+                              {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
                               <th>Total</th>
                             </tr>
                           </thead>
