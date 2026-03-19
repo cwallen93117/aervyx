@@ -29,7 +29,7 @@
 
   /* Type */
   font-family: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.45;
 }
 
@@ -40,7 +40,7 @@ body {
   margin: 0;
   color: var(--ink);
   background: #eef3f8;
-  font-size: 13px;
+  font-size: 14px;
 }
 
 h1, h2, h3, p { margin-top: 0; }
