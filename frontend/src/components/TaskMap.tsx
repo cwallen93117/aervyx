@@ -135,10 +135,27 @@ function ensureMapLayers(map: maplibregl.Map) {
       id: "optimized-route-layer",
       type: "line",
       source: "optimized-route",
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
       paint: {
         "line-color": "#2563eb",
         "line-width": 2,
         "line-dasharray": [2, 2],
+      },
+    });
+  }
+  if (!map.getLayer("optimized-route-points")) {
+    map.addLayer({
+      id: "optimized-route-points",
+      type: "circle",
+      source: "optimized-route-points",
+      paint: {
+        "circle-radius": 4,
+        "circle-color": "#2563eb",
+        "circle-stroke-width": 1.2,
+        "circle-stroke-color": "#ffffff",
       },
     });
   }
@@ -258,6 +275,14 @@ export function TaskMap({
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
+  const optimizedRoutePointData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: optimizedRoute.map((coordinate, index) => ({
+      type: "Feature",
+      properties: { index: index + 1 },
+      geometry: { type: "Point", coordinates: coordinate },
+    })),
+  }), [optimizedRoute]);
   const legLabelData = useMemo(() => ({
     type: "FeatureCollection",
     features: legMetrics.map((leg) => ({
@@ -361,6 +386,7 @@ export function TaskMap({
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
       ensureGeoJsonSource(map, "task-route", routeData as never);
       ensureGeoJsonSource(map, "optimized-route", optimizedRouteData as never);
+      ensureGeoJsonSource(map, "optimized-route-points", optimizedRoutePointData as never);
       ensureGeoJsonSource(map, "optimized-leg-labels", legLabelData as never);
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
       ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
@@ -383,7 +409,7 @@ export function TaskMap({
     } else {
       map.once("styledata", syncData);
     }
-  }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
+  }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
 
   return (
     <div className={isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"} ref={shellRef}>
