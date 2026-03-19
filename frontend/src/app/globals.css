@@ -247,6 +247,17 @@ button { cursor: pointer; }
   transition: background 0.1s;
 }
 
+.nav-item-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+}
+
+.nav-item-copy {
+  display: grid;
+  gap: 0.08rem;
+}
+
 .nav-item:hover {
   background: rgba(255, 255, 255, 0.04);
 }
@@ -254,6 +265,10 @@ button { cursor: pointer; }
 .nav-sidebar.compact-mode .nav-item {
   justify-items: center;
   padding: 0.75rem 0;
+}
+
+.nav-sidebar.compact-mode .nav-item-main {
+  justify-content: center;
 }
 
 .nav-item-glyph {
@@ -269,6 +284,21 @@ button { cursor: pointer; }
   font-weight: 700;
   font-family: 'IBM Plex Mono', monospace;
   letter-spacing: 0;
+}
+
+.theme-events .nav-item-glyph {
+  background: rgba(74, 158, 255, 0.14);
+  color: #86c5ff;
+}
+
+.theme-tasks .nav-item-glyph {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fbbf24;
+}
+
+.theme-scoring .nav-item-glyph {
+  background: rgba(16, 185, 129, 0.14);
+  color: #6ee7b7;
 }
 
 .nav-item strong {
