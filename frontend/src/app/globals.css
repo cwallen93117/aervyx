@@ -1003,6 +1003,101 @@ button[type="submit"]:hover {
 
 .roster-row:hover { background: var(--accent-softer); }
 
+.participant-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.participant-intake-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 24px;
+}
+
+.participant-directory-card {
+  padding: 14px 16px;
+}
+
+.participant-intake-form {
+  gap: 12px;
+}
+
+.participant-intake-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.participant-intake-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.participant-intake-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.participant-intake-grid--three {
+  grid-template-columns: 1.5fr 0.7fr 0.7fr 0.8fr;
+}
+
+.participant-intake-actions {
+  padding-top: 0;
+}
+
+.participant-table-wrap {
+  padding: 20px 24px;
+  overflow-x: auto;
+}
+
+.participant-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.participant-table thead th {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.participant-table tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
+  vertical-align: middle;
+}
+
+.participant-table tbody tr:hover {
+  background: var(--accent-softer);
+}
+
+.participant-table tbody td strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.participant-table-actions {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.participant-table-empty {
+  color: var(--muted);
+  text-align: center;
+  font-style: italic;
+}
+
 .field-disabled {
   opacity: 0.5;
   pointer-events: none;
@@ -1171,6 +1266,10 @@ details[open] > summary {
   .event-three-up > :nth-child(2) {
     grid-column: auto;
   }
+
+  .participant-intake-grid--three {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 1100px) {
@@ -1196,6 +1295,14 @@ details[open] > summary {
 
   .event-summary-strip,
   .inline-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 780px) {
+  .participant-intake-row,
+  .participant-intake-grid--two,
+  .participant-intake-grid--three {
     grid-template-columns: 1fr;
   }
 }

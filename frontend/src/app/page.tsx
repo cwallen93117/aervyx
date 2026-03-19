@@ -1011,14 +1011,14 @@ export default function HomePage() {
       );
     }
     return (
-      <div className="section-grid two-column">
+      <div className="participant-workspace">
         <SectionCard title="Participant intake" description="Add a pilot manually or import a roster CSV for the selected event.">
           {user?.role === "admin" ? (
-            <div className="stack">
-              <div className="record-card stack">
+            <div className="participant-intake-stack">
+              <div className="record-card stack compact participant-directory-card">
                 <strong>Add existing person</strong>
                 <span>Select from the global people directory, including pilots who created their own accounts.</span>
-                <div className="inline-grid">
+                <div className="participant-intake-row">
                   <select value={selectedDirectoryPilotId ?? ""} onChange={(event) => setSelectedDirectoryPilotId(event.target.value ? Number(event.target.value) : null)}>
                     <option value="">Select a person</option>
                     {availableDirectoryPilots.map((pilot) => (
@@ -1030,18 +1030,18 @@ export default function HomePage() {
                   <button type="button" onClick={() => void assignExistingPilot()} disabled={!selectedDirectoryPilotId}>Add to event</button>
                 </div>
               </div>
-              <form className="stack form-block" onSubmit={createPilot}>
-                <div className="inline-grid">
+              <form className="stack form-block compact participant-intake-form" onSubmit={createPilot}>
+                <div className="participant-intake-grid participant-intake-grid--two">
                   <input placeholder="First name" value={pilotForm.first_name} onChange={(event) => setPilotForm({ ...pilotForm, first_name: event.target.value })} />
                   <input placeholder="Last name" value={pilotForm.last_name} onChange={(event) => setPilotForm({ ...pilotForm, last_name: event.target.value })} />
                 </div>
-                <input placeholder="Email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} />
-                <div className="inline-grid">
+                <div className="participant-intake-grid participant-intake-grid--three">
+                  <input placeholder="Email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} />
                   <input placeholder="Nation" value={pilotForm.nation} onChange={(event) => setPilotForm({ ...pilotForm, nation: event.target.value })} />
                   <input placeholder="Competition #" value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} />
+                  <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
                 </div>
-                <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
-                <div className="button-row">
+                <div className="button-row participant-intake-actions">
                   <button type="submit">Create new pilot</button>
                   <label className="file-input">
                     Import CSV
@@ -1068,16 +1068,41 @@ export default function HomePage() {
           )}
         </SectionCard>
         <SectionCard title="Current participants" description={`${pilots.length} pilots assigned to ${selectedEvent?.name ?? "this event"}.`}>
-          <div className="stack">
-            {pilots.map((pilot) => (
-              <div key={pilot.id} className="record-card roster-row">
-                <div>
-                  <strong>{pilot.first_name} {pilot.last_name}</strong>
-                  <span>{pilot.competition_number ?? "No comp #"}{pilot.email ? ` - ${pilot.email}` : ""}{pilot.portal_username ? ` - ${pilot.portal_username}` : ""}</span>
-                </div>
-                {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button> : null}
-              </div>
-            ))}
+          <div className="participant-table-wrap">
+            <table className="participant-table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Competition #</th>
+                  <th>Email</th>
+                  <th>Portal</th>
+                  {user?.role === "admin" ? <th className="participant-table-actions">Actions</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {pilots.length ? (
+                  pilots.map((pilot) => (
+                    <tr key={pilot.id}>
+                      <td>
+                        <strong>{pilot.first_name} {pilot.last_name}</strong>
+                      </td>
+                      <td>{pilot.competition_number ?? "No comp #"}</td>
+                      <td>{pilot.email ?? "No email"}</td>
+                      <td>{pilot.portal_username ?? "No portal user"}</td>
+                      {user?.role === "admin" ? (
+                        <td className="participant-table-actions">
+                          <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button>
+                        </td>
+                      ) : null}
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={user?.role === "admin" ? 5 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </SectionCard>
       </div>
