@@ -249,8 +249,38 @@ input, select, textarea { font-family: inherit; }
   height: 22px;
 }
 
+.theme-events .nav-item-glyph {
+  background: rgba(37, 99, 235, 0.16);
+  color: #93c5fd;
+}
+
+.theme-tasks .nav-item-glyph {
+  background: rgba(217, 119, 6, 0.16);
+  color: #fcd34d;
+}
+
+.theme-scoring .nav-item-glyph {
+  background: rgba(22, 163, 74, 0.16);
+  color: #86efac;
+}
+
 .nav-item.active .nav-item-glyph {
   background: rgba(59, 130, 246, 0.2);
+}
+
+.nav-item.active.theme-events .nav-item-glyph {
+  background: rgba(37, 99, 235, 0.26);
+  color: #dbeafe;
+}
+
+.nav-item.active.theme-tasks .nav-item-glyph {
+  background: rgba(217, 119, 6, 0.24);
+  color: #fef3c7;
+}
+
+.nav-item.active.theme-scoring .nav-item-glyph {
+  background: rgba(22, 163, 74, 0.24);
+  color: #dcfce7;
 }
 
 .nav-item-copy {
