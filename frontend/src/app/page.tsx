@@ -96,6 +96,7 @@ type ResultRecord = { id: number; upload_id: number; pilot_id: number; pilot_nam
 type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number> };
 type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; metadata_json: Record<string, unknown> };
 type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
+type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; message: string };
 type AirspaceSourceRecord = {
   id: number;
   event_id: number;
@@ -1138,6 +1139,27 @@ export default function HomePage() {
     await loadTask(token, selectedTaskId);
   }
 
+  async function uploadIgcBatch(files: FileList | File[]) {
+    if (!token || !selectedTaskId) return;
+    const formData = new FormData();
+    Array.from(files).forEach((file) => formData.append("files", file));
+    const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${selectedTaskId}/uploads/bulk`, token, {
+      method: "POST",
+      body: formData,
+    });
+    const matchedCount = batchResults.filter((item) => item.matched).length;
+    const unmatched = batchResults.filter((item) => !item.matched);
+    const unmatchedSummary = unmatched.length
+      ? ` Unmatched: ${unmatched.map((item) => `${item.filename} (${item.message})`).join("; ")}`
+      : "";
+    setMessage(`Uploaded ${matchedCount} of ${batchResults.length} IGC files automatically.${unmatchedSummary}`);
+    await loadTask(token, selectedTaskId);
+    if (selectedEventId) {
+      const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
+      setPilotSummary(loadedSummary);
+    }
+  }
+
   async function deleteUpload(upload: UploadRecord) {
     if (!token || !selectedTaskId) return;
     await apiFetch(`/api/uploads/${upload.id}`, token, { method: "DELETE" });
@@ -2065,6 +2087,21 @@ export default function HomePage() {
                   />
                 </label>
               </div>
+              <label className="file-input">
+                Upload multiple IGC files and auto-match pilots
+                <input
+                  type="file"
+                  accept=".igc"
+                  multiple
+                  disabled={!selectedTaskId}
+                  onChange={(event) => {
+                    const files = event.target.files;
+                    if (files?.length) void uploadIgcBatch(files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+              </label>
+              <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
               <div className="button-row">
                 <button type="button" onClick={() => void rescoreSelectedTask()} disabled={!selectedTaskId}>Run scoring</button>
               </div>

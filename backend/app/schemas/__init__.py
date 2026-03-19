@@ -267,6 +267,15 @@ class UploadResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class BulkUploadItemResponse(BaseModel):
+    filename: str
+    matched: bool
+    upload_id: int | None = None
+    pilot_id: int | None = None
+    pilot_name: str | None = None
+    message: str
+
+
 class ScoreResultResponse(BaseModel):
     id: int
     task_id: int

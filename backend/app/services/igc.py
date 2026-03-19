@@ -71,7 +71,7 @@ def parse_igc(content: bytes) -> ParsedIGC:
             metadata["flight_date"] = flight_date.isoformat()
             metadata["flight_date_source"] = source
             continue
-        if line.startswith("HFPLTPILOTINCHARGE:"):
+        if line.startswith("HFPLTPILOTINCHARGE:") or line.startswith("HFPLTPILOT:") or line.startswith("HOPLTPILOT:"):
             metadata["pilot_name"] = line.split(":", 1)[1].strip()
             continue
         match = B_RECORD_RE.match(line)
