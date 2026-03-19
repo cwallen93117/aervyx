@@ -1,14 +1,40 @@
+from pathlib import Path
+from shutil import copy2
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import AirspaceRegion, Event, EventPilot, Task, Turnpoint, User
+from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import EventCreate, EventResponse
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/events", tags=["events"])
+
+
+def _event_create_payload(event: Event) -> dict:
+    return {field: getattr(event, field) for field in EventCreate.model_fields}
+
+
+def _duplicate_name(session: Session, base_name: str) -> str:
+    candidate = f"{base_name} Duplicate"
+    suffix = 2
+    while session.scalar(select(Event.id).where(Event.name == candidate).limit(1)) is not None:
+        candidate = f"{base_name} Duplicate {suffix}"
+        suffix += 1
+    return candidate
+
+
+def _copy_stored_file(stored_path: str, new_event_id: int, source_id: int) -> str:
+    original_path = Path(stored_path)
+    if not original_path.exists():
+        return stored_path
+    duplicate_path = original_path.parent / f"event-{new_event_id}-copy-{source_id}-{original_path.name}"
+    if not duplicate_path.exists():
+        copy2(original_path, duplicate_path)
+    return str(duplicate_path)
 
 
 def _event_payload(session: Session, event: Event) -> EventResponse:
@@ -91,6 +117,147 @@ def create_event(payload: EventCreate, admin: User = Depends(require_admin), ses
     session.commit()
     session.refresh(event)
     return _event_payload(session, event)
+
+
+@router.post("/{event_id}/duplicate", response_model=EventResponse)
+def duplicate_event(event_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> EventResponse:
+    source_event = session.get(Event, event_id)
+    if source_event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    duplicated_event = Event(**_event_create_payload(source_event))
+    duplicated_event.name = _duplicate_name(session, source_event.name)
+    session.add(duplicated_event)
+    session.flush()
+
+    turnpoint_source_id_map: dict[int, int] = {}
+    for source in session.scalars(select(TurnpointSource).where(TurnpointSource.event_id == source_event.id).order_by(TurnpointSource.id)).all():
+        duplicated_source = TurnpointSource(
+            event_id=duplicated_event.id,
+            filename=source.filename,
+            content_type=source.content_type,
+            file_format=source.file_format,
+            sha256=source.sha256,
+            stored_path=_copy_stored_file(source.stored_path, duplicated_event.id, source.id),
+            enabled=source.enabled,
+        )
+        session.add(duplicated_source)
+        session.flush()
+        turnpoint_source_id_map[source.id] = duplicated_source.id
+
+    for slot in session.scalars(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == source_event.id).order_by(EventTurnpointSlot.slot_number)).all():
+        session.add(
+            EventTurnpointSlot(
+                event_id=duplicated_event.id,
+                slot_number=slot.slot_number,
+                source_id=turnpoint_source_id_map.get(slot.source_id) if slot.source_id else None,
+            )
+        )
+
+    turnpoint_id_map: dict[int, int] = {}
+    for turnpoint in session.scalars(select(Turnpoint).where(Turnpoint.event_id == source_event.id).order_by(Turnpoint.id)).all():
+        duplicated_turnpoint = Turnpoint(
+            event_id=duplicated_event.id,
+            source_id=turnpoint_source_id_map.get(turnpoint.source_id) if turnpoint.source_id else None,
+            code=turnpoint.code,
+            name=turnpoint.name,
+            latitude=turnpoint.latitude,
+            longitude=turnpoint.longitude,
+            elevation_m=turnpoint.elevation_m,
+        )
+        session.add(duplicated_turnpoint)
+        session.flush()
+        turnpoint_id_map[turnpoint.id] = duplicated_turnpoint.id
+
+    airspace_source_id_map: dict[int, int] = {}
+    for source in session.scalars(select(AirspaceSource).where(AirspaceSource.event_id == source_event.id).order_by(AirspaceSource.id)).all():
+        duplicated_source = AirspaceSource(
+            event_id=duplicated_event.id,
+            kind=source.kind,
+            filename=source.filename,
+            content_type=source.content_type,
+            file_format=source.file_format,
+            sha256=source.sha256,
+            stored_path=_copy_stored_file(source.stored_path, duplicated_event.id, source.id),
+            enabled=source.enabled,
+        )
+        session.add(duplicated_source)
+        session.flush()
+        airspace_source_id_map[source.id] = duplicated_source.id
+
+    for region in session.scalars(select(AirspaceRegion).where(AirspaceRegion.event_id == source_event.id).order_by(AirspaceRegion.id)).all():
+        session.add(
+            AirspaceRegion(
+                event_id=duplicated_event.id,
+                source_id=airspace_source_id_map[region.source_id],
+                name=region.name,
+                class_code=region.class_code,
+                type_code=region.type_code,
+                display_category=region.display_category,
+                lower_limit_label=region.lower_limit_label,
+                upper_limit_label=region.upper_limit_label,
+                lower_limit_m=region.lower_limit_m,
+                upper_limit_m=region.upper_limit_m,
+                geometry_json=region.geometry_json,
+                label_latitude=region.label_latitude,
+                label_longitude=region.label_longitude,
+                is_restricted_field=region.is_restricted_field,
+            )
+        )
+
+    for event_pilot in session.scalars(select(EventPilot).where(EventPilot.event_id == source_event.id).order_by(EventPilot.id)).all():
+        session.add(EventPilot(event_id=duplicated_event.id, pilot_id=event_pilot.pilot_id))
+
+    task_id_map: dict[int, int] = {}
+    for task in session.scalars(select(Task).where(Task.event_id == source_event.id).order_by(Task.id)).all():
+        duplicated_task = Task(
+            event_id=duplicated_event.id,
+            name=task.name,
+            status=task.status,
+            task_type=task.task_type,
+            task_start_time=task.task_start_time,
+            task_finish_time=task.task_finish_time,
+            start_open_time=task.start_open_time,
+            start_close_time=task.start_close_time,
+            start_gate_count=task.start_gate_count,
+            start_gate_interval_seconds=task.start_gate_interval_seconds,
+            version=task.version,
+            nominal_distance_km=task.nominal_distance_km,
+            nominal_time_hours=task.nominal_time_hours,
+            nominal_launch=task.nominal_launch,
+            minimum_distance_km=task.minimum_distance_km,
+            penalties_json=task.penalties_json,
+            published_at=task.published_at,
+        )
+        session.add(duplicated_task)
+        session.flush()
+        task_id_map[task.id] = duplicated_task.id
+
+    for task_point in session.scalars(select(TaskPoint).join(Task, Task.id == TaskPoint.task_id).where(Task.event_id == source_event.id).order_by(TaskPoint.task_id, TaskPoint.position)).all():
+        session.add(
+            TaskPoint(
+                task_id=task_id_map[task_point.task_id],
+                position=task_point.position,
+                point_type=task_point.point_type,
+                radius_m=task_point.radius_m,
+                turnpoint_id=turnpoint_id_map.get(task_point.turnpoint_id) if task_point.turnpoint_id else None,
+                name=task_point.name,
+                latitude=task_point.latitude,
+                longitude=task_point.longitude,
+            )
+        )
+
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="event.duplicate",
+        entity_type="event",
+        entity_id=str(duplicated_event.id),
+        details={"source_event_id": source_event.id, "source_event_name": source_event.name, "name": duplicated_event.name},
+    )
+    session.commit()
+    session.refresh(duplicated_event)
+    return _event_payload(session, duplicated_event)
 
 
 @router.get("/{event_id}", response_model=EventResponse)

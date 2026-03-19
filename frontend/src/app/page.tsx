@@ -258,6 +258,18 @@ function blankEventForm() {
   };
 }
 
+function nextDraftEventName(events: EventRecord[]) {
+  const existingNames = new Set(events.map((event) => event.name.trim().toLowerCase()));
+  if (!existingNames.has("new event")) {
+    return "New event";
+  }
+  let suffix = 2;
+  while (existingNames.has(`new event ${suffix}`)) {
+    suffix += 1;
+  }
+  return `New event ${suffix}`;
+}
+
 function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState {
   return {
     id: null,
@@ -989,9 +1001,40 @@ export default function HomePage() {
     }
   }
 
-  function startNewEvent() {
-    setEventEditorId(null);
-    setEventForm(blankEventForm());
+  async function createEventDraft() {
+    if (!token) return;
+    const template = blankEventForm();
+    const savedEvent = await apiFetch<EventRecord>("/api/events", token, {
+      method: "POST",
+      body: JSON.stringify({
+        ...template,
+        name: nextDraftEventName(events),
+        penalties_json: {},
+      }),
+    });
+    const loadedEvents = await refreshEvents(token);
+    const nextEvent = loadedEvents.find((candidate) => candidate.id === savedEvent.id) ?? savedEvent;
+    setEventTab("details");
+    setEventEditorId(nextEvent.id);
+    setEventForm(eventToForm(nextEvent));
+    window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
+    setMessage(`Created event ${nextEvent.name}.`);
+    await loadEvent(token, nextEvent.id, nextEvent);
+  }
+
+  async function duplicateSelectedEvent() {
+    if (!token || !eventEditorId) return;
+    const duplicatedEvent = await apiFetch<EventRecord>(`/api/events/${eventEditorId}/duplicate`, token, {
+      method: "POST",
+    });
+    const loadedEvents = await refreshEvents(token);
+    const nextEvent = loadedEvents.find((candidate) => candidate.id === duplicatedEvent.id) ?? duplicatedEvent;
+    setEventTab("details");
+    setEventEditorId(nextEvent.id);
+    setEventForm(eventToForm(nextEvent));
+    window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
+    setMessage(`Duplicated event ${selectedEvent?.name ?? duplicatedEvent.name} into ${duplicatedEvent.name}.`);
+    await loadEvent(token, nextEvent.id, nextEvent);
   }
 
   async function deleteEvent() {
@@ -1476,12 +1519,17 @@ export default function HomePage() {
                 <option value="">Select an event</option>
                 {events.map((event) => (
                   <option key={event.id} value={event.id}>
-                    {event.name} - {event.location}
+                    {event.location ? `${event.name} - ${event.location}` : event.name}
                   </option>
                 ))}
               </select>
             </label>
-            {user?.role === "admin" ? <button className="ghost-button" type="button" onClick={startNewEvent}>New event</button> : null}
+            {user?.role === "admin" ? (
+              <>
+                <button className="ghost-button" type="button" onClick={() => void createEventDraft()}>New event</button>
+                <button className="ghost-button" type="button" onClick={() => void duplicateSelectedEvent()} disabled={!eventEditorId}>Duplicate event</button>
+              </>
+            ) : null}
           </div>
           <div className="event-summary-strip">
             <div className="record-card compact-stat">
