@@ -963,6 +963,15 @@ button { cursor: pointer; }
   font-size: 0.76rem;
 }
 
+.compact-event-form input[type="date"] {
+  min-height: 2rem;
+  padding-right: 1.9rem;
+}
+
+.compact-event-form input[type="date"]::-webkit-calendar-picker-indicator {
+  margin-left: 0.35rem;
+}
+
 .compact-scoring-form textarea {
   min-height: 64px;
 }
