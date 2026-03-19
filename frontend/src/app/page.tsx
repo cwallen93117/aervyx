@@ -980,12 +980,18 @@ export default function HomePage() {
   }
 
   function startNewTask() {
+    const nextTaskNumber = tasks.length + 1;
     setSelectedTaskId(null);
     setTrack(null);
     setResults([]);
     setUploads([]);
     setTaskPointAdvanced(false);
-    setTaskDraft(taskDraftFromEvent(selectedEvent));
+    setRadiusDrafts({});
+    setTaskDraft({
+      ...taskDraftFromEvent(selectedEvent),
+      name: `Task ${nextTaskNumber}`,
+    });
+    setMessage(`Started a new draft for ${selectedEvent?.name ?? "this event"}.`);
   }
 
   function addTurnpoint(turnpoint: MapTurnpoint) {
@@ -1803,13 +1809,20 @@ export default function HomePage() {
       <div className="section-stack">
         <SectionCard title="Task details" description={user?.role === "admin" ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
           <div className="stack form-block">
-            <label className="stack compact">
-              <span>Selected task</span>
-              <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
-                <option value="">Select a task</option>
-                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-              </select>
-            </label>
+            <div className="participant-intake-row">
+              <label className="stack compact">
+                <span>Selected task</span>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
+                  <option value="">Select a task</option>
+                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                </select>
+              </label>
+              {user?.role === "admin" ? (
+                <button type="button" className="ghost-button" onClick={startNewTask}>
+                  New task
+                </button>
+              ) : null}
+            </div>
             <label className="stack compact">
               <span>Task name</span>
               <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={user?.role !== "admin"} />
