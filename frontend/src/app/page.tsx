@@ -1515,8 +1515,8 @@ export default function HomePage() {
           <div className="event-selector-bar">
             <label className="stack compact event-selector-field">
               <span>Current event</span>
-              <select value={selectedEventId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextEvent = events.find((candidate) => candidate.id === nextId); if (nextEvent) void selectEvent(nextEvent); }}>
-                <option value="">Select an event</option>
+              <select value={selectedEventId ?? (events[0]?.id ?? "")} onChange={(event) => { const nextId = Number(event.target.value); const nextEvent = events.find((candidate) => candidate.id === nextId); if (nextEvent) void selectEvent(nextEvent); }}>
+                {events.length === 0 ? <option value="">No events yet</option> : null}
                 {events.map((event) => (
                   <option key={event.id} value={event.id}>
                     {event.location ? `${event.name} - ${event.location}` : event.name}
@@ -1525,10 +1525,7 @@ export default function HomePage() {
               </select>
             </label>
             {user?.role === "admin" ? (
-              <>
-                <button className="ghost-button" type="button" onClick={() => void createEventDraft()}>New event</button>
-                <button className="ghost-button" type="button" onClick={() => void duplicateSelectedEvent()} disabled={!eventEditorId}>Duplicate event</button>
-              </>
+              <button className="event-selector-link" type="button" onClick={() => void createEventDraft()}>Create a New Event</button>
             ) : null}
           </div>
           <div className="event-summary-strip">
@@ -1586,6 +1583,7 @@ export default function HomePage() {
               {user?.role === "admin" ? (
                 <div className="button-row">
                   <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
+                  {eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
                   {eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
                 </div>
               ) : null}

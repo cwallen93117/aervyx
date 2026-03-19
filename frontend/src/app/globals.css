@@ -486,6 +486,23 @@ input, select, textarea { font-family: inherit; }
   max-width: 420px;
 }
 
+.event-selector-link {
+  align-self: flex-end;
+  height: 38px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.event-selector-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
 .event-summary-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
