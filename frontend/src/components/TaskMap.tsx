@@ -281,6 +281,7 @@ export function TaskMap({
       return;
     }
     const container = containerRef.current;
+    const shell = shellRef.current;
     try {
       const map = new maplibregl.Map({
         container,
@@ -290,7 +291,7 @@ export function TaskMap({
         attributionControl: false,
       });
       map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-      map.addControl(new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined }), "top-right");
+      map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
       map.on("styledata", () => {
         map.resize();
       });
@@ -312,10 +313,21 @@ export function TaskMap({
         map.resize();
       });
       resizeObserver.observe(container);
+      if (shell) {
+        resizeObserver.observe(shell);
+      }
+      const handleFullscreenChange = () => {
+        window.setTimeout(() => map.resize(), 0);
+        window.setTimeout(() => map.resize(), 150);
+      };
+      document.addEventListener("fullscreenchange", handleFullscreenChange);
+      document.addEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
       window.setTimeout(() => map.resize(), 0);
       mapRef.current = map;
       return () => {
         resizeObserver.disconnect();
+        document.removeEventListener("fullscreenchange", handleFullscreenChange);
+        document.removeEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
         map.remove();
         mapRef.current = null;
       };
