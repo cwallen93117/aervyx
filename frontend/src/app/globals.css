@@ -171,6 +171,13 @@ button { cursor: pointer; }
   padding: 0;
 }
 
+.nav-sidebar.compact-mode .sidebar-brand {
+  padding: 0.5rem 0;
+  display: flex;
+  justify-content: center;
+  border-bottom: 1px solid var(--sb-line);
+}
+
 /* Brand block */
 .sidebar-brand {
   padding: 1.1rem 1rem 0.75rem;
@@ -182,6 +189,11 @@ button { cursor: pointer; }
   justify-content: space-between;
   gap: 0.5rem;
   align-items: flex-start;
+}
+
+.nav-sidebar.compact-mode .sidebar-brand-row {
+  justify-content: center;
+  width: 100%;
 }
 
 .sidebar-brand .eyebrow {
@@ -227,6 +239,12 @@ button { cursor: pointer; }
   border-color: rgba(74, 158, 255, 0.4);
 }
 
+.nav-sidebar.compact-mode .sidebar-toggle {
+  width: 2rem;
+  height: 2rem;
+  margin: 0 auto;
+}
+
 /* Nav list */
 .sidebar-nav {
   display: grid;
@@ -264,11 +282,12 @@ button { cursor: pointer; }
 
 .nav-sidebar.compact-mode .nav-item {
   justify-items: center;
-  padding: 0.75rem 0;
+  padding: 0.9rem 0;
 }
 
 .nav-sidebar.compact-mode .nav-item-main {
   justify-content: center;
+  width: 100%;
 }
 
 .nav-item-glyph {
@@ -338,6 +357,10 @@ button { cursor: pointer; }
 .nav-sidebar.compact-mode .sidebar-context {
   justify-items: center;
   text-align: center;
+}
+
+.nav-sidebar.compact-mode .sidebar-context {
+  display: none;
 }
 
 .sidebar-context strong {

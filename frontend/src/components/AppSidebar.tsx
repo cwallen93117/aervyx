@@ -58,10 +58,12 @@ export function AppSidebar({
     <aside className={compact ? "panel nav-sidebar compact-mode" : "panel nav-sidebar"}>
       <div className="sidebar-brand">
         <div className="sidebar-brand-row">
-          <div>
-            <p className="eyebrow">FlightComp Platform</p>
-            {!compact ? <h2>Flight Director</h2> : null}
-          </div>
+          {!compact ? (
+            <div>
+              <p className="eyebrow">FlightComp Platform</p>
+              <h2>Flight Director</h2>
+            </div>
+          ) : null}
           <button
             type="button"
             className="sidebar-toggle"
@@ -97,16 +99,12 @@ export function AppSidebar({
           </button>
         ))}
       </nav>
-      <div className="sidebar-context">
-        {!compact ? (
-          <>
-            <span className="context-label">Selected event</span>
-            <strong>{eventName ?? "No event selected"}</strong>
-          </>
-        ) : (
-          <strong title={eventName ?? "No event selected"}>{eventName ? eventName.slice(0, 1).toUpperCase() : "?"}</strong>
-        )}
-      </div>
+      {!compact ? (
+        <div className="sidebar-context">
+          <span className="context-label">Selected event</span>
+          <strong>{eventName ?? "No event selected"}</strong>
+        </div>
+      ) : null}
     </aside>
   );
 }
