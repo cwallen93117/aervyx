@@ -74,6 +74,12 @@ export function AppSidebar({
           </button>
         </div>
       </div>
+      {!compact ? (
+        <div className="sidebar-context">
+          <span className="context-label">Selected event</span>
+          <strong>{eventName ?? "No event selected"}</strong>
+        </div>
+      ) : null}
       <nav className="sidebar-nav" aria-label="Primary">
         {items.map((item) => (
           <button
@@ -97,12 +103,6 @@ export function AppSidebar({
           </button>
         ))}
       </nav>
-      {!compact ? (
-        <div className="sidebar-context">
-          <span className="context-label">Selected event</span>
-          <strong>{eventName ?? "No event selected"}</strong>
-        </div>
-      ) : null}
     </aside>
   );
 }
