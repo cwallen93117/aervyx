@@ -252,6 +252,7 @@ export function TaskMap({
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
@@ -317,6 +318,8 @@ export function TaskMap({
         resizeObserver.observe(shell);
       }
       const handleFullscreenChange = () => {
+        const fullscreenElement = document.fullscreenElement ?? ((document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ?? null);
+        setIsFullscreen(fullscreenElement === shell);
         window.setTimeout(() => map.resize(), 0);
         window.setTimeout(() => map.resize(), 150);
       };
@@ -383,7 +386,7 @@ export function TaskMap({
   }, [basemapMode, turnpointData, taskPointData, routeData, optimizedRouteData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints]);
 
   return (
-    <div className="map-shell" ref={shellRef}>
+    <div className={isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"} ref={shellRef}>
       <div className="map-card" ref={containerRef} />
       <div className="map-distance-overlay" aria-label="Task distance summary">
         <div className="map-distance-box">

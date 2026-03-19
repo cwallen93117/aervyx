@@ -597,6 +597,20 @@ button { cursor: pointer; }
 
 .map-shell { position: relative; }
 
+.map-shell.map-shell-fullscreen {
+  width: 100vw;
+  height: 100vh;
+  background: #0b1220;
+  padding: 0;
+  overflow: hidden;
+}
+
+.map-shell.map-shell-fullscreen .map-card {
+  height: 100%;
+  border-radius: 0;
+  border: none;
+}
+
 .map-shell:fullscreen,
 .map-shell:-webkit-full-screen {
   width: 100vw;
