@@ -1330,10 +1330,11 @@ export default function HomePage() {
                 <button className="signout" onClick={signOut}>Sign out</button>
               </div>
             </section>
-            <div className="status-row">
-              <div className="status-chip">{message}</div>
-              {error ? <div className="status-chip error">{error}</div> : null}
-            </div>
+            {error ? (
+              <div className="status-row">
+                <div className="status-chip error">{error}</div>
+              </div>
+            ) : null}
             {renderActiveSection()}
           </section>
         </div>
