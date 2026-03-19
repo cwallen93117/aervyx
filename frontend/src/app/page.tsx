@@ -135,6 +135,7 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 const TOKEN_KEY = "flightcomp-platform-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
+const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 const adminSidebarItems = [
   { id: "events", label: "Events" },
@@ -153,6 +154,19 @@ const guestSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+
+function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
+  if (role === "pilot") {
+    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers") {
+      return section;
+    }
+    return "tasks";
+  }
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers") {
+    return section;
+  }
+  return "events";
+}
 
 const scoringFormulaOptions = [
   { value: "GAP2021", label: "GAP 2021" },
@@ -714,6 +728,11 @@ export default function HomePage() {
   }, [sidebarCompact]);
 
   useEffect(() => {
+    if (!user) return;
+    window.localStorage.setItem(ACTIVE_SECTION_KEY, activeSection);
+  }, [activeSection, user]);
+
+  useEffect(() => {
     if (user?.role === "pilot" && activeSection === "events") {
       setActiveSection("tasks");
     }
@@ -743,9 +762,10 @@ export default function HomePage() {
     ]);
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
+    const storedSection = window.localStorage.getItem(ACTIVE_SECTION_KEY);
     const preferredEvent = loadedEvents.find((event) => event.id === storedEventId) ?? loadedEvents[0] ?? null;
     setUser(me);
-    setActiveSection(me.role === "pilot" ? "tasks" : "events");
+    setActiveSection(normalizeSectionForRole(storedSection, me.role));
     setEvents(loadedEvents);
     await refreshPilotDirectory(activeToken, me);
     if (preferredEvent) {
