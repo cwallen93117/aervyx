@@ -1717,12 +1717,19 @@ button[type="submit"]:hover {
   top: auto;
   left: auto;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   gap: 10px;
+  width: 100%;
 }
 
 .map-fullscreen-sidebar .map-distance-overlay-stacked {
-  width: min(320px, calc(100vw - 24px));
+  width: min(560px, calc(100vw - 24px));
+}
+
+.map-fullscreen-sidebar .map-distance-overlay-stacked .map-distance-box {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 12px;
 }
 
 .task-definition-sheet {
