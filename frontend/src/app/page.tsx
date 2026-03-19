@@ -297,9 +297,9 @@ function formatMeters(value: number): string {
   return meterFormatter.format(Math.max(0, Math.round(value || 0)));
 }
 
-function formatClockTime(value: string | null | undefined): string {
+function formatClockTime(value: string | null | undefined, includeSeconds = false): string {
   if (!value) return "-";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined });
 }
 
 function formatElapsedSeconds(value: number | null | undefined): string {
@@ -2173,8 +2173,8 @@ export default function HomePage() {
                                 </td>
                                 <td>{pilot?.nation ?? "-"}</td>
                                 <td>-</td>
-                                <td>{formatClockTime(result.started_at)}</td>
-                                <td>{formatClockTime(result.goal_at ?? result.ess_at)}</td>
+                                <td>{formatClockTime(result.started_at, true)}</td>
+                                <td>{formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
                                 <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
                                 <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
                                 <td>{result.distance_flown_km.toFixed(1)}</td>
