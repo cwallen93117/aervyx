@@ -315,12 +315,13 @@ input, select, textarea { font-family: inherit; }
 }
 
 .nav-item-copy > :first-child {
-  font-size: 0.875rem;
-  font-weight: 500;
+  font-size: 1.5rem;
+  font-weight: 600;
   color: var(--sb-ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.2;
 }
 
 .nav-item-copy > :last-child {
@@ -837,7 +838,7 @@ button[type="submit"]:hover {
   display: grid;
   grid-template-columns: 0.4fr 0.6fr;
   gap: 24px;
-  min-height: 480px;
+  min-height: 560px;
   margin-top: 16px;
 }
 
@@ -1012,10 +1013,22 @@ button[type="submit"]:hover {
 }
 
 .task-map-panel {
+  display: flex;
+  flex-direction: column;
   border-radius: var(--r-lg);
   overflow: hidden;
   border: 1px solid var(--line);
-  min-height: 480px;
+  min-height: 560px;
+}
+
+.task-map-panel .map-shell {
+  flex: 1 1 auto;
+  min-height: 100%;
+}
+
+.task-map-panel .map-card {
+  height: 100%;
+  min-height: 560px;
 }
 
 .distance-summary-grid {

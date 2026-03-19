@@ -148,6 +148,10 @@ const pilotSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+const guestSidebarItems = [
+  { id: "scoring", label: "Scores" },
+  { id: "live_tracking", label: "Live Tracking" },
+] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 
 const scoringFormulaOptions = [
   { value: "GAP2021", label: "GAP 2021" },
@@ -319,7 +323,7 @@ function formatResultPoints(value: number | null | undefined): string {
   return (value ?? 0).toFixed(1);
 }
 
-function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure") {
+function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure" | "leading") {
   const gap = result.details_json?.gap as { awarded_points?: Record<string, number> } | undefined;
   return Number(gap?.awarded_points?.[key] ?? 0);
 }
@@ -482,6 +486,16 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+async function apiFetchPublic<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers ?? {});
+  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const response = await fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
+  if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
+  if (response.status === 204) return undefined as T;
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
 export default function HomePage() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
@@ -516,7 +530,14 @@ export default function HomePage() {
   const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
   const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
   const [scoringFeedback, setScoringFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [eventFormFeedback, setEventFormFeedback] = useState<Record<"details" | "scoring" | "airspace", { type: "success" | "error"; text: string } | null>>({
+    details: null,
+    scoring: null,
+    airspace: null,
+  });
+  const [taskFeedback, setTaskFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [sidebarCompact, setSidebarCompact] = useState(false);
+  const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
 
@@ -530,8 +551,8 @@ export default function HomePage() {
       () => pilotDirectory.filter((candidate) => !pilots.some((pilot) => pilot.id === candidate.id)),
       [pilotDirectory, pilots],
     );
-    const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
-    const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
+  const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
+  const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
     const filteredTurnpoints = useMemo(() => {
       const query = turnpointSearch.trim().toLowerCase();
       if (!query) return [];
@@ -542,6 +563,43 @@ export default function HomePage() {
         })
         .slice(0, 12);
     }, [turnpointSearch, turnpoints]);
+  const taskDefinitionRows = useMemo(() => {
+    let cumulativeDistance = 0;
+    return taskDraft.points.map((point, index) => {
+      if (index > 0) {
+        cumulativeDistance += taskDistanceMetrics.legMetrics[index - 1]?.optimizedDistanceKm ?? 0;
+      }
+      const sourceTurnpoint = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id);
+      const suffix = point.point_type === "launch" || point.point_type === "start"
+        ? "SS"
+        : point.point_type === "ESS" || point.point_type === "goal"
+          ? "ES"
+          : "";
+      return {
+        label: `${index + 1}${suffix ? ` ${suffix}` : ""}`,
+        legDistanceKm: cumulativeDistance,
+        identifier: sourceTurnpoint?.code || point.name,
+        radiusLabel: `${point.radius_m.toFixed(0)} m`,
+        openLabel: taskDraft.start_open_time || taskDraft.task_start_time || "-",
+        closeLabel: taskDraft.start_close_time || taskDraft.task_finish_time || "-",
+        coordinatesLabel: `Lat: ${point.latitude.toFixed(5)} Lon: ${point.longitude.toFixed(5)}`,
+        altitudeLabel: `${sourceTurnpoint?.elevation_m != null ? sourceTurnpoint.elevation_m.toFixed(0) : "0"} m`,
+      };
+    });
+  }, [taskDistanceMetrics.legMetrics, taskDraft.points, taskDraft.start_open_time, taskDraft.start_close_time, taskDraft.task_finish_time, taskDraft.task_start_time, turnpoints]);
+  const startGateLabels = useMemo(() => {
+    if (!currentTaskTypeBehavior.usesMultipleGates || !taskDraft.start_open_time || !taskDraft.start_gate_count || taskDraft.start_gate_interval_minutes === "") {
+      return [];
+    }
+    const [hoursText, minutesText] = taskDraft.start_open_time.split(":");
+    const baseMinutes = Number(hoursText) * 60 + Number(minutesText);
+    return Array.from({ length: taskDraft.start_gate_count }, (_, index) => {
+      const totalMinutes = baseMinutes + index * Number(taskDraft.start_gate_interval_minutes || 0);
+      const hours = Math.floor(totalMinutes / 60) % 24;
+      const minutes = totalMinutes % 60;
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+    });
+  }, [currentTaskTypeBehavior.usesMultipleGates, taskDraft.start_gate_count, taskDraft.start_gate_interval_minutes, taskDraft.start_open_time]);
   const visibleAirspaces = useMemo(() => {
     const enabled = new Set<string>(eventForm.visible_airspace_classes_json ?? []);
     const enabledSourceIds = new Set(airspaceSources.filter((source) => source.enabled ?? true).map((source) => source.id));
@@ -555,6 +613,22 @@ export default function HomePage() {
       return enabled.has(region.display_category);
     });
   }, [airspaces, airspaceSources, eventForm.show_restricted_fields, eventForm.visible_airspace_classes_json]);
+  const taskResultsColumns = useMemo(() => {
+    const columns: Array<{ key: "distance" | "speed" | "arrival" | "departure" | "leading"; label: string }> = [];
+    if (eventForm.use_distance_points) columns.push({ key: "distance", label: "Dist. Points" });
+    if (eventForm.use_time_points) columns.push({ key: "speed", label: "Time Points" });
+    if (eventForm.use_arrival_position_points || eventForm.use_arrival_time_points) columns.push({ key: "arrival", label: "Arrival Points" });
+    if (eventForm.use_departure_points) columns.push({ key: "departure", label: "Departure Points" });
+    if (eventForm.use_leading_points) columns.push({ key: "leading", label: "Leading Points" });
+    return columns;
+  }, [
+    eventForm.use_arrival_position_points,
+    eventForm.use_arrival_time_points,
+    eventForm.use_departure_points,
+    eventForm.use_distance_points,
+    eventForm.use_leading_points,
+    eventForm.use_time_points,
+  ]);
   const scoredTasks = useMemo(
     () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)).sort((left, right) => left.id - right.id),
     [tasks, pilotSummary],
@@ -648,7 +722,7 @@ export default function HomePage() {
     return loadedPilots;
   }
 
-  async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null) {
+  async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null, preferredTaskId?: number | null) {
     setSelectedEventId(eventId);
     window.localStorage.setItem(LAST_EVENT_KEY, String(eventId));
     const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
@@ -674,14 +748,19 @@ export default function HomePage() {
     setPilotSummary(loadedSummary);
     setTrack(null);
     setRadiusDrafts({});
-    if (visibleTasks[0]) {
-      await loadTask(activeToken, visibleTasks[0].id, visibleTasks[0]);
+    const nextTask = visibleTasks.find((task) => task.id === preferredTaskId)
+      ?? visibleTasks.find((task) => task.id === selectedTaskId)
+      ?? visibleTasks[0];
+    if (nextTask) {
+      await loadTask(activeToken, nextTask.id, nextTask);
     } else {
       setSelectedTaskId(null);
       setResults([]);
       setUploads([]);
       setTaskPointAdvanced(false);
       setScoringFeedback(null);
+      setTaskFeedback(null);
+      setEventFormFeedback({ details: null, scoring: null, airspace: null });
       setTaskDraft(taskDraftFromEvent(activeEvent));
     }
   }
@@ -706,6 +785,7 @@ export default function HomePage() {
     setRadiusDrafts({});
     setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
     setScoringFeedback(null);
+    setTaskFeedback(null);
     setTaskDraft({
       id: task.id,
       name: task.name,
@@ -789,6 +869,8 @@ export default function HomePage() {
     setTaskDraft(blankTaskDraft());
     setTaskPointAdvanced(false);
     setScoringFeedback(null);
+    setTaskFeedback(null);
+    setEventFormFeedback({ details: null, scoring: null, airspace: null });
     setAuthMode("login");
     setMessage("Sign in or create a pilot account to continue.");
     setError("");
@@ -1009,6 +1091,7 @@ export default function HomePage() {
     setUploads([]);
     setTaskPointAdvanced(false);
     setScoringFeedback(null);
+    setTaskFeedback(null);
     setRadiusDrafts({});
     setTaskDraft({
       ...taskDraftFromEvent(selectedEvent),
@@ -1122,23 +1205,24 @@ export default function HomePage() {
       penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
       points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })),
     };
+    let savedTask: TaskRecord;
     if (taskDraft.id) {
-      await apiFetch(`/api/tasks/${taskDraft.id}`, token, { method: "PUT", body: JSON.stringify(payload) });
+      savedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}`, token, { method: "PUT", body: JSON.stringify(payload) });
       setMessage(`Updated task ${taskDraft.name}.`);
     } else {
-      await apiFetch(`/api/events/${selectedEventId}/tasks`, token, { method: "POST", body: JSON.stringify(payload) });
+      savedTask = await apiFetch<TaskRecord>(`/api/events/${selectedEventId}/tasks`, token, { method: "POST", body: JSON.stringify(payload) });
       setMessage(`Created task ${taskDraft.name}.`);
     }
-    await loadEvent(token, selectedEventId);
+    await loadEvent(token, selectedEventId, undefined, undefined, savedTask.id);
     await refreshEvents(token);
     setActiveSection("tasks");
   }
 
   async function publishTask() {
     if (!token || !taskDraft.id) return;
-    await apiFetch(`/api/tasks/${taskDraft.id}/publish`, token, { method: "POST" });
+    const publishedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}/publish`, token, { method: "POST" });
     setMessage(`Published task ${taskDraft.name}.`);
-    if (selectedEventId) await loadEvent(token, selectedEventId);
+    if (selectedEventId) await loadEvent(token, selectedEventId, undefined, undefined, publishedTask.id);
   }
 
   async function uploadIgc(file: File, pilotId?: number | null) {
@@ -2114,9 +2198,8 @@ export default function HomePage() {
                     onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined}
                     taskEditorOverlay={fullscreenTaskEditor}
                   />
-                <p className="hint">Launch, Start, ESS, and Goal are color-themed in both the list and map. The dashed line shows the current optimized course line through the waypoint cylinders.</p>
+                </div>
               </div>
-            </div>
             <div className="stack">
               <button type="button" className="ghost-button advanced-toggle" onClick={() => setTaskAdvancedOpen((current) => !current)}>
                 {taskAdvancedOpen ? "Hide Advanced Settings" : "Advanced Settings"}
@@ -2253,29 +2336,27 @@ export default function HomePage() {
                     </div>
                     <div className="results-table-wrap">
                       <table className="results-table">
-                        <thead>
-                          <tr>
-                            <th>#</th>
-                            <th>Name</th>
-                            <th>Nat</th>
-                            <th>Glider</th>
-                            <th>SS</th>
-                            <th>ES</th>
-                            <th>Time [h:m:s]</th>
-                            <th>Speed [km/h]</th>
-                            <th>Distance [km]</th>
-                            <th>Dist. Points</th>
-                            <th>Time Points</th>
-                            <th>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {results.map((result) => {
-                            const pilot = pilotById.get(result.pilot_id);
-                            const bonusPoints = gapAwardedPoints(result, "arrival") + gapAwardedPoints(result, "departure");
-                            return (
-                              <tr key={result.id}>
-                                <td>{result.rank ?? "-"}</td>
+                          <thead>
+                            <tr>
+                              <th>#</th>
+                              <th>Name</th>
+                              <th>Nat</th>
+                              <th>Glider</th>
+                              <th>SS</th>
+                              <th>ES</th>
+                              <th>Time [h:m:s]</th>
+                              <th>Speed [km/h]</th>
+                              <th>Distance [km]</th>
+                              {taskResultsColumns.map((column) => <th key={column.key}>{column.label}</th>)}
+                              <th>Total</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {results.map((result) => {
+                              const pilot = pilotById.get(result.pilot_id);
+                              return (
+                                <tr key={result.id}>
+                                  <td>{result.rank ?? "-"}</td>
                                 <td>
                                   <strong>{result.pilot_name}</strong>
                                   <div className="results-name-meta">{result.status.toUpperCase()}</div>
@@ -2283,15 +2364,16 @@ export default function HomePage() {
                                 <td>{pilot?.nation ?? "-"}</td>
                                 <td>-</td>
                                 <td>{formatClockTime(result.started_at, true)}</td>
-                                <td>{formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
-                                <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
-                                <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
-                                <td>{result.distance_flown_km.toFixed(1)}</td>
-                                <td>{formatResultPoints(gapAwardedPoints(result, "distance"))}</td>
-                                <td>{formatResultPoints(gapAwardedPoints(result, "speed") + bonusPoints)}</td>
-                                <td className="results-table-total">{result.score_points.toFixed(1)}</td>
-                              </tr>
-                            );
+                                  <td>{formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
+                                  <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
+                                  <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
+                                  <td>{result.distance_flown_km.toFixed(1)}</td>
+                                  {taskResultsColumns.map((column) => (
+                                    <td key={column.key}>{formatResultPoints(gapAwardedPoints(result, column.key))}</td>
+                                  ))}
+                                  <td className="results-table-total">{result.score_points.toFixed(1)}</td>
+                                </tr>
+                              );
                           })}
                         </tbody>
                       </table>
