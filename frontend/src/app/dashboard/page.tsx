@@ -1,7 +1,6 @@
 "use client";
 
 import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
 
 import { AppSidebar } from "../../components/AppSidebar";
 import { SectionCard } from "../../components/SectionCard";
@@ -381,6 +380,10 @@ function blankSettingsForm(): AccountSettingsRecord {
   };
 }
 
+function normalizeIdentityEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 function normalizeTaskType(value: string | null | undefined): string {
   switch (value) {
     case "race":
@@ -629,7 +632,6 @@ async function apiFetchPublic<T>(path: string, init: RequestInit = {}): Promise<
 }
 
 export default function HomePage() {
-  const router = useRouter();
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [activeSection, setActiveSection] = useState<SidebarSection>("events");
@@ -807,7 +809,7 @@ export default function HomePage() {
     setSidebarCompact(window.localStorage.getItem(SIDEBAR_COMPACT_KEY) === "true");
     if (!savedToken) {
       setAuthChecking(false);
-      router.replace("/login?next=/dashboard");
+      window.location.replace("/login?next=/dashboard");
       return;
     }
 
@@ -818,10 +820,10 @@ export default function HomePage() {
         setToken("");
         setUser(null);
         setError("");
-        router.replace("/login?next=/dashboard");
+        window.location.replace("/login?next=/dashboard");
       })
       .finally(() => setAuthChecking(false));
-  }, [router]);
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COMPACT_KEY, String(sidebarCompact));
@@ -1009,37 +1011,7 @@ export default function HomePage() {
   function signOut() {
     window.localStorage.removeItem(TOKEN_KEY);
     document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
-    setToken("");
-    setUser(null);
-    setSettingsForm(blankSettingsForm());
-    setSettingsPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
-    setSettingsFeedback({ profile: null, password: null });
-    setAdminUsers([]);
-    setAdminFeedback(null);
-    setActiveSection("events");
-    setSelectedEventId(null);
-    setEventEditorId(null);
-    setSelectedTaskId(null);
-    setPilots([]);
-    setPilotDirectory([]);
-    setTurnpoints([]);
-    setTurnpointSources([]);
-    setAirspaces([]);
-    setAirspaceSources([]);
-    setTasks([]);
-    setResults([]);
-    setPilotSummary([]);
-    setUploads([]);
-    setTrack(null);
-    setEventForm(blankEventForm());
-    setTaskDraft(blankTaskDraft());
-    setTaskPointAdvanced(false);
-    setScoringFeedback(null);
-    setTaskFeedback(null);
-    setEventFormFeedback({ details: null, scoring: null, airspace: null });
-    setMessage("Sign in or create a pilot account to continue.");
-    setError("");
-    router.replace("/login");
+    window.location.replace("/login");
   }
 
   async function saveAccountSettings(event: FormEvent<HTMLFormElement>) {
@@ -1050,10 +1022,10 @@ export default function HomePage() {
       const payload = await apiFetch<AccountSettingsRecord>("/api/auth/settings", token, {
         method: "PATCH",
         body: JSON.stringify({
-          username: settingsForm.username,
+          username: normalizeIdentityEmail(settingsForm.username),
           full_name: settingsForm.full_name,
           profile_type: settingsForm.profile_type,
-          email: settingsForm.email || null,
+          email: normalizeIdentityEmail(settingsForm.username) || null,
           first_name: settingsForm.first_name || null,
           last_name: settingsForm.last_name || null,
           nation: settingsForm.nation || null,
@@ -2950,12 +2922,34 @@ export default function HomePage() {
   function renderSettingsSection() {
     return (
       <div className="section-stack">
+        <div className="settings-summary-row">
+          <span className="role-pill settings-role-pill">Active role: {settingsForm.role}</span>
+          <label className="settings-type-control">
+            <span>Current type</span>
+            <select value={settingsForm.profile_type} onChange={(event) => setSettingsForm((current) => ({ ...current, profile_type: event.target.value as "pilot" | "driver" }))}>
+              <option value="pilot">Pilot</option>
+              <option value="driver">Driver</option>
+            </select>
+          </label>
+        </div>
         <SectionCard title="Account settings" description="Update the profile details used across the Aervyx portal.">
           <form className="stack form-block" onSubmit={saveAccountSettings}>
             <div className="inline-grid">
               <label className="stack compact">
-                <span>Username</span>
-                <input value={settingsForm.username ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, username: event.target.value }))} required />
+                <span>Username / email</span>
+                <input
+                  type="email"
+                  value={settingsForm.username ?? ""}
+                  onChange={(event) =>
+                    setSettingsForm((current) => ({
+                      ...current,
+                      username: event.target.value,
+                      email: event.target.value,
+                    }))
+                  }
+                  placeholder="pilot@example.com"
+                  required
+                />
               </label>
               <label className="stack compact">
                 <span>Display name</span>
@@ -2964,25 +2958,12 @@ export default function HomePage() {
             </div>
             <div className="inline-grid">
               <label className="stack compact">
-                <span>Account role</span>
-                <input value={settingsForm.role} disabled />
-              </label>
-              <label className="stack compact">
-                <span>Current type</span>
-                <select value={settingsForm.profile_type} onChange={(event) => setSettingsForm((current) => ({ ...current, profile_type: event.target.value as "pilot" | "driver" }))}>
-                  <option value="pilot">Pilot</option>
-                  <option value="driver">Driver</option>
-                </select>
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Email</span>
-                <input type="email" value={settingsForm.email ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, email: event.target.value }))} />
-              </label>
-              <label className="stack compact">
                 <span>Nation</span>
                 <input value={settingsForm.nation ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, nation: event.target.value.toUpperCase() }))} maxLength={3} />
+              </label>
+              <label className="stack compact">
+                <span>Competition number</span>
+                <input value={settingsForm.competition_number ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, competition_number: event.target.value }))} />
               </label>
             </div>
             <div className="inline-grid">
@@ -2997,13 +2978,10 @@ export default function HomePage() {
             </div>
             <div className="inline-grid">
               <label className="stack compact">
-                <span>Competition number</span>
-                <input value={settingsForm.competition_number ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, competition_number: event.target.value }))} />
-              </label>
-              <label className="stack compact">
                 <span>CIVL ID</span>
                 <input value={settingsForm.civl_id ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, civl_id: event.target.value }))} />
               </label>
+              <div />
             </div>
             <div className="button-row">
               <button type="submit">Save account settings</button>
@@ -3050,7 +3028,6 @@ export default function HomePage() {
                     <th>Name</th>
                     <th>Username</th>
                     <th>Role</th>
-                    <th>Current type</th>
                     <th>Email</th>
                     <th>Linked pilot</th>
                     <th>Status</th>
@@ -3072,15 +3049,6 @@ export default function HomePage() {
                             <option value="admin">Admin</option>
                             <option value="organizer">Organizer</option>
                             <option value="pilot">Pilot</option>
-                          </select>
-                        </td>
-                        <td>
-                          <select
-                            value={account.profile_type}
-                            onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, profile_type: event.target.value as AdminUserRecord["profile_type"] } : entry))}
-                          >
-                            <option value="pilot">Pilot</option>
-                            <option value="driver">Driver</option>
                           </select>
                         </td>
                         <td>{account.email ?? "-"}</td>
@@ -3106,7 +3074,7 @@ export default function HomePage() {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className="participant-table-empty">No platform users found.</td>
+                      <td colSpan={7} className="participant-table-empty">No platform users found.</td>
                     </tr>
                   )}
                 </tbody>
@@ -3140,21 +3108,13 @@ export default function HomePage() {
       }
     }
 
+  if (!user) {
+    return null;
+  }
+
   return (
     <main className="shell">
-      {!user ? (
-        <section className="login-panel auth-panel">
-          <div className="stack">
-            <h2>{authChecking ? "Loading dashboard..." : "Redirecting to login..."}</h2>
-            <p className="hint">
-              {authChecking
-                ? "Reconnecting your session and loading the event workspace."
-                : "Your session is not active here. Please continue through the main login page."}
-            </p>
-          </div>
-        </section>
-      ) : (
-        <div className={sidebarCompact ? "workspace-shell sidebar-compact" : "workspace-shell"}>
+      <div className={sidebarCompact ? "workspace-shell sidebar-compact" : "workspace-shell"}>
           <AppSidebar
             items={sidebarItems}
             activeItem={activeSection}
@@ -3188,7 +3148,6 @@ export default function HomePage() {
             {renderActiveSection()}
           </section>
         </div>
-      )}
     </main>
   );
 }

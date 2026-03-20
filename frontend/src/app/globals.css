@@ -2027,13 +2027,38 @@ button[type="submit"]:hover {
 .aervyx-auth-form input,
 .aervyx-auth-form select,
 .aervyx-auth-form textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 16px;
+  border-width: 1px;
+  border-style: solid;
+  border-radius: 14px;
   border-color: rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.04);
   color: #fff;
 }
 
+.aervyx-auth-form textarea {
+  min-height: 96px;
+}
+
+.aervyx-auth-input-shell {
+  width: 100%;
+}
+
 .aervyx-auth-form input::placeholder {
   color: rgba(255, 255, 255, 0.28);
+}
+
+.aervyx-auth-form input:-webkit-autofill,
+.aervyx-auth-form input:-webkit-autofill:hover,
+.aervyx-auth-form input:-webkit-autofill:focus,
+.aervyx-auth-form input:-webkit-autofill:active {
+  -webkit-text-fill-color: #ffffff;
+  box-shadow: 0 0 0 1000px rgba(255, 255, 255, 0.04) inset;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 14px;
+  transition: background-color 9999s ease-in-out 0s;
 }
 
 .aervyx-auth-form .stack.compact > span {
@@ -2113,10 +2138,11 @@ button[type="submit"]:hover {
 
 .aervyx-auth-forgot-form {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 
-.aervyx-auth-forgot-form input {
+.aervyx-auth-forgot-form .aervyx-auth-input-shell {
   flex: 1 1 auto;
 }
 
@@ -2146,6 +2172,41 @@ button[type="submit"]:hover {
 
 .aervyx-auth-secondary-link:hover {
   color: #fff;
+}
+
+.settings-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.settings-role-pill {
+  text-transform: capitalize;
+}
+
+.settings-type-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink-secondary);
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.settings-type-control span {
+  white-space: nowrap;
+}
+
+.settings-type-control select {
+  min-width: 110px;
+  height: 32px;
+  padding: 4px 28px 4px 10px;
+  font-size: 0.8125rem;
 }
 
 @media (max-width: 1100px) {

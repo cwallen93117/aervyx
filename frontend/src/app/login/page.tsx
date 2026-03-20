@@ -66,9 +66,6 @@ export default function LoginPage() {
     email: "",
     password: "",
     account_role: "pilot",
-    competition_number: "",
-    nation: "",
-    civl_id: "",
   });
 
   useEffect(() => {
@@ -88,7 +85,7 @@ export default function LoginPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          username: loginForm.username,
+          username: loginForm.username.trim().toLowerCase(),
           password: loginForm.password,
         }),
       });
@@ -99,7 +96,7 @@ export default function LoginPage() {
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
       setSessionCookie();
       setMessage("Sign-in successful. Opening your dashboard...");
-      window.location.assign(destination);
+      window.location.replace(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Sign in failed");
     } finally {
@@ -122,9 +119,6 @@ export default function LoginPage() {
           email: registerForm.email,
           password: registerForm.password,
           account_role: registerForm.account_role,
-          competition_number: registerForm.competition_number || null,
-          nation: registerForm.nation || null,
-          civl_id: registerForm.civl_id || null,
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "Registration failed. Please try again."));
@@ -132,7 +126,7 @@ export default function LoginPage() {
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
       setSessionCookie();
       setMessage(`Created account for ${payload.user.full_name}. Redirecting...`);
-      window.location.assign(destination);
+      window.location.replace(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Registration failed");
     } finally {
@@ -209,14 +203,16 @@ export default function LoginPage() {
           {authMode === "login" ? (
             <form className="aervyx-auth-form" onSubmit={handleLogin}>
               <label className="stack compact">
-                <span>Email / username</span>
-                <input
-                  value={loginForm.username}
-                  onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
-                  placeholder="pilot@example.com"
-                  autoComplete="username"
-                  required
-                />
+                <span>Username / email</span>
+                <div className="aervyx-auth-input-shell">
+                  <input
+                    value={loginForm.username}
+                    onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
+                    placeholder="pilot@example.com"
+                    autoComplete="username"
+                    required
+                  />
+                </div>
               </label>
               <label className="stack compact">
                 <span>Password</span>
@@ -244,7 +240,9 @@ export default function LoginPage() {
                   <strong>Password recovery</strong>
                   <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
                   <div className="aervyx-auth-forgot-form">
-                    <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
+                    <div className="aervyx-auth-input-shell">
+                      <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
+                    </div>
                     <button type="button" className="aervyx-auth-helper-submit" onClick={() => handleForgotPassword()}>Continue</button>
                   </div>
                 </div>
@@ -266,16 +264,22 @@ export default function LoginPage() {
               <div className="inline-grid">
                 <label className="stack compact">
                   <span>First name</span>
-                  <input value={registerForm.first_name} onChange={(event) => setRegisterForm({ ...registerForm, first_name: event.target.value })} autoComplete="given-name" required />
+                  <div className="aervyx-auth-input-shell">
+                    <input value={registerForm.first_name} onChange={(event) => setRegisterForm({ ...registerForm, first_name: event.target.value })} autoComplete="given-name" required />
+                  </div>
                 </label>
                 <label className="stack compact">
                   <span>Last name</span>
-                  <input value={registerForm.last_name} onChange={(event) => setRegisterForm({ ...registerForm, last_name: event.target.value })} autoComplete="family-name" required />
+                  <div className="aervyx-auth-input-shell">
+                    <input value={registerForm.last_name} onChange={(event) => setRegisterForm({ ...registerForm, last_name: event.target.value })} autoComplete="family-name" required />
+                  </div>
                 </label>
               </div>
               <label className="stack compact">
-                <span>Email</span>
-                <input type="email" value={registerForm.email} onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })} autoComplete="email" required />
+                <span>Username / email</span>
+                <div className="aervyx-auth-input-shell">
+                  <input type="email" value={registerForm.email} onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })} autoComplete="email" required />
+                </div>
               </label>
               <label className="stack compact">
                 <span>Password</span>
@@ -294,24 +298,6 @@ export default function LoginPage() {
                   </button>
                 </div>
               </label>
-              {registerForm.account_role === "pilot" ? (
-                <>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Competition number</span>
-                      <input value={registerForm.competition_number} onChange={(event) => setRegisterForm({ ...registerForm, competition_number: event.target.value })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Nation</span>
-                      <input value={registerForm.nation} onChange={(event) => setRegisterForm({ ...registerForm, nation: event.target.value })} />
-                    </label>
-                  </div>
-                  <label className="stack compact">
-                    <span>CIVL ID</span>
-                    <input value={registerForm.civl_id} onChange={(event) => setRegisterForm({ ...registerForm, civl_id: event.target.value })} />
-                  </label>
-                </>
-              ) : null}
               <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creating account..." : "Create account"}
               </button>

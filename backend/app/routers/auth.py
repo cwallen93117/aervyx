@@ -24,6 +24,24 @@ VALID_ACCOUNT_ROLES = {"pilot", "organizer"}
 VALID_PROFILE_TYPES = {"pilot", "driver"}
 
 
+def _is_valid_email(value: str) -> bool:
+    candidate = value.strip()
+    if not candidate or "@" not in candidate:
+        return False
+    local, _, domain = candidate.partition("@")
+    return bool(local and domain and "." in domain)
+
+
+def _normalize_email_identity(username: str | None, email: str | None) -> str | None:
+    candidates = [email, username]
+    for raw in candidates:
+        if raw and raw.strip():
+            candidate = raw.strip().lower()
+            if _is_valid_email(candidate):
+                return candidate
+    return None
+
+
 def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None = None) -> AccountSettingsUpdateResponse:
     return AccountSettingsUpdateResponse(
         username=user.username,
@@ -42,7 +60,10 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
 
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
-    user = session.scalar(select(User).where(User.username == payload.username, User.is_active.is_(True)))
+    submitted_username = payload.username.strip().lower()
+    user = session.scalar(select(User).where(User.username == submitted_username, User.is_active.is_(True)))
+    if user is None:
+        user = session.scalar(select(User).where(User.username == payload.username.strip(), User.is_active.is_(True)))
     if user is None or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
@@ -112,17 +133,22 @@ def update_settings(
 ) -> AccountSettingsResponse:
     username = payload.username.strip()
     full_name = payload.full_name.strip()
-    if not username:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required")
     if not full_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Full name is required")
     profile_type = payload.profile_type.strip().lower() if payload.profile_type else "pilot"
     if profile_type not in VALID_PROFILE_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or driver for the current type")
 
+    normalized_email_identity = _normalize_email_identity(payload.username, payload.email)
+    if normalized_email_identity is None:
+        if "@" in user.username:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username / email must be a valid email address")
+        normalized_email_identity = user.username
+    username = normalized_email_identity
+
     existing_user = session.scalar(select(User).where(User.username == username, User.id != user.id))
     if existing_user is not None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username is already in use")
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username / email is already in use")
 
     user.username = username
     user.full_name = full_name
@@ -130,7 +156,7 @@ def update_settings(
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     if pilot is not None:
-        email = payload.email.strip().lower() if payload.email and payload.email.strip() else None
+        email = normalized_email_identity
         if email:
             existing_pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email, Pilot.id != pilot.id))
             if existing_pilot is not None:

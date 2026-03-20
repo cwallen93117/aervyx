@@ -76,7 +76,7 @@ def test_assign_existing_pilot_adds_them_to_event() -> None:
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
 
 
-def test_update_settings_updates_pilot_profile_and_username() -> None:
+def test_update_settings_updates_pilot_profile_and_username_email() -> None:
     session = _session()
     pilot = Pilot(first_name="Robin", last_name="Wing", email="robin@example.com", nation="US")
     user = User(username="robin@example.com", full_name="Robin Wing", role="pilot", password_hash="hash", pilot_id=None)
@@ -87,7 +87,7 @@ def test_update_settings_updates_pilot_profile_and_username() -> None:
 
     response = update_settings(
         AccountSettingsUpdate(
-            username="robin.wing",
+            username="pilot@example.com",
             full_name="Robin Wing",
             profile_type="driver",
             email="pilot@example.com",
@@ -103,13 +103,35 @@ def test_update_settings_updates_pilot_profile_and_username() -> None:
 
     session.refresh(user)
     session.refresh(pilot)
-    assert response.username == "robin.wing"
+    assert response.username == "pilot@example.com"
     assert response.profile_type == "driver"
-    assert user.username == "robin.wing"
+    assert user.username == "pilot@example.com"
     assert user.profile_type == "driver"
     assert pilot.email == "pilot@example.com"
     assert pilot.nation == "USA"
     assert pilot.competition_number == "77"
+
+
+def test_update_settings_preserves_legacy_admin_username_without_email() -> None:
+    session = _session()
+    admin = User(username="admin", full_name="Admin User", role="admin", password_hash="hash", profile_type="driver")
+    session.add(admin)
+    session.commit()
+
+    response = update_settings(
+        AccountSettingsUpdate(
+            username="admin",
+            full_name="Admin User",
+            profile_type="driver",
+            email=None,
+        ),
+        admin,
+        session,
+    )
+
+    session.refresh(admin)
+    assert response.username == "admin"
+    assert admin.username == "admin"
 
 
 def test_change_password_requires_current_password() -> None:
