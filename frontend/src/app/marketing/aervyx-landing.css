@@ -218,6 +218,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;align-items:cen
 
 /* PRICING */
 .pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.2rem}
+.is-hidden{display:none !important}
 .price-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-xl);padding:1.95rem;position:relative;transition:transform .2s,box-shadow .2s}
 .price-card:hover{transform:translateY(-4px);box-shadow:0 18px 50px rgba(0,0,0,.4)}
 .price-card.pf{border-color:rgba(0,229,255,.28);background:linear-gradient(155deg,rgba(0,229,255,.05) 0%,var(--surface) 55%);box-shadow:0 0 46px rgba(0,229,255,.06)}
