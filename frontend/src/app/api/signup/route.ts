@@ -1,5 +1,7 @@
+import fs from "node:fs";
+import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import { NextResponse } from "next/server";
-import { Pool } from "pg";
 
 type SignupPayload = {
   name?: string;
@@ -10,34 +12,28 @@ type SignupPayload = {
   deployment_preference?: string;
 };
 
-let pool: Pool | null = null;
+let database: DatabaseSync | null = null;
 
-function databaseUrl() {
-  const raw = process.env.DATABASE_URL ?? process.env.SIGNUP_DATABASE_URL;
-  if (!raw) {
-    throw new Error("DATABASE_URL is not configured for signup storage");
+function getDatabase() {
+  if (!database) {
+    const dataDir = path.join(process.cwd(), ".data");
+    fs.mkdirSync(dataDir, { recursive: true });
+    database = new DatabaseSync(path.join(dataDir, "marketing-signups.db"));
   }
-  return raw.replace("postgresql+psycopg://", "postgresql://");
-}
-
-function getPool() {
-  if (!pool) {
-    pool = new Pool({ connectionString: databaseUrl() });
-  }
-  return pool;
+  return database;
 }
 
 async function ensureTable() {
-  await getPool().query(`
+  getDatabase().exec(`
     CREATE TABLE IF NOT EXISTS early_access_signups (
-      id BIGSERIAL PRIMARY KEY,
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       email TEXT NOT NULL,
       org TEXT,
       role TEXT,
       discipline TEXT,
       deployment_preference TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
 }
@@ -49,18 +45,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Name and email are required." }, { status: 400 });
     }
     await ensureTable();
-    await getPool().query(
-      `INSERT INTO early_access_signups (name, email, org, role, discipline, deployment_preference)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [
+    getDatabase()
+      .prepare(
+        `INSERT INTO early_access_signups (name, email, org, role, discipline, deployment_preference)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
         payload.name,
         payload.email,
         payload.org ?? null,
         payload.role ?? null,
         payload.discipline ?? null,
         payload.deployment_preference ?? null,
-      ],
-    );
+      );
     return NextResponse.json({ ok: true });
   } catch (error) {
     console.error("Failed to store signup", error);
