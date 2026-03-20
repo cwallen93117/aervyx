@@ -9,7 +9,6 @@ import { TaskMap, type MapAirspaceRegion, type MapTaskPoint, type MapTurnpoint, 
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers";
-type AuthMode = "login" | "register";
 type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
 type EventRecord = {
@@ -577,9 +576,7 @@ export default function HomePage() {
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [error, setError] = useState("");
-  const [authMode, setAuthMode] = useState<AuthMode>("login");
-  const [loginForm, setLoginForm] = useState({ username: "admin", password: "admin1234" });
-  const [registerForm, setRegisterForm] = useState({ first_name: "", last_name: "", email: "", password: "", competition_number: "", nation: "", civl_id: "" });
+  const [authChecking, setAuthChecking] = useState(true);
   const [eventForm, setEventForm] = useState(blankEventForm());
     const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
     const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
@@ -722,9 +719,24 @@ export default function HomePage() {
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
-    if (savedToken) void bootstrap(savedToken);
     setSidebarCompact(window.localStorage.getItem(SIDEBAR_COMPACT_KEY) === "true");
-  }, []);
+    if (!savedToken) {
+      setAuthChecking(false);
+      router.replace("/login?next=/dashboard");
+      return;
+    }
+
+    void bootstrap(savedToken)
+      .catch(() => {
+        window.localStorage.removeItem(TOKEN_KEY);
+        document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+        setToken("");
+        setUser(null);
+        setError("");
+        router.replace("/login?next=/dashboard");
+      })
+      .finally(() => setAuthChecking(false));
+  }, [router]);
 
   useEffect(() => {
     window.localStorage.setItem(SIDEBAR_COMPACT_KEY, String(sidebarCompact));
@@ -896,47 +908,6 @@ export default function HomePage() {
     });
   }
 
-  async function handleLogin(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    try {
-      const response = await fetch(`${API_BASE}/api/auth/login`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(loginForm) });
-      if (!response.ok) throw new Error(await response.text());
-      const payload = (await response.json()) as { access_token: string; user: User };
-      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
-      setMessage(`Signed in as ${payload.user.full_name}.`);
-      await bootstrap(payload.access_token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Login failed");
-    }
-  }
-
-  async function handleRegister(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    try {
-      const response = await fetch(`${API_BASE}/api/auth/register`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          first_name: registerForm.first_name,
-          last_name: registerForm.last_name,
-          email: registerForm.email,
-          password: registerForm.password,
-          competition_number: registerForm.competition_number || null,
-          nation: registerForm.nation || null,
-          civl_id: registerForm.civl_id || null,
-        }),
-      });
-      if (!response.ok) throw new Error(await response.text());
-      const payload = (await response.json()) as { access_token: string; user: User };
-      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
-      setRegisterForm({ first_name: "", last_name: "", email: "", password: "", competition_number: "", nation: "", civl_id: "" });
-      setMessage(`Created account for ${payload.user.full_name}.`);
-      await bootstrap(payload.access_token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Registration failed");
-    }
-  }
-
   function signOut() {
     window.localStorage.removeItem(TOKEN_KEY);
     document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
@@ -963,7 +934,6 @@ export default function HomePage() {
     setScoringFeedback(null);
     setTaskFeedback(null);
     setEventFormFeedback({ details: null, scoring: null, airspace: null });
-    setAuthMode("login");
     setMessage("Sign in or create a pilot account to continue.");
     setError("");
     router.replace("/login");
@@ -2788,74 +2758,16 @@ export default function HomePage() {
   return (
     <main className="shell">
       {!user ? (
-        <>
-          <section className="hero">
-            <div>
-              <p className="eyebrow">FlightComp Platform</p>
-              <h1>AirScore-aligned scoring for NAS deployment</h1>
-              <p className="lede">Admins manage events, pilots, turnpoints, tasks, and scoring. Pilots get a separate portal for view-only tasks, IGC upload, and results.</p>
-            </div>
-          </section>
-          <section className="panel login-panel auth-panel">
-            <div className="tab-row">
-              <button type="button" className={authMode === "login" ? "tab-button active" : "tab-button"} onClick={() => setAuthMode("login")}>Log in</button>
-              <button type="button" className={authMode === "register" ? "tab-button active" : "tab-button"} onClick={() => setAuthMode("register")}>Create account</button>
-            </div>
-            {authMode === "login" ? (
-              <form className="stack" onSubmit={handleLogin}>
-                <h2>Log in</h2>
-                <label className="stack compact">
-                  <span>Email or username</span>
-                  <input value={loginForm.username} onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })} placeholder="pilot@example.com" required />
-                </label>
-                <label className="stack compact">
-                  <span>Password</span>
-                  <input type="password" value={loginForm.password} onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })} required />
-                </label>
-                <p className="hint">Pilot accounts use email as the username. Seeded admin access still works with <code>admin</code>.</p>
-                <button type="submit">Sign in</button>
-              </form>
-            ) : (
-              <form className="stack" onSubmit={handleRegister}>
-                <h2>Create pilot account</h2>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>First name</span>
-                    <input value={registerForm.first_name} onChange={(event) => setRegisterForm({ ...registerForm, first_name: event.target.value })} required />
-                  </label>
-                  <label className="stack compact">
-                    <span>Last name</span>
-                    <input value={registerForm.last_name} onChange={(event) => setRegisterForm({ ...registerForm, last_name: event.target.value })} required />
-                  </label>
-                </div>
-                <label className="stack compact">
-                  <span>Email</span>
-                  <input type="email" value={registerForm.email} onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })} placeholder="pilot@example.com" required />
-                </label>
-                <label className="stack compact">
-                  <span>Password</span>
-                  <input type="password" value={registerForm.password} onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })} required />
-                </label>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>Competition number</span>
-                    <input value={registerForm.competition_number} onChange={(event) => setRegisterForm({ ...registerForm, competition_number: event.target.value })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Nation</span>
-                    <input value={registerForm.nation} onChange={(event) => setRegisterForm({ ...registerForm, nation: event.target.value })} />
-                  </label>
-                </div>
-                <label className="stack compact">
-                  <span>CIVL ID</span>
-                  <input value={registerForm.civl_id} onChange={(event) => setRegisterForm({ ...registerForm, civl_id: event.target.value })} />
-                </label>
-                <p className="hint">Creating an account also creates or links a pilot profile in the shared people directory so admins can add you to events from the roster list.</p>
-                <button type="submit">Create account</button>
-              </form>
-            )}
-          </section>
-        </>
+        <section className="login-panel auth-panel">
+          <div className="stack">
+            <h2>{authChecking ? "Loading dashboard..." : "Redirecting to login..."}</h2>
+            <p className="hint">
+              {authChecking
+                ? "Reconnecting your session and loading the event workspace."
+                : "Your session is not active here. Please continue through the main login page."}
+            </p>
+          </div>
+        </section>
       ) : (
         <div className={sidebarCompact ? "workspace-shell sidebar-compact" : "workspace-shell"}>
           <AppSidebar
