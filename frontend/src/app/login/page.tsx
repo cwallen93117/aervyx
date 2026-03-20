@@ -27,6 +27,28 @@ function setSessionCookie() {
   document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
 }
 
+async function readApiError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload.detail === "Invalid credentials") {
+      return "That email/username or password didn't match. Check your credentials and try again.";
+    }
+    if (payload.detail?.trim()) {
+      return payload.detail;
+    }
+  } catch {
+    try {
+      const text = await response.text();
+      if (text.trim()) {
+        return text;
+      }
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 export default function LoginPage() {
   const [destination, setDestination] = useState("/dashboard");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
@@ -70,7 +92,7 @@ export default function LoginPage() {
         }),
       });
       if (!response.ok) {
-        throw new Error((await response.text()) || "Sign in failed");
+        throw new Error(await readApiError(response, "Sign in failed. Please try again."));
       }
       const payload = (await response.json()) as { access_token: string };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
@@ -103,7 +125,7 @@ export default function LoginPage() {
           civl_id: registerForm.civl_id || null,
         }),
       });
-      if (!response.ok) throw new Error((await response.text()) || "Registration failed");
+      if (!response.ok) throw new Error(await readApiError(response, "Registration failed. Please try again."));
       const payload = (await response.json()) as { access_token: string; user: { full_name: string } };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
       setSessionCookie();
