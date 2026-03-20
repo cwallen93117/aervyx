@@ -180,16 +180,16 @@ export default function LoginPage() {
                     autoComplete="current-password"
                     required
                   />
+                </div>
+                <div className="aervyx-auth-inline-actions">
+                  <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
+                    {forgotMode ? "Hide password help" : "Forgot password?"}
+                  </button>
                   <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
                     {showLoginPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </label>
-              <div className="aervyx-auth-inline-actions">
-                <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
-                  {forgotMode ? "Hide password help" : "Forgot password?"}
-                </button>
-              </div>
               {forgotMode ? (
                 <div className="aervyx-auth-forgot-card">
                   <strong>Password recovery</strong>
@@ -229,6 +229,8 @@ export default function LoginPage() {
                     autoComplete="new-password"
                     required
                   />
+                </div>
+                <div className="aervyx-auth-inline-actions aervyx-auth-inline-actions-end">
                   <button type="button" className="aervyx-password-toggle" onClick={() => setShowRegisterPassword((value) => !value)}>
                     {showRegisterPassword ? "Hide" : "Show"}
                   </button>
