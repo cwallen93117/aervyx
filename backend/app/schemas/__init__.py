@@ -36,6 +36,37 @@ class TokenResponse(BaseModel):
     user: UserSummary
 
 
+class AccountSettingsResponse(BaseModel):
+    username: str
+    full_name: str
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    nation: str | None = None
+    competition_number: str | None = None
+    civl_id: str | None = None
+
+
+class AccountSettingsUpdateResponse(AccountSettingsResponse):
+    access_token: str | None = None
+
+
+class AccountSettingsUpdate(BaseModel):
+    username: str
+    full_name: str
+    email: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
+    nation: str | None = None
+    competition_number: str | None = None
+    civl_id: str | None = None
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class EventCreate(BaseModel):
     name: str
     location: str

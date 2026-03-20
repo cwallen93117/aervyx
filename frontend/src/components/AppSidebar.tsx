@@ -43,6 +43,12 @@ function SidebarIcon({ id }: { id: string }) {
           <circle cx="16" cy="17.5" r="1.4" fill="currentColor" />
         </svg>
       );
+    case "settings":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Zm0-4.2 1 .2.8 2.1a7.4 7.4 0 0 1 1.4.6l2-1 1.4 1.4-1 2c.2.5.4.9.5 1.4l2.2.8.1 1-.1 1-2.2.8a7.3 7.3 0 0 1-.5 1.4l1 2-1.4 1.4-2-1a7.4 7.4 0 0 1-1.4.6l-.8 2.1-1 .2-1-.2-.8-2.1a7.4 7.4 0 0 1-1.4-.6l-2 1-1.4-1.4 1-2a7.4 7.4 0 0 1-.6-1.4L2.2 13l-.2-1 .2-1 2.1-.8c.1-.5.3-.9.6-1.4l-1-2L5.3 5l2 1a7.4 7.4 0 0 1 1.4-.6l.8-2.1 1-.2Z" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+        </svg>
+      );
     default:
       return <span>{id.slice(0, 1).toUpperCase()}</span>;
   }
@@ -54,6 +60,7 @@ const itemThemes: Record<string, string> = {
   scoring: "theme-scoring",
   live_tracking: "theme-live-tracking",
   drivers: "theme-drivers",
+  settings: "theme-settings",
 };
 
 export function AppSidebar({

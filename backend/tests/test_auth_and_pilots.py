@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import Event, EventPilot, Pilot, User
-from app.routers.auth import register
+from app.routers.auth import change_password, register, update_settings
 from app.routers.pilots import assign_existing_pilot
-from app.schemas import RegisterRequest
+from app.schemas import AccountSettingsUpdate, PasswordChangeRequest, RegisterRequest
 
 
 def _session() -> Session:
@@ -53,3 +53,51 @@ def test_assign_existing_pilot_adds_them_to_event() -> None:
 
     assert response.id == pilot.id
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
+
+
+def test_update_settings_updates_pilot_profile_and_username() -> None:
+    session = _session()
+    pilot = Pilot(first_name="Robin", last_name="Wing", email="robin@example.com", nation="US")
+    user = User(username="robin@example.com", full_name="Robin Wing", role="pilot", password_hash="hash", pilot_id=None)
+    session.add_all([pilot, user])
+    session.commit()
+    user.pilot_id = pilot.id
+    session.commit()
+
+    response = update_settings(
+        AccountSettingsUpdate(
+            username="robin.wing",
+            full_name="Robin Wing",
+            email="pilot@example.com",
+            first_name="Robin",
+            last_name="Wing",
+            nation="usa",
+            competition_number="77",
+            civl_id="CIVL-77",
+        ),
+        user,
+        session,
+    )
+
+    session.refresh(user)
+    session.refresh(pilot)
+    assert response.username == "robin.wing"
+    assert user.username == "robin.wing"
+    assert pilot.email == "pilot@example.com"
+    assert pilot.nation == "USA"
+    assert pilot.competition_number == "77"
+
+
+def test_change_password_requires_current_password() -> None:
+    session = _session()
+    user = User(username="admin", full_name="Admin User", role="admin", password_hash="old-hash")
+    session.add(user)
+    session.commit()
+
+    with patch("app.routers.auth.verify_password", return_value=False):
+        try:
+            change_password(PasswordChangeRequest(current_password="wrong", new_password="new-secret-1"), user, session)
+        except Exception as exc:
+            assert getattr(exc, "status_code", None) == 401
+        else:
+            raise AssertionError("Expected password change to reject an invalid current password")

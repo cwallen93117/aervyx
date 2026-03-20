@@ -8,9 +8,20 @@ import { SectionCard } from "../../components/SectionCard";
 import { TaskMap, type MapAirspaceRegion, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
-type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers";
+type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "settings";
 type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
+type AccountSettingsRecord = {
+  username: string;
+  full_name: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  nation: string | null;
+  competition_number: string | null;
+  civl_id: string | null;
+  access_token?: string | null;
+};
 type EventRecord = {
   id: number;
   name: string;
@@ -161,12 +172,14 @@ const adminSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
+  { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
+  { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const guestSidebarItems = [
   { id: "scoring", label: "Scores" },
@@ -175,12 +188,12 @@ const guestSidebarItems = [
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
   if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers") {
+    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings") {
       return section;
     }
     return "tasks";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers") {
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings") {
     return section;
   }
   return "events";
@@ -320,6 +333,19 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
     penalties_text: "{}",
     points: [],
     ...overrides,
+  };
+}
+
+function blankSettingsForm(): AccountSettingsRecord {
+  return {
+    username: "",
+    full_name: "",
+    email: "",
+    first_name: "",
+    last_name: "",
+    nation: "",
+    competition_number: "",
+    civl_id: "",
   };
 }
 
@@ -615,6 +641,12 @@ export default function HomePage() {
   const [scoresPortalTab, setScoresPortalTab] = useState<ScoresPortalTab>("results");
   const [scoringTab, setScoringTab] = useState<ScoringTab>("task");
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
+  const [settingsForm, setSettingsForm] = useState<AccountSettingsRecord>(blankSettingsForm());
+  const [settingsPasswordForm, setSettingsPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
+  const [settingsFeedback, setSettingsFeedback] = useState<{
+    profile: { type: "success" | "error"; text: string } | null;
+    password: { type: "success" | "error"; text: string } | null;
+  }>({ profile: null, password: null });
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
     const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
@@ -789,15 +821,17 @@ export default function HomePage() {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
     setToken(activeToken);
     setError("");
-    const [me, rawEvents] = await Promise.all([
+    const [me, rawEvents, settings] = await Promise.all([
       apiFetch<User>("/api/auth/me", activeToken),
       apiFetch<EventRecord[]>("/api/events", activeToken),
+      apiFetch<AccountSettingsRecord>("/api/auth/settings", activeToken),
     ]);
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
     const storedSection = window.localStorage.getItem(ACTIVE_SECTION_KEY);
     const preferredEvent = loadedEvents.find((event) => event.id === storedEventId) ?? loadedEvents[0] ?? null;
     setUser(me);
+    setSettingsForm(settings);
     setActiveSection(normalizeSectionForRole(storedSection, me.role));
     setEvents(loadedEvents);
     await refreshPilotDirectory(activeToken, me);
@@ -930,6 +964,9 @@ export default function HomePage() {
     document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
     setToken("");
     setUser(null);
+    setSettingsForm(blankSettingsForm());
+    setSettingsPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+    setSettingsFeedback({ profile: null, password: null });
     setActiveSection("events");
     setSelectedEventId(null);
     setEventEditorId(null);
@@ -954,6 +991,79 @@ export default function HomePage() {
     setMessage("Sign in or create a pilot account to continue.");
     setError("");
     router.replace("/login");
+  }
+
+  async function saveAccountSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    setSettingsFeedback((current) => ({ ...current, profile: null }));
+    try {
+      const payload = await apiFetch<AccountSettingsRecord>("/api/auth/settings", token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          username: settingsForm.username,
+          full_name: settingsForm.full_name,
+          email: settingsForm.email || null,
+          first_name: settingsForm.first_name || null,
+          last_name: settingsForm.last_name || null,
+          nation: settingsForm.nation || null,
+          competition_number: settingsForm.competition_number || null,
+          civl_id: settingsForm.civl_id || null,
+        }),
+      });
+      setSettingsForm({
+        username: payload.username,
+        full_name: payload.full_name,
+        email: payload.email,
+        first_name: payload.first_name,
+        last_name: payload.last_name,
+        nation: payload.nation,
+        competition_number: payload.competition_number,
+        civl_id: payload.civl_id,
+      });
+      if (payload.access_token) {
+        window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+        document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
+        setToken(payload.access_token);
+      }
+      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name } : current));
+      setSettingsFeedback((current) => ({ ...current, profile: { type: "success", text: "Account settings saved." } }));
+    } catch (caught) {
+      setSettingsFeedback((current) => ({
+        ...current,
+        profile: { type: "error", text: caught instanceof Error ? caught.message : "Could not save account settings." },
+      }));
+    }
+  }
+
+  async function savePasswordSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!token) return;
+    setSettingsFeedback((current) => ({ ...current, password: null }));
+    if (settingsPasswordForm.new_password.length < 8) {
+      setSettingsFeedback((current) => ({ ...current, password: { type: "error", text: "New password must be at least 8 characters." } }));
+      return;
+    }
+    if (settingsPasswordForm.new_password !== settingsPasswordForm.confirm_password) {
+      setSettingsFeedback((current) => ({ ...current, password: { type: "error", text: "New password and confirmation do not match." } }));
+      return;
+    }
+    try {
+      await apiFetch<{ status: string }>("/api/auth/change-password", token, {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: settingsPasswordForm.current_password,
+          new_password: settingsPasswordForm.new_password,
+        }),
+      });
+      setSettingsPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
+      setSettingsFeedback((current) => ({ ...current, password: { type: "success", text: "Password updated successfully." } }));
+    } catch (caught) {
+      setSettingsFeedback((current) => ({
+        ...current,
+        password: { type: "error", text: caught instanceof Error ? caught.message : "Could not update password." },
+      }));
+    }
   }
 
   async function saveEvent(event: FormEvent<HTMLFormElement>) {
@@ -2752,6 +2862,83 @@ export default function HomePage() {
         ) : null}
       </div>
     );
+    }
+
+  function renderSettingsSection() {
+    return (
+      <div className="section-stack">
+        <SectionCard title="Account settings" description="Update the profile details used across the Aervyx portal.">
+          <form className="stack form-block" onSubmit={saveAccountSettings}>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Username</span>
+                <input value={settingsForm.username ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, username: event.target.value }))} required />
+              </label>
+              <label className="stack compact">
+                <span>Display name</span>
+                <input value={settingsForm.full_name ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, full_name: event.target.value }))} required />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Email</span>
+                <input type="email" value={settingsForm.email ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, email: event.target.value }))} />
+              </label>
+              <label className="stack compact">
+                <span>Nation</span>
+                <input value={settingsForm.nation ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, nation: event.target.value.toUpperCase() }))} maxLength={3} />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>First name</span>
+                <input value={settingsForm.first_name ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, first_name: event.target.value }))} />
+              </label>
+              <label className="stack compact">
+                <span>Last name</span>
+                <input value={settingsForm.last_name ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, last_name: event.target.value }))} />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Competition number</span>
+                <input value={settingsForm.competition_number ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, competition_number: event.target.value }))} />
+              </label>
+              <label className="stack compact">
+                <span>CIVL ID</span>
+                <input value={settingsForm.civl_id ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, civl_id: event.target.value }))} />
+              </label>
+            </div>
+            <div className="button-row">
+              <button type="submit">Save account settings</button>
+            </div>
+            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
+          </form>
+        </SectionCard>
+        <SectionCard title="Password" description="Change your password securely using your current password first.">
+          <form className="stack form-block" onSubmit={savePasswordSettings}>
+            <label className="stack compact">
+              <span>Current password</span>
+              <input type="password" value={settingsPasswordForm.current_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))} autoComplete="current-password" required />
+            </label>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>New password</span>
+                <input type="password" value={settingsPasswordForm.new_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, new_password: event.target.value }))} autoComplete="new-password" required />
+              </label>
+              <label className="stack compact">
+                <span>Confirm new password</span>
+                <input type="password" value={settingsPasswordForm.confirm_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))} autoComplete="new-password" required />
+              </label>
+            </div>
+            <div className="button-row">
+              <button type="submit">Update password</button>
+            </div>
+            {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
+          </form>
+        </SectionCard>
+      </div>
+    );
   }
 
   function renderActiveSection() {
@@ -2769,6 +2956,8 @@ export default function HomePage() {
           return <SectionCard title="Live Tracking" description="Live tracking tools will be added here next."><p className="hint">This area is reserved for future live tracking workflows.</p></SectionCard>;
         case "drivers":
           return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
+        case "settings":
+          return renderSettingsSection();
       }
     }
 
