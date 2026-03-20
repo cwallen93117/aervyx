@@ -131,7 +131,24 @@ type ScoringTab = "task" | "overall";
 type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "TFR" | "OTHER";
 type TaskPointMode = "simple" | "advanced";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+function resolveApiBase() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (typeof window !== "undefined") {
+    if (configured) {
+      try {
+        const parsed = new URL(configured);
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          return `${window.location.protocol}//${window.location.hostname}:${parsed.port || "8000"}`;
+        }
+      } catch {
+        return configured;
+      }
+      return configured;
+    }
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return configured ?? "http://localhost:8000";
+}
 const TOKEN_KEY = "flightcomp-platform-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
@@ -536,7 +553,7 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   const headers = new Headers(init.headers ?? {});
   headers.set("Authorization", `Bearer ${token}`);
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
+  const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -546,7 +563,7 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
 async function apiFetchPublic<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${API_BASE}${path}`, { ...init, headers, cache: "no-store" });
+  const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
   if (response.status === 204) return undefined as T;
   const text = await response.text();

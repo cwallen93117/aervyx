@@ -3,7 +3,24 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000";
+function resolveApiBase() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (typeof window !== "undefined") {
+    if (configured) {
+      try {
+        const parsed = new URL(configured);
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          return `${window.location.protocol}//${window.location.hostname}:${parsed.port || "8000"}`;
+        }
+      } catch {
+        return configured;
+      }
+      return configured;
+    }
+    return `${window.location.protocol}//${window.location.hostname}:8000`;
+  }
+  return configured ?? "http://localhost:8000";
+}
 const TOKEN_KEY = "flightcomp-platform-token";
 const SESSION_COOKIE = "flightcomp_session";
 
@@ -44,7 +61,7 @@ export default function LoginPage() {
     setMessage("");
     setError("");
     try {
-      const response = await fetch(`${API_BASE}/api/auth/login`, {
+      const response = await fetch(`${resolveApiBase()}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -67,7 +84,7 @@ export default function LoginPage() {
     setMessage("");
     setError("");
     try {
-      const response = await fetch(`${API_BASE}/api/auth/register`, {
+      const response = await fetch(`${resolveApiBase()}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
