@@ -283,6 +283,11 @@ input, select, textarea { font-family: inherit; }
   color: #e2e8f0;
 }
 
+.theme-admin .nav-item-glyph {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
 .nav-item.active .nav-item-glyph {
   background: rgba(59, 130, 246, 0.2);
 }
@@ -315,6 +320,11 @@ input, select, textarea { font-family: inherit; }
 .nav-item.active.theme-settings .nav-item-glyph {
   background: rgba(148, 163, 184, 0.24);
   color: #ffffff;
+}
+
+.nav-item.active.theme-admin .nav-item-glyph {
+  background: rgba(239, 68, 68, 0.24);
+  color: #fee2e2;
 }
 
 .nav-item-copy {

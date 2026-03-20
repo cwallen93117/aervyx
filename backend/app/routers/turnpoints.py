@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_staff
 from app.models import Event, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TurnpointResponse, TurnpointSourceResponse, TurnpointSourceUpdate, TurnpointUploadResponse
 from app.services.audit import log_action
@@ -88,7 +88,7 @@ def list_turnpoint_sources(event_id: int, user: User = Depends(get_current_user)
 
 
 @router.post("/api/events/{event_id}/turnpoints/upload", response_model=TurnpointUploadResponse)
-async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
+async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
     content = await file.read()
@@ -120,7 +120,7 @@ async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: 
 
 
 @router.patch("/api/events/{event_id}/turnpoint-sources/{source_id}", response_model=TurnpointSourceResponse)
-def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSourceUpdate, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
+def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSourceUpdate, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
     source = session.get(TurnpointSource, source_id)
@@ -134,7 +134,7 @@ def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSou
 
 
 @router.delete("/api/events/{event_id}/turnpoint-sources/{source_id}", status_code=204)
-def delete_turnpoint_source(event_id: int, source_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+def delete_turnpoint_source(event_id: int, source_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> None:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
     source = session.get(TurnpointSource, source_id)

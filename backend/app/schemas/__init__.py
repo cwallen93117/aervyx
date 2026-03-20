@@ -15,6 +15,7 @@ class RegisterRequest(BaseModel):
     last_name: str
     email: str
     password: str
+    account_role: str = "pilot"
     competition_number: str | None = None
     nation: str | None = None
     civl_id: str | None = None
@@ -25,6 +26,7 @@ class UserSummary(BaseModel):
     username: str
     full_name: str
     role: str
+    profile_type: str
     pilot_id: int | None
 
     model_config = ConfigDict(from_attributes=True)
@@ -39,6 +41,8 @@ class TokenResponse(BaseModel):
 class AccountSettingsResponse(BaseModel):
     username: str
     full_name: str
+    role: str
+    profile_type: str
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -54,6 +58,7 @@ class AccountSettingsUpdateResponse(AccountSettingsResponse):
 class AccountSettingsUpdate(BaseModel):
     username: str
     full_name: str
+    profile_type: str = "pilot"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -65,6 +70,26 @@ class AccountSettingsUpdate(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str
     new_password: str
+
+
+class AdminUserResponse(BaseModel):
+    id: int
+    username: str
+    full_name: str
+    role: str
+    profile_type: str
+    pilot_id: int | None
+    email: str | None = None
+    pilot_name: str | None = None
+    competition_number: str | None = None
+    is_active: bool
+    created_at: datetime
+
+
+class AdminUserUpdate(BaseModel):
+    role: str
+    profile_type: str
+    is_active: bool = True
 
 
 class EventCreate(BaseModel):

@@ -7,6 +7,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     if "events" not in inspector.get_table_names():
         return
 
+    user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in inspector.get_table_names() else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in inspector.get_table_names() else set()
     turnpoint_source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")} if "turnpoint_sources" in inspector.get_table_names() else set()
@@ -67,6 +68,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
     }
 
     with engine.begin() as connection:
+        if "users" in inspector.get_table_names() and "profile_type" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN profile_type VARCHAR(20) DEFAULT 'pilot'"))
+            connection.execute(text("UPDATE users SET profile_type = 'pilot' WHERE profile_type IS NULL"))
         for column_name, statement in statements.items():
             if column_name not in event_columns:
                 connection.execute(text(statement))

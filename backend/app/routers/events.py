@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_admin, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import EventCreate, EventResponse
 from app.services.audit import log_action
@@ -109,7 +109,7 @@ def list_events(user: User = Depends(get_current_user), session: Session = Depen
 
 
 @router.post("", response_model=EventResponse)
-def create_event(payload: EventCreate, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> EventResponse:
+def create_event(payload: EventCreate, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> EventResponse:
     event = Event(**payload.model_dump())
     session.add(event)
     session.flush()
@@ -120,7 +120,7 @@ def create_event(payload: EventCreate, admin: User = Depends(require_admin), ses
 
 
 @router.post("/{event_id}/duplicate", response_model=EventResponse)
-def duplicate_event(event_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> EventResponse:
+def duplicate_event(event_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> EventResponse:
     source_event = session.get(Event, event_id)
     if source_event is None:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -269,7 +269,7 @@ def get_event(event_id: int, user: User = Depends(get_current_user), session: Se
 
 
 @router.put("/{event_id}", response_model=EventResponse)
-def update_event(event_id: int, payload: EventCreate, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> EventResponse:
+def update_event(event_id: int, payload: EventCreate, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> EventResponse:
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")

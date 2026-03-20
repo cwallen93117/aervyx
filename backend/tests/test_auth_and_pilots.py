@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import Event, EventPilot, Pilot, User
-from app.routers.auth import change_password, register, update_settings
+from app.routers.auth import change_password, register, update_settings, update_user_account
 from app.routers.pilots import assign_existing_pilot
-from app.schemas import AccountSettingsUpdate, PasswordChangeRequest, RegisterRequest
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, PasswordChangeRequest, RegisterRequest
 
 
 def _session() -> Session:
@@ -41,6 +41,27 @@ def test_register_links_existing_pilot_by_email() -> None:
     assert user.pilot_id == pilot.id
 
 
+def test_register_organizer_creates_user_without_pilot() -> None:
+    session = _session()
+
+    with patch("app.routers.auth.hash_password", return_value="hashed-password"):
+        response = register(
+            RegisterRequest(
+                first_name="Olivia",
+                last_name="Meet",
+                email="organizer@example.com",
+                password="secret123",
+                account_role="organizer",
+            ),
+            session,
+        )
+
+    user = session.query(User).filter(User.username == "organizer@example.com").one()
+    assert response.user.role == "organizer"
+    assert response.user.pilot_id is None
+    assert user.profile_type == "driver"
+
+
 def test_assign_existing_pilot_adds_them_to_event() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
@@ -68,6 +89,7 @@ def test_update_settings_updates_pilot_profile_and_username() -> None:
         AccountSettingsUpdate(
             username="robin.wing",
             full_name="Robin Wing",
+            profile_type="driver",
             email="pilot@example.com",
             first_name="Robin",
             last_name="Wing",
@@ -82,7 +104,9 @@ def test_update_settings_updates_pilot_profile_and_username() -> None:
     session.refresh(user)
     session.refresh(pilot)
     assert response.username == "robin.wing"
+    assert response.profile_type == "driver"
     assert user.username == "robin.wing"
+    assert user.profile_type == "driver"
     assert pilot.email == "pilot@example.com"
     assert pilot.nation == "USA"
     assert pilot.competition_number == "77"
@@ -101,3 +125,23 @@ def test_change_password_requires_current_password() -> None:
             assert getattr(exc, "status_code", None) == 401
         else:
             raise AssertionError("Expected password change to reject an invalid current password")
+
+
+def test_admin_can_update_user_role_and_profile_type() -> None:
+    session = _session()
+    admin = User(username="admin", full_name="Admin User", role="admin", profile_type="pilot", password_hash="hash")
+    target = User(username="pilot@example.com", full_name="Pilot User", role="pilot", profile_type="pilot", password_hash="hash")
+    session.add_all([admin, target])
+    session.commit()
+
+    response = update_user_account(
+        target.id,
+        AdminUserUpdate(role="organizer", profile_type="driver", is_active=True),
+        admin,
+        session,
+    )
+
+    session.refresh(target)
+    assert response.role == "organizer"
+    assert target.role == "organizer"
+    assert target.profile_type == "driver"

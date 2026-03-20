@@ -15,6 +15,7 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(80), unique=True, index=True)
     full_name: Mapped[str] = mapped_column(String(160))
     role: Mapped[str] = mapped_column(String(20), index=True)
+    profile_type: Mapped[str] = mapped_column(String(20), default="pilot")
     password_hash: Mapped[str] = mapped_column(String(255))
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

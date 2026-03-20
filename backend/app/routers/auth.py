@@ -4,9 +4,11 @@ from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db import get_session
-from app.deps import get_current_user
+from app.deps import get_current_user, require_admin
 from app.models import Pilot, User
 from app.schemas import (
+    AdminUserResponse,
+    AdminUserUpdate,
     AccountSettingsResponse,
     AccountSettingsUpdate,
     AccountSettingsUpdateResponse,
@@ -18,12 +20,16 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+VALID_ACCOUNT_ROLES = {"pilot", "organizer"}
+VALID_PROFILE_TYPES = {"pilot", "driver"}
 
 
 def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None = None) -> AccountSettingsUpdateResponse:
     return AccountSettingsUpdateResponse(
         username=user.username,
         full_name=user.full_name,
+        role=user.role,
+        profile_type=user.profile_type,
         email=pilot.email if pilot else (user.username if "@" in user.username else None),
         first_name=pilot.first_name if pilot else None,
         last_name=pilot.last_name if pilot else None,
@@ -45,34 +51,40 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)) -> Tok
 @router.post("/register", response_model=TokenResponse)
 def register(payload: RegisterRequest, session: Session = Depends(get_session)) -> TokenResponse:
     email = payload.email.strip().lower()
+    account_role = payload.account_role.strip().lower() if payload.account_role else "pilot"
+    if account_role not in VALID_ACCOUNT_ROLES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or organizer for the new account")
     if session.scalar(select(User).where(User.username == email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with that email already exists")
 
-    pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
-    if pilot is None:
-        pilot = Pilot(
-            first_name=payload.first_name.strip(),
-            last_name=payload.last_name.strip(),
-            email=email,
-            nation=payload.nation,
-            competition_number=payload.competition_number,
-            civl_id=payload.civl_id,
-        )
-        session.add(pilot)
-        session.flush()
-    else:
-        pilot.first_name = payload.first_name.strip() or pilot.first_name
-        pilot.last_name = payload.last_name.strip() or pilot.last_name
-        pilot.email = email
-        pilot.nation = payload.nation or pilot.nation
-        pilot.competition_number = payload.competition_number or pilot.competition_number
-        pilot.civl_id = payload.civl_id or pilot.civl_id
+    pilot: Pilot | None = None
+    if account_role == "pilot":
+        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
+        if pilot is None:
+            pilot = Pilot(
+                first_name=payload.first_name.strip(),
+                last_name=payload.last_name.strip(),
+                email=email,
+                nation=payload.nation,
+                competition_number=payload.competition_number,
+                civl_id=payload.civl_id,
+            )
+            session.add(pilot)
+            session.flush()
+        else:
+            pilot.first_name = payload.first_name.strip() or pilot.first_name
+            pilot.last_name = payload.last_name.strip() or pilot.last_name
+            pilot.email = email
+            pilot.nation = payload.nation or pilot.nation
+            pilot.competition_number = payload.competition_number or pilot.competition_number
+            pilot.civl_id = payload.civl_id or pilot.civl_id
 
     user = User(
         username=email,
         full_name=f"{payload.first_name.strip()} {payload.last_name.strip()}",
-        role="pilot",
-        pilot_id=pilot.id,
+        role=account_role,
+        profile_type="pilot" if account_role == "pilot" else "driver",
+        pilot_id=pilot.id if pilot else None,
         password_hash=hash_password(payload.password),
     )
     session.add(user)
@@ -104,6 +116,9 @@ def update_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username is required")
     if not full_name:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Full name is required")
+    profile_type = payload.profile_type.strip().lower() if payload.profile_type else "pilot"
+    if profile_type not in VALID_PROFILE_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or driver for the current type")
 
     existing_user = session.scalar(select(User).where(User.username == username, User.id != user.id))
     if existing_user is not None:
@@ -111,6 +126,7 @@ def update_settings(
 
     user.username = username
     user.full_name = full_name
+    user.profile_type = profile_type
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     if pilot is not None:
@@ -153,3 +169,91 @@ def change_password(
     session.add(user)
     session.commit()
     return {"status": "ok"}
+
+
+@router.get("/users", response_model=list[AdminUserResponse])
+def list_users(admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> list[AdminUserResponse]:
+    users = session.scalars(select(User).order_by(User.created_at.desc(), User.username.asc())).all()
+    pilot_ids = [user.pilot_id for user in users if user.pilot_id]
+    pilots = {}
+    if pilot_ids:
+        pilots = {pilot.id: pilot for pilot in session.scalars(select(Pilot).where(Pilot.id.in_(pilot_ids))).all()}
+    return [
+        AdminUserResponse(
+            id=user.id,
+            username=user.username,
+            full_name=user.full_name,
+            role=user.role,
+            profile_type=user.profile_type,
+            pilot_id=user.pilot_id,
+            email=pilots[user.pilot_id].email if user.pilot_id and user.pilot_id in pilots else None,
+            pilot_name=(
+                f"{pilots[user.pilot_id].first_name} {pilots[user.pilot_id].last_name}".strip()
+                if user.pilot_id and user.pilot_id in pilots
+                else None
+            ),
+            competition_number=pilots[user.pilot_id].competition_number if user.pilot_id and user.pilot_id in pilots else None,
+            is_active=user.is_active,
+            created_at=user.created_at,
+        )
+        for user in users
+    ]
+
+
+@router.patch("/users/{user_id}", response_model=AdminUserResponse)
+def update_user_account(
+    user_id: int,
+    payload: AdminUserUpdate,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    role = payload.role.strip().lower()
+    profile_type = payload.profile_type.strip().lower()
+    if role not in {"admin", "organizer", "pilot"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Role must be admin, organizer, or pilot")
+    if profile_type not in VALID_PROFILE_TYPES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current type must be pilot or driver")
+    if target.id == admin.id and role != "admin":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use another admin account before changing your own admin role")
+    if target.role == "admin" and role != "admin":
+        admin_count = session.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True))) or 0
+        if admin_count <= 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one active admin account must remain")
+    target.role = role
+    target.profile_type = profile_type
+    target.is_active = payload.is_active
+    session.add(target)
+    session.commit()
+    session.refresh(target)
+    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
+    return AdminUserResponse(
+        id=target.id,
+        username=target.username,
+        full_name=target.full_name,
+        role=target.role,
+        profile_type=target.profile_type,
+        pilot_id=target.pilot_id,
+        email=pilot.email if pilot else None,
+        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
+        competition_number=pilot.competition_number if pilot else None,
+        is_active=target.is_active,
+        created_at=target.created_at,
+    )
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user_account(user_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if target.id == admin.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot delete your own admin account")
+    if target.role == "admin":
+        admin_count = session.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True))) or 0
+        if admin_count <= 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one active admin account must remain")
+    session.delete(target)
+    session.commit()

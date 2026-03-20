@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_staff
 from app.models import EventPilot, Pilot, ScoreResult, Task, User
 from app.schemas import PilotSummaryResponse, ScoreResultResponse
 from app.services.audit import log_action
@@ -22,7 +22,7 @@ def get_task_results(task_id: int, user: User = Depends(get_current_user), sessi
 
 
 @router.post("/api/tasks/{task_id}/rescore", response_model=list[ScoreResultResponse])
-def rescore(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> list[ScoreResultResponse]:
+def rescore(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> list[ScoreResultResponse]:
     if session.get(Task, task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
     results = rescore_task(session, task_id)

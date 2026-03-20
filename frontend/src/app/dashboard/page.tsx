@@ -8,12 +8,14 @@ import { SectionCard } from "../../components/SectionCard";
 import { TaskMap, type MapAirspaceRegion, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
-type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "settings";
+type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "settings" | "admin";
 type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
-type User = { id: number; username: string; full_name: string; role: "admin" | "pilot"; pilot_id: number | null };
+type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
 type AccountSettingsRecord = {
   username: string;
   full_name: string;
+  role: "admin" | "organizer" | "pilot";
+  profile_type: "pilot" | "driver";
   email: string | null;
   first_name: string | null;
   last_name: string | null;
@@ -21,6 +23,19 @@ type AccountSettingsRecord = {
   competition_number: string | null;
   civl_id: string | null;
   access_token?: string | null;
+};
+type AdminUserRecord = {
+  id: number;
+  username: string;
+  full_name: string;
+  role: "admin" | "organizer" | "pilot";
+  profile_type: "pilot" | "driver";
+  pilot_id: number | null;
+  email: string | null;
+  pilot_name: string | null;
+  competition_number: string | null;
+  is_active: boolean;
+  created_at: string;
 };
 type EventRecord = {
   id: number;
@@ -173,6 +188,15 @@ const adminSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "settings", label: "Settings" },
+  { id: "admin", label: "Admin" },
+] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+const organizerSidebarItems = [
+  { id: "events", label: "Events" },
+  { id: "tasks", label: "Tasks" },
+  { id: "scoring", label: "Scores" },
+  { id: "live_tracking", label: "Live Tracking" },
+  { id: "drivers", label: "Drivers" },
+  { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
   { id: "tasks", label: "Tasks" },
@@ -193,7 +217,13 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
     }
     return "tasks";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings") {
+  if (role === "organizer") {
+    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings") {
+      return section;
+    }
+    return "events";
+  }
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings" || section === "admin") {
     return section;
   }
   return "events";
@@ -340,6 +370,8 @@ function blankSettingsForm(): AccountSettingsRecord {
   return {
     username: "",
     full_name: "",
+    role: "pilot",
+    profile_type: "pilot",
     email: "",
     first_name: "",
     last_name: "",
@@ -647,6 +679,8 @@ export default function HomePage() {
     profile: { type: "success" | "error"; text: string } | null;
     password: { type: "success" | "error"; text: string } | null;
   }>({ profile: null, password: null });
+  const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
+  const [adminFeedback, setAdminFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
     const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
@@ -739,6 +773,8 @@ export default function HomePage() {
     [tasks, pilotSummary],
   );
   const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
+  const isAdmin = user?.role === "admin";
+  const canManagePlatform = user?.role === "admin" || user?.role === "organizer";
   const resultsTaskMapTurnpoints = useMemo<MapTurnpoint[]>(
     () =>
       taskDraft.points.map((point, index) => ({
@@ -752,7 +788,7 @@ export default function HomePage() {
   );
   const taskSectionMapTurnpoints = useMemo<MapTurnpoint[]>(
     () => (
-      user?.role === "admin"
+      canManagePlatform
         ? turnpoints
         : taskDraft.points.map((point, index) => ({
             id: point.turnpoint_id ?? -(index + 1),
@@ -762,9 +798,9 @@ export default function HomePage() {
             longitude: point.longitude,
           }))
     ),
-    [taskDraft.points, turnpoints, user?.role],
+    [canManagePlatform, taskDraft.points, turnpoints],
   );
-  const sidebarItems = user?.role === "pilot" ? pilotSidebarItems : adminSidebarItems;
+  const sidebarItems = user?.role === "admin" ? adminSidebarItems : user?.role === "organizer" ? organizerSidebarItems : pilotSidebarItems;
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -803,7 +839,7 @@ export default function HomePage() {
   }, [activeSection, user]);
 
   useEffect(() => {
-    if (user?.role !== "admin") {
+    if (!canManagePlatform) {
       setAdminUploadPilotId(null);
       return;
     }
@@ -815,7 +851,7 @@ export default function HomePage() {
       return;
     }
     setAdminUploadPilotId(pilots[0].id);
-  }, [adminUploadPilotId, pilots, user]);
+  }, [adminUploadPilotId, canManagePlatform, pilots]);
 
   async function bootstrap(activeToken: string) {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
@@ -835,6 +871,7 @@ export default function HomePage() {
     setActiveSection(normalizeSectionForRole(storedSection, me.role));
     setEvents(loadedEvents);
     await refreshPilotDirectory(activeToken, me);
+    await refreshAdminUsers(activeToken, me);
     if (preferredEvent) {
       window.localStorage.setItem(LAST_EVENT_KEY, String(preferredEvent.id));
       setSelectedEventId(preferredEvent.id);
@@ -867,13 +904,23 @@ export default function HomePage() {
   }
 
   async function refreshPilotDirectory(activeToken: string, activeUser?: User | null) {
-    if ((activeUser ?? user)?.role !== "admin") {
+    if (!["admin", "organizer"].includes((activeUser ?? user)?.role ?? "")) {
       setPilotDirectory([]);
       return [];
     }
     const loadedPilots = await apiFetch<PilotRecord[]>("/api/pilots", activeToken);
     setPilotDirectory(loadedPilots);
     return loadedPilots;
+  }
+
+  async function refreshAdminUsers(activeToken: string, activeUser?: User | null) {
+    if ((activeUser ?? user)?.role !== "admin") {
+      setAdminUsers([]);
+      return [];
+    }
+    const loadedUsers = await apiFetch<AdminUserRecord[]>("/api/auth/users", activeToken);
+    setAdminUsers(loadedUsers);
+    return loadedUsers;
   }
 
   async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null, preferredTaskId?: number | null) {
@@ -967,6 +1014,8 @@ export default function HomePage() {
     setSettingsForm(blankSettingsForm());
     setSettingsPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
     setSettingsFeedback({ profile: null, password: null });
+    setAdminUsers([]);
+    setAdminFeedback(null);
     setActiveSection("events");
     setSelectedEventId(null);
     setEventEditorId(null);
@@ -1003,6 +1052,7 @@ export default function HomePage() {
         body: JSON.stringify({
           username: settingsForm.username,
           full_name: settingsForm.full_name,
+          profile_type: settingsForm.profile_type,
           email: settingsForm.email || null,
           first_name: settingsForm.first_name || null,
           last_name: settingsForm.last_name || null,
@@ -1014,6 +1064,8 @@ export default function HomePage() {
       setSettingsForm({
         username: payload.username,
         full_name: payload.full_name,
+        role: payload.role,
+        profile_type: payload.profile_type,
         email: payload.email,
         first_name: payload.first_name,
         last_name: payload.last_name,
@@ -1026,7 +1078,7 @@ export default function HomePage() {
         document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
         setToken(payload.access_token);
       }
-      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name } : current));
+      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, profile_type: payload.profile_type } : current));
       setSettingsFeedback((current) => ({ ...current, profile: { type: "success", text: "Account settings saved." } }));
     } catch (caught) {
       setSettingsFeedback((current) => ({
@@ -1063,6 +1115,37 @@ export default function HomePage() {
         ...current,
         password: { type: "error", text: caught instanceof Error ? caught.message : "Could not update password." },
       }));
+    }
+  }
+
+  async function saveAdminUser(userRecord: AdminUserRecord) {
+    if (!token) return;
+    setAdminFeedback(null);
+    try {
+      const payload = await apiFetch<AdminUserRecord>(`/api/auth/users/${userRecord.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          role: userRecord.role,
+          profile_type: userRecord.profile_type,
+          is_active: userRecord.is_active,
+        }),
+      });
+      setAdminUsers((current) => current.map((entry) => (entry.id === payload.id ? payload : entry)));
+      setAdminFeedback({ type: "success", text: `Updated ${payload.full_name}.` });
+    } catch (caught) {
+      setAdminFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update that user." });
+    }
+  }
+
+  async function deleteAdminUser(userRecord: AdminUserRecord) {
+    if (!token) return;
+    setAdminFeedback(null);
+    try {
+      await apiFetch<void>(`/api/auth/users/${userRecord.id}`, token, { method: "DELETE" });
+      setAdminUsers((current) => current.filter((entry) => entry.id !== userRecord.id));
+      setAdminFeedback({ type: "success", text: `Deleted ${userRecord.full_name}.` });
+    } catch (caught) {
+      setAdminFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not delete that user." });
     }
   }
 
@@ -1579,7 +1662,7 @@ export default function HomePage() {
     return (
       <div className="participant-workspace">
         <SectionCard title="Participant intake" description="Add a pilot manually or import a roster CSV for the selected event.">
-          {user?.role === "admin" ? (
+          {canManagePlatform ? (
             <div className="participant-intake-stack">
               <div className="record-card stack compact participant-directory-card">
                 <strong>Add existing person</strong>
@@ -1630,7 +1713,7 @@ export default function HomePage() {
               </form>
             </div>
           ) : (
-            <p className="hint">Pilot management is available to admins. Pilots can still review the roster below.</p>
+            <p className="hint">Pilot management is available to organizers and admins. Pilots can still review the roster below.</p>
           )}
         </SectionCard>
         <SectionCard title="Current participants" description={`${pilots.length} pilots assigned to ${selectedEvent?.name ?? "this event"}.`}>
@@ -1642,7 +1725,7 @@ export default function HomePage() {
                   <th>Competition #</th>
                   <th>Email</th>
                   <th>Portal</th>
-                  {user?.role === "admin" ? <th className="participant-table-actions">Actions</th> : null}
+                  {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -1655,7 +1738,7 @@ export default function HomePage() {
                       <td>{pilot.competition_number ?? "No comp #"}</td>
                       <td>{pilot.email ?? "No email"}</td>
                       <td>{pilot.portal_username ?? "No portal user"}</td>
-                      {user?.role === "admin" ? (
+                      {canManagePlatform ? (
                         <td className="participant-table-actions">
                           <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button>
                         </td>
@@ -1664,7 +1747,7 @@ export default function HomePage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={user?.role === "admin" ? 5 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
+                    <td colSpan={canManagePlatform ? 5 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
                   </tr>
                 )}
               </tbody>
@@ -1691,7 +1774,7 @@ export default function HomePage() {
                 ))}
               </select>
             </label>
-            {user?.role === "admin" ? (
+            {canManagePlatform ? (
               <button className="event-selector-link" type="button" onClick={() => void createEventDraft()}>Create a New Event</button>
             ) : null}
           </div>
@@ -1747,11 +1830,11 @@ export default function HomePage() {
                 <span>Timezone</span>
                 <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
               </label>
-              {user?.role === "admin" ? (
+              {canManagePlatform ? (
                 <div className="button-row">
                   <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
                   {eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
-                  {eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
+                  {isAdmin && eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
                 </div>
               ) : null}
             </form>
@@ -1952,7 +2035,7 @@ export default function HomePage() {
                   <span>Penalty rules JSON</span>
                   <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={3} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
                 </label>
-                {user?.role === "admin" ? <button type="submit">Save scoring parameters</button> : null}
+                {canManagePlatform ? <button type="submit">Save scoring parameters</button> : null}
               </form>
             ) : (
               <p className="hint">Create or select an event to define its scoring defaults.</p>
@@ -1963,7 +2046,7 @@ export default function HomePage() {
           <SectionCard title="Turnpoint files" description="Upload as many waypoint files as you need for the event, then control which ones are visible on the map.">
             {eventEditorId ? (
               <div className="stack form-block">
-                {user?.role === "admin" ? (
+                {canManagePlatform ? (
                   <div className="participant-intake-row">
                     <div className="stack compact">
                       <span>Upload turnpoint file</span>
@@ -2002,7 +2085,7 @@ export default function HomePage() {
                         <th>Turnpoints</th>
                         <th>Visible</th>
                         <th>Uploaded</th>
-                        {user?.role === "admin" ? <th className="participant-table-actions">Actions</th> : null}
+                        {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
                       </tr>
                     </thead>
                     <tbody>
@@ -2017,14 +2100,14 @@ export default function HomePage() {
                                 <input
                                   type="checkbox"
                                   checked={source.enabled}
-                                  disabled={user?.role !== "admin"}
+                                  disabled={!canManagePlatform}
                                   onChange={(event) => void toggleTurnpointSource(source, event.target.checked)}
                                 />
                                 <span>{source.enabled ? "Visible" : "Hidden"}</span>
                               </label>
                             </td>
                             <td>{new Date(source.uploaded_at).toLocaleString()}</td>
-                            {user?.role === "admin" ? (
+                            {canManagePlatform ? (
                               <td className="participant-table-actions">
                                 <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
                               </td>
@@ -2033,7 +2116,7 @@ export default function HomePage() {
                         ))
                       ) : (
                         <tr>
-                          <td colSpan={user?.role === "admin" ? 6 : 5} className="participant-table-empty">No turnpoint files uploaded for this event yet.</td>
+                          <td colSpan={canManagePlatform ? 6 : 5} className="participant-table-empty">No turnpoint files uploaded for this event yet.</td>
                         </tr>
                       )}
                     </tbody>
@@ -2075,7 +2158,7 @@ export default function HomePage() {
                     <strong>{visibleAirspaces.length} visible overlays</strong>
                     <span>{selectedEvent?.airspace_count ?? 0} airspace regions and {selectedEvent?.restricted_field_count ?? 0} restricted fields stored for this event.</span>
                   </div>
-                  {user?.role === "admin" ? <button type="submit">Save overlay settings</button> : null}
+                  {canManagePlatform ? <button type="submit">Save overlay settings</button> : null}
                 </form>
               ) : (
                 <p className="hint">Create or select an event to configure airspace overlays.</p>
@@ -2083,7 +2166,7 @@ export default function HomePage() {
             </SectionCard>
             <SectionCard title="Upload datasets" description="Use OpenAir for airspace and restricted field polygons. GeoJSON is also accepted for general airspace overlays.">
               <div className="stack form-block">
-                {user?.role === "admin" ? (
+                {canManagePlatform ? (
                   <>
                     <div className="record-card">
                       <strong>Competition airspace</strong>
@@ -2133,7 +2216,7 @@ export default function HomePage() {
                     </div>
                   </>
                 ) : (
-                  <p className="hint">Only admins can upload airspace files. Pilots still see the saved overlays on the task map.</p>
+                  <p className="hint">Only organizers and admins can upload airspace files. Pilots still see the saved overlays on the task map.</p>
                 )}
               </div>
             </SectionCard>
@@ -2151,12 +2234,12 @@ export default function HomePage() {
                           <input
                             type="checkbox"
                             checked={source.enabled ?? true}
-                            disabled={user?.role !== "admin"}
+                            disabled={!canManagePlatform}
                             onChange={(event) => void toggleAirspaceSource(source, event.target.checked)}
                           />
                           <span>{source.enabled ?? true ? "Visible" : "Hidden"}</span>
                         </label>
-                        {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                        {canManagePlatform ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
                       </div>
                     </div>
                   ))
@@ -2179,12 +2262,12 @@ export default function HomePage() {
                           <input
                             type="checkbox"
                             checked={source.enabled ?? true}
-                            disabled={user?.role !== "admin"}
+                            disabled={!canManagePlatform}
                             onChange={(event) => void toggleAirspaceSource(source, event.target.checked)}
                           />
                           <span>{source.enabled ?? true ? "Visible" : "Hidden"}</span>
                         </label>
-                        {user?.role === "admin" ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
+                        {canManagePlatform ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
                       </div>
                     </div>
                   ))
@@ -2202,7 +2285,7 @@ export default function HomePage() {
 
   function renderTasksSection() {
       if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
-      const fullscreenTaskEditor = user?.role === "admin" ? (
+      const fullscreenTaskEditor = canManagePlatform ? (
         <div className="map-task-editor">
           <div className="map-task-editor-header">
             <strong>Task turnpoints</strong>
@@ -2270,7 +2353,7 @@ export default function HomePage() {
       ) : undefined;
       return (
         <div className="section-stack">
-        <SectionCard title="Task details" description={user?.role === "admin" ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
+        <SectionCard title="Task details" description={canManagePlatform ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
           <div className="stack form-block">
             <div className="participant-intake-row">
               <label className="stack compact">
@@ -2280,7 +2363,7 @@ export default function HomePage() {
                   {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                 </select>
               </label>
-              {user?.role === "admin" ? (
+              {canManagePlatform ? (
                 <button type="button" className="ghost-button" onClick={startNewTask}>
                   New task
                 </button>
@@ -2288,24 +2371,24 @@ export default function HomePage() {
             </div>
             <label className="stack compact">
               <span>Task name</span>
-              <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={user?.role !== "admin"} />
+              <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
             </label>
             <div className="inline-grid">
-              <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task type</span>
-                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={user?.role !== "admin"}>
+                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
                   {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
-              <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task start (launch open)</span>
-                <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={user?.role !== "admin"} />
+                <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
               </label>
             </div>
             <div className="inline-grid">
-              <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task finish (goal close)</span>
-                <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={user?.role !== "admin"} />
+                <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
               </label>
               <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
                 <span>Start open</span>
@@ -2343,7 +2426,7 @@ export default function HomePage() {
                   <div className="section-header">
                     <h3>Task turnpoints</h3>
                     <div className="task-turnpoint-toolbar">
-                      {user?.role === "admin" ? (
+                      {canManagePlatform ? (
                       <label className="task-advanced-toggle">
                           <input type="checkbox" checked={taskPointAdvanced} onChange={(event) => toggleTaskPointAdvanced(event.target.checked)} />
                           <span>Advanced</span>
@@ -2351,8 +2434,8 @@ export default function HomePage() {
                       ) : null}
                     </div>
                   </div>
-                  <p className="hint">{user?.role === "admin" ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
-                  {user?.role === "admin" ? (
+                  <p className="hint">{canManagePlatform ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
+                  {canManagePlatform ? (
                     <div className="task-search-panel">
                       <label className="stack compact">
                         <span>Search turnpoints</span>
@@ -2391,7 +2474,7 @@ export default function HomePage() {
                             <th>Name</th>
                             <th>Type</th>
                             <th>Radius (m)</th>
-                            {user?.role === "admin" ? <th></th> : null}
+                            {canManagePlatform ? <th></th> : null}
                           </tr>
                         </thead>
                         <tbody>
@@ -2401,7 +2484,7 @@ export default function HomePage() {
                               <tr
                                 key={`compact-${point.turnpoint_id ?? point.name}-${index}`}
                                 className={`point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
-                                draggable={user?.role === "admin"}
+                                draggable={canManagePlatform}
                                 onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
                                 onDragOver={(event) => event.preventDefault()}
                                 onDrop={(event) => {
@@ -2417,7 +2500,7 @@ export default function HomePage() {
                                   {waypointCode ? <span>{waypointCode}</span> : null}
                                 </td>
                                 <td className="task-point-row-type">
-                                  {user?.role === "admin" ? (
+                                  {canManagePlatform ? (
                                     <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
                                       {taskPointTypeOptions.map((option) => (
                                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -2428,7 +2511,7 @@ export default function HomePage() {
                                   )}
                                 </td>
                                 <td className="task-point-row-radius">
-                                  {user?.role === "admin" ? (
+                                  {canManagePlatform ? (
                                     <input
                                       type="text"
                                       inputMode="numeric"
@@ -2444,7 +2527,7 @@ export default function HomePage() {
                                     <span>{formatMeters(point.radius_m)}</span>
                                   )}
                                 </td>
-                                {user?.role === "admin" ? (
+                                {canManagePlatform ? (
                                   <td className="task-point-row-actions">
                                     <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
                                   </td>
@@ -2461,7 +2544,7 @@ export default function HomePage() {
                       <div
                         key={`${point.turnpoint_id ?? point.name}-${index}`}
                         className={`task-point-card point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
-                        draggable={user?.role === "admin"}
+                        draggable={canManagePlatform}
                         onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
                       onDragOver={(event) => event.preventDefault()}
                       onDrop={(event) => {
@@ -2476,7 +2559,7 @@ export default function HomePage() {
                           <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
                         </div>
                         <div className="task-point-card-grid">
-                          {user?.role === "admin" ? (
+                          {canManagePlatform ? (
                             <>
                               <label className="stack compact">
                                 <span>Type</span>
@@ -2514,7 +2597,7 @@ export default function HomePage() {
                           </>
                         )}
                       </div>
-                      {user?.role === "admin" ? (
+                      {canManagePlatform ? (
                         <div className="task-point-card-actions">
                           <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
                         </div>
@@ -2535,8 +2618,8 @@ export default function HomePage() {
                     totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
                     optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
                     track={track}
-                    editable={user?.role === "admin"}
-                    onSelectTurnpoint={user?.role === "admin" ? addTurnpoint : undefined}
+                    editable={canManagePlatform}
+                    onSelectTurnpoint={canManagePlatform ? addTurnpoint : undefined}
                     taskEditorOverlay={fullscreenTaskEditor}
                     fitKey={selectedTaskId}
                   />
@@ -2549,31 +2632,31 @@ export default function HomePage() {
               {taskAdvancedOpen ? (
                 <div className="stack">
                   <div className="inline-grid">
-                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                       <span>Nominal distance (km)</span>
-                      <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} disabled={user?.role !== "admin"} />
+                      <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} disabled={!canManagePlatform} />
                     </label>
-                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                       <span>Nominal time (hours)</span>
-                      <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} disabled={user?.role !== "admin"} />
+                      <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} disabled={!canManagePlatform} />
                     </label>
-                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                       <span>Nominal launch</span>
-                      <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} disabled={user?.role !== "admin"} />
+                      <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} disabled={!canManagePlatform} />
                     </label>
-                    <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                       <span>Minimum distance (km)</span>
-                      <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} disabled={user?.role !== "admin"} />
+                      <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} disabled={!canManagePlatform} />
                     </label>
                   </div>
-                  <label className={user?.role === "admin" ? "stack compact" : "stack compact field-disabled"}>
+                  <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                     <span>Task penalty / notes JSON</span>
-                    <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} disabled={user?.role !== "admin"} />
+                    <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} disabled={!canManagePlatform} />
                   </label>
                 </div>
               ) : null}
             </div>
-            {user?.role === "admin" ? (
+            {canManagePlatform ? (
               <div className="stack compact task-action-stack">
                 <div className="button-row">
                   <button type="button" onClick={saveTask}>Save task</button>
@@ -2594,14 +2677,14 @@ export default function HomePage() {
     if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
     return (
       <div className="section-stack">
-        {user?.role === "admin" ? (
+        {canManagePlatform ? (
           <div className="tab-row">
-            <button type="button" className={scoresPortalTab === "admin" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("admin")}>Admin scoring portal</button>
+            <button type="button" className={scoresPortalTab === "admin" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("admin")}>Scoring operations</button>
             <button type="button" className={scoresPortalTab === "results" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("results")}>Results portal</button>
           </div>
         ) : null}
-        {user?.role === "admin" && scoresPortalTab === "admin" ? (
-          <SectionCard title="Admin scoring portal" description="Upload missing IGC files on behalf of pilots, then run scoring manually for the selected task.">
+        {canManagePlatform && scoresPortalTab === "admin" ? (
+          <SectionCard title="Scoring operations" description="Upload missing IGC files on behalf of pilots, then run scoring manually for the selected task.">
             <div className="stack form-block">
               <label className="stack compact">
                 <span>Selected task</span>
@@ -2672,7 +2755,7 @@ export default function HomePage() {
             </div>
           </SectionCard>
         ) : null}
-        {user?.role !== "admin" || scoresPortalTab === "results" ? (
+        {!canManagePlatform || scoresPortalTab === "results" ? (
         <SectionCard title="Results portal" description="Task results and overall standings are visible to all signed-in users.">
           <div className="stack">
             <div className="tab-row">
@@ -2881,6 +2964,19 @@ export default function HomePage() {
             </div>
             <div className="inline-grid">
               <label className="stack compact">
+                <span>Account role</span>
+                <input value={settingsForm.role} disabled />
+              </label>
+              <label className="stack compact">
+                <span>Current type</span>
+                <select value={settingsForm.profile_type} onChange={(event) => setSettingsForm((current) => ({ ...current, profile_type: event.target.value as "pilot" | "driver" }))}>
+                  <option value="pilot">Pilot</option>
+                  <option value="driver">Driver</option>
+                </select>
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
                 <span>Email</span>
                 <input type="email" value={settingsForm.email ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, email: event.target.value }))} />
               </label>
@@ -2941,6 +3037,87 @@ export default function HomePage() {
     );
   }
 
+  function renderAdminSection() {
+    return (
+      <div className="section-stack">
+        <SectionCard title="Platform users" description="Admins can manage organizer and pilot accounts for the entire platform here.">
+          <div className="stack form-block">
+            {adminFeedback ? <div className={`status-chip ${adminFeedback.type}`}>{adminFeedback.text}</div> : null}
+            <div className="participant-table-wrap">
+              <table className="participant-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Current type</th>
+                    <th>Email</th>
+                    <th>Linked pilot</th>
+                    <th>Status</th>
+                    <th className="participant-table-actions">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adminUsers.length ? (
+                    adminUsers.map((account) => (
+                      <tr key={account.id}>
+                        <td><strong>{account.full_name}</strong></td>
+                        <td>{account.username}</td>
+                        <td>
+                          <select
+                            value={account.role}
+                            disabled={account.id === user?.id}
+                            onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, role: event.target.value as AdminUserRecord["role"] } : entry))}
+                          >
+                            <option value="admin">Admin</option>
+                            <option value="organizer">Organizer</option>
+                            <option value="pilot">Pilot</option>
+                          </select>
+                        </td>
+                        <td>
+                          <select
+                            value={account.profile_type}
+                            onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, profile_type: event.target.value as AdminUserRecord["profile_type"] } : entry))}
+                          >
+                            <option value="pilot">Pilot</option>
+                            <option value="driver">Driver</option>
+                          </select>
+                        </td>
+                        <td>{account.email ?? "-"}</td>
+                        <td>{account.pilot_name ?? "-"}</td>
+                        <td>
+                          <label className="task-advanced-toggle">
+                            <input
+                              type="checkbox"
+                              checked={account.is_active}
+                              disabled={account.id === user?.id}
+                              onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, is_active: event.target.checked } : entry))}
+                            />
+                            <span>{account.is_active ? "Active" : "Disabled"}</span>
+                          </label>
+                        </td>
+                        <td className="participant-table-actions">
+                          <div className="compact-slot-actions">
+                            <button type="button" className="ghost-button" onClick={() => void saveAdminUser(account)}>Save</button>
+                            <button type="button" className="ghost-button danger-button" disabled={account.id === user?.id} onClick={() => void deleteAdminUser(account)}>Delete</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={8} className="participant-table-empty">No platform users found.</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </SectionCard>
+      </div>
+    );
+  }
+
   function renderActiveSection() {
       if (user?.role === "pilot" && activeSection === "events") {
         return renderTasksSection();
@@ -2958,6 +3135,8 @@ export default function HomePage() {
           return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
         case "settings":
           return renderSettingsSection();
+        case "admin":
+          return isAdmin ? renderAdminSection() : renderSettingsSection();
       }
     }
 
@@ -2987,7 +3166,7 @@ export default function HomePage() {
           <section className="content-shell">
             <section className="panel hero content-hero">
               <div>
-                <p className="eyebrow">{user.role === "admin" ? "Flight Director" : "Pilot Portal"}</p>
+                <p className="eyebrow">{user.role === "admin" ? "Admin Portal" : user.role === "organizer" ? "Organizer Portal" : "Pilot Portal"}</p>
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
                 <p className="lede">{selectedEvent ? `${selectedEvent.name} - ${selectedEvent.location}` : "Select or create an event to begin."}</p>
               </div>

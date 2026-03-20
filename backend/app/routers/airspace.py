@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, User
 from app.schemas import AirspaceRegionResponse, AirspaceSourceResponse, AirspaceSourceUpdate, AirspaceUploadResponse
 from app.services.airspace import parse_airspace_upload
@@ -61,7 +61,7 @@ async def upload_airspace(
     event_id: int,
     kind: str = Query(...),
     file: UploadFile = File(...),
-    admin: User = Depends(require_admin),
+    admin: User = Depends(require_staff),
     session: Session = Depends(get_session),
 ) -> AirspaceUploadResponse:
     if session.get(Event, event_id) is None:
@@ -120,7 +120,7 @@ async def upload_airspace(
 
 
 @router.patch("/api/events/{event_id}/airspace-sources/{source_id}", response_model=AirspaceSourceResponse)
-def update_airspace_source(event_id: int, source_id: int, payload: AirspaceSourceUpdate, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> AirspaceSourceResponse:
+def update_airspace_source(event_id: int, source_id: int, payload: AirspaceSourceUpdate, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> AirspaceSourceResponse:
     source = session.get(AirspaceSource, source_id)
     if source is None or source.event_id != event_id:
         raise HTTPException(status_code=404, detail="Airspace source not found")
@@ -139,7 +139,7 @@ def update_airspace_source(event_id: int, source_id: int, payload: AirspaceSourc
 
 
 @router.delete("/api/events/{event_id}/airspace-sources/{source_id}", status_code=204)
-def delete_airspace_source(event_id: int, source_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+def delete_airspace_source(event_id: int, source_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> None:
     source = session.get(AirspaceSource, source_id)
     if source is None or source.event_id != event_id:
         raise HTTPException(status_code=404, detail="Airspace source not found")

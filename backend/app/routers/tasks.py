@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_staff
 from app.models import Event, IGCUpload, ScoreResult, Task, TaskPoint, TrackPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse
 from app.services.audit import log_action
@@ -92,7 +92,7 @@ def list_tasks(event_id: int, user: User = Depends(get_current_user), session: S
 
 
 @router.post("/api/events/{event_id}/tasks", response_model=TaskResponse)
-def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TaskResponse:
+def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
     task = Task(
@@ -130,7 +130,7 @@ def get_task(task_id: int, user: User = Depends(get_current_user), session: Sess
 
 
 @router.put("/api/tasks/{task_id}", response_model=TaskResponse)
-def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TaskResponse:
+def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -159,7 +159,7 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
 
 
 @router.post("/api/tasks/{task_id}/publish", response_model=TaskResponse)
-def publish_task(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TaskResponse:
+def publish_task(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -172,7 +172,7 @@ def publish_task(task_id: int, admin: User = Depends(require_admin), session: Se
 
 
 @router.post("/api/tasks/{task_id}/unpublish", response_model=TaskResponse)
-def unpublish_task(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> TaskResponse:
+def unpublish_task(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -185,7 +185,7 @@ def unpublish_task(task_id: int, admin: User = Depends(require_admin), session: 
 
 
 @router.delete("/api/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int, admin: User = Depends(require_admin), session: Session = Depends(get_session)) -> None:
+def delete_task(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> None:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")

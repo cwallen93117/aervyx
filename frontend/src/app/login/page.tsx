@@ -65,6 +65,7 @@ export default function LoginPage() {
     last_name: "",
     email: "",
     password: "",
+    account_role: "pilot",
     competition_number: "",
     nation: "",
     civl_id: "",
@@ -120,6 +121,7 @@ export default function LoginPage() {
           last_name: registerForm.last_name,
           email: registerForm.email,
           password: registerForm.password,
+          account_role: registerForm.account_role,
           competition_number: registerForm.competition_number || null,
           nation: registerForm.nation || null,
           civl_id: registerForm.civl_id || null,
@@ -161,11 +163,11 @@ export default function LoginPage() {
         </a>
         <div className="aervyx-auth-copy">
           <span className="aervyx-auth-kicker">Competition portal</span>
-          <h1>{authMode === "login" ? "Welcome back to mission control." : "Create your pilot portal."}</h1>
+          <h1>{authMode === "login" ? "Welcome back to mission control." : "Create your Aervyx portal."}</h1>
           <p>
             {authMode === "login"
               ? "Access live tasks, scoring, tracking, and operations from the same Aervyx workspace your meet director is using."
-              : "Create a pilot account to upload flights, follow published tasks, and stay synced with scoring as the meet evolves."}
+              : "Create an organizer or pilot account to run events, upload flights, and stay synced with scoring as the meet evolves."}
           </p>
         </div>
         <div className="aervyx-auth-feature-list">
@@ -187,9 +189,9 @@ export default function LoginPage() {
       <section className="aervyx-auth-panel-wrap">
         <div className="aervyx-auth-panel">
           <div className="aervyx-auth-panel-header">
-            <span className="aervyx-auth-panel-eyebrow">{authMode === "login" ? "Secure sign in" : "New account"}</span>
-            <h2>{authMode === "login" ? "Sign in to continue" : "Create your account"}</h2>
-            <p>{authMode === "login" ? "Use your portal credentials to enter the dashboard." : "Your email becomes your login. You can join events after your account is created."}</p>
+          <span className="aervyx-auth-panel-eyebrow">{authMode === "login" ? "Secure sign in" : "New account"}</span>
+          <h2>{authMode === "login" ? "Sign in to continue" : "Create your account"}</h2>
+          <p>{authMode === "login" ? "Use your portal credentials to enter the dashboard." : "Choose whether this account is for a pilot or an event organizer. Your email becomes your login."}</p>
           </div>
 
           <div className="aervyx-auth-tabs">
@@ -254,6 +256,13 @@ export default function LoginPage() {
             </form>
           ) : (
             <form className="aervyx-auth-form" onSubmit={handleRegister}>
+              <label className="stack compact">
+                <span>Account role</span>
+                <select value={registerForm.account_role} onChange={(event) => setRegisterForm({ ...registerForm, account_role: event.target.value })}>
+                  <option value="pilot">Pilot</option>
+                  <option value="organizer">Event organizer</option>
+                </select>
+              </label>
               <div className="inline-grid">
                 <label className="stack compact">
                   <span>First name</span>
@@ -285,20 +294,24 @@ export default function LoginPage() {
                   </button>
                 </div>
               </label>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Competition number</span>
-                  <input value={registerForm.competition_number} onChange={(event) => setRegisterForm({ ...registerForm, competition_number: event.target.value })} />
-                </label>
-                <label className="stack compact">
-                  <span>Nation</span>
-                  <input value={registerForm.nation} onChange={(event) => setRegisterForm({ ...registerForm, nation: event.target.value })} />
-                </label>
-              </div>
-              <label className="stack compact">
-                <span>CIVL ID</span>
-                <input value={registerForm.civl_id} onChange={(event) => setRegisterForm({ ...registerForm, civl_id: event.target.value })} />
-              </label>
+              {registerForm.account_role === "pilot" ? (
+                <>
+                  <div className="inline-grid">
+                    <label className="stack compact">
+                      <span>Competition number</span>
+                      <input value={registerForm.competition_number} onChange={(event) => setRegisterForm({ ...registerForm, competition_number: event.target.value })} />
+                    </label>
+                    <label className="stack compact">
+                      <span>Nation</span>
+                      <input value={registerForm.nation} onChange={(event) => setRegisterForm({ ...registerForm, nation: event.target.value })} />
+                    </label>
+                  </div>
+                  <label className="stack compact">
+                    <span>CIVL ID</span>
+                    <input value={registerForm.civl_id} onChange={(event) => setRegisterForm({ ...registerForm, civl_id: event.target.value })} />
+                  </label>
+                </>
+              ) : null}
               <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
                 {isSubmitting ? "Creating account..." : "Create account"}
               </button>
