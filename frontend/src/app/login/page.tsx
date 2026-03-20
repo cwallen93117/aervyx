@@ -1,7 +1,6 @@
 "use client";
 
 import { type FormEvent, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -29,7 +28,6 @@ function setSessionCookie() {
 }
 
 export default function LoginPage() {
-  const router = useRouter();
   const [destination, setDestination] = useState("/dashboard");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [showLoginPassword, setShowLoginPassword] = useState(false);
@@ -38,6 +36,7 @@ export default function LoginPage() {
   const [forgotEmail, setForgotEmail] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [registerForm, setRegisterForm] = useState({
     first_name: "",
@@ -60,6 +59,7 @@ export default function LoginPage() {
     event.preventDefault();
     setMessage("");
     setError("");
+    setIsSubmitting(true);
     try {
       const response = await fetch(`${resolveApiBase()}/api/auth/login`, {
         method: "POST",
@@ -69,13 +69,18 @@ export default function LoginPage() {
           password: loginForm.password,
         }),
       });
-      if (!response.ok) throw new Error("Sign in failed");
+      if (!response.ok) {
+        throw new Error((await response.text()) || "Sign in failed");
+      }
       const payload = (await response.json()) as { access_token: string };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
       setSessionCookie();
-      router.replace(destination);
+      setMessage("Sign-in successful. Opening your dashboard...");
+      window.location.assign(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Sign in failed");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
@@ -83,6 +88,7 @@ export default function LoginPage() {
     event.preventDefault();
     setMessage("");
     setError("");
+    setIsSubmitting(true);
     try {
       const response = await fetch(`${resolveApiBase()}/api/auth/register`, {
         method: "POST",
@@ -97,19 +103,21 @@ export default function LoginPage() {
           civl_id: registerForm.civl_id || null,
         }),
       });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw new Error((await response.text()) || "Registration failed");
       const payload = (await response.json()) as { access_token: string; user: { full_name: string } };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
       setSessionCookie();
       setMessage(`Created account for ${payload.user.full_name}. Redirecting...`);
-      router.replace(destination);
+      window.location.assign(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Registration failed");
+    } finally {
+      setIsSubmitting(false);
     }
   }
 
-  function handleForgotPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleForgotPassword(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
     setError("");
     if (!forgotEmail.trim()) {
       setError("Enter your email to continue.");
@@ -211,13 +219,15 @@ export default function LoginPage() {
                 <div className="aervyx-auth-forgot-card">
                   <strong>Password recovery</strong>
                   <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
-                  <form className="aervyx-auth-forgot-form" onSubmit={handleForgotPassword}>
+                  <div className="aervyx-auth-forgot-form">
                     <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
-                    <button type="submit" className="aervyx-auth-helper-submit">Continue</button>
-                  </form>
+                    <button type="button" className="aervyx-auth-helper-submit" onClick={() => handleForgotPassword()}>Continue</button>
+                  </div>
                 </div>
               ) : null}
-              <button type="submit" className="aervyx-auth-submit">Sign in</button>
+              <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
+                {isSubmitting ? "Signing in..." : "Sign in"}
+              </button>
               <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
             </form>
           ) : (
@@ -267,7 +277,9 @@ export default function LoginPage() {
                 <span>CIVL ID</span>
                 <input value={registerForm.civl_id} onChange={(event) => setRegisterForm({ ...registerForm, civl_id: event.target.value })} />
               </label>
-              <button type="submit" className="aervyx-auth-submit">Create account</button>
+              <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
+                {isSubmitting ? "Creating account..." : "Create account"}
+              </button>
               <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
             </form>
           )}
