@@ -2481,8 +2481,8 @@ export default function HomePage() {
                 <div className="button-row">
                   <button type="button" onClick={saveTask}>Save task</button>
                   <button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button>
-                  <button type="button" className="secondary" onClick={unpublishTask} disabled={!taskDraft.id || selectedTask?.status !== "published"}>Unpublish task</button>
                   <button type="button" className="ghost-button danger-button task-delete-button" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
+                  <button type="button" className="ghost-button task-unpublish-button" onClick={unpublishTask} disabled={!taskDraft.id || selectedTask?.status !== "published"}>Unpublish task</button>
                 </div>
                 {taskFeedback ? <div className={`status-chip ${taskFeedback.type}`}>{taskFeedback.text}</div> : null}
               </div>

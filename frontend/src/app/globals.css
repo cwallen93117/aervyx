@@ -745,6 +745,11 @@ button[type="submit"]:hover {
   cursor: not-allowed;
 }
 
+.task-unpublish-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .three-up.compact-checkbox-grid {
   display: flex;
   flex-wrap: wrap;
