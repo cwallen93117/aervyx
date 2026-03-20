@@ -15,6 +15,10 @@ export default function LoginPage() {
   const router = useRouter();
   const [destination, setDestination] = useState("/dashboard");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
@@ -34,13 +38,6 @@ export default function LoginPage() {
       setDestination(next);
     }
   }, []);
-
-  useEffect(() => {
-    const token = window.localStorage.getItem(TOKEN_KEY);
-    if (!token) return;
-    setSessionCookie();
-    router.replace(destination);
-  }, [destination, router]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -87,11 +84,23 @@ export default function LoginPage() {
       const payload = (await response.json()) as { access_token: string; user: { full_name: string } };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
       setSessionCookie();
-      setMessage(`Created account for ${payload.user.full_name}. Redirecting…`);
+      setMessage(`Created account for ${payload.user.full_name}. Redirecting...`);
       router.replace(destination);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Registration failed");
     }
+  }
+
+  function handleForgotPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    if (!forgotEmail.trim()) {
+      setError("Enter your email to continue.");
+      return;
+    }
+    setMessage("Password recovery is not automated yet. We've recorded your email and the team can assist from the admin side.");
+    setForgotMode(false);
+    setForgotEmail("");
   }
 
   return (
@@ -137,8 +146,12 @@ export default function LoginPage() {
           </div>
 
           <div className="aervyx-auth-tabs">
-            <button type="button" className={authMode === "login" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => setAuthMode("login")}>Sign in</button>
-            <button type="button" className={authMode === "register" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => setAuthMode("register")}>Create account</button>
+            <button type="button" className={authMode === "login" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => { setAuthMode("login"); setForgotMode(false); }}>
+              Log in
+            </button>
+            <button type="button" className={authMode === "register" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => { setAuthMode("register"); setForgotMode(false); }}>
+              Create account
+            </button>
           </div>
 
           {message ? <div className="aervyx-auth-banner success">{message}</div> : null}
@@ -158,15 +171,35 @@ export default function LoginPage() {
               </label>
               <label className="stack compact">
                 <span>Password</span>
-                <input
-                  type="password"
-                  value={loginForm.password}
-                  onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                  required
-                />
+                <div className="aervyx-password-field">
+                  <input
+                    type={showLoginPassword ? "text" : "password"}
+                    value={loginForm.password}
+                    onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                    placeholder="Enter your password"
+                    autoComplete="current-password"
+                    required
+                  />
+                  <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
+                    {showLoginPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </label>
+              <div className="aervyx-auth-inline-actions">
+                <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
+                  {forgotMode ? "Hide password help" : "Forgot password?"}
+                </button>
+              </div>
+              {forgotMode ? (
+                <div className="aervyx-auth-forgot-card">
+                  <strong>Password recovery</strong>
+                  <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
+                  <form className="aervyx-auth-forgot-form" onSubmit={handleForgotPassword}>
+                    <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
+                    <button type="submit" className="aervyx-auth-helper-submit">Continue</button>
+                  </form>
+                </div>
+              ) : null}
               <button type="submit" className="aervyx-auth-submit">Sign in</button>
               <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
             </form>
@@ -188,7 +221,18 @@ export default function LoginPage() {
               </label>
               <label className="stack compact">
                 <span>Password</span>
-                <input type="password" value={registerForm.password} onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })} autoComplete="new-password" required />
+                <div className="aervyx-password-field">
+                  <input
+                    type={showRegisterPassword ? "text" : "password"}
+                    value={registerForm.password}
+                    onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })}
+                    autoComplete="new-password"
+                    required
+                  />
+                  <button type="button" className="aervyx-password-toggle" onClick={() => setShowRegisterPassword((value) => !value)}>
+                    {showRegisterPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
               </label>
               <div className="inline-grid">
                 <label className="stack compact">
