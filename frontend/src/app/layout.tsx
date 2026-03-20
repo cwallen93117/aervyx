@@ -3,8 +3,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "FlightComp Platform",
-  description: "Competition scoring for hang gliding and paragliding",
+  title: "Aervyx",
+  description: "Open-source competition platform for hang gliding and paragliding",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

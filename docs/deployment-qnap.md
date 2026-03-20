@@ -15,8 +15,8 @@ Phase 1 targets a QNAP NAS running Container Station. The desktop machine is the
 
 This repository supports a QNAP-friendly deployment path that does not require `git` on the NAS host:
 
-1. The NAS stores a GitHub deploy key in `/share/Container/flightcomp-platform/.ssh`.
-2. A small `alpine/git` container clones or pulls the private GitHub repository into `/share/Container/flightcomp-platform/app`.
+1. The NAS stores a GitHub deploy key in `/share/Container/aervyx/.ssh`.
+2. A small `alpine/git` container clones or pulls the private GitHub repository into `/share/Container/aervyx/app`.
 3. The application stack runs from `docker-compose.qnap.yml`.
 
 ## Files Used
@@ -29,7 +29,7 @@ This repository supports a QNAP-friendly deployment path that does not require `
 
 ## First-Time Setup
 
-1. Create `/share/Container/flightcomp-platform/.ssh` on the NAS.
+1. Create `/share/Container/aervyx/.ssh` on the NAS.
 2. Generate a GitHub deploy key for the NAS and add the public key to the private repository.
 3. Run `scripts/qnap/github-sync.sh` on the NAS to clone the repo using the `alpine/git` container.
 4. Create the runtime env files:
@@ -60,8 +60,8 @@ Recommended values for a direct LAN deployment:
 After new commits land on `main`, run on the NAS:
 
 ```sh
-sh /share/Container/flightcomp-platform/app/scripts/qnap/github-sync.sh /share/Container/flightcomp-platform
-sh /share/Container/flightcomp-platform/app/scripts/qnap/deploy.sh /share/Container/flightcomp-platform
+sh /share/Container/aervyx/app/scripts/qnap/github-sync.sh /share/Container/aervyx
+sh /share/Container/aervyx/app/scripts/qnap/deploy.sh /share/Container/aervyx
 ```
 
 ## Notes

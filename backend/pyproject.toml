@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "flightcomp-api"
 version = "0.1.0"
-description = "FlightComp Platform backend"
+description = "Aervyx backend"
 requires-python = ">=3.12"
 dependencies = [
   "fastapi>=0.116.0",

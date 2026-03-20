@@ -1,4 +1,4 @@
-# FlightComp Platform Architecture
+# Aervyx Architecture
 
 ## Overview
 

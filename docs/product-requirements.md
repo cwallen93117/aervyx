@@ -1,4 +1,4 @@
-# FlightComp Platform Product Requirements
+# Aervyx Product Requirements
 
 ## Product Goal
 

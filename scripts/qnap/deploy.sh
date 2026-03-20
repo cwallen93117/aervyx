@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR="${1:-/share/Container/flightcomp-platform}"
+ROOT_DIR="${1:-/share/Container/aervyx}"
 if command -v docker >/dev/null 2>&1; then
   DOCKER_BIN="$(command -v docker)"
 else

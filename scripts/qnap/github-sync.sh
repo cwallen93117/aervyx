@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-ROOT_DIR="${1:-/share/Container/flightcomp-platform}"
-REPO_SSH="${REPO_SSH:-git@github.com:cwallen93117/flightcomp-platform.git}"
+ROOT_DIR="${1:-/share/Container/aervyx}"
+REPO_SSH="${REPO_SSH:-git@github.com:cwallen93117/aervyx.git}"
 GIT_IMAGE="${GIT_IMAGE:-alpine/git:2.47.2}"
 if command -v docker >/dev/null 2>&1; then
   DOCKER_BIN="$(command -v docker)"

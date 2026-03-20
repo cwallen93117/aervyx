@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "FlightComp Platform API"
+    app_name: str = "Aervyx API"
     app_env: str = "development"
     app_secret_key: str = "change-me"
     database_url: str = f"sqlite:///{(Path(__file__).resolve().parents[2] / 'flightcomp.db').as_posix()}"

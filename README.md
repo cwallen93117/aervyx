@@ -1,47 +1,70 @@
-﻿# FlightComp Platform
+# Aervyx
 
-FlightComp Platform is a self-hosted hang gliding and paragliding competition scoring platform. Phase 1 targets a QNAP NAS deployment through Docker Compose while keeping the codebase friendly to desktop development when needed. The platform is being built as a FastAPI and Next.js application, but it is intentionally aligned with established open-source scoring and viewer projects instead of reinventing the domain from zero.
+Aervyx is an open-source hang gliding and paragliding competition platform. It combines event setup, turnpoint and airspace management, task building, IGC ingestion, GAP-style scoring, results, and a public-facing marketing site in one stack.
 
-## Open-Source Reuse Strategy
+## What The Codebase Does
 
-Phase 1 explicitly evaluates and reuses the following projects where practical:
+- Public marketing landing page at `/`
+- Themed auth entry at `/login`
+- Protected competition workspace at `/dashboard`
+- Admin workflows for events, participants, turnpoints, airspace, tasks, scoring parameters, uploads, and manual scoring runs
+- Pilot and public-safe results views with task definitions and task maps
+- NAS-oriented deployment flow for QNAP Container Station
 
-- AirScore as the primary scoring workflow and competition-domain reference
-- IGCWebview2 as a reference for IGC and task visualization behavior
-- `igc_lib` as a Python-side reference for IGC parsing and anomaly handling
-- `igc-xc-score` as a reusable helper for GeoJSON-oriented track scoring and validation ideas where applicable
+## Stack
+
+- Backend: FastAPI
+- Database: PostgreSQL / PostGIS
+- Frontend: Next.js App Router
+- Mapping: MapLibre GL
+- Deployment: Docker Compose
+
+## Key Directories
+
+- `backend/` API, scoring logic, models, routers, tests
+- `frontend/` Next.js landing page, login, dashboard, signup endpoint
+- `docs/` architecture, deployment, and product notes
+- `scripts/qnap/` GitHub sync and deploy helpers for the NAS
+
+## Auth And Routing
+
+- `/` is public
+- `/login` is public
+- `/dashboard` is protected
+- Unauthenticated requests to protected routes are redirected to `/login`
+- After successful login, users are redirected into `/dashboard`
+
+## Open-Source Alignment
+
+The platform is intentionally aligned with established free-flight tooling instead of reinventing the domain from scratch.
+
+- AirScore for scoring workflow and competition concepts
+- IGCWebview2 as a visualization reference
+- `igc_lib` and `igc-xc-score` as parser/scoring references
 - MapLibre GL for the map UI
 
-See [docs/oss-reuse-evaluation.md](docs/oss-reuse-evaluation.md) for the concrete integration plan.
+See [docs/oss-reuse-evaluation.md](docs/oss-reuse-evaluation.md) for the current reuse notes.
 
-## Repository Layout
+## Local Development
 
-- `backend/` FastAPI API, ingest pipeline, scoring services, database models, migrations, and tests
-- `frontend/` Next.js TypeScript UI for admin and pilot workflows
-- `docs/` product, architecture, OSS reuse, and NAS deployment documentation
-- `scripts/` helper scripts for bootstrap and maintenance
-- `docker-compose.yml` Compose stack intended for QNAP NAS deployment and optional local development
+1. Copy `.env.example` to `.env`
+2. Copy `backend/.env.example` to `backend/.env`
+3. Copy `frontend/.env.local.example` to `frontend/.env.local`
+4. Start the stack with Docker Compose if you want to run locally
 
-## Runtime Target
+## QNAP / NAS Deployment
 
-The intended Phase 1 runtime is your NAS, not your desktop. Docker does not need to be installed on this PC for the project structure to be valid. Docker Compose files and service configuration are being prepared so the stack can be deployed on a QNAP NAS that supports containerized workloads.
+The supported NAS flow is:
 
-## Setup Flow
+1. Store the repo under `/share/Container/aervyx`
+2. Use `scripts/qnap/github-sync.sh` to clone or pull from GitHub
+3. Use `scripts/qnap/deploy.sh` to build and launch the stack
 
-1. Copy `.env.example` to `.env`.
-2. Copy `backend/.env.example` to `backend/.env`.
-3. Copy `frontend/.env.local.example` to `frontend/.env.local`.
-4. Review [docs/deployment-qnap.md](docs/deployment-qnap.md).
-5. For QNAP deployment, use `docker-compose.qnap.yml` on the NAS.
+Detailed instructions live in [docs/deployment-qnap.md](docs/deployment-qnap.md).
 
-## QNAP GitHub Pull Flow
+## Current Runtime Shape
 
-For a private GitHub repository on a QNAP that does not have host `git` installed, the supported flow is:
-
-1. Add a GitHub deploy key for the NAS.
-2. Run `scripts/qnap/github-sync.sh` to clone or pull the repo through an `alpine/git` container.
-3. Run `scripts/qnap/deploy.sh` to build and launch the stack with `docker-compose.qnap.yml`.
-
-## Current Status
-
-Phase 1 now includes a working backend scoring API, a Next.js admin and pilot dashboard, MapLibre-based task and track visualization, OSS reuse documentation, and NAS-oriented deployment files.
+- Landing page is branded as Aervyx
+- Login uses the same visual theme as the landing page
+- Dashboard bootstraps against the backend API and no longer contains its own fallback login page
+- NAS deployment currently targets the private GitHub repository [cwallen93117/aervyx](https://github.com/cwallen93117/aervyx)
