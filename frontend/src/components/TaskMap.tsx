@@ -779,6 +779,16 @@ export function TaskMap({
     }
   }, [airspaceData, airspaceLabelData, basemapMode, cylinderData, displayTrack, fitKey, legLabelData, optimizedRoute, optimizedRouteData, optimizedRoutePointData, replayMarkerData, routeData, taskPointData, taskPoints, track, turnpointData, turnpoints]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !track || editable || mode !== "replay") {
+      return;
+    }
+    if (map.getPitch() < 40) {
+      map.easeTo({ pitch: 60, duration: 300 });
+    }
+  }, [editable, mode, track]);
+
   const replayVisible = !!track && replayTotal > 0;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[0]) : "--:--";
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";

@@ -3082,6 +3082,7 @@ export default function HomePage() {
                             optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
                             track={resultsTrackOverlay}
                             editable={false}
+                            taskEditorOverlay={resultsTrackPilotList}
                             fitKey={`${selectedTaskId}:${selectedResultUploadIds.join(",")}`}
                           />
                         </div>

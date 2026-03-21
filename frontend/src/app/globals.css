@@ -440,6 +440,36 @@ input, select, textarea { font-family: inherit; }
   padding: 16px 32px 0;
 }
 
+.dashboard-loading-shell {
+  min-height: 100vh;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--wash);
+}
+
+.dashboard-loading-card {
+  width: min(100%, 420px);
+  padding: 28px 32px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.dashboard-loading-card h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.dashboard-loading-card p {
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
+}
+
 .section-stack {
   width: 100%;
   padding: 28px 32px;
