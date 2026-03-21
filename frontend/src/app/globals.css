@@ -1751,7 +1751,7 @@ button[type="submit"]:hover {
 
 .map-control-stack {
   position: absolute;
-  top: 100px;
+  top: 138px;
   right: 10px;
   z-index: 10;
   display: flex;

@@ -766,10 +766,6 @@ export function TaskMap({
     mapRef.current?.easeTo({ pitch: 0, duration: 300 });
   }
 
-  function setNorthUp() {
-    mapRef.current?.easeTo({ bearing: 0, duration: 300 });
-  }
-
   function setReplaySpeedStep(direction: -1 | 1) {
     const currentIndex = REPLAY_SPEEDS.indexOf(replaySpeed as (typeof REPLAY_SPEEDS)[number]);
     const nextIndex = Math.min(REPLAY_SPEEDS.length - 1, Math.max(0, currentIndex + direction));
@@ -798,12 +794,6 @@ export function TaskMap({
           <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
             <rect x="3" y="3" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
             <circle cx="8" cy="8" r="1.8" fill="currentColor" />
-          </svg>
-        </button>
-        <button type="button" className="map-control-button" aria-label="Set north up" title="North up" onClick={setNorthUp}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M8 2L10.8 8H8.9V14H7.1V8H5.2L8 2Z" fill="currentColor" />
-            <path d="M11.8 4.2V11H13.1V6.5L13.7 7.3H15L13.4 5.2L15 3.1H13.7L13.1 3.9V4.2H11.8Z" fill="currentColor" />
           </svg>
         </button>
       </div>
