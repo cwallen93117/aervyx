@@ -433,6 +433,7 @@ export function TaskMap({
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replaySpeed, setReplaySpeed] = useState(10);
+  const [replayHasInteracted, setReplayHasInteracted] = useState(false);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const airspaceData = useMemo(() => ({
@@ -503,11 +504,12 @@ export function TaskMap({
       return null;
     }
     const hasReplay = replayTotal > 0;
+    const shouldSliceTrack = hasReplay && (isReplaying || replayHasInteracted);
     return {
       type: "FeatureCollection",
       features: track.features.map((feature) => {
         const featureTimestamps = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
-        const visibleLength = hasReplay
+        const visibleLength = shouldSliceTrack
           ? Math.min(replayIndex + 1, featureTimestamps.length || feature.geometry.coordinates.length)
           : feature.geometry.coordinates.length;
         return {
@@ -521,7 +523,7 @@ export function TaskMap({
         };
       }),
     };
-  }, [altitudeMultiplier, replayIndex, replayTotal, track]);
+  }, [altitudeMultiplier, isReplaying, replayHasInteracted, replayIndex, replayTotal, track]);
   const replayMarkerData = useMemo(() => {
     if (!track || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
@@ -574,6 +576,7 @@ export function TaskMap({
   useEffect(() => {
     const nextReplayIndex = replayTotal > 0 ? replayTotal - 1 : 0;
     setIsReplaying(false);
+    setReplayHasInteracted(false);
     setReplayIndex(nextReplayIndex);
     replayIndexRef.current = nextReplayIndex;
     lastFrameTimeRef.current = null;
@@ -843,6 +846,7 @@ export function TaskMap({
               title="Reset to start"
               onClick={() => {
                 setIsReplaying(false);
+                setReplayHasInteracted(true);
                 setReplayIndex(0);
                 replayIndexRef.current = 0;
                 lastFrameTimeRef.current = null;
@@ -869,6 +873,7 @@ export function TaskMap({
                   setReplayIndex(0);
                   replayIndexRef.current = 0;
                 }
+                setReplayHasInteracted(true);
                 lastFrameTimeRef.current = null;
                 setIsReplaying((current) => !current);
               }}
@@ -904,6 +909,7 @@ export function TaskMap({
               onChange={(event) => {
                 const nextIndex = Number(event.target.value);
                 setIsReplaying(false);
+                setReplayHasInteracted(true);
                 lastFrameTimeRef.current = null;
                 replayIndexRef.current = nextIndex;
                 setReplayIndex(nextIndex);
