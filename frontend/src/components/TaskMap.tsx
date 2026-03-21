@@ -428,6 +428,7 @@ export function TaskMap({
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
+  const replayClockRef = useRef<number | null>(null);
   const replayIndexRef = useRef(0);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(10);
@@ -581,6 +582,7 @@ export function TaskMap({
     setReplayHasInteracted(false);
     setReplayIndex(nextReplayIndex);
     replayIndexRef.current = nextReplayIndex;
+    replayClockRef.current = replayTotal > 0 ? replayTimestamps[nextReplayIndex] ?? null : null;
     lastFrameTimeRef.current = null;
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
@@ -612,8 +614,11 @@ export function TaskMap({
         animationFrameRef.current = null;
         return;
       }
-      const currentFlightTime = replayTimestamps[currentIndex];
-      const targetFlightTime = currentFlightTime + deltaMs * replaySpeed;
+      if (replayClockRef.current == null) {
+        replayClockRef.current = replayTimestamps[currentIndex];
+      }
+      replayClockRef.current += deltaMs * replaySpeed;
+      const targetFlightTime = replayClockRef.current;
       let nextIndex = currentIndex;
       while (nextIndex + 1 < replayTotal && replayTimestamps[nextIndex + 1] <= targetFlightTime) {
         nextIndex += 1;
@@ -623,6 +628,7 @@ export function TaskMap({
         setReplayIndex(nextIndex);
       }
       if (nextIndex >= replayTotal - 1) {
+        replayClockRef.current = replayTimestamps[replayTotal - 1] ?? replayClockRef.current;
         setIsReplaying(false);
         animationFrameRef.current = null;
         return;
@@ -757,16 +763,9 @@ export function TaskMap({
       ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
       ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
       ensureMapLayers(map);
-      map.resize();
       if (shouldFitToTurnpoints || shouldFitToTask || shouldFitToTrack) {
         fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
       }
-      window.setTimeout(() => {
-        map.resize();
-        if (shouldFitToTurnpoints || shouldFitToTask || shouldFitToTrack) {
-          fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
-        }
-      }, 100);
       turnpointSignatureRef.current = nextTurnpointSignature;
       taskSignatureRef.current = nextTaskSignature;
       trackSignatureRef.current = nextTrackSignature;
@@ -777,7 +776,23 @@ export function TaskMap({
     } else {
       map.once("styledata", syncData);
     }
-  }, [airspaceData, airspaceLabelData, basemapMode, cylinderData, displayTrack, fitKey, legLabelData, optimizedRoute, optimizedRouteData, optimizedRoutePointData, replayMarkerData, routeData, taskPointData, taskPoints, track, turnpointData, turnpoints]);
+  }, [airspaceData, airspaceLabelData, basemapMode, cylinderData, fitKey, legLabelData, optimizedRoute, optimizedRouteData, optimizedRoutePointData, routeData, taskPointData, taskPoints, track, turnpointData, turnpoints]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const syncTrackSources = () => {
+      ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
+      ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
+    };
+    if (map.isStyleLoaded()) {
+      syncTrackSources();
+    } else {
+      map.once("styledata", syncTrackSources);
+    }
+  }, [displayTrack, replayMarkerData]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -866,6 +881,7 @@ export function TaskMap({
                 setReplayHasInteracted(true);
                 setReplayIndex(0);
                 replayIndexRef.current = 0;
+                replayClockRef.current = replayTimestamps[0] ?? null;
                 lastFrameTimeRef.current = null;
               }}
             >
@@ -889,6 +905,7 @@ export function TaskMap({
                 if (replayIndex >= replayTotal - 1) {
                   setReplayIndex(0);
                   replayIndexRef.current = 0;
+                  replayClockRef.current = replayTimestamps[0] ?? null;
                 }
                 setReplayHasInteracted(true);
                 lastFrameTimeRef.current = null;
@@ -929,6 +946,7 @@ export function TaskMap({
                 setReplayHasInteracted(true);
                 lastFrameTimeRef.current = null;
                 replayIndexRef.current = nextIndex;
+                replayClockRef.current = replayTimestamps[nextIndex] ?? null;
                 setReplayIndex(nextIndex);
               }}
             />

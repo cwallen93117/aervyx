@@ -6,9 +6,18 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import airspace, auth, events, pilots, public, results, tasks, tracking, turnpoints, uploads
-from app.services.mqtt_subscriber import start_mqtt_subscriber
+from app.routers import airspace, auth, events, pilots, public, results, tasks, turnpoints, uploads
 from app.services.seeding import bootstrap_demo_data
+
+try:
+    from app.routers import tracking
+except ImportError:
+    tracking = None
+
+try:
+    from app.services.mqtt_subscriber import start_mqtt_subscriber
+except ImportError:
+    start_mqtt_subscriber = None
 
 
 @asynccontextmanager
@@ -21,7 +30,7 @@ async def lifespan(app: FastAPI):
         session.commit()
     finally:
         session.close()
-    mqtt_task = await start_mqtt_subscriber()
+    mqtt_task = await start_mqtt_subscriber() if start_mqtt_subscriber is not None else None
     yield
     if mqtt_task is not None:
         mqtt_task.cancel()
@@ -47,7 +56,8 @@ app.include_router(airspace.router)
 app.include_router(tasks.router)
 app.include_router(uploads.router)
 app.include_router(results.router)
-app.include_router(tracking.router)
+if tracking is not None:
+    app.include_router(tracking.router)
 
 
 @app.get('/health')

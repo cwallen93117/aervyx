@@ -663,6 +663,8 @@ export default function HomePage() {
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
   const [resultTracksByUploadId, setResultTracksByUploadId] = useState<Record<number, TrackCollection>>({});
+  const [pilotSummaryEventId, setPilotSummaryEventId] = useState<number | null>(null);
+  const [scoringDataTaskId, setScoringDataTaskId] = useState<number | null>(null);
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [error, setError] = useState("");
   const [authChecking, setAuthChecking] = useState(true);
@@ -935,6 +937,25 @@ export default function HomePage() {
     setAdminUploadPilotId(pilots[0].id);
   }, [adminUploadPilotId, canManagePlatform, pilots]);
 
+  useEffect(() => {
+    if (!token || activeSection !== "scoring" || !selectedTaskId || scoringDataTaskId === selectedTaskId) {
+      return;
+    }
+    const selectedTask = tasks.find((task) => task.id === selectedTaskId);
+    void loadTask(token, selectedTaskId, selectedTask, true).catch((caught) => {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load task scoring data." });
+    });
+  }, [activeSection, scoringDataTaskId, selectedTaskId, tasks, token]);
+
+  useEffect(() => {
+    if (!token || activeSection !== "scoring" || !selectedEventId || pilotSummaryEventId === selectedEventId) {
+      return;
+    }
+    void refreshPilotSummary(token, selectedEventId).catch((caught) => {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load overall results." });
+    });
+  }, [activeSection, pilotSummaryEventId, selectedEventId, token]);
+
   async function bootstrap(activeToken: string) {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
     setToken(activeToken);
@@ -947,10 +968,11 @@ export default function HomePage() {
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
     const storedSection = window.localStorage.getItem(ACTIVE_SECTION_KEY);
+    const normalizedSection = normalizeSectionForRole(storedSection, me.role);
     const preferredEvent = loadedEvents.find((event) => event.id === storedEventId) ?? loadedEvents[0] ?? null;
     setUser(me);
     setSettingsForm(settings);
-    setActiveSection(normalizeSectionForRole(storedSection, me.role));
+    setActiveSection(normalizedSection);
     setEvents(loadedEvents);
     void refreshPilotDirectory(activeToken, me);
     void refreshAdminUsers(activeToken, me);
@@ -959,7 +981,7 @@ export default function HomePage() {
       setSelectedEventId(preferredEvent.id);
       setEventEditorId(preferredEvent.id);
       setEventForm(eventToForm(preferredEvent));
-      void loadEvent(activeToken, preferredEvent.id, preferredEvent, me).catch((caught) => {
+      void loadEvent(activeToken, preferredEvent.id, preferredEvent, me, undefined, normalizedSection).catch((caught) => {
         setError(caught instanceof Error ? caught.message : "Could not load the selected event.");
       });
     } else {
@@ -989,6 +1011,13 @@ export default function HomePage() {
     return loadedEvents;
   }
 
+  async function refreshPilotSummary(activeToken: string, eventId: number) {
+    const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken);
+    setPilotSummary(loadedSummary);
+    setPilotSummaryEventId(eventId);
+    return loadedSummary;
+  }
+
   async function refreshPilotDirectory(activeToken: string, activeUser?: User | null) {
     if (!["admin", "organizer"].includes((activeUser ?? user)?.role ?? "")) {
       setPilotDirectory([]);
@@ -1009,22 +1038,29 @@ export default function HomePage() {
     return loadedUsers;
   }
 
-  async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null, preferredTaskId?: number | null) {
+  async function loadEvent(
+    activeToken: string,
+    eventId: number,
+    currentEvent?: EventRecord | null,
+    activeUser?: User | null,
+    preferredTaskId?: number | null,
+    preferredSection?: SidebarSection,
+  ) {
     setWorkspaceLoading(true);
     try {
       setSelectedEventId(eventId);
       window.localStorage.setItem(LAST_EVENT_KEY, String(eventId));
       const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
+      const targetSection = preferredSection ?? activeSection;
       setEventEditorId(eventId);
       setEventForm(eventToForm(activeEvent));
-      const [loadedPilots, loadedTurnpoints, loadedTurnpointSources, loadedAirspaces, loadedAirspaceSources, loadedTasks, loadedSummary] = await Promise.all([
+      const [loadedPilots, loadedTurnpoints, loadedTurnpointSources, loadedAirspaces, loadedAirspaceSources, loadedTasks] = await Promise.all([
         apiFetch<PilotRecord[]>(`/api/events/${eventId}/pilots`, activeToken),
         apiFetch<TurnpointRecord[]>(`/api/events/${eventId}/turnpoints`, activeToken),
         apiFetch<TurnpointSourceRecord[]>(`/api/events/${eventId}/turnpoint-sources`, activeToken),
         apiFetch<MapAirspaceRegion[]>(`/api/events/${eventId}/airspaces`, activeToken),
         apiFetch<AirspaceSourceRecord[]>(`/api/events/${eventId}/airspace-sources`, activeToken),
         apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
-        apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
       ]);
       const viewer = activeUser ?? user;
       const visibleTasks = viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks;
@@ -1034,16 +1070,18 @@ export default function HomePage() {
       setAirspaces(loadedAirspaces);
       setAirspaceSources(loadedAirspaceSources);
       setTasks(visibleTasks);
-      setPilotSummary(loadedSummary);
+      setPilotSummary([]);
+      setPilotSummaryEventId(null);
       setTrack(null);
       setSelectedResultUploadIds([]);
       setResultTracksByUploadId({});
+      setScoringDataTaskId(null);
       setRadiusDrafts({});
       const nextTask = visibleTasks.find((task) => task.id === preferredTaskId)
         ?? visibleTasks.find((task) => task.id === selectedTaskId)
         ?? visibleTasks[0];
       if (nextTask) {
-        await loadTask(activeToken, nextTask.id, nextTask);
+        await loadTask(activeToken, nextTask.id, nextTask, targetSection === "scoring");
       } else {
         setSelectedTaskId(null);
         setResults([]);
@@ -1066,15 +1104,9 @@ export default function HomePage() {
     await loadEvent(token, event.id, event);
   }
 
-  async function loadTask(activeToken: string, taskId: number, loadedTask?: TaskRecord) {
+  async function loadTask(activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData = true) {
     const task = loadedTask ?? (await apiFetch<TaskRecord>(`/api/tasks/${taskId}`, activeToken));
-    const [loadedResults, loadedUploads] = await Promise.all([
-      apiFetch<ResultRecord[]>(`/api/tasks/${taskId}/results`, activeToken),
-      apiFetch<UploadRecord[]>(`/api/tasks/${taskId}/uploads`, activeToken),
-    ]);
     setSelectedTaskId(taskId);
-    setResults(loadedResults);
-    setUploads(loadedUploads);
     setTrack(null);
     setSelectedResultUploadIds([]);
     setResultTracksByUploadId({});
@@ -1100,6 +1132,19 @@ export default function HomePage() {
       penalties_text: JSON.stringify(task.penalties_json, null, 2),
       points: task.points,
     });
+    if (!includeScoringData) {
+      setResults([]);
+      setUploads([]);
+      setScoringDataTaskId(null);
+      return;
+    }
+    const [loadedResults, loadedUploads] = await Promise.all([
+      apiFetch<ResultRecord[]>(`/api/tasks/${taskId}/results`, activeToken),
+      apiFetch<UploadRecord[]>(`/api/tasks/${taskId}/uploads`, activeToken),
+    ]);
+    setResults(loadedResults);
+    setUploads(loadedUploads);
+    setScoringDataTaskId(taskId);
   }
 
   function signOut() {
@@ -1667,8 +1712,7 @@ export default function HomePage() {
       setUploadFeedback({ type: "success", text: `Uploaded ${matchedCount} of ${batchResults.length} IGC files automatically.${unmatchedSummary}` });
       await loadTask(token, selectedTaskId);
       if (selectedEventId) {
-        const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
-        setPilotSummary(loadedSummary);
+        await refreshPilotSummary(token, selectedEventId);
       }
     } catch (caught) {
       setUploadFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Bulk upload failed." });
@@ -1681,8 +1725,7 @@ export default function HomePage() {
     setMessage(`Deleted ${upload.filename}.`);
     await loadTask(token, selectedTaskId);
     if (selectedEventId) {
-      const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
-      setPilotSummary(loadedSummary);
+      await refreshPilotSummary(token, selectedEventId);
     }
     setTrack(null);
   }
@@ -1773,8 +1816,7 @@ export default function HomePage() {
       await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
       await loadTask(token, selectedTaskId);
       if (selectedEventId) {
-        const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${selectedEventId}/pilot-summary`, token);
-        setPilotSummary(loadedSummary);
+        await refreshPilotSummary(token, selectedEventId);
       }
       setScoringFeedback({ type: "success", text: "Scoring completed for the selected task." });
     } catch (caught) {
@@ -2499,7 +2541,7 @@ export default function HomePage() {
             <div className="participant-intake-row">
               <label className="stack compact">
                 <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
                   <option value="">Select a task</option>
                   {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                 </select>
@@ -2829,7 +2871,7 @@ export default function HomePage() {
             <div className="stack form-block">
               <label className="stack compact">
                 <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
                   <option value="">Select a task</option>
                   {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                 </select>
@@ -2907,7 +2949,7 @@ export default function HomePage() {
               <div className="stack form-block">
                 <label className="stack compact">
                   <span>Selected task</span>
-                  <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask); }}>
+                  <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
                     <option value="">Select a task</option>
                     {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                   </select>

@@ -1530,7 +1530,7 @@ button[type="submit"]:hover {
   grid-template-columns: auto 24px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
-  padding: 10px 14px;
+  padding: 6px 12px;
   border-bottom: 1px solid var(--line);
   cursor: pointer;
 }
@@ -1568,6 +1568,20 @@ button[type="submit"]:hover {
 
 .results-task-map-pilot-copy small {
   display: none;
+}
+
+.map-fullscreen-sidebar .results-task-map-pilot-list {
+  min-height: 0;
+  max-height: calc(100vh - 220px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-lg);
+}
+
+.map-fullscreen-sidebar .results-task-map-pilot-items {
+  max-height: calc(100vh - 272px);
 }
 
 .results-task-map .results-sheet-header {
