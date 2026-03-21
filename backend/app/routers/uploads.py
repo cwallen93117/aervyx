@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import re
+import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse, StreamingResponse
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -278,3 +281,46 @@ def get_track_geojson(upload_id: int, user: User = Depends(get_current_user), se
             }
         ],
     }
+
+
+@router.get("/api/uploads/{upload_id}/download")
+def download_upload(upload_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> FileResponse:
+    upload = session.get(IGCUpload, upload_id)
+    if upload is None:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    stored_path = Path(upload.stored_path)
+    if not stored_path.exists():
+        raise HTTPException(status_code=404, detail="Stored IGC file not found")
+    return FileResponse(path=stored_path, media_type="application/octet-stream", filename=upload.filename)
+
+
+@router.get("/api/tasks/{task_id}/uploads/download-all")
+def download_all_uploads(task_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> StreamingResponse:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at.asc())).all()
+    if not uploads:
+        raise HTTPException(status_code=404, detail="No IGC uploads are available for this task")
+
+    buffer = io.BytesIO()
+    used_names: set[str] = set()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for upload in uploads:
+            stored_path = Path(upload.stored_path)
+            if not stored_path.exists():
+                continue
+            entry_name = upload.filename
+            if entry_name in used_names:
+                stem = Path(entry_name).stem
+                suffix = Path(entry_name).suffix or ".igc"
+                counter = 2
+                while f"{stem}-{counter}{suffix}" in used_names:
+                    counter += 1
+                entry_name = f"{stem}-{counter}{suffix}"
+            used_names.add(entry_name)
+            archive.writestr(entry_name, stored_path.read_bytes())
+    buffer.seek(0)
+    safe_name = re.sub(r"[^a-zA-Z0-9._-]+", "-", task.name).strip("-") or f"task-{task_id}"
+    headers = {"Content-Disposition": f'attachment; filename="{safe_name}-igc-files.zip"'}
+    return StreamingResponse(buffer, media_type="application/zip", headers=headers)

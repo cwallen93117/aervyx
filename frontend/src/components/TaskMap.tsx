@@ -296,7 +296,15 @@ function ensureMapLayers(map: maplibregl.Map) {
     });
   }
   if (!map.getLayer("track-layer")) {
-    map.addLayer({ id: "track-layer", type: "line", source: "track", paint: { "line-color": "#ca8a04", "line-width": 3 } });
+    map.addLayer({
+      id: "track-layer",
+      type: "line",
+      source: "track",
+      paint: {
+        "line-color": ["coalesce", ["get", "color"], "#ca8a04"],
+        "line-width": 3,
+      },
+    });
   }
 }
 

@@ -621,6 +621,16 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+async function apiFetchBlob(path: string, token: string, init: RequestInit = {}): Promise<{ blob: Blob; filename: string | null }> {
+  const headers = new Headers(init.headers ?? {});
+  headers.set("Authorization", `Bearer ${token}`);
+  const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
+  if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
+  const disposition = response.headers.get("content-disposition");
+  const match = disposition?.match(/filename="?([^"]+)"?/i);
+  return { blob: await response.blob(), filename: match?.[1] ?? null };
+}
+
 async function apiFetchPublic<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
@@ -651,6 +661,8 @@ export default function HomePage() {
   const [pilotSummary, setPilotSummary] = useState<PilotSummaryRecord[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [track, setTrack] = useState<TrackCollection | null>(null);
+  const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
+  const [resultTracksByUploadId, setResultTracksByUploadId] = useState<Record<number, TrackCollection>>({});
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [error, setError] = useState("");
   const [authChecking, setAuthChecking] = useState(true);
@@ -683,6 +695,7 @@ export default function HomePage() {
   }>({ profile: null, password: null });
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
   const [adminFeedback, setAdminFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const resultTrackPalette = useMemo(() => ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d"], []);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
     const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
@@ -696,7 +709,8 @@ export default function HomePage() {
     );
   const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
   const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
-    const filteredTurnpoints = useMemo(() => {
+  const uploadById = useMemo(() => new Map(uploads.map((upload) => [upload.id, upload])), [uploads]);
+  const filteredTurnpoints = useMemo(() => {
       const query = turnpointSearch.trim().toLowerCase();
       if (!query) return [];
       return turnpoints
@@ -705,7 +719,31 @@ export default function HomePage() {
           return haystack.includes(query);
         })
         .slice(0, 12);
-    }, [turnpointSearch, turnpoints]);
+  }, [turnpointSearch, turnpoints]);
+  const resultsTrackOverlay = useMemo<TrackCollection | null>(() => {
+    if (!selectedResultUploadIds.length) {
+      return null;
+    }
+    const features = selectedResultUploadIds.flatMap((uploadId, index) => {
+      const collection = resultTracksByUploadId[uploadId];
+      if (!collection) {
+        return [];
+      }
+      const upload = uploadById.get(uploadId);
+      const pilotName = upload ? pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`;
+      const color = resultTrackPalette[index % resultTrackPalette.length];
+      return collection.features.map((feature) => ({
+        ...feature,
+        properties: {
+          ...feature.properties,
+          color,
+          pilot_name: pilotName,
+          upload_id: uploadId,
+        },
+      }));
+    });
+    return { type: "FeatureCollection", features };
+  }, [pilotNameById, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
   const taskDefinitionRows = useMemo(() => {
     let cumulativeDistance = 0;
     return taskDraft.points.map((point, index) => {
@@ -894,6 +932,8 @@ export default function HomePage() {
       setResults([]);
       setUploads([]);
       setTrack(null);
+      setSelectedResultUploadIds([]);
+      setResultTracksByUploadId({});
       setRadiusDrafts({});
       setTaskDraft(taskDraftFromEvent(null));
     }
@@ -950,6 +990,8 @@ export default function HomePage() {
     setTasks(visibleTasks);
     setPilotSummary(loadedSummary);
     setTrack(null);
+    setSelectedResultUploadIds([]);
+    setResultTracksByUploadId({});
     setRadiusDrafts({});
     const nextTask = visibleTasks.find((task) => task.id === preferredTaskId)
       ?? visibleTasks.find((task) => task.id === selectedTaskId)
@@ -985,6 +1027,8 @@ export default function HomePage() {
     setResults(loadedResults);
     setUploads(loadedUploads);
     setTrack(null);
+    setSelectedResultUploadIds([]);
+    setResultTracksByUploadId({});
     setRadiusDrafts({});
     setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
     setScoringFeedback(null);
@@ -1591,6 +1635,56 @@ export default function HomePage() {
       setPilotSummary(loadedSummary);
     }
     setTrack(null);
+  }
+
+  function downloadBlobFile(blob: Blob, filename: string) {
+    const objectUrl = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => window.URL.revokeObjectURL(objectUrl), 0);
+  }
+
+  async function downloadUploadFile(uploadId: number, filename: string) {
+    if (!token) return;
+    try {
+      const { blob, filename: responseFilename } = await apiFetchBlob(`/api/uploads/${uploadId}/download`, token);
+      downloadBlobFile(blob, responseFilename ?? filename);
+    } catch (caught) {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download the IGC file." });
+    }
+  }
+
+  async function downloadAllIgcFiles() {
+    if (!token || !selectedTaskId) return;
+    try {
+      const taskName = (selectedTask?.name ?? "task").replace(/[^a-z0-9._-]+/gi, "-");
+      const { blob, filename } = await apiFetchBlob(`/api/tasks/${selectedTaskId}/uploads/download-all`, token);
+      downloadBlobFile(blob, filename ?? `${taskName}-igc-files.zip`);
+    } catch (caught) {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download all IGC files." });
+    }
+  }
+
+  async function toggleResultTrack(uploadId: number, checked: boolean) {
+    if (!token) return;
+    if (!checked) {
+      setSelectedResultUploadIds((current) => current.filter((id) => id !== uploadId));
+      return;
+    }
+    if (!resultTracksByUploadId[uploadId]) {
+      try {
+        const collection = await apiFetch<TrackCollection>(`/api/uploads/${uploadId}/track`, token);
+        setResultTracksByUploadId((current) => ({ ...current, [uploadId]: collection }));
+      } catch (caught) {
+        setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load the selected pilot track." });
+        return;
+      }
+    }
+    setSelectedResultUploadIds((current) => (current.includes(uploadId) ? current : [...current, uploadId]));
   }
 
   function toggleTaskPointAdvanced(checked: boolean) {
@@ -2780,9 +2874,14 @@ export default function HomePage() {
                 ) : null}
                 {results.length ? (
                   <div className="results-sheet">
-                    <div className="results-sheet-header">
-                      <h3>{selectedTask?.name ?? "Task results"}</h3>
-                      <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
+                    <div className="results-sheet-header results-sheet-header-actions">
+                      <div>
+                        <h3>{selectedTask?.name ?? "Task results"}</h3>
+                        <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
+                      </div>
+                      <button type="button" className="ghost-button" onClick={() => void downloadAllIgcFiles()}>
+                        Download all IGC files
+                      </button>
                     </div>
                     <div className="results-table-wrap">
                       <table className="results-table results-table-task">
@@ -2799,6 +2898,7 @@ export default function HomePage() {
                               <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
                               {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
                               <th>Total</th>
+                              <th>IGC file</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -2822,6 +2922,15 @@ export default function HomePage() {
                                     <td key={column.key}>{formatResultPoints(gapAwardedPoints(result, column.key))}</td>
                                   ))}
                                   <td className="results-table-total">{result.score_points.toFixed(1)}</td>
+                                  <td>
+                                    <button
+                                      type="button"
+                                      className="ghost-button"
+                                      onClick={() => void downloadUploadFile(result.upload_id, uploadById.get(result.upload_id)?.filename ?? `${result.pilot_name}.igc`)}
+                                    >
+                                      Download
+                                    </button>
+                                  </td>
                                 </tr>
                               );
                           })}
@@ -2832,20 +2941,47 @@ export default function HomePage() {
                       <div className="results-task-map">
                         <div className="results-sheet-header">
                           <h3>Task map</h3>
-                          <p>Waypoints, cylinders, and course line for the selected task.</p>
+                          <p>Waypoints, cylinders, course line, and checked pilot tracks for the selected task.</p>
                         </div>
-                        <TaskMap
-                          turnpoints={resultsTaskMapTurnpoints}
-                          airspaces={[]}
-                          taskPoints={taskDraft.points}
-                          optimizedRoute={taskDistanceMetrics.routeCoordinates}
-                          legMetrics={taskDistanceMetrics.legMetrics}
-                          totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
-                          optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
-                          track={null}
-                          editable={false}
-                          fitKey={selectedTaskId}
-                        />
+                        <div className="results-task-map-layout">
+                          <div className="results-task-map-pilot-list">
+                            <div className="results-task-map-pilot-header">
+                              <strong>Show pilot tracks</strong>
+                              <span>{selectedResultUploadIds.length} selected</span>
+                            </div>
+                            <div className="results-task-map-pilot-items">
+                              {results.map((result) => {
+                                const isChecked = selectedResultUploadIds.includes(result.upload_id);
+                                return (
+                                  <label key={result.id} className="results-task-map-pilot-item">
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
+                                    />
+                                    <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
+                                    <span className="results-task-map-pilot-copy">
+                                      <strong>{result.pilot_name}</strong>
+                                      <small>{result.status.toUpperCase()} · {result.score_points.toFixed(1)} pts</small>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          <TaskMap
+                            turnpoints={resultsTaskMapTurnpoints}
+                            airspaces={[]}
+                            taskPoints={taskDraft.points}
+                            optimizedRoute={taskDistanceMetrics.routeCoordinates}
+                            legMetrics={taskDistanceMetrics.legMetrics}
+                            totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
+                            optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
+                            track={resultsTrackOverlay}
+                            editable={false}
+                            fitKey={`${selectedTaskId}:${selectedResultUploadIds.join(",")}`}
+                          />
+                        </div>
                       </div>
                     ) : null}
                   </div>

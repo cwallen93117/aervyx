@@ -1359,6 +1359,13 @@ button[type="submit"]:hover {
   gap: 14px;
 }
 
+.results-sheet-header-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .results-sheet-header h3 {
   font-size: 1rem;
   font-weight: 600;
@@ -1431,6 +1438,95 @@ button[type="submit"]:hover {
   background: var(--panel);
 }
 
+.results-task-map-layout {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+}
+
+.results-task-map-pilot-list {
+  border-right: 1px solid var(--line);
+  background: var(--wash);
+  display: flex;
+  flex-direction: column;
+  min-height: 420px;
+}
+
+.results-task-map-pilot-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.results-task-map-pilot-header strong {
+  font-size: 0.8125rem;
+  color: var(--ink);
+}
+
+.results-task-map-pilot-header span {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.results-task-map-pilot-items {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.results-task-map-pilot-item {
+  display: grid;
+  grid-template-columns: auto 24px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.results-task-map-pilot-item:hover {
+  background: var(--accent-softer);
+}
+
+.results-task-map-pilot-item input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+
+.results-task-map-pilot-rank {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--muted);
+  text-align: center;
+}
+
+.results-task-map-pilot-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.results-task-map-pilot-copy strong {
+  font-size: 0.8125rem;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.results-task-map-pilot-copy small {
+  font-size: 0.75rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .results-task-map .results-sheet-header {
   padding: 16px 18px 0;
 }
@@ -1445,6 +1541,11 @@ button[type="submit"]:hover {
   border-left: none;
   border-right: none;
   border-bottom: none;
+}
+
+.results-task-map-layout .map-shell,
+.results-task-map-layout .map-card {
+  min-height: 420px;
 }
 
 .results-table-compact thead th,
