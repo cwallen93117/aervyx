@@ -4,6 +4,7 @@ import hashlib
 import io
 import re
 import zipfile
+from datetime import timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -271,13 +272,29 @@ def get_track_geojson(upload_id: int, user: User = Depends(get_current_user), se
         raise HTTPException(status_code=403, detail="Pilots can only view their own uploads")
     pilot = session.get(Pilot, upload.pilot_id)
     points = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload_id).order_by(TrackPoint.sequence)).all()
+    coordinates = [
+        [
+            point.longitude,
+            point.latitude,
+            float(point.gps_altitude_m if point.gps_altitude_m is not None else point.pressure_altitude_m if point.pressure_altitude_m is not None else 0),
+        ]
+        for point in points
+    ]
+    timestamps = [
+        point.recorded_at.astimezone(timezone.utc).isoformat().replace("+00:00", "Z") if point.recorded_at.tzinfo else point.recorded_at.isoformat()
+        for point in points
+    ]
     return {
         "type": "FeatureCollection",
         "features": [
             {
                 "type": "Feature",
-                "properties": {"upload_id": upload.id, "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown"},
-                "geometry": {"type": "LineString", "coordinates": [[point.longitude, point.latitude] for point in points]},
+                "properties": {
+                    "upload_id": upload.id,
+                    "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
+                    "timestamps": timestamps,
+                },
+                "geometry": {"type": "LineString", "coordinates": coordinates},
             }
         ],
     }

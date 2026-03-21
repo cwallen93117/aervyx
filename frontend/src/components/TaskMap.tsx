@@ -5,6 +5,7 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
+type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
   id: number;
   source_id: number;
@@ -19,9 +20,17 @@ export type MapAirspaceRegion = {
   label_longitude: number | null;
   is_restricted_field: boolean;
 };
-export type TrackCollection = { type: "FeatureCollection"; features: Array<{ type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: number[][] } }> };
+export type TrackCollection = {
+  type: "FeatureCollection";
+  features: Array<{
+    type: "Feature";
+    properties: Record<string, unknown> & { timestamps?: string[] };
+    geometry: { type: string; coordinates: TrackPosition[] };
+  }>;
+};
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
+const REPLAY_SPEEDS = [1, 2, 5, 10, 30, 60, 120, 300] as const;
 
 function createBasemapStyle(basemapMode: BasemapMode) {
   const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
@@ -78,6 +87,27 @@ function ensureGeoJsonSource(map: maplibregl.Map, id: string, data: Record<strin
     return;
   }
   map.addSource(id, { type: "geojson", data: data as never });
+}
+
+function scaleTrackPosition(position: TrackPosition, altitudeMultiplier: number): TrackPosition {
+  if (position.length < 3) {
+    return position;
+  }
+  const altitude = position[2] ?? 0;
+  return [position[0], position[1], altitude * altitudeMultiplier];
+}
+
+function formatUtcTimeLabel(timestampMs: number | null | undefined, includeSeconds = false): string {
+  if (timestampMs == null || Number.isNaN(timestampMs)) {
+    return "--:--";
+  }
+  return new Date(timestampMs).toLocaleTimeString([], {
+    timeZone: "UTC",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: includeSeconds ? "2-digit" : undefined,
+    hour12: false,
+  });
 }
 
 function ensureMapLayers(map: maplibregl.Map) {
@@ -306,6 +336,19 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
+  if (!map.getLayer("replay-marker-layer")) {
+    map.addLayer({
+      id: "replay-marker-layer",
+      type: "circle",
+      source: "replay-marker",
+      paint: {
+        "circle-radius": 8,
+        "circle-color": "#ffffff",
+        "circle-stroke-width": 3,
+        "circle-stroke-color": "#2563eb",
+      },
+    });
+  }
 }
 
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], optimizedRoute: [number, number][], track: TrackCollection | null) {
@@ -330,7 +373,7 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
         continue;
       }
       for (const coordinate of feature.geometry.coordinates) {
-        bounds.extend(coordinate as [number, number]);
+        bounds.extend([coordinate[0], coordinate[1]]);
         hasData = true;
       }
     }
@@ -382,8 +425,15 @@ export function TaskMap({
   const fitKeyRef = useRef<string>("");
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
+  const animationFrameRef = useRef<number | null>(null);
+  const lastFrameTimeRef = useRef<number | null>(null);
+  const replayIndexRef = useRef(0);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
+  const [altitudeMultiplier, setAltitudeMultiplier] = useState(10);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [replayIndex, setReplayIndex] = useState(0);
+  const [replaySpeed, setReplaySpeed] = useState(10);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const airspaceData = useMemo(() => ({
@@ -438,6 +488,64 @@ export function TaskMap({
     })),
   }), [legMetrics]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
+  const replayTimestamps = useMemo(() => {
+    const firstFeature = track?.features[0];
+    const raw = firstFeature?.properties?.timestamps;
+    if (!Array.isArray(raw)) {
+      return [];
+    }
+    return raw
+      .map((value) => Date.parse(String(value)))
+      .filter((value) => Number.isFinite(value));
+  }, [track]);
+  const replayTotal = replayTimestamps.length;
+  const displayTrack = useMemo<TrackCollection | null>(() => {
+    if (!track) {
+      return null;
+    }
+    const hasReplay = replayTotal > 0;
+    return {
+      type: "FeatureCollection",
+      features: track.features.map((feature) => {
+        const featureTimestamps = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
+        const visibleLength = hasReplay
+          ? Math.min(replayIndex + 1, featureTimestamps.length || feature.geometry.coordinates.length)
+          : feature.geometry.coordinates.length;
+        return {
+          ...feature,
+          geometry: {
+            ...feature.geometry,
+            coordinates: feature.geometry.coordinates
+              .slice(0, visibleLength)
+              .map((coordinate) => scaleTrackPosition(coordinate, altitudeMultiplier)),
+          },
+        };
+      }),
+    };
+  }, [altitudeMultiplier, replayIndex, replayTotal, track]);
+  const replayMarkerData = useMemo(() => {
+    if (!track || !replayTotal) {
+      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
+    }
+    const firstFeature = track.features[0];
+    const coordinate = firstFeature?.geometry.coordinates[Math.min(replayIndex, firstFeature.geometry.coordinates.length - 1)];
+    if (!coordinate) {
+      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
+    }
+    return {
+      type: "FeatureCollection",
+      features: [
+        {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Point",
+            coordinates: scaleTrackPosition(coordinate, altitudeMultiplier),
+          },
+        },
+      ],
+    };
+  }, [altitudeMultiplier, replayIndex, replayTotal, track]);
 
   useEffect(() => {
     turnpointsRef.current = turnpoints;
@@ -456,9 +564,76 @@ export function TaskMap({
   }, [track]);
 
   useEffect(() => {
+    replayIndexRef.current = replayIndex;
+  }, [replayIndex]);
+
+  useEffect(() => {
     editableRef.current = editable;
     onSelectTurnpointRef.current = onSelectTurnpoint;
   }, [editable, onSelectTurnpoint]);
+
+  useEffect(() => {
+    setIsReplaying(false);
+    setReplayIndex(0);
+    replayIndexRef.current = 0;
+    lastFrameTimeRef.current = null;
+    if (animationFrameRef.current !== null) {
+      window.cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+  }, [track]);
+
+  useEffect(() => {
+    if (!isReplaying || replayTotal <= 1) {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      lastFrameTimeRef.current = null;
+      return;
+    }
+
+    const step = (now: number) => {
+      if (lastFrameTimeRef.current == null) {
+        lastFrameTimeRef.current = now;
+        animationFrameRef.current = window.requestAnimationFrame(step);
+        return;
+      }
+      const deltaMs = now - lastFrameTimeRef.current;
+      lastFrameTimeRef.current = now;
+      const currentIndex = replayIndexRef.current;
+      if (currentIndex >= replayTotal - 1) {
+        setIsReplaying(false);
+        animationFrameRef.current = null;
+        return;
+      }
+      const currentFlightTime = replayTimestamps[currentIndex];
+      const targetFlightTime = currentFlightTime + deltaMs * replaySpeed;
+      let nextIndex = currentIndex;
+      while (nextIndex + 1 < replayTotal && replayTimestamps[nextIndex + 1] <= targetFlightTime) {
+        nextIndex += 1;
+      }
+      if (nextIndex !== currentIndex) {
+        replayIndexRef.current = nextIndex;
+        setReplayIndex(nextIndex);
+      }
+      if (nextIndex >= replayTotal - 1) {
+        setIsReplaying(false);
+        animationFrameRef.current = null;
+        return;
+      }
+      animationFrameRef.current = window.requestAnimationFrame(step);
+    };
+
+    animationFrameRef.current = window.requestAnimationFrame(step);
+    return () => {
+      if (animationFrameRef.current !== null) {
+        window.cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
+      }
+      lastFrameTimeRef.current = null;
+    };
+  }, [isReplaying, replaySpeed, replayTimestamps, replayTotal]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -474,7 +649,7 @@ export function TaskMap({
         zoom: 9,
         attributionControl: false,
       });
-      map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
       map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
       map.on("styledata", () => {
         map.resize();
@@ -557,7 +732,8 @@ export function TaskMap({
       ensureGeoJsonSource(map, "optimized-route-points", optimizedRoutePointData as never);
       ensureGeoJsonSource(map, "optimized-leg-labels", legLabelData as never);
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
-      ensureGeoJsonSource(map, "track", (track ?? { type: "FeatureCollection", features: [] }) as never);
+      ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
+      ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
       ensureMapLayers(map);
       map.resize();
       if (shouldFitToTurnpoints || shouldFitToTask || shouldFitToTrack) {
@@ -579,15 +755,58 @@ export function TaskMap({
     } else {
       map.once("styledata", syncData);
     }
-  }, [basemapMode, turnpointData, airspaceData, airspaceLabelData, taskPointData, routeData, optimizedRouteData, optimizedRoutePointData, legLabelData, cylinderData, optimizedRoute, track, turnpoints, taskPoints, fitKey]);
+  }, [airspaceData, airspaceLabelData, basemapMode, cylinderData, displayTrack, fitKey, legLabelData, optimizedRoute, optimizedRouteData, optimizedRoutePointData, replayMarkerData, routeData, taskPointData, taskPoints, track, turnpointData, turnpoints]);
+
+  const replayVisible = !!track && replayTotal > 0;
+  const replayStartLabel = replayVisible ? formatUtcTimeLabel(replayTimestamps[0]) : "--:--";
+  const replayEndLabel = replayVisible ? formatUtcTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
+  const replayCurrentLabel = replayVisible ? formatUtcTimeLabel(replayTimestamps[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
+
+  function setTopDownView() {
+    mapRef.current?.easeTo({ pitch: 0, duration: 300 });
+  }
+
+  function setNorthUp() {
+    mapRef.current?.easeTo({ bearing: 0, duration: 300 });
+  }
+
+  function setReplaySpeedStep(direction: -1 | 1) {
+    const currentIndex = REPLAY_SPEEDS.indexOf(replaySpeed as (typeof REPLAY_SPEEDS)[number]);
+    const nextIndex = Math.min(REPLAY_SPEEDS.length - 1, Math.max(0, currentIndex + direction));
+    setReplaySpeed(REPLAY_SPEEDS[nextIndex]);
+  }
 
   return (
     <div
-      className={isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}
+      className={`${isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}${replayVisible ? " has-replay" : ""}`}
       ref={shellRef}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
-      <div className="map-card" ref={containerRef} style={isFullscreen ? { height: "100vh", minHeight: "100vh" } : undefined} />
+      <div
+        className="map-card"
+        ref={containerRef}
+        style={
+          isFullscreen
+            ? { height: replayVisible ? "calc(100vh - 104px)" : "100vh", minHeight: replayVisible ? "calc(100vh - 104px)" : "100vh" }
+            : replayVisible
+              ? { height: "calc(420px - 104px)", minHeight: "calc(420px - 104px)" }
+              : undefined
+        }
+      />
+      <div className="map-control-stack">
+        <button type="button" className="map-control-button" aria-label="Reset to top-down view" title="Top-down view" onClick={setTopDownView}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <rect x="3" y="3" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+            <circle cx="8" cy="8" r="1.8" fill="currentColor" />
+          </svg>
+        </button>
+        <button type="button" className="map-control-button" aria-label="Set north up" title="North up" onClick={setNorthUp}>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M8 2L10.8 8H8.9V14H7.1V8H5.2L8 2Z" fill="currentColor" />
+            <path d="M11.8 4.2V11H13.1V6.5L13.7 7.3H15L13.4 5.2L15 3.1H13.7L13.1 3.9V4.2H11.8Z" fill="currentColor" />
+          </svg>
+        </button>
+      </div>
       <div className={isFullscreen ? "map-fullscreen-sidebar" : undefined}>
         {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
         <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
@@ -601,14 +820,109 @@ export function TaskMap({
           </div>
         </div>
       </div>
-      <label className="map-style-picker">
-        <span>Map</span>
-        <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>
-          <option value="streets">Streets</option>
-          <option value="satellite">Satellite</option>
-          <option value="terrain">Terrain</option>
-        </select>
-      </label>
+      <div className="map-picker-stack">
+        {track ? (
+          <label className="map-style-picker">
+            <span>Altitude</span>
+            <select value={String(altitudeMultiplier)} onChange={(event) => setAltitudeMultiplier(Number(event.target.value))}>
+              <option value="1">1×</option>
+              <option value="2">2×</option>
+              <option value="5">5×</option>
+              <option value="10">10×</option>
+              <option value="20">20×</option>
+              <option value="50">50×</option>
+            </select>
+          </label>
+        ) : null}
+        <label className="map-style-picker">
+          <span>Map</span>
+          <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>
+            <option value="streets">Streets</option>
+            <option value="satellite">Satellite</option>
+            <option value="terrain">Terrain</option>
+          </select>
+        </label>
+      </div>
+      {replayVisible ? (
+        <div className="replay-bar">
+          <div className="replay-controls">
+            <button
+              type="button"
+              className="replay-btn"
+              aria-label="Reset replay to start"
+              title="Reset to start"
+              onClick={() => {
+                setIsReplaying(false);
+                setReplayIndex(0);
+                replayIndexRef.current = 0;
+                lastFrameTimeRef.current = null;
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <rect x="2" y="2" width="2" height="10" fill="currentColor" />
+                <path d="M11 2.5V11.5L5 7L11 2.5Z" fill="currentColor" />
+              </svg>
+            </button>
+            <button type="button" className="replay-btn" aria-label="Slower replay" title="Slower" onClick={() => setReplaySpeedStep(-1)}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M10.5 2.5V11.5L5.5 7L10.5 2.5Z" fill="currentColor" />
+                <path d="M7.5 2.5V11.5L2.5 7L7.5 2.5Z" fill="currentColor" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="replay-btn replay-btn-primary"
+              aria-label={isReplaying ? "Pause replay" : "Play replay"}
+              title={isReplaying ? "Pause" : "Play"}
+              onClick={() => {
+                if (replayIndex >= replayTotal - 1) {
+                  setReplayIndex(0);
+                  replayIndexRef.current = 0;
+                }
+                lastFrameTimeRef.current = null;
+                setIsReplaying((current) => !current);
+              }}
+            >
+              {isReplaying ? (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <rect x="3" y="2.5" width="3" height="9" fill="currentColor" />
+                  <rect x="8" y="2.5" width="3" height="9" fill="currentColor" />
+                </svg>
+              ) : (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                  <path d="M4 2.5L11 7L4 11.5V2.5Z" fill="currentColor" />
+                </svg>
+              )}
+            </button>
+            <button type="button" className="replay-btn" aria-label="Faster replay" title="Faster" onClick={() => setReplaySpeedStep(1)}>
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                <path d="M3.5 2.5V11.5L8.5 7L3.5 2.5Z" fill="currentColor" />
+                <path d="M6.5 2.5V11.5L11.5 7L6.5 2.5Z" fill="currentColor" />
+              </svg>
+            </button>
+            <span className="replay-speed-label">{replaySpeed}×</span>
+          </div>
+          <div className="replay-current-time">{replayCurrentLabel} UTC</div>
+          <div className="replay-scrubber-row">
+            <span className="replay-time-label">{replayStartLabel}</span>
+            <input
+              className="replay-scrubber"
+              type="range"
+              min={0}
+              max={Math.max(0, replayTotal - 1)}
+              value={replayIndex}
+              onChange={(event) => {
+                const nextIndex = Number(event.target.value);
+                setIsReplaying(false);
+                lastFrameTimeRef.current = null;
+                replayIndexRef.current = nextIndex;
+                setReplayIndex(nextIndex);
+              }}
+            />
+            <span className="replay-time-label">{replayEndLabel}</span>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

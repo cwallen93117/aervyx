@@ -695,6 +695,7 @@ export default function HomePage() {
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
   const [settingsForm, setSettingsForm] = useState<AccountSettingsRecord>(blankSettingsForm());
   const [settingsPasswordForm, setSettingsPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
+  const [showCurrentSettingsPassword, setShowCurrentSettingsPassword] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<{
     profile: { type: "success" | "error"; text: string } | null;
     password: { type: "success" | "error"; text: string } | null;
@@ -3167,8 +3168,19 @@ export default function HomePage() {
           <form className="stack form-block" onSubmit={savePasswordSettings}>
             <label className="stack compact">
               <span>Current password</span>
-              <input type="password" value={settingsPasswordForm.current_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))} autoComplete="current-password" required />
+              <input
+                type={showCurrentSettingsPassword ? "text" : "password"}
+                value={settingsPasswordForm.current_password}
+                onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
+                autoComplete="current-password"
+                required
+              />
             </label>
+            <div className="button-row">
+              <button type="button" className="ghost-button" onClick={() => setShowCurrentSettingsPassword((current) => !current)}>
+                {showCurrentSettingsPassword ? "Hide" : "Show"}
+              </button>
+            </div>
             <div className="inline-grid">
               <label className="stack compact">
                 <span>New password</span>
