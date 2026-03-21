@@ -157,12 +157,8 @@ export default function LoginPage() {
         </a>
         <div className="aervyx-auth-copy">
           <span className="aervyx-auth-kicker">Competition portal</span>
-          <h1>{authMode === "login" ? "Welcome back to mission control." : "Create your Aervyx portal."}</h1>
-          <p>
-            {authMode === "login"
-              ? "Access live tasks, scoring, tracking, and operations from the same Aervyx workspace your meet director is using."
-              : "Create an organizer or pilot account to run events, upload flights, and stay synced with scoring as the meet evolves."}
-          </p>
+          <h1>Welcome to Aervyx mission control.</h1>
+          <p>Run events, publish tasks, manage pilots, score flights, and keep competition operations moving from one shared portal.</p>
         </div>
         <div className="aervyx-auth-feature-list">
           <div className="aervyx-auth-feature">

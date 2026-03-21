@@ -2023,9 +2023,9 @@ button[type="submit"]:hover {
 
 .aervyx-auth-panel-wrap {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  padding: 40px;
+  padding: 52px 40px 40px;
   background:
     linear-gradient(180deg, rgba(8, 12, 22, 0.98) 0%, rgba(7, 11, 20, 0.98) 100%);
 }
@@ -2037,6 +2037,7 @@ button[type="submit"]:hover {
   border-radius: 20px;
   background: rgba(13, 18, 30, 0.92);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.42);
+  min-height: 640px;
 }
 
 .aervyx-auth-panel-header {
