@@ -656,4 +656,5 @@ def build_result_payload(session: Session, result: ScoreResult) -> dict:
         "elapsed_seconds": result.elapsed_seconds,
         "score_points": result.score_points,
         "details_json": result.details_json,
+        "result_state": result.result_state,
     }

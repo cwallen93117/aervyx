@@ -348,6 +348,7 @@ class ScoreResultResponse(BaseModel):
     elapsed_seconds: int | None
     score_points: float
     details_json: dict
+    result_state: str = "official"
 
 
 class PilotSummaryResponse(BaseModel):

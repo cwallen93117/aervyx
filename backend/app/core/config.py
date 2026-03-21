@@ -13,6 +13,10 @@ class Settings(BaseSettings):
     upload_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "uploads")
     access_token_expire_minutes: int = 720
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    mesh_channel_psk: str | None = None
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mesh_mqtt_topic_prefix: str = "aervyx"
 
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -5,7 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import airspace, auth, events, pilots, results, tasks, turnpoints, uploads
+from app.routers import airspace, auth, events, pilots, public, results, tasks, tracking, turnpoints, uploads
+from app.services.mqtt_subscriber import start_mqtt_subscriber
 from app.services.seeding import bootstrap_demo_data
 
 
@@ -19,7 +20,10 @@ async def lifespan(app: FastAPI):
         session.commit()
     finally:
         session.close()
+    mqtt_task = await start_mqtt_subscriber()
     yield
+    if mqtt_task is not None:
+        mqtt_task.cancel()
 
 
 settings = get_settings()
@@ -33,6 +37,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router)
+app.include_router(public.router)
 app.include_router(events.router)
 app.include_router(pilots.router)
 app.include_router(turnpoints.router)
@@ -40,6 +45,7 @@ app.include_router(airspace.router)
 app.include_router(tasks.router)
 app.include_router(uploads.router)
 app.include_router(results.router)
+app.include_router(tracking.router)
 
 
 @app.get('/health')

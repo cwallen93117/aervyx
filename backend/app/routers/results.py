@@ -31,6 +31,20 @@ def rescore(task_id: int, admin: User = Depends(require_staff), session: Session
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
 
 
+@router.post("/api/results/{result_id}/promote", response_model=ScoreResultResponse)
+def promote_result(result_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> ScoreResultResponse:
+    result = session.get(ScoreResult, result_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Result not found")
+    if result.result_state == "official":
+        raise HTTPException(status_code=400, detail="Result is already official")
+    result.result_state = "official"
+    log_action(session, actor_user_id=admin.id, action="result.promote", entity_type="score_result", entity_id=str(result_id), details={"task_id": result.task_id, "pilot_id": result.pilot_id})
+    session.commit()
+    session.refresh(result)
+    return ScoreResultResponse(**build_result_payload(session, result))
+
+
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])
 def pilot_summary(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[PilotSummaryResponse]:
     pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
