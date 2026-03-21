@@ -268,8 +268,6 @@ def get_track_geojson(upload_id: int, user: User = Depends(get_current_user), se
     upload = session.get(IGCUpload, upload_id)
     if upload is None:
         raise HTTPException(status_code=404, detail="Upload not found")
-    if user.role == "pilot" and user.pilot_id != upload.pilot_id:
-        raise HTTPException(status_code=403, detail="Pilots can only view their own uploads")
     pilot = session.get(Pilot, upload.pilot_id)
     points = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload_id).order_by(TrackPoint.sequence)).all()
     coordinates = [

@@ -97,16 +97,15 @@ function scaleTrackPosition(position: TrackPosition, altitudeMultiplier: number)
   return [position[0], position[1], altitude * altitudeMultiplier];
 }
 
-function formatUtcTimeLabel(timestampMs: number | null | undefined, includeSeconds = false): string {
+function formatReplayTimeLabel(timestampMs: number | null | undefined, includeSeconds = false): string {
   if (timestampMs == null || Number.isNaN(timestampMs)) {
     return "--:--";
   }
   return new Date(timestampMs).toLocaleTimeString([], {
-    timeZone: "UTC",
-    hour: "2-digit",
+    hour: "numeric",
     minute: "2-digit",
     second: includeSeconds ? "2-digit" : undefined,
-    hour12: false,
+    hour12: true,
   });
 }
 
@@ -573,15 +572,16 @@ export function TaskMap({
   }, [editable, onSelectTurnpoint]);
 
   useEffect(() => {
+    const nextReplayIndex = replayTotal > 0 ? replayTotal - 1 : 0;
     setIsReplaying(false);
-    setReplayIndex(0);
-    replayIndexRef.current = 0;
+    setReplayIndex(nextReplayIndex);
+    replayIndexRef.current = nextReplayIndex;
     lastFrameTimeRef.current = null;
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-  }, [track]);
+  }, [track, replayTotal]);
 
   useEffect(() => {
     if (!isReplaying || replayTotal <= 1) {
@@ -758,9 +758,9 @@ export function TaskMap({
   }, [airspaceData, airspaceLabelData, basemapMode, cylinderData, displayTrack, fitKey, legLabelData, optimizedRoute, optimizedRouteData, optimizedRoutePointData, replayMarkerData, routeData, taskPointData, taskPoints, track, turnpointData, turnpoints]);
 
   const replayVisible = !!track && replayTotal > 0;
-  const replayStartLabel = replayVisible ? formatUtcTimeLabel(replayTimestamps[0]) : "--:--";
-  const replayEndLabel = replayVisible ? formatUtcTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
-  const replayCurrentLabel = replayVisible ? formatUtcTimeLabel(replayTimestamps[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
+  const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[0]) : "--:--";
+  const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
+  const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
 
   function setTopDownView() {
     mapRef.current?.easeTo({ pitch: 0, duration: 300 });
@@ -892,7 +892,7 @@ export function TaskMap({
             </button>
             <span className="replay-speed-label">{replaySpeed}×</span>
           </div>
-          <div className="replay-current-time">{replayCurrentLabel} UTC</div>
+          <div className="replay-current-time">{replayCurrentLabel}</div>
           <div className="replay-scrubber-row">
             <span className="replay-time-label">{replayStartLabel}</span>
             <input

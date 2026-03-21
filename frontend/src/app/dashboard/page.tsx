@@ -117,7 +117,7 @@ type TaskRecord = {
   published_at: string | null;
   points: TaskPointRecord[];
 };
-type ResultRecord = { id: number; upload_id: number; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; score_points: number; rank: number | null; details_json: Record<string, unknown> };
+type ResultRecord = { id: number; upload_id: number; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string };
 type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number> };
 type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; metadata_json: Record<string, unknown> };
 type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
@@ -1704,16 +1704,17 @@ export default function HomePage() {
       setSelectedResultUploadIds((current) => current.filter((id) => id !== uploadId));
       return;
     }
+    setSelectedResultUploadIds((current) => (current.includes(uploadId) ? current : [...current, uploadId]));
     if (!resultTracksByUploadId[uploadId]) {
       try {
         const collection = await apiFetch<TrackCollection>(`/api/uploads/${uploadId}/track`, token);
         setResultTracksByUploadId((current) => ({ ...current, [uploadId]: collection }));
       } catch (caught) {
+        setSelectedResultUploadIds((current) => current.filter((id) => id !== uploadId));
         setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load the selected pilot track." });
         return;
       }
     }
-    setSelectedResultUploadIds((current) => (current.includes(uploadId) ? current : [...current, uploadId]));
   }
 
   function toggleTaskPointAdvanced(checked: boolean) {
@@ -1743,6 +1744,16 @@ export default function HomePage() {
       setScoringFeedback({ type: "success", text: "Scoring completed for the selected task." });
     } catch (caught) {
       setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Scoring failed." });
+    }
+  }
+
+  async function promoteResult(resultId: number) {
+    if (!token || !selectedTaskId) return;
+    try {
+      await apiFetch(`/api/results/${resultId}/promote`, token, { method: "POST" });
+      await loadTask(token, selectedTaskId);
+    } catch (caught) {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Promote failed." });
     }
   }
 
@@ -2936,6 +2947,7 @@ export default function HomePage() {
                               {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
                               <th>Total</th>
                               <th>IGC file</th>
+                              {canManagePlatform ? <th>State</th> : null}
                             </tr>
                           </thead>
                           <tbody>
@@ -2946,7 +2958,7 @@ export default function HomePage() {
                                   <td>{result.rank ?? "-"}</td>
                                 <td>
                                   <strong>{result.pilot_name}</strong>
-                                  <div className="results-name-meta">{result.status.toUpperCase()}</div>
+                                  <div className="results-name-meta">{result.status.toUpperCase()}{result.result_state === "provisional" ? <span className="result-state-badge provisional"> · PROVISIONAL</span> : null}</div>
                                 </td>
                                 <td>{pilot?.nation ?? "-"}</td>
                                 <td>-</td>
@@ -2969,6 +2981,21 @@ export default function HomePage() {
                                       {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id ? "Preparing..." : "Download"}
                                     </button>
                                   </td>
+                                  {canManagePlatform ? (
+                                    <td>
+                                      {result.result_state === "provisional" ? (
+                                        <button
+                                          type="button"
+                                          className="ghost-button"
+                                          onClick={() => void promoteResult(result.id)}
+                                        >
+                                          Promote to Official
+                                        </button>
+                                      ) : (
+                                        <span className="result-state-badge official">Official</span>
+                                      )}
+                                    </td>
+                                  ) : null}
                                 </tr>
                               );
                           })}
