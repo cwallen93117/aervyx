@@ -97,6 +97,19 @@ function scaleTrackPosition(position: TrackPosition, altitudeMultiplier: number)
   return [position[0], position[1], altitude * altitudeMultiplier];
 }
 
+function haversineKm(a: [number, number], b: [number, number]) {
+  const toRadians = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const deltaLat = toRadians(b[1] - a[1]);
+  const deltaLon = toRadians(b[0] - a[0]);
+  const latA = toRadians(a[1]);
+  const latB = toRadians(b[1]);
+  const sinLat = Math.sin(deltaLat / 2);
+  const sinLon = Math.sin(deltaLon / 2);
+  const arc = sinLat * sinLat + Math.cos(latA) * Math.cos(latB) * sinLon * sinLon;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(arc), Math.sqrt(1 - arc));
+}
+
 function formatReplayTimeLabel(timestampMs: number | null | undefined, includeSeconds = false): string {
   if (timestampMs == null || Number.isNaN(timestampMs)) {
     return "--:--";
@@ -396,6 +409,8 @@ export function TaskMap({
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
+  hideFullscreenDistanceOverlay = false,
+  highlightedTrackUploadId,
   fitKey,
   mode = "replay",
 }: {
@@ -410,6 +425,8 @@ export function TaskMap({
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: ReactNode;
+  hideFullscreenDistanceOverlay?: boolean;
+  highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
   mode?: "replay" | "live";
 }) {
@@ -748,7 +765,7 @@ export function TaskMap({
     const nextFitKey = String(fitKey ?? "");
     const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
     const shouldFitToTask = nextFitKey !== fitKeyRef.current;
-    const shouldFitToTrack = nextTrackSignature !== trackSignatureRef.current;
+    const shouldFitToTrack = false;
 
     const syncData = () => {
       ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
@@ -808,6 +825,47 @@ export function TaskMap({
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[0]) : "--:--";
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
   const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
+  const highlightedTrackTelemetry = useMemo(() => {
+    if (!track || highlightedTrackUploadId == null) {
+      return null;
+    }
+    const highlightedFeature = track.features.find((feature) => Number(feature.properties?.upload_id) === highlightedTrackUploadId);
+    if (!highlightedFeature || highlightedFeature.geometry.type !== "LineString" || !highlightedFeature.geometry.coordinates.length) {
+      return null;
+    }
+    const timestamps = Array.isArray(highlightedFeature.properties?.timestamps)
+      ? highlightedFeature.properties.timestamps.map((value) => Date.parse(String(value))).filter((value) => Number.isFinite(value))
+      : [];
+    const coordinateIndex = timestamps.length
+      ? Math.min(replayIndex, highlightedFeature.geometry.coordinates.length - 1, timestamps.length - 1)
+      : highlightedFeature.geometry.coordinates.length - 1;
+    const coordinate = highlightedFeature.geometry.coordinates[Math.max(0, coordinateIndex)];
+    if (!coordinate) {
+      return null;
+    }
+    const previousIndex = Math.max(0, coordinateIndex - 1);
+    const previousCoordinate = highlightedFeature.geometry.coordinates[previousIndex];
+    const currentTimestamp = timestamps[coordinateIndex];
+    const previousTimestamp = timestamps[previousIndex];
+    let speedKmh: number | null = null;
+    if (previousCoordinate && currentTimestamp && previousTimestamp && currentTimestamp > previousTimestamp) {
+      const distanceKm = haversineKm(
+        [previousCoordinate[0], previousCoordinate[1]],
+        [coordinate[0], coordinate[1]],
+      );
+      const elapsedHours = (currentTimestamp - previousTimestamp) / 3_600_000;
+      if (elapsedHours > 0) {
+        speedKmh = distanceKm / elapsedHours;
+      }
+    }
+    return {
+      pilotName: String(highlightedFeature.properties?.pilot_name ?? "Pilot"),
+      timeLabel: currentTimestamp ? formatReplayTimeLabel(currentTimestamp, true) : "--:--:--",
+      altitudeM: coordinate.length > 2 ? Math.round(coordinate[2] ?? 0) : 0,
+      speedKmh,
+      color: String(highlightedFeature.properties?.color ?? "#2563eb"),
+    };
+  }, [highlightedTrackUploadId, replayIndex, track]);
 
   function setReplaySpeedStep(direction: -1 | 1) {
     const currentIndex = REPLAY_SPEEDS.indexOf(replaySpeed as (typeof REPLAY_SPEEDS)[number]);
@@ -834,16 +892,31 @@ export function TaskMap({
       />
       <div className={isFullscreen ? "map-fullscreen-sidebar" : undefined}>
         {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
-        <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
-          <div className="map-distance-box">
-            <strong>Total task</strong>
-            <span>{totalDistanceKm.toFixed(1)} km</span>
+        {!(isFullscreen && hideFullscreenDistanceOverlay) ? (
+          <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
+            <div className="map-distance-box">
+              <strong>Total task</strong>
+              <span>{totalDistanceKm.toFixed(1)} km</span>
+            </div>
+            <div className="map-distance-box">
+              <strong>Optimized</strong>
+              <span>{optimizedDistanceKm.toFixed(1)} km</span>
+            </div>
           </div>
-          <div className="map-distance-box">
-            <strong>Optimized</strong>
-            <span>{optimizedDistanceKm.toFixed(1)} km</span>
+        ) : null}
+        {highlightedTrackTelemetry ? (
+          <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">
+            <strong style={{ color: highlightedTrackTelemetry.color }}>{highlightedTrackTelemetry.pilotName}</strong>
+            <div className="map-track-telemetry-grid">
+              <span>Time</span>
+              <span>{highlightedTrackTelemetry.timeLabel}</span>
+              <span>Altitude</span>
+              <span>{highlightedTrackTelemetry.altitudeM.toLocaleString()} m</span>
+              <span>Speed</span>
+              <span>{highlightedTrackTelemetry.speedKmh != null ? `${highlightedTrackTelemetry.speedKmh.toFixed(1)} km/h` : "--"}</span>
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
       <div className="map-picker-stack">
         {track ? (

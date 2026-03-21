@@ -663,6 +663,7 @@ export default function HomePage() {
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
   const [resultTracksByUploadId, setResultTracksByUploadId] = useState<Record<number, TrackCollection>>({});
+  const [highlightedResultUploadId, setHighlightedResultUploadId] = useState<number | null>(null);
   const [pilotSummaryEventId, setPilotSummaryEventId] = useState<number | null>(null);
   const [scoringDataTaskId, setScoringDataTaskId] = useState<number | null>(null);
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
@@ -770,19 +771,26 @@ export default function HomePage() {
       <div className="results-task-map-pilot-items">
         {results.map((result) => {
           const isChecked = selectedResultUploadIds.includes(result.upload_id);
+          const isHighlighted = highlightedResultUploadId === result.upload_id;
           const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
           return (
-            <label key={result.id} className="results-task-map-pilot-item">
+            <div key={result.id} className={`results-task-map-pilot-item${isHighlighted ? " is-highlighted" : ""}`}>
               <input
                 type="checkbox"
                 checked={isChecked}
                 onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
               />
               <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-              <span className="results-task-map-pilot-copy">
-                <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-              </span>
-            </label>
+              <button
+                type="button"
+                className="results-task-map-pilot-button"
+                onClick={() => setHighlightedResultUploadId(result.upload_id)}
+              >
+                <span className="results-task-map-pilot-copy">
+                  <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
+                </span>
+              </button>
+            </div>
           );
         })}
       </div>
@@ -1075,6 +1083,7 @@ export default function HomePage() {
       setTrack(null);
       setSelectedResultUploadIds([]);
       setResultTracksByUploadId({});
+      setHighlightedResultUploadId(null);
       setScoringDataTaskId(null);
       setRadiusDrafts({});
       const nextTask = visibleTasks.find((task) => task.id === preferredTaskId)
@@ -1110,6 +1119,7 @@ export default function HomePage() {
     setTrack(null);
     setSelectedResultUploadIds([]);
     setResultTracksByUploadId({});
+    setHighlightedResultUploadId(null);
     setResultsDownloadFeedback(null);
     setRadiusDrafts({});
     setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
@@ -1780,9 +1790,11 @@ export default function HomePage() {
     if (!token) return;
     if (!checked) {
       setSelectedResultUploadIds((current) => current.filter((id) => id !== uploadId));
+      setHighlightedResultUploadId((current) => (current === uploadId ? null : current));
       return;
     }
     setSelectedResultUploadIds((current) => (current.includes(uploadId) ? current : [...current, uploadId]));
+    setHighlightedResultUploadId(uploadId);
     if (!resultTracksByUploadId[uploadId]) {
       try {
         const collection = await apiFetch<TrackCollection>(`/api/uploads/${uploadId}/track`, token);
@@ -2532,6 +2544,20 @@ export default function HomePage() {
               </tbody>
             </table>
           </div>
+          <div className="map-task-editor-footer">
+            <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
+              <span>
+                <strong>Total:</strong> {taskDistanceMetrics.totalDistanceKm.toFixed(1)} km
+              </span>
+              <span>
+                <strong>Optimized:</strong> {taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km
+              </span>
+            </div>
+            <button type="button" className="map-task-editor-save" onClick={saveTask}>
+              Save task
+            </button>
+            {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
+          </div>
         </div>
       ) : undefined;
       return (
@@ -2804,6 +2830,7 @@ export default function HomePage() {
                     editable={canManagePlatform}
                     onSelectTurnpoint={canManagePlatform ? addTurnpoint : undefined}
                     taskEditorOverlay={fullscreenTaskEditor}
+                    hideFullscreenDistanceOverlay={canManagePlatform}
                     fitKey={selectedTaskId}
                   />
                 </div>
@@ -3098,18 +3125,20 @@ export default function HomePage() {
                                 const isChecked = selectedResultUploadIds.includes(result.upload_id);
                                 const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
                                 return (
-                                  <label key={result.id} className="results-task-map-pilot-item">
+                                  <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
                                     <input
                                       type="checkbox"
                                       checked={isChecked}
                                       onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
                                     />
                                     <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                                    <span className="results-task-map-pilot-copy">
+                                    <button type="button" className="results-task-map-pilot-button" onClick={() => setHighlightedResultUploadId(result.upload_id)}>
+                                      <span className="results-task-map-pilot-copy">
                                       <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
                                       <small>{result.status.toUpperCase()} · {result.score_points.toFixed(1)} pts</small>
-                                    </span>
-                                  </label>
+                                      </span>
+                                    </button>
+                                  </div>
                                 );
                               })}
                             </div>
@@ -3125,6 +3154,7 @@ export default function HomePage() {
                             track={resultsTrackOverlay}
                             editable={false}
                             taskEditorOverlay={resultsTrackPilotList}
+                            highlightedTrackUploadId={highlightedResultUploadId}
                             fitKey={`${selectedTaskId}:${selectedResultUploadIds.join(",")}`}
                           />
                         </div>
