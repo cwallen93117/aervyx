@@ -682,6 +682,12 @@ export default function HomePage() {
   });
   const [taskFeedback, setTaskFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [uploadFeedback, setUploadFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
+  const [resultsDownloadFeedback, setResultsDownloadFeedback] = useState<{
+    type: "success" | "error" | "pending";
+    text: string;
+    uploadId: number | null;
+    all: boolean;
+  } | null>(null);
   const [sidebarCompact, setSidebarCompact] = useState(false);
   const [authPanelOpen, setAuthPanelOpen] = useState(false);
   const [scoresPortalTab, setScoresPortalTab] = useState<ScoresPortalTab>("results");
@@ -710,6 +716,13 @@ export default function HomePage() {
   const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
   const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
   const uploadById = useMemo(() => new Map(uploads.map((upload) => [upload.id, upload])), [uploads]);
+  const resultTrackColorsByUploadId = useMemo(() => {
+    const colorMap = new Map<number, string>();
+    results.forEach((result, index) => {
+      colorMap.set(result.upload_id, resultTrackPalette[index % resultTrackPalette.length]);
+    });
+    return colorMap;
+  }, [resultTrackPalette, results]);
   const filteredTurnpoints = useMemo(() => {
       const query = turnpointSearch.trim().toLowerCase();
       if (!query) return [];
@@ -724,14 +737,14 @@ export default function HomePage() {
     if (!selectedResultUploadIds.length) {
       return null;
     }
-    const features = selectedResultUploadIds.flatMap((uploadId, index) => {
+    const features = selectedResultUploadIds.flatMap((uploadId) => {
       const collection = resultTracksByUploadId[uploadId];
       if (!collection) {
         return [];
       }
       const upload = uploadById.get(uploadId);
       const pilotName = upload ? pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`;
-      const color = resultTrackPalette[index % resultTrackPalette.length];
+      const color = resultTrackColorsByUploadId.get(uploadId) ?? resultTrackPalette[0];
       return collection.features.map((feature) => ({
         ...feature,
         properties: {
@@ -743,7 +756,7 @@ export default function HomePage() {
       }));
     });
     return { type: "FeatureCollection", features };
-  }, [pilotNameById, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
+  }, [pilotNameById, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
   const taskDefinitionRows = useMemo(() => {
     let cumulativeDistance = 0;
     return taskDraft.points.map((point, index) => {
@@ -1029,6 +1042,7 @@ export default function HomePage() {
     setTrack(null);
     setSelectedResultUploadIds([]);
     setResultTracksByUploadId({});
+    setResultsDownloadFeedback(null);
     setRadiusDrafts({});
     setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
     setScoringFeedback(null);
@@ -1651,10 +1665,17 @@ export default function HomePage() {
   async function downloadUploadFile(uploadId: number, filename: string) {
     if (!token) return;
     try {
+      setResultsDownloadFeedback({ type: "pending", text: `Preparing ${filename}...`, uploadId, all: false });
       const { blob, filename: responseFilename } = await apiFetchBlob(`/api/uploads/${uploadId}/download`, token);
       downloadBlobFile(blob, responseFilename ?? filename);
+      setResultsDownloadFeedback({ type: "success", text: `Download started for ${responseFilename ?? filename}.`, uploadId, all: false });
     } catch (caught) {
-      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download the IGC file." });
+      setResultsDownloadFeedback({
+        type: "error",
+        text: caught instanceof Error ? caught.message : "Could not download the IGC file.",
+        uploadId,
+        all: false,
+      });
     }
   }
 
@@ -1662,10 +1683,17 @@ export default function HomePage() {
     if (!token || !selectedTaskId) return;
     try {
       const taskName = (selectedTask?.name ?? "task").replace(/[^a-z0-9._-]+/gi, "-");
+      setResultsDownloadFeedback({ type: "pending", text: "Preparing all IGC files...", uploadId: null, all: true });
       const { blob, filename } = await apiFetchBlob(`/api/tasks/${selectedTaskId}/uploads/download-all`, token);
       downloadBlobFile(blob, filename ?? `${taskName}-igc-files.zip`);
+      setResultsDownloadFeedback({ type: "success", text: "Started downloading all IGC files.", uploadId: null, all: true });
     } catch (caught) {
-      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download all IGC files." });
+      setResultsDownloadFeedback({
+        type: "error",
+        text: caught instanceof Error ? caught.message : "Could not download all IGC files.",
+        uploadId: null,
+        all: true,
+      });
     }
   }
 
@@ -2879,9 +2907,17 @@ export default function HomePage() {
                         <h3>{selectedTask?.name ?? "Task results"}</h3>
                         <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
                       </div>
-                      <button type="button" className="ghost-button" onClick={() => void downloadAllIgcFiles()}>
-                        Download all IGC files
-                      </button>
+                      <div className="button-row">
+                        <button
+                          type="button"
+                          className="ghost-button"
+                          onClick={() => void downloadAllIgcFiles()}
+                          disabled={resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all}
+                        >
+                          {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all ? "Preparing..." : "Download all IGC files"}
+                        </button>
+                        {resultsDownloadFeedback?.all ? <div className={`status-chip ${resultsDownloadFeedback.type}`}>{resultsDownloadFeedback.text}</div> : null}
+                      </div>
                     </div>
                     <div className="results-table-wrap">
                       <table className="results-table results-table-task">
@@ -2926,9 +2962,10 @@ export default function HomePage() {
                                     <button
                                       type="button"
                                       className="ghost-button"
+                                      disabled={resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id}
                                       onClick={() => void downloadUploadFile(result.upload_id, uploadById.get(result.upload_id)?.filename ?? `${result.pilot_name}.igc`)}
                                     >
-                                      Download
+                                      {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id ? "Preparing..." : "Download"}
                                     </button>
                                   </td>
                                 </tr>
@@ -2952,6 +2989,7 @@ export default function HomePage() {
                             <div className="results-task-map-pilot-items">
                               {results.map((result) => {
                                 const isChecked = selectedResultUploadIds.includes(result.upload_id);
+                                const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
                                 return (
                                   <label key={result.id} className="results-task-map-pilot-item">
                                     <input
@@ -2961,7 +2999,7 @@ export default function HomePage() {
                                     />
                                     <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
                                     <span className="results-task-map-pilot-copy">
-                                      <strong>{result.pilot_name}</strong>
+                                      <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
                                       <small>{result.status.toUpperCase()} · {result.score_points.toFixed(1)} pts</small>
                                     </span>
                                   </label>
