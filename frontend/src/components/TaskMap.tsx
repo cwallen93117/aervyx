@@ -397,6 +397,7 @@ export function TaskMap({
   onSelectTurnpoint,
   taskEditorOverlay,
   fitKey,
+  mode = "replay",
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -410,6 +411,7 @@ export function TaskMap({
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: ReactNode;
   fitKey?: string | number | null;
+  mode?: "replay" | "live";
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -652,8 +654,11 @@ export function TaskMap({
         zoom: 9,
         attributionControl: false,
       });
-      map.addControl(new maplibregl.NavigationControl({ showCompass: true }), "top-right");
+      const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
+      map.addControl(navigationControl, "top-right");
       map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
+      let compassButton: HTMLButtonElement | null = null;
+      let handleCompassClick: ((event: Event) => void) | null = null;
       map.on("styledata", () => {
         map.resize();
       });
@@ -678,6 +683,17 @@ export function TaskMap({
       if (shell) {
         resizeObserver.observe(shell);
       }
+      window.setTimeout(() => {
+        compassButton = container.closest(".map-shell")?.querySelector(".maplibregl-ctrl-compass") as HTMLButtonElement | null;
+        if (compassButton) {
+          handleCompassClick = () => {
+            window.setTimeout(() => {
+              map.easeTo({ bearing: 0, pitch: 0, duration: 300 });
+            }, 0);
+          };
+          compassButton.addEventListener("click", handleCompassClick);
+        }
+      }, 0);
       const handleFullscreenChange = () => {
         const fullscreenElement = document.fullscreenElement ?? ((document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ?? null);
         setIsFullscreen(fullscreenElement === shell);
@@ -693,6 +709,9 @@ export function TaskMap({
       mapRef.current = map;
       return () => {
         resizeObserver.disconnect();
+        if (compassButton && handleCompassClick) {
+          compassButton.removeEventListener("click", handleCompassClick);
+        }
         document.removeEventListener("fullscreenchange", handleFullscreenChange);
         document.removeEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
         map.remove();
@@ -765,10 +784,6 @@ export function TaskMap({
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
   const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
 
-  function setTopDownView() {
-    mapRef.current?.easeTo({ pitch: 0, duration: 300 });
-  }
-
   function setReplaySpeedStep(direction: -1 | 1) {
     const currentIndex = REPLAY_SPEEDS.indexOf(replaySpeed as (typeof REPLAY_SPEEDS)[number]);
     const nextIndex = Math.min(REPLAY_SPEEDS.length - 1, Math.max(0, currentIndex + direction));
@@ -777,7 +792,7 @@ export function TaskMap({
 
   return (
     <div
-      className={`${isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}${replayVisible ? " has-replay" : ""}`}
+      className={`${isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}${replayVisible && mode === "replay" ? " has-replay" : ""}`}
       ref={shellRef}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
@@ -786,20 +801,12 @@ export function TaskMap({
         ref={containerRef}
         style={
           isFullscreen
-            ? { height: replayVisible ? "calc(100vh - 104px)" : "100vh", minHeight: replayVisible ? "calc(100vh - 104px)" : "100vh" }
-            : replayVisible
+            ? { height: replayVisible && mode === "replay" ? "calc(100vh - 104px)" : "100vh", minHeight: replayVisible && mode === "replay" ? "calc(100vh - 104px)" : "100vh" }
+            : replayVisible && mode === "replay"
               ? { height: "calc(420px - 104px)", minHeight: "calc(420px - 104px)" }
               : undefined
         }
       />
-      <div className="map-control-stack">
-        <button type="button" className="map-control-button" aria-label="Reset to top-down view" title="Top-down view" onClick={setTopDownView}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <rect x="3" y="3" width="10" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-            <circle cx="8" cy="8" r="1.8" fill="currentColor" />
-          </svg>
-        </button>
-      </div>
       <div className={isFullscreen ? "map-fullscreen-sidebar" : undefined}>
         {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
         <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
@@ -836,7 +843,7 @@ export function TaskMap({
           </select>
         </label>
       </div>
-      {replayVisible ? (
+      {replayVisible && mode === "replay" ? (
         <div className="replay-bar">
           <div className="replay-controls">
             <button

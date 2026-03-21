@@ -666,6 +666,7 @@ export default function HomePage() {
   const [message, setMessage] = useState(DEFAULT_MESSAGE);
   const [error, setError] = useState("");
   const [authChecking, setAuthChecking] = useState(true);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [eventForm, setEventForm] = useState(blankEventForm());
     const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
     const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
@@ -758,6 +759,33 @@ export default function HomePage() {
     });
     return { type: "FeatureCollection", features };
   }, [pilotNameById, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
+  const resultsTrackPilotList = (
+    <div className="results-task-map-pilot-list">
+      <div className="results-task-map-pilot-header">
+        <strong>Show pilot tracks</strong>
+        <span>{selectedResultUploadIds.length} selected</span>
+      </div>
+      <div className="results-task-map-pilot-items">
+        {results.map((result) => {
+          const isChecked = selectedResultUploadIds.includes(result.upload_id);
+          const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
+          return (
+            <label key={result.id} className="results-task-map-pilot-item">
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
+              />
+              <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
+              <span className="results-task-map-pilot-copy">
+                <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
   const taskDefinitionRows = useMemo(() => {
     let cumulativeDistance = 0;
     return taskDraft.points.map((point, index) => {
@@ -924,14 +952,16 @@ export default function HomePage() {
     setSettingsForm(settings);
     setActiveSection(normalizeSectionForRole(storedSection, me.role));
     setEvents(loadedEvents);
-    await refreshPilotDirectory(activeToken, me);
-    await refreshAdminUsers(activeToken, me);
+    void refreshPilotDirectory(activeToken, me);
+    void refreshAdminUsers(activeToken, me);
     if (preferredEvent) {
       window.localStorage.setItem(LAST_EVENT_KEY, String(preferredEvent.id));
       setSelectedEventId(preferredEvent.id);
       setEventEditorId(preferredEvent.id);
       setEventForm(eventToForm(preferredEvent));
-      await loadEvent(activeToken, preferredEvent.id, preferredEvent, me);
+      void loadEvent(activeToken, preferredEvent.id, preferredEvent, me).catch((caught) => {
+        setError(caught instanceof Error ? caught.message : "Could not load the selected event.");
+      });
     } else {
       setSelectedEventId(null);
       setEventEditorId(null);
@@ -980,47 +1010,52 @@ export default function HomePage() {
   }
 
   async function loadEvent(activeToken: string, eventId: number, currentEvent?: EventRecord | null, activeUser?: User | null, preferredTaskId?: number | null) {
-    setSelectedEventId(eventId);
-    window.localStorage.setItem(LAST_EVENT_KEY, String(eventId));
-    const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
-    setEventEditorId(eventId);
-    setEventForm(eventToForm(activeEvent));
-    const [loadedPilots, loadedTurnpoints, loadedTurnpointSources, loadedAirspaces, loadedAirspaceSources, loadedTasks, loadedSummary] = await Promise.all([
-      apiFetch<PilotRecord[]>(`/api/events/${eventId}/pilots`, activeToken),
-      apiFetch<TurnpointRecord[]>(`/api/events/${eventId}/turnpoints`, activeToken),
-      apiFetch<TurnpointSourceRecord[]>(`/api/events/${eventId}/turnpoint-sources`, activeToken),
-      apiFetch<MapAirspaceRegion[]>(`/api/events/${eventId}/airspaces`, activeToken),
-      apiFetch<AirspaceSourceRecord[]>(`/api/events/${eventId}/airspace-sources`, activeToken),
-      apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
-      apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
-    ]);
-    const viewer = activeUser ?? user;
-    const visibleTasks = viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks;
-    setPilots(loadedPilots);
-    setTurnpoints(loadedTurnpoints);
-    setTurnpointSources(loadedTurnpointSources);
-    setAirspaces(loadedAirspaces);
-    setAirspaceSources(loadedAirspaceSources);
-    setTasks(visibleTasks);
-    setPilotSummary(loadedSummary);
-    setTrack(null);
-    setSelectedResultUploadIds([]);
-    setResultTracksByUploadId({});
-    setRadiusDrafts({});
-    const nextTask = visibleTasks.find((task) => task.id === preferredTaskId)
-      ?? visibleTasks.find((task) => task.id === selectedTaskId)
-      ?? visibleTasks[0];
-    if (nextTask) {
-      await loadTask(activeToken, nextTask.id, nextTask);
-    } else {
-      setSelectedTaskId(null);
-      setResults([]);
-      setUploads([]);
-      setTaskPointAdvanced(false);
-      setScoringFeedback(null);
-      setTaskFeedback(null);
-      setEventFormFeedback({ details: null, scoring: null, airspace: null });
-      setTaskDraft(taskDraftFromEvent(activeEvent));
+    setWorkspaceLoading(true);
+    try {
+      setSelectedEventId(eventId);
+      window.localStorage.setItem(LAST_EVENT_KEY, String(eventId));
+      const activeEvent = currentEvent ?? events.find((event) => event.id === eventId) ?? null;
+      setEventEditorId(eventId);
+      setEventForm(eventToForm(activeEvent));
+      const [loadedPilots, loadedTurnpoints, loadedTurnpointSources, loadedAirspaces, loadedAirspaceSources, loadedTasks, loadedSummary] = await Promise.all([
+        apiFetch<PilotRecord[]>(`/api/events/${eventId}/pilots`, activeToken),
+        apiFetch<TurnpointRecord[]>(`/api/events/${eventId}/turnpoints`, activeToken),
+        apiFetch<TurnpointSourceRecord[]>(`/api/events/${eventId}/turnpoint-sources`, activeToken),
+        apiFetch<MapAirspaceRegion[]>(`/api/events/${eventId}/airspaces`, activeToken),
+        apiFetch<AirspaceSourceRecord[]>(`/api/events/${eventId}/airspace-sources`, activeToken),
+        apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
+        apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
+      ]);
+      const viewer = activeUser ?? user;
+      const visibleTasks = viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks;
+      setPilots(loadedPilots);
+      setTurnpoints(loadedTurnpoints);
+      setTurnpointSources(loadedTurnpointSources);
+      setAirspaces(loadedAirspaces);
+      setAirspaceSources(loadedAirspaceSources);
+      setTasks(visibleTasks);
+      setPilotSummary(loadedSummary);
+      setTrack(null);
+      setSelectedResultUploadIds([]);
+      setResultTracksByUploadId({});
+      setRadiusDrafts({});
+      const nextTask = visibleTasks.find((task) => task.id === preferredTaskId)
+        ?? visibleTasks.find((task) => task.id === selectedTaskId)
+        ?? visibleTasks[0];
+      if (nextTask) {
+        await loadTask(activeToken, nextTask.id, nextTask);
+      } else {
+        setSelectedTaskId(null);
+        setResults([]);
+        setUploads([]);
+        setTaskPointAdvanced(false);
+        setScoringFeedback(null);
+        setTaskFeedback(null);
+        setEventFormFeedback({ details: null, scoring: null, airspace: null });
+        setTaskDraft(taskDraftFromEvent(activeEvent));
+      }
+    } finally {
+      setWorkspaceLoading(false);
     }
   }
 
@@ -2920,6 +2955,8 @@ export default function HomePage() {
                         <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
                       </div>
                       <div className="button-row">
+                        <a href={`/dashboard/live?task=${selectedTaskId}`} className="ghost-button">Live View</a>
+                        <a href={`/dashboard/replay?task=${selectedTaskId}`} className="ghost-button">Replay</a>
                         <button
                           type="button"
                           className="ghost-button"
@@ -3322,6 +3359,18 @@ export default function HomePage() {
     }
 
   if (!user) {
+    if (authChecking) {
+      return (
+        <main className="shell">
+          <div className="dashboard-loading-shell">
+            <div className="dashboard-loading-card">
+              <h2>Loading Aervyx workspace...</h2>
+              <p>Restoring your session, events, tasks, and scores.</p>
+            </div>
+          </div>
+        </main>
+      );
+    }
     return null;
   }
 
@@ -3356,6 +3405,11 @@ export default function HomePage() {
             {message && message !== DEFAULT_MESSAGE ? (
               <div className="status-row">
                 <div className="status-chip success">{message}</div>
+              </div>
+            ) : null}
+            {workspaceLoading ? (
+              <div className="status-row">
+                <div className="status-chip pending">Loading event workspace...</div>
               </div>
             ) : null}
             {renderActiveSection()}
