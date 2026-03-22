@@ -48,23 +48,53 @@ def promote_result(result_id: int, admin: User = Depends(require_staff), session
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])
 def pilot_summary(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[PilotSummaryResponse]:
     pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
+    if not pilot_ids:
+        return []
+
+    # Batch-load all pilots
+    pilots_by_id: dict[int, Pilot] = {
+        p.id: p for p in session.scalars(select(Pilot).where(Pilot.id.in_(pilot_ids))).all()
+    }
+
+    # Batch-load all per-task scores for these pilots in this event
+    score_rows = session.execute(
+        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .where(Task.event_id == event_id, ScoreResult.pilot_id.in_(pilot_ids))
+        .order_by(ScoreResult.task_id.asc())
+    ).all()
+
+    # Batch-load aggregates for all pilots in one query
+    agg_rows = session.execute(
+        select(
+            ScoreResult.pilot_id,
+            func.coalesce(func.sum(ScoreResult.score_points), 0),
+            func.count(ScoreResult.id),
+            func.coalesce(func.max(ScoreResult.distance_flown_km), 0),
+        )
+        .join(Task, Task.id == ScoreResult.task_id)
+        .where(Task.event_id == event_id, ScoreResult.pilot_id.in_(pilot_ids))
+        .group_by(ScoreResult.pilot_id)
+    ).all()
+
+    # Build lookup structures
+    task_scores_by_pilot: dict[int, dict[int, float]] = {}
+    for pid, tid, pts in score_rows:
+        task_scores_by_pilot.setdefault(pid, {})[int(tid)] = float(pts or 0)
+
+    agg_by_pilot: dict[int, tuple] = {row[0]: row[1:] for row in agg_rows}
+
     summaries: list[PilotSummaryResponse] = []
     for pilot_id in pilot_ids:
-        pilot = session.get(Pilot, pilot_id)
-        task_scores = {
-            int(task_id): float(score_points or 0)
-            for task_id, score_points in session.execute(
-                select(ScoreResult.task_id, ScoreResult.score_points)
-                .join(Task, Task.id == ScoreResult.task_id)
-                .where(Task.event_id == event_id, ScoreResult.pilot_id == pilot_id)
-                .order_by(ScoreResult.task_id.asc())
-            ).all()
-        }
-        aggregates = session.execute(
-            select(func.coalesce(func.sum(ScoreResult.score_points), 0), func.count(ScoreResult.id), func.coalesce(func.max(ScoreResult.distance_flown_km), 0))
-            .select_from(ScoreResult)
-            .join(Task, Task.id == ScoreResult.task_id)
-            .where(Task.event_id == event_id, ScoreResult.pilot_id == pilot_id)
-        ).one()
-        summaries.append(PilotSummaryResponse(pilot_id=pilot_id, pilot_name=f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown", competition_number=pilot.competition_number if pilot else None, total_score_points=float(aggregates[0] or 0), tasks_scored=int(aggregates[1] or 0), best_distance_km=float(aggregates[2] or 0), task_scores=task_scores))
+        pilot = pilots_by_id.get(pilot_id)
+        agg = agg_by_pilot.get(pilot_id, (0, 0, 0))
+        summaries.append(PilotSummaryResponse(
+            pilot_id=pilot_id,
+            pilot_name=f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
+            competition_number=pilot.competition_number if pilot else None,
+            total_score_points=float(agg[0] or 0),
+            tasks_scored=int(agg[1] or 0),
+            best_distance_km=float(agg[2] or 0),
+            task_scores=task_scores_by_pilot.get(pilot_id, {}),
+        ))
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

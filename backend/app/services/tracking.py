@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select, update
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import LivePosition, TrackingSession
@@ -16,6 +17,7 @@ from app.models import LivePosition, TrackingSession
 # ---------------------------------------------------------------------------
 
 _subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
+logger = logging.getLogger("aervyx.tracking")
 
 
 def subscribe(task_id: int) -> asyncio.Queue[dict[str, Any]]:
@@ -44,6 +46,9 @@ def _publish(task_id: int, message: dict[str, Any]) -> None:
         try:
             queue.put_nowait(message)
         except asyncio.QueueFull:
+            dead.append(queue)
+        except Exception:
+            logger.warning("Dropping failed live-tracking subscriber for task %s", task_id, exc_info=True)
             dead.append(queue)
     for queue in dead:
         task_subs.discard(queue)
@@ -140,9 +145,10 @@ def store_position(
 def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
     """Return the latest position per pilot for a task (active sessions only).
 
-    For each pilot with an active tracking session, selects the most recent
-    position row.
+    Uses a window function to get the latest position per active pilot in one query.
     """
+    from sqlalchemy import func as sa_func
+
     active_pilots = session.scalars(
         select(TrackingSession.pilot_id).where(
             TrackingSession.task_id == task_id,
@@ -153,32 +159,43 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
     if not active_pilots:
         return []
 
-    results: list[dict[str, Any]] = []
-    for pid in active_pilots:
-        pos = session.scalar(
-            select(LivePosition)
-            .where(LivePosition.task_id == task_id, LivePosition.pilot_id == pid)
-            .order_by(LivePosition.timestamp.desc())
-            .limit(1)
+    # Use a subquery with ROW_NUMBER() to get latest position per pilot
+    row_num = sa_func.row_number().over(
+        partition_by=LivePosition.pilot_id,
+        order_by=LivePosition.timestamp.desc(),
+    ).label("rn")
+
+    subq = (
+        select(LivePosition, row_num)
+        .where(
+            LivePosition.task_id == task_id,
+            LivePosition.pilot_id.in_(active_pilots),
         )
-        if pos is None:
-            continue
-        results.append({
-            "id": str(pos.id),
-            "pilot_id": pos.pilot_id,
-            "task_id": pos.task_id,
-            "lat": pos.lat,
-            "lon": pos.lon,
-            "alt": pos.alt,
-            "speed": pos.speed,
-            "heading": pos.heading,
-            "accuracy": pos.accuracy,
-            "timestamp": pos.timestamp.isoformat(),
-            "source": pos.source,
-            "device_id": pos.device_id,
-            "battery_level": pos.battery_level,
-        })
-    return results
+        .subquery()
+    )
+
+    rows = session.execute(
+        select(subq).where(subq.c.rn == 1)
+    ).all()
+
+    return [
+        {
+            "id": str(row.id),
+            "pilot_id": row.pilot_id,
+            "task_id": row.task_id,
+            "lat": row.lat,
+            "lon": row.lon,
+            "alt": row.alt,
+            "speed": row.speed,
+            "heading": row.heading,
+            "accuracy": row.accuracy,
+            "timestamp": row.timestamp.isoformat(),
+            "source": row.source,
+            "device_id": row.device_id,
+            "battery_level": row.battery_level,
+        }
+        for row in rows
+    ]
 
 
 def get_position_history(
