@@ -183,6 +183,9 @@ class AirspaceRegion(Base):
 
 class Task(Base):
     __tablename__ = "tasks"
+    __table_args__ = (
+        Index("ix_tasks_event_status", "event_id", "status"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
@@ -238,6 +241,9 @@ class IGCUpload(Base):
 
 class TrackPoint(Base):
     __tablename__ = "track_points"
+    __table_args__ = (
+        Index("ix_track_points_upload_seq", "upload_id", "sequence"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     upload_id: Mapped[int] = mapped_column(ForeignKey("igc_uploads.id", ondelete="CASCADE"), index=True)
@@ -251,7 +257,11 @@ class TrackPoint(Base):
 
 class ScoreResult(Base):
     __tablename__ = "score_results"
-    __table_args__ = (UniqueConstraint("task_id", "pilot_id", name="uq_score_task_pilot"),)
+    __table_args__ = (
+        UniqueConstraint("task_id", "pilot_id", name="uq_score_task_pilot"),
+        Index("ix_score_results_task_pilot", "task_id", "pilot_id"),
+        Index("ix_score_results_task_rank", "task_id", "rank"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import re
@@ -118,15 +119,15 @@ def _match_pilot_for_upload(session: Session, event_id: int, filename: str, meta
     return best_pilot if best_score >= 60 else None
 
 
-def _store_upload(session: Session, task: Task, file: UploadFile, content: bytes, pilot_id: int, uploaded_by_user_id: int) -> UploadResponse:
+async def _store_upload(session: Session, task: Task, file: UploadFile, content: bytes, pilot_id: int, uploaded_by_user_id: int) -> UploadResponse:
     sha256 = hashlib.sha256(content).hexdigest()
     parsed = parse_igc(content)
     settings = get_settings()
     upload_dir = Path(settings.upload_root) / "igc" / sha256
-    upload_dir.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
     stored_path = upload_dir / (file.filename or "track.igc")
-    if not stored_path.exists():
-        stored_path.write_bytes(content)
+    if not await asyncio.to_thread(stored_path.exists):
+        await asyncio.to_thread(stored_path.write_bytes, content)
     upload = IGCUpload(
         event_id=task.event_id,
         task_id=task.id,
@@ -175,7 +176,7 @@ async def upload_igc(task_id: int, file: UploadFile = File(...), pilot_id: int |
     if session.scalar(select(EventPilot).where(EventPilot.event_id == task.event_id, EventPilot.pilot_id == effective_pilot_id)) is None:
         raise HTTPException(status_code=400, detail="Pilot is not registered for this event")
     content = await file.read()
-    response = _store_upload(session, task, file, content, effective_pilot_id, user.id)
+    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id)
     session.commit()
     return response
 
@@ -204,7 +205,7 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
                     )
                 )
                 continue
-            upload_response = _store_upload(session, task, file, content, matched_pilot.id, user.id)
+            upload_response = await _store_upload(session, task, file, content, matched_pilot.id, user.id)
             results.append(
                 BulkUploadItemResponse(
                     filename=filename,

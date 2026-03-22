@@ -619,9 +619,18 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
     registered_pilot_count = session.scalar(select(func.count(EventPilot.id)).where(EventPilot.event_id == task.event_id)) or 0
 
+    # Batch-load all trackpoints for the relevant uploads in one query
+    upload_ids = [upload.id for upload in latest_by_pilot.values()]
+    all_trackpoints = session.scalars(
+        select(TrackPoint).where(TrackPoint.upload_id.in_(upload_ids)).order_by(TrackPoint.upload_id, TrackPoint.sequence)
+    ).all() if upload_ids else []
+    trackpoints_by_upload: dict[int, list[TrackPoint]] = {}
+    for tp in all_trackpoints:
+        trackpoints_by_upload.setdefault(tp.upload_id, []).append(tp)
+
     evaluations: list[dict] = []
     for upload in latest_by_pilot.values():
-        trackpoints = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload.id).order_by(TrackPoint.sequence)).all()
+        trackpoints = trackpoints_by_upload.get(upload.id, [])
         evaluations.append({"upload": upload, "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None)})
 
     session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
