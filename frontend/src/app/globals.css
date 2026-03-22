@@ -1595,6 +1595,7 @@ button[type="submit"]:hover {
 }
 
 .map-fullscreen-sidebar .results-task-map-pilot-list {
+  width: min(340px, calc(100vw - 24px));
   min-height: 0;
   max-height: calc(100vh - 220px);
   overflow: hidden;
@@ -1602,6 +1603,10 @@ button[type="submit"]:hover {
   border-radius: var(--r-lg);
   background: rgba(255, 255, 255, 0.96);
   box-shadow: var(--shadow-lg);
+}
+
+.map-task-editor-overlay .results-task-map-pilot-list {
+  width: min(340px, calc(100vw - 24px));
 }
 
 .map-fullscreen-sidebar .results-task-map-pilot-items {
@@ -1660,6 +1665,112 @@ button[type="submit"]:hover {
 .results-task-map-layout .map-shell,
 .results-task-map-layout .map-card {
   min-height: 420px;
+}
+
+.results-task-map-empty {
+  padding: 16px;
+  font-size: 0.8125rem;
+  color: var(--muted);
+}
+
+.live-tracking-layout {
+  grid-template-columns: 300px minmax(0, 1fr);
+}
+
+.live-tracking-pilot-list {
+  min-height: 520px;
+}
+
+.live-tracking-pilot-item {
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  cursor: default;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
+.live-tracking-pilot-item:hover {
+  background: var(--wash);
+}
+
+.live-tracking-pilot-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  font-size: 0.6875rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.live-tracking-status-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  align-self: flex-end;
+  padding-bottom: 2px;
+}
+
+.live-tracking-dot {
+  display: inline-flex;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+
+.live-tracking-table-wrap {
+  overflow-x: auto;
+}
+
+.live-tracking-table th:not(:first-child),
+.live-tracking-table td:not(:first-child) {
+  text-align: center;
+}
+
+.live-tracking-table-pilot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-tracking-mesh-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--wash);
+}
+
+.live-tracking-mesh-grid {
+  display: grid;
+  grid-template-columns: repeat(2, auto minmax(0, 1fr));
+  gap: 8px 12px;
+  font-size: 0.8125rem;
+}
+
+.live-tracking-mesh-grid span:nth-child(odd) {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.live-tracking-mesh-grid span:nth-child(even) {
+  color: var(--ink);
+}
+
+@media (max-width: 1100px) {
+  .live-tracking-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .live-tracking-pilot-list {
+    min-height: 260px;
+  }
+
+  .live-tracking-mesh-grid {
+    grid-template-columns: auto 1fr;
+  }
 }
 
 .results-table-compact thead th,
@@ -1893,6 +2004,12 @@ button[type="submit"]:hover {
 
 .map-control-button:hover {
   background: #f0f0f0;
+}
+
+.map-control-mode-button {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 
 .replay-bar {

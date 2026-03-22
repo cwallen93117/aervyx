@@ -14,6 +14,20 @@ export type MapUnitPreferences = {
   distance: "km" | "mi";
   vario: "fpm" | "ms";
 };
+export type MapLivePosition = {
+  id: string;
+  pilotId: number | null;
+  pilotName: string;
+  latitude: number;
+  longitude: number;
+  altitudeM: number | null;
+  speedKmh: number | null;
+  heading: number | null;
+  timestamp: string;
+  batteryLevel: number | null;
+  source: string | null;
+  color?: string | null;
+};
 type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
   id: number;
@@ -397,6 +411,38 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
+  if (!map.getLayer("live-positions-layer")) {
+    map.addLayer({
+      id: "live-positions-layer",
+      type: "circle",
+      source: "live-positions",
+      paint: {
+        "circle-radius": 6,
+        "circle-color": ["coalesce", ["get", "color"], "#0ea5e9"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+      },
+    });
+  }
+  if (!map.getLayer("live-position-labels")) {
+    map.addLayer({
+      id: "live-position-labels",
+      type: "symbol",
+      source: "live-position-labels",
+      layout: {
+        "text-field": ["get", "name"],
+        "text-size": 11,
+        "text-offset": [0, 1.15],
+        "text-anchor": "top",
+        "text-optional": true,
+      },
+      paint: {
+        "text-color": "#10203a",
+        "text-halo-color": "#ffffff",
+        "text-halo-width": 1.2,
+      },
+    });
+  }
 }
 
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], optimizedRoute: [number, number][], track: TrackCollection | null) {
@@ -442,6 +488,7 @@ export const TaskMap = React.memo(function TaskMap({
   totalDistanceKm = 0,
   optimizedDistanceKm = 0,
   track,
+  livePositions = [],
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
@@ -459,6 +506,7 @@ export const TaskMap = React.memo(function TaskMap({
   totalDistanceKm?: number;
   optimizedDistanceKm?: number;
   track: TrackCollection | null;
+  livePositions?: MapLivePosition[];
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: ReactNode;
@@ -494,6 +542,37 @@ export const TaskMap = React.memo(function TaskMap({
   const [replayHasInteracted, setReplayHasInteracted] = useState(false);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
+  const livePositionData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: livePositions.map((position) => ({
+      type: "Feature",
+      properties: {
+        id: position.id,
+        pilot_id: position.pilotId ?? "",
+        name: position.pilotName,
+        color: position.color ?? "#0ea5e9",
+        battery_level: position.batteryLevel ?? "",
+        source: position.source ?? "",
+      },
+      geometry: {
+        type: "Point",
+        coordinates: [position.longitude, position.latitude],
+      },
+    })),
+  }), [livePositions]);
+  const livePositionLabelData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: livePositions.map((position) => ({
+      type: "Feature",
+      properties: {
+        name: position.pilotName,
+      },
+      geometry: {
+        type: "Point",
+        coordinates: [position.longitude, position.latitude],
+      },
+    })),
+  }), [livePositions]);
   const airspaceData = useMemo(() => ({
     type: "FeatureCollection",
     features: airspaces.map((airspace) => ({
@@ -966,6 +1045,24 @@ export const TaskMap = React.memo(function TaskMap({
       map.once("styledata", sync);
     }
   }, [airspaceData, airspaceLabelData, styleGeneration]);
+
+  // Sync live position data to map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const sync = () => {
+      ensureGeoJsonSource(map, "live-positions", livePositionData as never);
+      ensureGeoJsonSource(map, "live-position-labels", livePositionLabelData as never);
+      ensureMapLayers(map);
+    };
+    if (map.isStyleLoaded()) {
+      sync();
+    } else {
+      map.once("styledata", sync);
+    }
+  }, [livePositionData, livePositionLabelData, styleGeneration]);
 
   // Sync task route data to map
   useEffect(() => {
