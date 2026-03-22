@@ -22,6 +22,10 @@ from app.schemas import (
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 VALID_ACCOUNT_ROLES = {"pilot", "organizer"}
 VALID_PROFILE_TYPES = {"pilot", "driver"}
+VALID_ALTITUDE_UNITS = {"ft", "m"}
+VALID_SPEED_UNITS = {"kph", "mph"}
+VALID_DISTANCE_UNITS = {"km", "mi"}
+VALID_VARIO_UNITS = {"fpm", "ms"}
 
 
 def _is_valid_email(value: str) -> bool:
@@ -48,6 +52,10 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         full_name=user.full_name,
         role=user.role,
         profile_type=user.profile_type,
+        altitude_unit=user.altitude_unit,
+        speed_unit=user.speed_unit,
+        distance_unit=user.distance_unit,
+        vario_unit=user.vario_unit,
         email=pilot.email if pilot else (user.username if "@" in user.username else None),
         first_name=pilot.first_name if pilot else None,
         last_name=pilot.last_name if pilot else None,
@@ -138,6 +146,18 @@ def update_settings(
     profile_type = payload.profile_type.strip().lower() if payload.profile_type else "pilot"
     if profile_type not in VALID_PROFILE_TYPES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or driver for the current type")
+    altitude_unit = payload.altitude_unit.strip().lower() if payload.altitude_unit else "ft"
+    speed_unit = payload.speed_unit.strip().lower() if payload.speed_unit else "kph"
+    distance_unit = payload.distance_unit.strip().lower() if payload.distance_unit else "km"
+    vario_unit = payload.vario_unit.strip().lower() if payload.vario_unit else "fpm"
+    if altitude_unit not in VALID_ALTITUDE_UNITS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Altitude unit must be ft or m")
+    if speed_unit not in VALID_SPEED_UNITS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Speed unit must be kph or mph")
+    if distance_unit not in VALID_DISTANCE_UNITS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Distance unit must be km or mi")
+    if vario_unit not in VALID_VARIO_UNITS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
 
     normalized_email_identity = _normalize_email_identity(payload.username, payload.email)
     if normalized_email_identity is None:
@@ -153,6 +173,10 @@ def update_settings(
     user.username = username
     user.full_name = full_name
     user.profile_type = profile_type
+    user.altitude_unit = altitude_unit
+    user.speed_unit = speed_unit
+    user.distance_unit = distance_unit
+    user.vario_unit = vario_unit
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     if pilot is not None:

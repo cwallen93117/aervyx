@@ -5,6 +5,12 @@ import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
+export type MapUnitPreferences = {
+  altitude: "ft" | "m";
+  speed: "kph" | "mph";
+  distance: "km" | "mi";
+  vario: "fpm" | "ms";
+};
 type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
   id: number;
@@ -120,6 +126,28 @@ function formatReplayTimeLabel(timestampMs: number | null | undefined, includeSe
     second: includeSeconds ? "2-digit" : undefined,
     hour12: true,
   });
+}
+
+function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"]) {
+  return unit === "mi" ? distanceKm * 0.621371 : distanceKm;
+}
+
+function formatDistanceLabel(distanceKm: number, unit: MapUnitPreferences["distance"], decimals = 1) {
+  return `${convertDistance(distanceKm, unit).toFixed(decimals)} ${unit}`;
+}
+
+function formatAltitudeLabel(altitudeM: number, unit: MapUnitPreferences["altitude"]) {
+  if (unit === "ft") {
+    return `${Math.round(altitudeM * 3.28084).toLocaleString()} ft`;
+  }
+  return `${Math.round(altitudeM).toLocaleString()} m`;
+}
+
+function formatSpeedLabel(speedKmh: number, unit: MapUnitPreferences["speed"]) {
+  if (unit === "mph") {
+    return `${(speedKmh * 0.621371).toFixed(1)} mph`;
+  }
+  return `${speedKmh.toFixed(1)} km/h`;
 }
 
 function ensureMapLayers(map: maplibregl.Map) {
@@ -413,6 +441,7 @@ export function TaskMap({
   highlightedTrackUploadId,
   fitKey,
   mode = "replay",
+  units = { altitude: "ft", speed: "kph", distance: "km", vario: "fpm" },
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -429,6 +458,7 @@ export function TaskMap({
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
   mode?: "replay" | "live";
+  units?: MapUnitPreferences;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -450,6 +480,7 @@ export function TaskMap({
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(10);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPerspective3D, setIsPerspective3D] = useState(false);
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replaySpeed, setReplaySpeed] = useState(10);
@@ -503,10 +534,10 @@ export function TaskMap({
     type: "FeatureCollection",
     features: legMetrics.map((leg) => ({
       type: "Feature",
-      properties: { label: `${leg.optimizedDistanceKm.toFixed(1)} km` },
+      properties: { label: formatDistanceLabel(leg.optimizedDistanceKm, units.distance) },
       geometry: { type: "Point", coordinates: leg.midpoint },
     })),
-  }), [legMetrics]);
+  }), [legMetrics, units.distance]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
   const replayTimestamps = useMemo(() => {
     const firstFeature = track?.features[0];
@@ -685,6 +716,9 @@ export function TaskMap({
       map.on("styledata", () => {
         map.resize();
       });
+      map.on("moveend", () => {
+        setIsPerspective3D(map.getPitch() >= 40);
+      });
       map.on("click", (event) => {
         if (!editableRef.current || !onSelectTurnpointRef.current) {
           return;
@@ -712,6 +746,7 @@ export function TaskMap({
           handleCompassClick = () => {
             window.setTimeout(() => {
               map.easeTo({ bearing: 0, pitch: 0, duration: 300 });
+              setIsPerspective3D(false);
             }, 0);
           };
           compassButton.addEventListener("click", handleCompassClick);
@@ -811,16 +846,6 @@ export function TaskMap({
     }
   }, [displayTrack, replayMarkerData]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !track || editable || mode !== "replay") {
-      return;
-    }
-    if (map.getPitch() < 40) {
-      map.easeTo({ pitch: 60, duration: 300 });
-    }
-  }, [editable, mode, track]);
-
   const replayVisible = !!track && replayTotal > 0;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[0]) : "--:--";
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
@@ -896,11 +921,11 @@ export function TaskMap({
           <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
             <div className="map-distance-box">
               <strong>Total task</strong>
-              <span>{totalDistanceKm.toFixed(1)} km</span>
+              <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
             </div>
             <div className="map-distance-box">
               <strong>Optimized</strong>
-              <span>{optimizedDistanceKm.toFixed(1)} km</span>
+              <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
             </div>
           </div>
         ) : null}
@@ -911,12 +936,34 @@ export function TaskMap({
               <span>Time</span>
               <span>{highlightedTrackTelemetry.timeLabel}</span>
               <span>Altitude</span>
-              <span>{highlightedTrackTelemetry.altitudeM.toLocaleString()} m</span>
+              <span>{formatAltitudeLabel(highlightedTrackTelemetry.altitudeM, units.altitude)}</span>
               <span>Speed</span>
-              <span>{highlightedTrackTelemetry.speedKmh != null ? `${highlightedTrackTelemetry.speedKmh.toFixed(1)} km/h` : "--"}</span>
+              <span>{highlightedTrackTelemetry.speedKmh != null ? formatSpeedLabel(highlightedTrackTelemetry.speedKmh, units.speed) : "--"}</span>
             </div>
           </div>
         ) : null}
+      </div>
+      <div className="map-control-stack">
+        <button
+          type="button"
+          className="map-control-button map-control-mode-button"
+          aria-label={isPerspective3D ? "Switch to 2D view" : "Switch to 3D view"}
+          title={isPerspective3D ? "2D view" : "3D view"}
+          onClick={() => {
+            const map = mapRef.current;
+            if (!map) {
+              return;
+            }
+            const nextIs3D = !isPerspective3D;
+            map.easeTo({
+              pitch: nextIs3D ? 60 : 0,
+              duration: 300,
+            });
+            setIsPerspective3D(nextIs3D);
+          }}
+        >
+          {isPerspective3D ? "2D" : "3D"}
+        </button>
       </div>
       <div className="map-picker-stack">
         {track ? (

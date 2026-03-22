@@ -71,6 +71,19 @@ def ensure_runtime_schema(engine: Engine) -> None:
         if "users" in inspector.get_table_names() and "profile_type" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN profile_type VARCHAR(20) DEFAULT 'pilot'"))
             connection.execute(text("UPDATE users SET profile_type = 'pilot' WHERE profile_type IS NULL"))
+        if "users" in inspector.get_table_names() and "altitude_unit" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN altitude_unit VARCHAR(10) DEFAULT 'ft'"))
+        if "users" in inspector.get_table_names() and "speed_unit" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN speed_unit VARCHAR(10) DEFAULT 'kph'"))
+        if "users" in inspector.get_table_names() and "distance_unit" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN distance_unit VARCHAR(10) DEFAULT 'km'"))
+        if "users" in inspector.get_table_names() and "vario_unit" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN vario_unit VARCHAR(10) DEFAULT 'fpm'"))
+        if "users" in inspector.get_table_names():
+            connection.execute(text("UPDATE users SET altitude_unit = 'ft' WHERE altitude_unit IS NULL"))
+            connection.execute(text("UPDATE users SET speed_unit = 'kph' WHERE speed_unit IS NULL"))
+            connection.execute(text("UPDATE users SET distance_unit = 'km' WHERE distance_unit IS NULL"))
+            connection.execute(text("UPDATE users SET vario_unit = 'fpm' WHERE vario_unit IS NULL"))
         for column_name, statement in statements.items():
             if column_name not in event_columns:
                 connection.execute(text(statement))

@@ -43,6 +43,10 @@ class AccountSettingsResponse(BaseModel):
     full_name: str
     role: str
     profile_type: str
+    altitude_unit: str = "ft"
+    speed_unit: str = "kph"
+    distance_unit: str = "km"
+    vario_unit: str = "fpm"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -59,6 +63,10 @@ class AccountSettingsUpdate(BaseModel):
     username: str
     full_name: str
     profile_type: str = "pilot"
+    altitude_unit: str = "ft"
+    speed_unit: str = "kph"
+    distance_unit: str = "km"
+    vario_unit: str = "fpm"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None

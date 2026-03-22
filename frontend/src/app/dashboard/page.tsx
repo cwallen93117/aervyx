@@ -15,6 +15,10 @@ type AccountSettingsRecord = {
   full_name: string;
   role: "admin" | "organizer" | "pilot";
   profile_type: "pilot" | "driver";
+  altitude_unit: "ft" | "m";
+  speed_unit: "kph" | "mph";
+  distance_unit: "km" | "mi";
+  vario_unit: "fpm" | "ms";
   email: string | null;
   first_name: string | null;
   last_name: string | null;
@@ -371,6 +375,10 @@ function blankSettingsForm(): AccountSettingsRecord {
     full_name: "",
     role: "pilot",
     profile_type: "pilot",
+    altitude_unit: "ft",
+    speed_unit: "kph",
+    distance_unit: "km",
+    vario_unit: "fpm",
     email: "",
     first_name: "",
     last_name: "",
@@ -766,7 +774,6 @@ export default function HomePage() {
     <div className="results-task-map-pilot-list">
       <div className="results-task-map-pilot-header">
         <strong>Show pilot tracks</strong>
-        <span>{selectedResultUploadIds.length} selected</span>
       </div>
       <div className="results-task-map-pilot-items">
         {results.map((result) => {
@@ -1174,6 +1181,10 @@ export default function HomePage() {
           username: normalizeIdentityEmail(settingsForm.username),
           full_name: settingsForm.full_name,
           profile_type: settingsForm.profile_type,
+          altitude_unit: settingsForm.altitude_unit,
+          speed_unit: settingsForm.speed_unit,
+          distance_unit: settingsForm.distance_unit,
+          vario_unit: settingsForm.vario_unit,
           email: normalizeIdentityEmail(settingsForm.username) || null,
           first_name: settingsForm.first_name || null,
           last_name: settingsForm.last_name || null,
@@ -1187,6 +1198,10 @@ export default function HomePage() {
         full_name: payload.full_name,
         role: payload.role,
         profile_type: payload.profile_type,
+        altitude_unit: payload.altitude_unit,
+        speed_unit: payload.speed_unit,
+        distance_unit: payload.distance_unit,
+        vario_unit: payload.vario_unit,
         email: payload.email,
         first_name: payload.first_name,
         last_name: payload.last_name,
@@ -2832,6 +2847,12 @@ export default function HomePage() {
                     taskEditorOverlay={fullscreenTaskEditor}
                     hideFullscreenDistanceOverlay={canManagePlatform}
                     fitKey={selectedTaskId}
+                    units={{
+                      altitude: settingsForm.altitude_unit,
+                      speed: settingsForm.speed_unit,
+                      distance: settingsForm.distance_unit,
+                      vario: settingsForm.vario_unit,
+                    }}
                   />
                 </div>
               </div>
@@ -3118,7 +3139,6 @@ export default function HomePage() {
                           <div className="results-task-map-pilot-list">
                             <div className="results-task-map-pilot-header">
                               <strong>Show pilot tracks</strong>
-                              <span>{selectedResultUploadIds.length} selected</span>
                             </div>
                             <div className="results-task-map-pilot-items">
                               {results.map((result) => {
@@ -3156,6 +3176,12 @@ export default function HomePage() {
                             taskEditorOverlay={resultsTrackPilotList}
                             highlightedTrackUploadId={highlightedResultUploadId}
                             fitKey={`${selectedTaskId}:${selectedResultUploadIds.join(",")}`}
+                            units={{
+                              altitude: settingsForm.altitude_unit,
+                              speed: settingsForm.speed_unit,
+                              distance: settingsForm.distance_unit,
+                              vario: settingsForm.vario_unit,
+                            }}
                           />
                         </div>
                       </div>
@@ -3297,6 +3323,58 @@ export default function HomePage() {
             </div>
             <div className="button-row">
               <button type="submit">Save account settings</button>
+            </div>
+            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
+          </form>
+        </SectionCard>
+        <SectionCard title="Units" description="Choose how the scoring map and flight telemetry are displayed for your account.">
+          <form className="stack form-block" onSubmit={saveAccountSettings}>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Altitude</span>
+                <select
+                  value={settingsForm.altitude_unit}
+                  onChange={(event) => setSettingsForm((current) => ({ ...current, altitude_unit: event.target.value as "ft" | "m" }))}
+                >
+                  <option value="ft">Feet (ft)</option>
+                  <option value="m">Meters (m)</option>
+                </select>
+              </label>
+              <label className="stack compact">
+                <span>Speed</span>
+                <select
+                  value={settingsForm.speed_unit}
+                  onChange={(event) => setSettingsForm((current) => ({ ...current, speed_unit: event.target.value as "kph" | "mph" }))}
+                >
+                  <option value="kph">Kilometers per hour (kph)</option>
+                  <option value="mph">Miles per hour (mph)</option>
+                </select>
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Distance</span>
+                <select
+                  value={settingsForm.distance_unit}
+                  onChange={(event) => setSettingsForm((current) => ({ ...current, distance_unit: event.target.value as "km" | "mi" }))}
+                >
+                  <option value="km">Kilometers (km)</option>
+                  <option value="mi">Miles (mi)</option>
+                </select>
+              </label>
+              <label className="stack compact">
+                <span>Vario</span>
+                <select
+                  value={settingsForm.vario_unit}
+                  onChange={(event) => setSettingsForm((current) => ({ ...current, vario_unit: event.target.value as "fpm" | "ms" }))}
+                >
+                  <option value="fpm">Feet per minute (ft/min)</option>
+                  <option value="ms">Meters per second (m/s)</option>
+                </select>
+              </label>
+            </div>
+            <div className="button-row">
+              <button type="submit">Save unit preferences</button>
             </div>
             {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
           </form>
