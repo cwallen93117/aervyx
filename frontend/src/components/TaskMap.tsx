@@ -1,7 +1,10 @@
 "use client";
 
+import { COORDINATE_SYSTEM } from "@deck.gl/core";
+import { PathLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
@@ -37,6 +40,8 @@ export type TrackCollection = {
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
 const REPLAY_SPEEDS = [1, 2, 5, 10, 30, 60, 120, 300] as const;
+const TERRAIN_SOURCE_ID = "terrain-dem";
+const TERRAIN_EXAGGERATION = 1.25;
 
 function createBasemapStyle(basemapMode: BasemapMode) {
   const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
@@ -63,6 +68,14 @@ function createBasemapStyle(basemapMode: BasemapMode) {
         tileSize: 256,
         attribution: basemapSourceByMode[basemapMode].attribution,
       },
+      [TERRAIN_SOURCE_ID]: {
+        type: "raster-dem",
+        tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+        tileSize: 256,
+        encoding: "terrarium",
+        maxzoom: 15,
+        attribution: "Mapzen Terrarium / AWS Open Data",
+      },
     },
     layers: [
       { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
@@ -71,17 +84,24 @@ function createBasemapStyle(basemapMode: BasemapMode) {
   } as const;
 }
 
+const buildCircleCache = new Map<string, number[][]>();
+
 function buildCircle(point: MapTaskPoint) {
-  const earthRadius = 6378137;
-  const angularDistance = point.radius_m / earthRadius;
-  const lat = (point.latitude * Math.PI) / 180;
-  const lon = (point.longitude * Math.PI) / 180;
-  const coordinates: number[][] = [];
-  for (let step = 0; step <= 48; step += 1) {
-    const bearing = (2 * Math.PI * step) / 48;
-    const nextLat = Math.asin(Math.sin(lat) * Math.cos(angularDistance) + Math.cos(lat) * Math.sin(angularDistance) * Math.cos(bearing));
-    const nextLon = lon + Math.atan2(Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat), Math.cos(angularDistance) - Math.sin(lat) * Math.sin(nextLat));
-    coordinates.push([(nextLon * 180) / Math.PI, (nextLat * 180) / Math.PI]);
+  const cacheKey = `${point.latitude}:${point.longitude}:${point.radius_m}`;
+  let coordinates = buildCircleCache.get(cacheKey);
+  if (!coordinates) {
+    const earthRadius = 6378137;
+    const angularDistance = point.radius_m / earthRadius;
+    const lat = (point.latitude * Math.PI) / 180;
+    const lon = (point.longitude * Math.PI) / 180;
+    coordinates = [];
+    for (let step = 0; step <= 48; step += 1) {
+      const bearing = (2 * Math.PI * step) / 48;
+      const nextLat = Math.asin(Math.sin(lat) * Math.cos(angularDistance) + Math.cos(lat) * Math.sin(angularDistance) * Math.cos(bearing));
+      const nextLon = lon + Math.atan2(Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(lat), Math.cos(angularDistance) - Math.sin(lat) * Math.sin(nextLat));
+      coordinates.push([(nextLon * 180) / Math.PI, (nextLat * 180) / Math.PI]);
+    }
+    buildCircleCache.set(cacheKey, coordinates);
   }
   return { type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Polygon", coordinates: [coordinates] } };
 }
@@ -148,6 +168,18 @@ function formatSpeedLabel(speedKmh: number, unit: MapUnitPreferences["speed"]) {
     return `${(speedKmh * 0.621371).toFixed(1)} mph`;
   }
   return `${speedKmh.toFixed(1)} km/h`;
+}
+
+function hexToRgb(hex: string): [number, number, number] {
+  const normalized = hex.trim().replace("#", "");
+  const expanded = normalized.length === 3
+    ? normalized.split("").map((value) => `${value}${value}`).join("")
+    : normalized.padEnd(6, "0").slice(0, 6);
+  const parsed = Number.parseInt(expanded, 16);
+  if (Number.isNaN(parsed)) {
+    return [37, 99, 235];
+  }
+  return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
 }
 
 function ensureMapLayers(map: maplibregl.Map) {
@@ -365,30 +397,6 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("track-layer")) {
-    map.addLayer({
-      id: "track-layer",
-      type: "line",
-      source: "track",
-      paint: {
-        "line-color": ["coalesce", ["get", "color"], "#ca8a04"],
-        "line-width": 3,
-      },
-    });
-  }
-  if (!map.getLayer("replay-marker-layer")) {
-    map.addLayer({
-      id: "replay-marker-layer",
-      type: "circle",
-      source: "replay-marker",
-      paint: {
-        "circle-radius": 8,
-        "circle-color": "#ffffff",
-        "circle-stroke-width": 3,
-        "circle-stroke-color": "#2563eb",
-      },
-    });
-  }
 }
 
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], optimizedRoute: [number, number][], track: TrackCollection | null) {
@@ -425,7 +433,7 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
   map.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 0 });
 }
 
-export function TaskMap({
+export const TaskMap = React.memo(function TaskMap({
   turnpoints,
   airspaces = [],
   taskPoints,
@@ -463,13 +471,12 @@ export function TaskMap({
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const turnpointsRef = useRef(turnpoints);
   const taskPointsRef = useRef(taskPoints);
   const optimizedRouteRef = useRef(optimizedRoute);
   const trackRef = useRef(track);
   const turnpointSignatureRef = useRef("");
-  const taskSignatureRef = useRef("");
-  const trackSignatureRef = useRef("");
   const fitKeyRef = useRef<string>("");
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
@@ -598,6 +605,61 @@ export function TaskMap({
       ],
     };
   }, [altitudeMultiplier, replayIndex, replayTotal, track]);
+  const deckTrackLayers = useMemo(() => {
+    const layers = [];
+    if (displayTrack) {
+      const pathData = displayTrack.features
+        .filter((feature) => feature.geometry.type === "LineString" && feature.geometry.coordinates.length > 1)
+        .map((feature) => ({
+          uploadId: Number(feature.properties?.upload_id ?? 0),
+          path: feature.geometry.coordinates as [number, number, number][],
+          color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
+          highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+        }));
+      if (pathData.length) {
+        layers.push(
+          new PathLayer({
+            id: "igc-track-3d",
+            data: pathData,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            positionFormat: "XYZ",
+            getPath: (item: { path: [number, number, number][] }) => item.path,
+            getColor: (item: { color: [number, number, number] }) => item.color,
+            getWidth: (item: { highlighted: boolean }) => (item.highlighted ? 5 : 3),
+            widthUnits: "pixels",
+            widthMinPixels: 2,
+            pickable: false,
+            jointRounded: true,
+            capRounded: true,
+          }),
+        );
+      }
+    }
+    const replayMarkerFeatures = replayMarkerData.features as Array<{
+      geometry?: { coordinates?: [number, number, number] };
+    }>;
+    if (replayMarkerFeatures.length) {
+      layers.push(
+        new ScatterplotLayer({
+          id: "igc-replay-marker-3d",
+          data: replayMarkerFeatures,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          getPosition: (item: { geometry?: { coordinates?: [number, number, number] } }) => item.geometry?.coordinates ?? [0, 0, 0],
+          getRadius: 9,
+          radiusUnits: "pixels",
+          radiusMinPixels: 8,
+          stroked: true,
+          filled: true,
+          getFillColor: [255, 255, 255],
+          getLineColor: [37, 99, 235],
+          lineWidthUnits: "pixels",
+          lineWidthMinPixels: 3,
+          pickable: false,
+        }),
+      );
+    }
+    return layers;
+  }, [displayTrack, highlightedTrackUploadId, replayMarkerData]);
 
   useEffect(() => {
     turnpointsRef.current = turnpoints;
@@ -711,6 +773,9 @@ export function TaskMap({
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
       map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
+      const deckOverlay = new MapboxOverlay({ interleaved: false, layers: [] });
+      map.addControl(deckOverlay);
+      deckOverlayRef.current = deckOverlay;
       let compassButton: HTMLButtonElement | null = null;
       let handleCompassClick: ((event: Event) => void) | null = null;
       map.on("styledata", () => {
@@ -772,6 +837,10 @@ export function TaskMap({
         }
         document.removeEventListener("fullscreenchange", handleFullscreenChange);
         document.removeEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
+        if (deckOverlayRef.current) {
+          map.removeControl(deckOverlayRef.current);
+          deckOverlayRef.current = null;
+        }
         map.remove();
         mapRef.current = null;
       };
@@ -781,70 +850,187 @@ export function TaskMap({
     }
   }, []);
 
-  useEffect(() => {
-    if (mapRef.current) {
-      mapRef.current.setStyle(createBasemapStyle(basemapMode) as never);
-    }
-  }, [basemapMode]);
+  const [styleGeneration, setStyleGeneration] = useState(0);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map) {
       return;
     }
-    const nextTurnpointSignature = turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(4)}:${turnpoint.longitude.toFixed(4)}`).join("|");
-    const nextTaskSignature = taskPoints
-      .map((point, index) => `${index}:${point.position}:${point.name}:${point.latitude.toFixed(5)}:${point.longitude.toFixed(5)}`)
-      .join("|");
-    const nextTrackSignature = track ? `${track.features.length}:${JSON.stringify(track.features[0]?.geometry?.coordinates?.[0] ?? [])}` : "";
-    const nextFitKey = String(fitKey ?? "");
-    const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
-    const shouldFitToTask = nextFitKey !== fitKeyRef.current;
-    const shouldFitToTrack = false;
+    map.setStyle(createBasemapStyle(basemapMode) as never);
+    map.once("styledata", () => {
+      setStyleGeneration((prev) => prev + 1);
+    });
+  }, [basemapMode]);
 
-    const syncData = () => {
+  useEffect(() => {
+    const deckOverlay = deckOverlayRef.current;
+    if (!deckOverlay) {
+      return;
+    }
+    deckOverlay.setProps({ interleaved: false, layers: deckTrackLayers });
+  }, [deckTrackLayers]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const applyTerrain = () => {
+      const hasTerrainSource = !!map.getSource(TERRAIN_SOURCE_ID);
+      if (!hasTerrainSource) {
+        return;
+      }
+      map.setTerrain(
+        isPerspective3D
+          ? {
+              source: TERRAIN_SOURCE_ID,
+              exaggeration: TERRAIN_EXAGGERATION,
+            }
+          : null,
+      );
+    };
+    if (map.isStyleLoaded()) {
+      applyTerrain();
+    } else {
+      map.once("styledata", applyTerrain);
+    }
+  }, [isPerspective3D, styleGeneration]);
+
+  const fitBounds = useMemo(() => {
+    const bounds: [number, number][] = [];
+    for (const turnpoint of turnpoints) {
+      bounds.push([turnpoint.longitude, turnpoint.latitude]);
+    }
+    for (const point of taskPoints) {
+      bounds.push([point.longitude, point.latitude]);
+    }
+    for (const coordinate of optimizedRoute) {
+      bounds.push(coordinate);
+    }
+    if (track) {
+      for (const feature of track.features) {
+        if (feature.geometry.type !== "LineString") {
+          continue;
+        }
+        for (const coordinate of feature.geometry.coordinates) {
+          bounds.push([coordinate[0], coordinate[1]]);
+        }
+      }
+    }
+    return bounds;
+  }, [turnpoints, taskPoints, optimizedRoute, track]);
+
+  const applyFitBounds = useCallback((map: maplibregl.Map) => {
+    if (fitBounds.length === 0) {
+      return;
+    }
+    const lngLatBounds = new maplibregl.LngLatBounds();
+    for (const coordinate of fitBounds) {
+      lngLatBounds.extend(coordinate);
+    }
+    map.fitBounds(lngLatBounds, { padding: 48, maxZoom: 11, duration: 0 });
+  }, [fitBounds]);
+
+  // Sync turnpoint data to map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const sync = () => {
       ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
+      ensureMapLayers(map);
+    };
+    if (map.isStyleLoaded()) {
+      sync();
+    } else {
+      map.once("styledata", sync);
+    }
+  }, [turnpointData, styleGeneration]);
+
+  // Sync airspace data to map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const sync = () => {
       ensureGeoJsonSource(map, "airspaces", airspaceData as never);
       ensureGeoJsonSource(map, "airspace-labels", airspaceLabelData as never);
+      ensureMapLayers(map);
+    };
+    if (map.isStyleLoaded()) {
+      sync();
+    } else {
+      map.once("styledata", sync);
+    }
+  }, [airspaceData, airspaceLabelData, styleGeneration]);
+
+  // Sync task route data to map
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const sync = () => {
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
       ensureGeoJsonSource(map, "task-route", routeData as never);
       ensureGeoJsonSource(map, "optimized-route", optimizedRouteData as never);
       ensureGeoJsonSource(map, "optimized-route-points", optimizedRoutePointData as never);
       ensureGeoJsonSource(map, "optimized-leg-labels", legLabelData as never);
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
-      ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
-      ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
       ensureMapLayers(map);
-      if (shouldFitToTurnpoints || shouldFitToTask || shouldFitToTrack) {
-        fitToData(map, turnpoints, taskPoints, optimizedRoute, track ?? null);
-      }
-      turnpointSignatureRef.current = nextTurnpointSignature;
-      taskSignatureRef.current = nextTaskSignature;
-      trackSignatureRef.current = nextTrackSignature;
-      fitKeyRef.current = nextFitKey;
     };
     if (map.isStyleLoaded()) {
-      syncData();
+      sync();
     } else {
-      map.once("styledata", syncData);
+      map.once("styledata", sync);
     }
-  }, [airspaceData, airspaceLabelData, basemapMode, cylinderData, fitKey, legLabelData, optimizedRoute, optimizedRouteData, optimizedRoutePointData, routeData, taskPointData, taskPoints, track, turnpointData, turnpoints]);
+  }, [routeData, cylinderData, taskPointData, optimizedRouteData, optimizedRoutePointData, legLabelData, styleGeneration]);
 
+  // Sync track data to map
   useEffect(() => {
     const map = mapRef.current;
     if (!map) {
       return;
     }
-    const syncTrackSources = () => {
+    const sync = () => {
       ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
       ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
+      ensureMapLayers(map);
     };
     if (map.isStyleLoaded()) {
-      syncTrackSources();
+      sync();
     } else {
-      map.once("styledata", syncTrackSources);
+      map.once("styledata", sync);
     }
-  }, [displayTrack, replayMarkerData]);
+  }, [displayTrack, replayMarkerData, styleGeneration]);
+
+  // Fit map to data when signatures change
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const nextTurnpointSignature = turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(4)}:${turnpoint.longitude.toFixed(4)}`).join("|");
+    const nextFitKey = String(fitKey ?? "");
+    const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
+    const shouldFitToTask = nextFitKey !== fitKeyRef.current;
+
+    if (shouldFitToTurnpoints || shouldFitToTask) {
+      const doFit = () => {
+        applyFitBounds(map);
+      };
+      if (map.isStyleLoaded()) {
+        doFit();
+      } else {
+        map.once("styledata", doFit);
+      }
+    }
+    turnpointSignatureRef.current = nextTurnpointSignature;
+    fitKeyRef.current = nextFitKey;
+  }, [turnpoints, fitKey, applyFitBounds]);
 
   const replayVisible = !!track && replayTotal > 0;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[0]) : "--:--";
@@ -1076,4 +1262,4 @@ export function TaskMap({
       ) : null}
     </div>
   );
-}
+});
