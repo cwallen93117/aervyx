@@ -4,161 +4,42 @@ import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo,
 
 import { AppSidebar } from "../../components/AppSidebar";
 import { SectionCard } from "../../components/SectionCard";
-import { TaskMap, type MapAirspaceRegion, type MapTaskPoint, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
+import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
-type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "settings" | "admin";
-type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
-type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
-type AccountSettingsRecord = {
-  username: string;
-  full_name: string;
-  role: "admin" | "organizer" | "pilot";
-  profile_type: "pilot" | "driver";
-  altitude_unit: "ft" | "m";
-  speed_unit: "kph" | "mph";
-  distance_unit: "km" | "mi";
-  vario_unit: "fpm" | "ms";
-  email: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  nation: string | null;
-  competition_number: string | null;
-  civl_id: string | null;
-  access_token?: string | null;
-};
-type AdminUserRecord = {
-  id: number;
-  username: string;
-  full_name: string;
-  role: "admin" | "organizer" | "pilot";
-  profile_type: "pilot" | "driver";
-  pilot_id: number | null;
-  email: string | null;
-  pilot_name: string | null;
-  competition_number: string | null;
-  is_active: boolean;
-  created_at: string;
-};
-type EventRecord = {
-  id: number;
-  name: string;
-  location: string;
-  starts_on: string;
-  ends_on: string;
-  timezone: string;
-  scoring_formula: string;
-  nominal_distance_km: number;
-  nominal_time_hours: number;
-  nominal_launch: number;
-  minimum_distance_km: number;
-  nominal_goal_percent: number;
-  score_back_time_minutes: number;
-  goal_ss_penalty: number;
-  day_quality_override: number;
-  time_points_if_not_in_goal: number;
-  jump_the_gun_factor: number;
-  jump_the_gun_max_seconds: number;
-  stopped_glide_bonus: number;
-  use_1000_points_for_max_day_quality: boolean;
-  normalize_1000_before_day_quality: boolean;
-  use_distance_points: boolean;
-  use_time_points: boolean;
-  use_leading_points: boolean;
-  use_arrival_position_points: boolean;
-  use_arrival_time_points: boolean;
-  use_departure_points: boolean;
-  use_difficulty_for_distance_points: boolean;
-  use_distance_squared_for_lc: boolean;
-  use_semi_circle_control_zone_for_goal_line: boolean;
-  use_proportional_leading_weight_if_nobody_in_goal: boolean;
-  redistribute_removed_time_points_as_distance_points: boolean;
-  use_best_score_for_ftv_validity: boolean;
-  use_constant_leading_weight: boolean;
-  use_pwca2019_for_lc: boolean;
-  use_flat_decline_of_timepoints: boolean;
-  scoring_altitude: string;
-  final_glide_decelerator: string;
-  no_final_glide_decelerator_reason: string;
-  min_time_span_for_valid_task_minutes: number;
-  leading_weight_factor: number;
-  turnpoint_radius_tolerance: number;
-  turnpoint_radius_minimum_absolute_tolerance_m: number;
-  number_of_decimals_task_results: number;
-  number_of_decimals_competition_results: number;
-  visible_airspace_classes_json: string[];
-  show_restricted_fields: boolean;
-  penalties_json: Record<string, unknown>;
-  updated_at: string;
-  pilot_count: number;
-  task_count: number;
-  turnpoint_count: number;
-  airspace_count: number;
-  restricted_field_count: number;
-};
-type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; temp_password: string | null };
-type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
-type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
-type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
-type TaskRecord = {
-  id: number;
-  event_id: number;
-  name: string;
-  status: string;
-  task_type: string;
-  task_start_time: string | null;
-  task_finish_time: string | null;
-  start_open_time: string | null;
-  start_close_time: string | null;
-  start_gate_count: number;
-  start_gate_interval_seconds: number | null;
-  version: number;
-  nominal_distance_km: number;
-  nominal_time_hours: number;
-  nominal_launch: number;
-  minimum_distance_km: number;
-  penalties_json: Record<string, unknown>;
-  published_at: string | null;
-  points: TaskPointRecord[];
-};
-type ResultRecord = { id: number; upload_id: number; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string };
-type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number> };
-type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; metadata_json: Record<string, unknown> };
-type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
-type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; message: string };
-type AirspaceSourceRecord = {
-  id: number;
-  event_id: number;
-  kind: "airspace" | "restricted_field";
-  filename: string;
-  file_format: string;
-  sha256: string;
-  uploaded_at: string;
-  region_count: number;
-  enabled?: boolean;
-};
-type AirspaceUploadResponse = { source_id: number; kind: "airspace" | "restricted_field"; format: string; imported_count: number; sha256: string; filename: string };
-type TaskDraftState = {
-  id: number | null;
-  name: string;
-  task_type: string;
-  task_start_time: string;
-  task_finish_time: string;
-  start_open_time: string;
-  start_close_time: string;
-  start_gate_count: number;
-  start_gate_interval_minutes: number | "";
-  nominal_distance_km: number;
-  nominal_time_hours: number;
-  nominal_launch: number;
-  minimum_distance_km: number;
-  penalties_text: string;
-  points: TaskPointRecord[];
-};
-type ScoresPortalTab = "admin" | "results";
-type ScoringTab = "task" | "overall";
-type AirspaceCategoryOption = "B" | "C" | "D" | "P" | "Q" | "R" | "TFR" | "OTHER";
-type TaskPointMode = "simple" | "advanced";
+import EventsSection from "../../components/dashboard/EventsSection";
+import TasksSection from "../../components/dashboard/TasksSection";
+import ScoringSection from "../../components/dashboard/ScoringSection";
+import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection";
+import SettingsSection from "../../components/dashboard/SettingsSection";
+import AdminSection from "../../components/dashboard/AdminSection";
+import ParticipantCards from "../../components/dashboard/ParticipantCards";
+import {
+  type SidebarSection,
+  type EventTab,
+  type User,
+  type AccountSettingsRecord,
+  type AdminUserRecord,
+  type EventRecord,
+  type PilotRecord,
+  type TurnpointRecord,
+  type TurnpointSourceRecord,
+  type TaskPointRecord,
+  type TaskRecord,
+  type ResultRecord,
+  type PilotSummaryRecord,
+  type UploadRecord,
+  type TurnpointUploadResponse,
+  type BulkUploadItemRecord,
+  type AirspaceSourceRecord,
+  type AirspaceUploadResponse,
+  type TaskDraftState,
+  type ScoresPortalTab,
+  type ScoringTab,
+  type AirspaceCategoryOption,
+  type TaskPointMode,
+  blankEventForm,
+} from "../../components/dashboard/types";
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -232,50 +113,6 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
   return "events";
 }
 
-const scoringFormulaOptions = [
-  { value: "GAP2021", label: "GAP 2021" },
-  { value: "GAP2020", label: "GAP 2020" },
-  { value: "GAP2018", label: "GAP 2018" },
-  { value: "GAP2016", label: "GAP 2016" },
-  { value: "GAP2008", label: "GAP 2008" },
-  { value: "OzGAP2005", label: "OzGAP 2005" },
-  { value: "PWC2016", label: "PWC 2016" },
-] as const;
-const scoringAltitudeOptions = [
-  { value: "GPS", label: "GPS altitude" },
-  { value: "QNH", label: "QNH altitude" },
-  { value: "pressure", label: "Pressure altitude" },
-] as const;
-const finalGlideDeceleratorOptions = [
-  { value: "none", label: "None" },
-  { value: "default", label: "Default decelerator" },
-  { value: "stopped_task", label: "Stopped-task decelerator" },
-] as const;
-const eventTabItems = [
-  { id: "details", label: "Event Details" },
-  { id: "turnpoints", label: "Turnpoint Files" },
-  { id: "airspace", label: "Airspace / Restricted Fields" },
-  { id: "participants", label: "Participants" },
-  { id: "scoring", label: "Scoring Parameters" },
-] satisfies Array<{ id: EventTab; label: string }>;
-const airspaceCategoryOptions = [
-  { value: "B", label: "Class B" },
-  { value: "C", label: "Class C" },
-  { value: "D", label: "Class D" },
-  { value: "P", label: "Prohibited" },
-  { value: "Q", label: "Danger" },
-  { value: "R", label: "Restricted" },
-  { value: "TFR", label: "TFR" },
-  { value: "OTHER", label: "Other / advisory" },
-] satisfies Array<{ value: AirspaceCategoryOption; label: string }>;
-
-const pointTypeLabels: Record<string, string> = {
-  launch: "Launch",
-  start: "Start",
-  turnpoint: "Turnpoint",
-  ESS: "ESS",
-  goal: "Goal",
-};
 const taskTypeOptions = [
   { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
   { value: "race_to_goal", label: "Race to Goal" },
@@ -283,58 +120,6 @@ const taskTypeOptions = [
   { value: "open_distance", label: "Open Distance" },
 ] as const;
 const meterFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-
-function blankEventForm() {
-  return {
-    name: "",
-    location: "",
-    starts_on: "2026-04-18",
-    ends_on: "2026-04-24",
-    timezone: "",
-    scoring_formula: "GAP2021",
-    nominal_distance_km: 60,
-    nominal_time_hours: 1.5,
-    nominal_launch: 0.95,
-    minimum_distance_km: 5,
-    nominal_goal_percent: 0.3,
-    score_back_time_minutes: 15,
-    goal_ss_penalty: 0,
-    day_quality_override: 0,
-    time_points_if_not_in_goal: 1,
-    jump_the_gun_factor: 0,
-    jump_the_gun_max_seconds: 0,
-    stopped_glide_bonus: 0,
-    use_1000_points_for_max_day_quality: false,
-    normalize_1000_before_day_quality: false,
-    use_distance_points: true,
-    use_time_points: true,
-    use_leading_points: true,
-    use_arrival_position_points: false,
-    use_arrival_time_points: false,
-    use_departure_points: false,
-    use_difficulty_for_distance_points: true,
-    use_distance_squared_for_lc: false,
-    use_semi_circle_control_zone_for_goal_line: true,
-    use_proportional_leading_weight_if_nobody_in_goal: true,
-    redistribute_removed_time_points_as_distance_points: false,
-    use_best_score_for_ftv_validity: true,
-    use_constant_leading_weight: false,
-    use_pwca2019_for_lc: false,
-    use_flat_decline_of_timepoints: false,
-    scoring_altitude: "GPS",
-    final_glide_decelerator: "none",
-    no_final_glide_decelerator_reason: "",
-    min_time_span_for_valid_task_minutes: 60,
-    leading_weight_factor: 1,
-    turnpoint_radius_tolerance: 0.0005,
-    turnpoint_radius_minimum_absolute_tolerance_m: 5,
-    number_of_decimals_task_results: 2,
-    number_of_decimals_competition_results: 1,
-    visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"],
-    show_restricted_fields: true,
-    penalties_text: "{}",
-  };
-}
 
 function nextDraftEventName(events: EventRecord[]) {
   const existingNames = new Set(events.map((event) => event.name.trim().toLowerCase()));
@@ -419,11 +204,6 @@ function formatMeters(value: number): string {
   return meterFormatter.format(Math.max(0, Math.round(value || 0)));
 }
 
-function formatClockTime(value: string | null | undefined, includeSeconds = false): string {
-  if (!value) return "-";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined });
-}
-
 function formatTaskClockLabel(value: string | null | undefined): string {
   if (!value) return "-";
   const trimmed = value.trim();
@@ -434,65 +214,6 @@ function formatTaskClockLabel(value: string | null | undefined): string {
   const suffix = hours24 >= 12 ? "PM" : "AM";
   const hours12 = hours24 % 12 || 12;
   return `${hours12}:${minutes} ${suffix}`;
-}
-
-function formatElapsedSeconds(value: number | null | undefined): string {
-  if (value == null || !Number.isFinite(value)) return "-";
-  const totalSeconds = Math.max(0, Math.round(value));
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
-}
-
-function formatResultPoints(value: number | null | undefined): string {
-  return (value ?? 0).toFixed(1);
-}
-
-function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
-  switch (key) {
-    case "distance":
-      return <span className="results-header-stack"><span>Dist.</span><span>Points</span></span>;
-    case "speed":
-      return <span className="results-header-stack"><span>Time</span><span>Points</span></span>;
-    case "arrival":
-      return <span className="results-header-stack"><span>Arrival</span><span>Points</span></span>;
-    case "departure":
-      return <span className="results-header-stack"><span>Departure</span><span>Points</span></span>;
-    case "leading":
-      return <span className="results-header-stack"><span>Leading</span><span>Points</span></span>;
-    default:
-      return key;
-  }
-}
-
-function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure" | "leading") {
-  const gap = result.details_json?.gap as { awarded_points?: Record<string, number> } | undefined;
-  return Number(gap?.awarded_points?.[key] ?? 0);
-}
-
-function taskTypeLabel(value: string): string {
-  return taskTypeOptions.find((option) => option.value === normalizeTaskType(value))?.label ?? value;
-}
-
-function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | undefined): string {
-  if (!elapsedSeconds || elapsedSeconds <= 0) return "-";
-  return (distanceKm / (elapsedSeconds / 3600)).toFixed(1);
-}
-
-function formatDateLabel(value: string | null | undefined): string {
-  if (!value) return "-";
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
-}
-
-function taskDayQuality(results: ResultRecord[]): string {
-  const firstGap = results.find((result) => result.details_json?.gap)?.details_json?.gap as
-    | { validity?: { overall?: number } }
-    | undefined;
-  const overall = Number(firstGap?.validity?.overall ?? NaN);
-  return Number.isFinite(overall) ? overall.toFixed(3) : "-";
 }
 
 function isAdvancedPointType(pointType: string): boolean {
@@ -1861,1651 +1582,282 @@ export default function HomePage() {
     }
   }
 
-  function renderParticipantCards() {
-    if (!selectedEventId) {
-      return (
-        <SectionCard title="Participants" description="Create or select an event first.">
-          <p className="hint">An event must be selected before participants can be managed.</p>
-        </SectionCard>
-      );
-    }
+  function renderParticipantCardsNode() {
     return (
-      <div className="participant-workspace">
-        <SectionCard title="Participant intake" description="Add a pilot manually or import a roster CSV for the selected event.">
-          {canManagePlatform ? (
-            <div className="participant-intake-stack">
-              <div className="record-card stack compact participant-directory-card">
-                <strong>Add existing person</strong>
-                <span>Select from the global people directory, including pilots who created their own accounts.</span>
-                <div className="participant-intake-row">
-                  <select value={selectedDirectoryPilotId ?? ""} onChange={(event) => setSelectedDirectoryPilotId(event.target.value ? Number(event.target.value) : null)}>
-                    <option value="">Select a person</option>
-                    {availableDirectoryPilots.map((pilot) => (
-                      <option key={pilot.id} value={pilot.id}>
-                        {pilot.first_name} {pilot.last_name}{pilot.email ? ` - ${pilot.email}` : ""}{pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" onClick={() => void assignExistingPilot()} disabled={!selectedDirectoryPilotId}>Add to event</button>
-                </div>
-              </div>
-              <form className="stack form-block compact participant-intake-form" onSubmit={createPilot}>
-                <div className="participant-intake-grid participant-intake-grid--two">
-                  <input placeholder="First name" value={pilotForm.first_name} onChange={(event) => setPilotForm({ ...pilotForm, first_name: event.target.value })} />
-                  <input placeholder="Last name" value={pilotForm.last_name} onChange={(event) => setPilotForm({ ...pilotForm, last_name: event.target.value })} />
-                </div>
-                <div className="participant-intake-grid participant-intake-grid--three">
-                  <input placeholder="Email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} />
-                  <input placeholder="Nation" value={pilotForm.nation} onChange={(event) => setPilotForm({ ...pilotForm, nation: event.target.value })} />
-                  <input placeholder="Competition #" value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} />
-                  <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
-                </div>
-                <div className="button-row participant-intake-actions">
-                  <button type="submit">Create new pilot</button>
-                  <label className="file-input">
-                    Import CSV
-                    <input
-                      type="file"
-                      accept=".csv"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0];
-                        if (!file) return;
-                        await uploadFile<unknown>(`/api/events/${selectedEventId}/pilots/import-csv`, file);
-                        setMessage(`Imported pilots from ${file.name}.`);
-                        await loadEvent(token, selectedEventId);
-                        await refreshPilotDirectory(token);
-                        await refreshEvents(token);
-                        event.currentTarget.value = "";
-                      }}
-                    />
-                  </label>
-                </div>
-              </form>
-            </div>
-          ) : (
-            <p className="hint">Pilot management is available to organizers and admins. Pilots can still review the roster below.</p>
-          )}
-        </SectionCard>
-        <SectionCard title="Current participants" description={`${pilots.length} pilots assigned to ${selectedEvent?.name ?? "this event"}.`}>
-          <div className="participant-table-wrap">
-            <table className="participant-table">
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Competition #</th>
-                  <th>Email</th>
-                  <th>Portal</th>
-                  {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {pilots.length ? (
-                  pilots.map((pilot) => (
-                    <tr key={pilot.id}>
-                      <td>
-                        <strong>{pilot.first_name} {pilot.last_name}</strong>
-                      </td>
-                      <td>{pilot.competition_number ?? "No comp #"}</td>
-                      <td>{pilot.email ?? "No email"}</td>
-                      <td>{pilot.portal_username ?? "No portal user"}</td>
-                      {canManagePlatform ? (
-                        <td className="participant-table-actions">
-                          <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button>
-                        </td>
-                      ) : null}
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={canManagePlatform ? 5 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </SectionCard>
-      </div>
-    );
-  }
-
-  function renderEventsSection() {
-    return (
-      <div className="section-stack">
-        <SectionCard title="Event selection" description="Choose an event from the database or start a new one. Everything below follows the currently selected event.">
-          <div className="event-selector-bar">
-            <label className="stack compact event-selector-field">
-              <span>Current event</span>
-              <select value={selectedEventId ?? (events[0]?.id ?? "")} onChange={(event) => { const nextId = Number(event.target.value); const nextEvent = events.find((candidate) => candidate.id === nextId); if (nextEvent) void selectEvent(nextEvent); }}>
-                {events.length === 0 ? <option value="">No events yet</option> : null}
-                {events.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    {event.location ? `${event.name} - ${event.location}` : event.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {canManagePlatform ? (
-              <button className="event-selector-link" type="button" onClick={() => void createEventDraft()}>Create a New Event</button>
-            ) : null}
-          </div>
-          <div className="event-summary-strip">
-            <div className="record-card compact-stat">
-              <strong>{selectedEvent?.pilot_count ?? 0}</strong>
-              <span>Pilots</span>
-            </div>
-            <div className="record-card compact-stat">
-              <strong>{selectedEvent?.task_count ?? 0}</strong>
-              <span>Tasks</span>
-            </div>
-            <div className="record-card compact-stat">
-              <strong>{turnpoints.length}</strong>
-              <span>Turnpoints</span>
-            </div>
-            <div className="record-card compact-stat">
-              <strong>{selectedEvent ? `${selectedEvent.starts_on} to ${selectedEvent.ends_on}` : "--"}</strong>
-              <span>Dates</span>
-            </div>
-          </div>
-        </SectionCard>
-        <div className="tab-row">
-          {eventTabItems.map((tab) => (
-            <button key={tab.id} type="button" className={eventTab === tab.id ? "tab-button active" : "tab-button"} onClick={() => setEventTab(tab.id)}>
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <div className="event-workspace-grid event-three-up">
-          {eventTab === "details" ? (
-          <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Keep the active event compact and quick to edit.">
-            <form className="stack form-block compact-event-form" onSubmit={saveEvent}>
-              <label className="stack compact">
-                <span>Event name</span>
-                <input placeholder="Enter event name" value={eventForm.name} onChange={(event) => setEventForm({ ...eventForm, name: event.target.value })} />
-              </label>
-              <label className="stack compact">
-                <span>Location</span>
-                <input placeholder="Enter location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
-              </label>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Starts on</span>
-                  <input type="date" value={eventForm.starts_on} onChange={(event) => setEventForm({ ...eventForm, starts_on: event.target.value })} />
-                </label>
-                <label className="stack compact">
-                  <span>Ends on</span>
-                  <input type="date" value={eventForm.ends_on} onChange={(event) => setEventForm({ ...eventForm, ends_on: event.target.value })} />
-                </label>
-              </div>
-              <label className="stack compact">
-                <span>Timezone</span>
-                <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
-              </label>
-              {canManagePlatform ? (
-                <div className="button-row">
-                  <button type="submit">{eventEditorId ? "Save event" : "Create event"}</button>
-                  {eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
-                  {isAdmin && eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
-                </div>
-              ) : null}
-            </form>
-          </SectionCard>
-          ) : null}
-          {eventTab === "scoring" ? (
-          <SectionCard title="Scoring parameters" description="Event-level GAP defaults.">
-            {eventEditorId ? (
-              <form className="stack form-block compact-scoring-form" onSubmit={saveEvent}>
-                <label className="stack compact">
-                  <span>Scoring formula</span>
-                  <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
-                    {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </select>
-                </label>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>Nominal distance (km)</span>
-                    <input type="number" value={eventForm.nominal_distance_km} onChange={(event) => setEventForm({ ...eventForm, nominal_distance_km: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Nominal time (hours)</span>
-                    <input type="number" step="0.1" value={eventForm.nominal_time_hours} onChange={(event) => setEventForm({ ...eventForm, nominal_time_hours: Number(event.target.value) })} />
-                  </label>
-                </div>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>Nominal launch</span>
-                    <input type="number" step="0.01" value={eventForm.nominal_launch} onChange={(event) => setEventForm({ ...eventForm, nominal_launch: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Minimum distance (km)</span>
-                    <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
-                  </label>
-                </div>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>Nominal goal (%)</span>
-                    <input type="number" step="0.01" value={eventForm.nominal_goal_percent} onChange={(event) => setEventForm({ ...eventForm, nominal_goal_percent: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Score-back time (minutes)</span>
-                    <input type="number" value={eventForm.score_back_time_minutes} onChange={(event) => setEventForm({ ...eventForm, score_back_time_minutes: Number(event.target.value) })} />
-                  </label>
-                </div>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>Goal / SS penalty</span>
-                    <input type="number" step="0.1" value={eventForm.goal_ss_penalty} onChange={(event) => setEventForm({ ...eventForm, goal_ss_penalty: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Stopped-task glide bonus</span>
-                    <input type="number" step="0.1" value={eventForm.stopped_glide_bonus} onChange={(event) => setEventForm({ ...eventForm, stopped_glide_bonus: Number(event.target.value) })} />
-                  </label>
-                </div>
-                <div className="inline-grid">
-                  <label className="stack compact">
-                    <span>Jump-the-gun factor</span>
-                    <input type="number" step="0.1" value={eventForm.jump_the_gun_factor} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_factor: Number(event.target.value) })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Jump-the-gun max (seconds)</span>
-                    <input type="number" value={eventForm.jump_the_gun_max_seconds} onChange={(event) => setEventForm({ ...eventForm, jump_the_gun_max_seconds: Number(event.target.value) })} />
-                  </label>
-                </div>
-                <div className="three-up compact-checkbox-grid">
-                  <label className="record-card checkbox-card">
-                    <input type="checkbox" checked={eventForm.use_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_distance_points: event.target.checked })} />
-                    <span>Distance points</span>
-                  </label>
-                  <label className="record-card checkbox-card">
-                    <input type="checkbox" checked={eventForm.use_time_points} onChange={(event) => setEventForm({ ...eventForm, use_time_points: event.target.checked })} />
-                    <span>Time points</span>
-                  </label>
-                  <label className="record-card checkbox-card">
-                    <input type="checkbox" checked={eventForm.use_leading_points} onChange={(event) => setEventForm({ ...eventForm, use_leading_points: event.target.checked })} />
-                    <span>Leading points</span>
-                  </label>
-                  <label className="record-card checkbox-card">
-                    <input type="checkbox" checked={eventForm.use_arrival_position_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_position_points: event.target.checked })} />
-                    <span>Arrival position points</span>
-                  </label>
-                  <label className="record-card checkbox-card">
-                    <input type="checkbox" checked={eventForm.use_arrival_time_points} onChange={(event) => setEventForm({ ...eventForm, use_arrival_time_points: event.target.checked })} />
-                    <span>Arrival time points</span>
-                  </label>
-                  <label className="record-card checkbox-card">
-                    <input type="checkbox" checked={eventForm.use_departure_points} onChange={(event) => setEventForm({ ...eventForm, use_departure_points: event.target.checked })} />
-                    <span>Departure points</span>
-                  </label>
-                </div>
-                <p className="hint">The FS scoring sheet also shows computed outputs like day validity and available points. Only the editable AirScore formula settings are exposed here.</p>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Day quality override</span>
-                      <input type="number" step="0.01" value={eventForm.day_quality_override} onChange={(event) => setEventForm({ ...eventForm, day_quality_override: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Time points if not in goal</span>
-                      <input type="number" step="0.01" value={eventForm.time_points_if_not_in_goal} onChange={(event) => setEventForm({ ...eventForm, time_points_if_not_in_goal: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Min time span for valid task (minutes)</span>
-                      <input type="number" value={eventForm.min_time_span_for_valid_task_minutes} onChange={(event) => setEventForm({ ...eventForm, min_time_span_for_valid_task_minutes: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Leading weight factor</span>
-                      <input type="number" step="0.01" value={eventForm.leading_weight_factor} onChange={(event) => setEventForm({ ...eventForm, leading_weight_factor: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Turnpoint radius tolerance</span>
-                      <input type="number" step="0.0001" value={eventForm.turnpoint_radius_tolerance} onChange={(event) => setEventForm({ ...eventForm, turnpoint_radius_tolerance: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Turnpoint min absolute tolerance (m)</span>
-                      <input type="number" step="0.1" value={eventForm.turnpoint_radius_minimum_absolute_tolerance_m} onChange={(event) => setEventForm({ ...eventForm, turnpoint_radius_minimum_absolute_tolerance_m: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Task results decimals</span>
-                      <input type="number" min={0} max={6} value={eventForm.number_of_decimals_task_results} onChange={(event) => setEventForm({ ...eventForm, number_of_decimals_task_results: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
-                      <span>Competition results decimals</span>
-                      <input type="number" min={0} max={6} value={eventForm.number_of_decimals_competition_results} onChange={(event) => setEventForm({ ...eventForm, number_of_decimals_competition_results: Number(event.target.value) })} />
-                    </label>
-                  </div>
-                  <div className="inline-grid">
-                    <label className="stack compact">
-                      <span>Scoring altitude</span>
-                      <select value={eventForm.scoring_altitude} onChange={(event) => setEventForm({ ...eventForm, scoring_altitude: event.target.value })}>
-                        {scoringAltitudeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <label className="stack compact">
-                      <span>Final glide decelerator</span>
-                      <select value={eventForm.final_glide_decelerator} onChange={(event) => setEventForm({ ...eventForm, final_glide_decelerator: event.target.value })}>
-                        {finalGlideDeceleratorOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                  <label className="stack compact">
-                    <span>No final glide decelerator reason</span>
-                    <input type="text" value={eventForm.no_final_glide_decelerator_reason} onChange={(event) => setEventForm({ ...eventForm, no_final_glide_decelerator_reason: event.target.value })} placeholder="Optional override note" />
-                  </label>
-                  <div className="three-up compact-checkbox-grid">
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_1000_points_for_max_day_quality} onChange={(event) => setEventForm({ ...eventForm, use_1000_points_for_max_day_quality: event.target.checked })} />
-                      <span>Use 1000 points for max day quality</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.normalize_1000_before_day_quality} onChange={(event) => setEventForm({ ...eventForm, normalize_1000_before_day_quality: event.target.checked })} />
-                      <span>Normalize 1000 before day quality</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_difficulty_for_distance_points} onChange={(event) => setEventForm({ ...eventForm, use_difficulty_for_distance_points: event.target.checked })} />
-                      <span>Use difficulty for distance points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_distance_squared_for_lc} onChange={(event) => setEventForm({ ...eventForm, use_distance_squared_for_lc: event.target.checked })} />
-                      <span>Use distance squared for LC</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_semi_circle_control_zone_for_goal_line} onChange={(event) => setEventForm({ ...eventForm, use_semi_circle_control_zone_for_goal_line: event.target.checked })} />
-                      <span>Use semi-circle goal line control zone</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_proportional_leading_weight_if_nobody_in_goal} onChange={(event) => setEventForm({ ...eventForm, use_proportional_leading_weight_if_nobody_in_goal: event.target.checked })} />
-                      <span>Proportional leading weight if nobody in goal</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.redistribute_removed_time_points_as_distance_points} onChange={(event) => setEventForm({ ...eventForm, redistribute_removed_time_points_as_distance_points: event.target.checked })} />
-                      <span>Redistribute removed time points as distance points</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_best_score_for_ftv_validity} onChange={(event) => setEventForm({ ...eventForm, use_best_score_for_ftv_validity: event.target.checked })} />
-                      <span>Use best score for FTV validity</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_constant_leading_weight} onChange={(event) => setEventForm({ ...eventForm, use_constant_leading_weight: event.target.checked })} />
-                      <span>Use constant leading weight</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_pwca2019_for_lc} onChange={(event) => setEventForm({ ...eventForm, use_pwca2019_for_lc: event.target.checked })} />
-                      <span>Use PWCA 2019 for LC</span>
-                    </label>
-                    <label className="record-card checkbox-card">
-                      <input type="checkbox" checked={eventForm.use_flat_decline_of_timepoints} onChange={(event) => setEventForm({ ...eventForm, use_flat_decline_of_timepoints: event.target.checked })} />
-                      <span>Use flat decline of time points</span>
-                    </label>
-                  </div>
-                <label className="stack compact">
-                  <span>Penalty rules JSON</span>
-                  <textarea value={eventForm.penalties_text} onChange={(event) => setEventForm({ ...eventForm, penalties_text: event.target.value })} rows={3} placeholder='{"jump_the_gun": 0, "airspace": 0}' />
-                </label>
-                {canManagePlatform ? <button type="submit">Save scoring parameters</button> : null}
-              </form>
-            ) : (
-              <p className="hint">Create or select an event to define its scoring defaults.</p>
-            )}
-          </SectionCard>
-          ) : null}
-          {eventTab === "turnpoints" ? (
-          <SectionCard title="Turnpoint files" description="Upload as many waypoint files as you need for the event, then control which ones are visible on the map.">
-            {eventEditorId ? (
-              <div className="stack form-block">
-                {canManagePlatform ? (
-                  <div className="participant-intake-row">
-                    <div className="stack compact">
-                      <span>Upload turnpoint file</span>
-                      <p className="hint">CSV, GeoJSON, or GPX. Each upload is stored separately so you can mix multiple waypoint datasets on the same event.</p>
-                    </div>
-                    <label className="file-input">
-                      Upload turnpoints
-                      <input
-                        type="file"
-                        accept=".csv,.geojson,.json,.gpx"
-                        onChange={async (event) => {
-                          const file = event.target.files?.[0];
-                          if (!file || !selectedEventId) return;
-                          try {
-                            setError("");
-                            const response = await uploadFile<TurnpointUploadResponse>(`/api/events/${selectedEventId}/turnpoints/upload`, file);
-                            setMessage(`Stored ${response.imported_count} turnpoints from ${file.name}.`);
-                            await loadEvent(token, selectedEventId);
-                            await refreshEvents(token);
-                          } catch (caught) {
-                            setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                          } finally {
-                            event.currentTarget.value = "";
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                ) : null}
-                <div className="participant-table-wrap">
-                  <table className="participant-table">
-                    <thead>
-                      <tr>
-                        <th>File name</th>
-                        <th>Format</th>
-                        <th>Turnpoints</th>
-                        <th>Visible</th>
-                        <th>Uploaded</th>
-                        {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {turnpointSources.length ? (
-                        turnpointSources.map((source) => (
-                          <tr key={source.id}>
-                            <td><strong>{source.filename}</strong></td>
-                            <td>{source.file_format.toUpperCase()}</td>
-                            <td>{source.turnpoint_count}</td>
-                            <td>
-                              <label className="task-advanced-toggle">
-                                <input
-                                  type="checkbox"
-                                  checked={source.enabled}
-                                  disabled={!canManagePlatform}
-                                  onChange={(event) => void toggleTurnpointSource(source, event.target.checked)}
-                                />
-                                <span>{source.enabled ? "Visible" : "Hidden"}</span>
-                              </label>
-                            </td>
-                            <td>{new Date(source.uploaded_at).toLocaleString()}</td>
-                            {canManagePlatform ? (
-                              <td className="participant-table-actions">
-                                <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
-                              </td>
-                            ) : null}
-                          </tr>
-                        ))
-                      ) : (
-                        <tr>
-                          <td colSpan={canManagePlatform ? 6 : 5} className="participant-table-empty">No turnpoint files uploaded for this event yet.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ) : (
-              <p className="hint">Create or select an event before uploading turnpoint files.</p>
-            )}
-          </SectionCard>
-          ) : null}
-        </div>
-        {eventTab === "airspace" ? (
-          <div className="section-grid two-column">
-            <SectionCard title="Overlay settings" description="Choose which airspace classes should appear on the task map for this event.">
-              {eventEditorId ? (
-                <form className="stack form-block" onSubmit={saveEvent}>
-                  <div className="three-up compact-checkbox-grid">
-                    {airspaceCategoryOptions.map((option) => (
-                      <label key={option.value} className="record-card checkbox-card">
-                        <input
-                          type="checkbox"
-                          checked={eventForm.visible_airspace_classes_json.includes(option.value)}
-                          onChange={() => toggleVisibleAirspaceClass(option.value)}
-                        />
-                        <span>{option.label}</span>
-                      </label>
-                    ))}
-                    <label className="record-card checkbox-card">
-                      <input
-                        type="checkbox"
-                        checked={eventForm.show_restricted_fields}
-                        onChange={(event) => setEventForm({ ...eventForm, show_restricted_fields: event.target.checked })}
-                      />
-                      <span>Restricted fields</span>
-                    </label>
-                  </div>
-                  <div className="record-card">
-                    <strong>{visibleAirspaces.length} visible overlays</strong>
-                    <span>{selectedEvent?.airspace_count ?? 0} airspace regions and {selectedEvent?.restricted_field_count ?? 0} restricted fields stored for this event.</span>
-                  </div>
-                  {canManagePlatform ? <button type="submit">Save overlay settings</button> : null}
-                </form>
-              ) : (
-                <p className="hint">Create or select an event to configure airspace overlays.</p>
-              )}
-            </SectionCard>
-            <SectionCard title="Upload datasets" description="Use OpenAir for airspace and restricted field polygons. GeoJSON is also accepted for general airspace overlays.">
-              <div className="stack form-block">
-                {canManagePlatform ? (
-                  <>
-                    <div className="record-card">
-                      <strong>Competition airspace</strong>
-                      <span>Upload OpenAir or GeoJSON around the selected event.</span>
-                      <label className="file-input">
-                        Upload airspace
-                        <input
-                          type="file"
-                          accept=".txt,.openair,.air,.geojson,.json"
-                          onChange={async (event) => {
-                            const file = event.target.files?.[0];
-                            if (!file) return;
-                            try {
-                              setError("");
-                              await uploadAirspaceFile("airspace", file);
-                            } catch (caught) {
-                              setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                            } finally {
-                              event.currentTarget.value = "";
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                    <div className="record-card">
-                      <strong>Restricted landing fields</strong>
-                      <span>Upload OpenAir polygons for do-not-land or field exclusion zones.</span>
-                      <label className="file-input">
-                        Upload restricted fields
-                        <input
-                          type="file"
-                          accept=".txt,.openair,.air"
-                          onChange={async (event) => {
-                            const file = event.target.files?.[0];
-                            if (!file) return;
-                            try {
-                              setError("");
-                              await uploadAirspaceFile("restricted_field", file);
-                            } catch (caught) {
-                              setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                            } finally {
-                              event.currentTarget.value = "";
-                            }
-                          }}
-                        />
-                      </label>
-                    </div>
-                  </>
-                ) : (
-                  <p className="hint">Only organizers and admins can upload airspace files. Pilots still see the saved overlays on the task map.</p>
-                )}
-              </div>
-            </SectionCard>
-            <SectionCard title="Stored airspace files" description="Uploaded overlays attached to this event.">
-              <div className="stack form-block">
-                {airspaceSources.filter((source) => source.kind === "airspace").length ? (
-                  airspaceSources.filter((source) => source.kind === "airspace").map((source) => (
-                    <div key={source.id} className="record-card roster-row">
-                      <div>
-                        <strong>{source.filename}</strong>
-                        <span>{source.region_count} regions - {source.file_format} - uploaded {new Date(source.uploaded_at).toLocaleString()}</span>
-                      </div>
-                      <div className="compact-slot-actions">
-                        <label className="task-advanced-toggle">
-                          <input
-                            type="checkbox"
-                            checked={source.enabled ?? true}
-                            disabled={!canManagePlatform}
-                            onChange={(event) => void toggleAirspaceSource(source, event.target.checked)}
-                          />
-                          <span>{source.enabled ?? true ? "Visible" : "Hidden"}</span>
-                        </label>
-                        {canManagePlatform ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="hint">No airspace overlays uploaded yet.</p>
-                )}
-              </div>
-            </SectionCard>
-            <SectionCard title="Stored restricted fields" description="Do-not-land and restricted field polygons for this event.">
-              <div className="stack form-block">
-                {airspaceSources.filter((source) => source.kind === "restricted_field").length ? (
-                  airspaceSources.filter((source) => source.kind === "restricted_field").map((source) => (
-                    <div key={source.id} className="record-card roster-row">
-                      <div>
-                        <strong>{source.filename}</strong>
-                        <span>{source.region_count} fields - {source.file_format} - uploaded {new Date(source.uploaded_at).toLocaleString()}</span>
-                      </div>
-                      <div className="compact-slot-actions">
-                        <label className="task-advanced-toggle">
-                          <input
-                            type="checkbox"
-                            checked={source.enabled ?? true}
-                            disabled={!canManagePlatform}
-                            onChange={(event) => void toggleAirspaceSource(source, event.target.checked)}
-                          />
-                          <span>{source.enabled ?? true ? "Visible" : "Hidden"}</span>
-                        </label>
-                        {canManagePlatform ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteAirspaceSource(source)}>Delete</button> : null}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="hint">No restricted field files uploaded yet.</p>
-                )}
-              </div>
-            </SectionCard>
-          </div>
-        ) : null}
-        {eventTab === "participants" ? renderParticipantCards() : null}
-      </div>
-    );
-  }
-
-  function renderTasksSection() {
-      if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
-      const fullscreenTaskEditor = canManagePlatform ? (
-        <div className="map-task-editor">
-          <div className="map-task-editor-header">
-            <strong>Task turnpoints</strong>
-            <span>{taskDraft.points.length ? `${taskDraft.points.length} in task` : "No turnpoints yet"}</span>
-          </div>
-          <div className="map-task-editor-table-wrap">
-            <table className="map-task-editor-table">
-              <thead>
-                <tr>
-                  <th></th>
-                  <th>Name</th>
-                  <th>Type</th>
-                  <th>Radius (m)</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {taskDraft.points.length ? (
-                  taskDraft.points.map((point, index) => (
-                    <tr
-                      key={`fullscreen-${point.turnpoint_id ?? point.name}-${index}`}
-                      draggable
-                      onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                      }}
-                    >
-                      <td className="map-task-editor-drag">{point.position}. ⋮⋮</td>
-                      <td className="map-task-editor-name">
-                        <strong>{point.name}</strong>
-                      </td>
-                      <td className="map-task-editor-type">
-                        <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                          {taskPointTypeOptions.map((option) => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td className="map-task-editor-radius">
-                        <input
-                          value={radiusInputValue(index, point)}
-                          onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                          onFocus={(event) => event.currentTarget.select()}
-                          onBlur={() => handleRadiusInputBlur(index, point)}
-                          onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                          inputMode="numeric"
-                        />
-                      </td>
-                      <td className="map-task-editor-actions">
-                        <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-          <div className="map-task-editor-footer">
-            <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
-              <span>
-                <strong>Total:</strong> {taskDistanceMetrics.totalDistanceKm.toFixed(1)} km
-              </span>
-              <span>
-                <strong>Optimized:</strong> {taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km
-              </span>
-            </div>
-            <button type="button" className="map-task-editor-save" onClick={saveTask}>
-              Save task
-            </button>
-            {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
-          </div>
-        </div>
-      ) : undefined;
-      return (
-        <div className="section-stack">
-        <SectionCard title="Task details" description={canManagePlatform ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
-          <div className="stack form-block">
-            <div className="participant-intake-row">
-              <label className="stack compact">
-                <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                  <option value="">Select a task</option>
-                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-                </select>
-              </label>
-              {canManagePlatform ? (
-                <button type="button" className="ghost-button" onClick={startNewTask}>
-                  New task
-                </button>
-              ) : null}
-            </div>
-            <label className="stack compact">
-              <span>Task name</span>
-              <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
-            </label>
-            <div className="inline-grid">
-              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                <span>Task type</span>
-                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
-                  {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                <span>Task start (launch open)</span>
-                <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                <span>Task finish (goal close)</span>
-                <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
-              </label>
-              <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
-                <span>Start open</span>
-                <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
-                <span>Start close</span>
-                <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
-              </label>
-              <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                <span>Number of start gates</span>
-                <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                <span>Gate interval (minutes)</span>
-                <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} placeholder="15" disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-              </label>
-              <div className="distance-summary-grid">
-                <div className="record-card">
-                  <strong>Total task distance</strong>
-                  <span>{taskDistanceMetrics.totalDistanceKm.toFixed(1)} km center-to-center</span>
-                </div>
-                <div className="record-card">
-                  <strong>Optimized distance</strong>
-                  <span>{taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km shortest path through cylinders</span>
-                </div>
-              </div>
-            </div>
-            <div className="task-builder-layout">
-                <div className="task-turnpoint-rail">
-                  <div className="section-header">
-                    <h3>Task turnpoints</h3>
-                    <div className="task-turnpoint-toolbar">
-                      {canManagePlatform ? (
-                      <label className="task-advanced-toggle">
-                          <input type="checkbox" checked={taskPointAdvanced} onChange={(event) => toggleTaskPointAdvanced(event.target.checked)} />
-                          <span>Advanced</span>
-                        </label>
-                      ) : null}
-                    </div>
-                  </div>
-                  <p className="hint">{canManagePlatform ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
-                  {canManagePlatform ? (
-                    <div className="task-search-panel">
-                      <label className="stack compact">
-                        <span>Search turnpoints</span>
-                        <input
-                          type="text"
-                          value={turnpointSearch}
-                          onChange={(event) => setTurnpointSearch(event.target.value)}
-                          placeholder="Search by name or waypoint code"
-                        />
-                      </label>
-                      {turnpointSearch.trim() ? (
-                        filteredTurnpoints.length ? (
-                          <div className="task-search-results">
-                            {filteredTurnpoints.map((turnpoint) => (
-                              <div key={`search-${turnpoint.id}`} className="task-search-row">
-                                <div>
-                                  <strong>{turnpoint.name}</strong>
-                                  <span>{turnpoint.code ?? ""}</span>
-                                </div>
-                                <button type="button" className="ghost-button" onClick={() => addTurnpoint(turnpoint)}>Add</button>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="hint">No turnpoints match that search.</p>
-                        )
-                      ) : null}
-                    </div>
-                  ) : null}
-                  <div className="task-point-list-table-wrap">
-                    {taskDraft.points.length ? (
-                      <table className="task-point-list-table">
-                        <thead>
-                          <tr>
-                            <th></th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Radius (m)</th>
-                            {canManagePlatform ? <th></th> : null}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {taskDraft.points.map((point, index) => {
-                            const waypointCode = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code;
-                            return (
-                              <tr
-                                key={`compact-${point.turnpoint_id ?? point.name}-${index}`}
-                                className={`point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
-                                draggable={canManagePlatform}
-                                onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                                onDragOver={(event) => event.preventDefault()}
-                                onDrop={(event) => {
-                                  event.preventDefault();
-                                  movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                                }}
-                              >
-                                <td className="task-point-row-order">
-                                  <span className="drag-handle" title="Drag to reorder">{point.position}. :::</span>
-                                </td>
-                                <td className="task-point-row-name">
-                                  <strong>{point.name}</strong>
-                                  {waypointCode ? <span>{waypointCode}</span> : null}
-                                </td>
-                                <td className="task-point-row-type">
-                                  {canManagePlatform ? (
-                                    <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                                      {taskPointTypeOptions.map((option) => (
-                                        <option key={option.value} value={option.value}>{option.label}</option>
-                                      ))}
-                                    </select>
-                                  ) : (
-                                    <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                                  )}
-                                </td>
-                                <td className="task-point-row-radius">
-                                  {canManagePlatform ? (
-                                    <input
-                                      type="text"
-                                      inputMode="numeric"
-                                      value={radiusInputValue(index, point)}
-                                      onFocus={(event) => event.currentTarget.select()}
-                                      onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                                      onBlur={() => handleRadiusInputBlur(index, point)}
-                                      onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                                      placeholder="400"
-                                      aria-label={`Radius in meters for ${point.name}`}
-                                    />
-                                  ) : (
-                                    <span>{formatMeters(point.radius_m)}</span>
-                                  )}
-                                </td>
-                                {canManagePlatform ? (
-                                  <td className="task-point-row-actions">
-                                    <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                                  </td>
-                                ) : null}
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    ) : null}
-                  </div>
-                  <div className="task-point-list task-point-list-legacy" aria-hidden="true">
-                    {taskDraft.points.map((point, index) => (
-                      <div
-                        key={`${point.turnpoint_id ?? point.name}-${index}`}
-                        className={`task-point-card point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
-                        draggable={canManagePlatform}
-                        onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                      onDragOver={(event) => event.preventDefault()}
-                      onDrop={(event) => {
-                        event.preventDefault();
-                        movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                      }}
-                    >
-                        <div className="task-point-card-top">
-                          <span className="drag-handle" title="Drag to reorder">{point.position}. ⋮⋮</span>
-                          <strong>{point.name}</strong>
-                          <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? ""}</span>
-                          <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                        </div>
-                        <div className="task-point-card-grid">
-                          {canManagePlatform ? (
-                            <>
-                              <label className="stack compact">
-                                <span>Type</span>
-                                <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                                  {taskPointTypeOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                  ))}
-                                </select>
-                              </label>
-                            <label className="stack compact">
-                              <span>Radius (m)</span>
-                              <input
-                                type="text"
-                                inputMode="numeric"
-                                value={radiusInputValue(index, point)}
-                                onFocus={(event) => event.currentTarget.select()}
-                                onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                                onBlur={() => handleRadiusInputBlur(index, point)}
-                                onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                                placeholder="400"
-                                aria-label={`Radius in meters for ${point.name}`}
-                              />
-                            </label>
-                          </>
-                        ) : (
-                          <>
-                            <div className="record-card">
-                              <strong>Type</strong>
-                              <span>{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                            </div>
-                            <div className="record-card">
-                              <strong>Radius</strong>
-                              <span>{point.radius_m.toFixed(0)} m</span>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      {canManagePlatform ? (
-                        <div className="task-point-card-actions">
-                          <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                  {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map to add them to this task.</p> : null}
-                </div>
-                <p className="hint">{taskPointAdvanced ? "Advanced mode keeps Launch, Start, ESS, and Goal separate for scoring." : "Simple mode uses Start, Turnpoint, and Goal only. Launch scores as Start, and ESS scores as Goal."}</p>
-              </div>
-              <div className="task-map-panel">
-                  <TaskMap
-                    turnpoints={taskSectionMapTurnpoints}
-                    airspaces={visibleAirspaces}
-                    taskPoints={taskDraft.points}
-                    optimizedRoute={taskDistanceMetrics.routeCoordinates}
-                    legMetrics={taskDistanceMetrics.legMetrics}
-                    totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
-                    optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
-                    track={track}
-                    editable={canManagePlatform}
-                    onSelectTurnpoint={canManagePlatform ? addTurnpoint : undefined}
-                    taskEditorOverlay={fullscreenTaskEditor}
-                    hideFullscreenDistanceOverlay={canManagePlatform}
-                    fitKey={selectedTaskId}
-                    units={{
-                      altitude: settingsForm.altitude_unit,
-                      speed: settingsForm.speed_unit,
-                      distance: settingsForm.distance_unit,
-                      vario: settingsForm.vario_unit,
-                    }}
-                  />
-                </div>
-              </div>
-            <div className="stack">
-              <button type="button" className="ghost-button advanced-toggle" onClick={() => setTaskAdvancedOpen((current) => !current)}>
-                {taskAdvancedOpen ? "Hide Advanced Settings" : "Advanced Settings"}
-              </button>
-              {taskAdvancedOpen ? (
-                <div className="stack">
-                  <div className="inline-grid">
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Nominal distance (km)</span>
-                      <input type="number" value={taskDraft.nominal_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_distance_km: Number(event.target.value) })} disabled={!canManagePlatform} />
-                    </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Nominal time (hours)</span>
-                      <input type="number" value={taskDraft.nominal_time_hours} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_time_hours: Number(event.target.value) })} disabled={!canManagePlatform} />
-                    </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Nominal launch</span>
-                      <input type="number" step="0.01" value={taskDraft.nominal_launch} onChange={(event) => setTaskDraft({ ...taskDraft, nominal_launch: Number(event.target.value) })} disabled={!canManagePlatform} />
-                    </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Minimum distance (km)</span>
-                      <input type="number" value={taskDraft.minimum_distance_km} onChange={(event) => setTaskDraft({ ...taskDraft, minimum_distance_km: Number(event.target.value) })} disabled={!canManagePlatform} />
-                    </label>
-                  </div>
-                  <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                    <span>Task penalty / notes JSON</span>
-                    <textarea value={taskDraft.penalties_text} onChange={(event) => setTaskDraft({ ...taskDraft, penalties_text: event.target.value })} rows={4} disabled={!canManagePlatform} />
-                  </label>
-                </div>
-              ) : null}
-            </div>
-            {canManagePlatform ? (
-              <div className="stack compact task-action-stack">
-                <div className="button-row">
-                  <button type="button" onClick={saveTask}>Save task</button>
-                  <button type="button" className="secondary" onClick={publishTask} disabled={!taskDraft.id}>Publish task</button>
-                  <button type="button" className="ghost-button danger-button task-delete-button" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
-                  <button type="button" className="ghost-button task-unpublish-button" onClick={unpublishTask} disabled={!taskDraft.id || selectedTask?.status !== "published"}>Unpublish task</button>
-                </div>
-                {taskFeedback ? <div className={`status-chip ${taskFeedback.type}`}>{taskFeedback.text}</div> : null}
-              </div>
-            ) : null}
-          </div>
-        </SectionCard>
-      </div>
-    );
-  }
-
-  function renderScoringSection() {
-    if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
-    return (
-      <div className="section-stack">
-        {canManagePlatform ? (
-          <div className="tab-row">
-            <button type="button" className={scoresPortalTab === "admin" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("admin")}>Scoring operations</button>
-            <button type="button" className={scoresPortalTab === "results" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("results")}>Results portal</button>
-          </div>
-        ) : null}
-        {canManagePlatform && scoresPortalTab === "admin" ? (
-          <SectionCard title="Scoring operations" description="Upload missing IGC files on behalf of pilots, then run scoring manually for the selected task.">
-            <div className="stack form-block">
-              <label className="stack compact">
-                <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                  <option value="">Select a task</option>
-                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-                </select>
-              </label>
-              <div className="inline-grid">
-                <label className="stack compact">
-                  <span>Pilot for upload</span>
-                  <select value={adminUploadPilotId ?? ""} onChange={(event) => setAdminUploadPilotId(event.target.value ? Number(event.target.value) : null)}>
-                    <option value="">Select a pilot</option>
-                    {pilots.map((pilot) => (
-                      <option key={pilot.id} value={pilot.id}>
-                        {pilot.first_name} {pilot.last_name}{pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="file-input">
-                  Upload IGC for pilot
-                  <input
-                    type="file"
-                    accept=".igc"
-                    disabled={!selectedTaskId || !adminUploadPilotId}
-                    onChange={(event) => {
-                      const file = event.target.files?.[0];
-                      if (file && adminUploadPilotId) void uploadIgc(file, adminUploadPilotId);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-              <label className="file-input">
-                Upload multiple IGC files and auto-match pilots
-                <input
-                  type="file"
-                  accept=".igc"
-                  multiple
-                  disabled={!selectedTaskId}
-                  onChange={(event) => {
-                    const files = event.target.files;
-                    if (files?.length) void uploadIgcBatch(files);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-                {uploadFeedback ? <div className={`status-chip ${uploadFeedback.type}`}>{uploadFeedback.text}</div> : null}
-                <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
-                <div className="button-row">
-                  <button type="button" onClick={() => void rescoreSelectedTask()}>Run scoring</button>
-                  {scoringFeedback ? <div className={`status-chip ${scoringFeedback.type}`}>{scoringFeedback.text}</div> : null}
-                </div>
-                {uploads.length ? (
-                <div className="stack">
-                  {uploads.map((upload) => (
-                    <div key={upload.id} className="record-card upload-record">
-                      <div>
-                        <strong>{upload.filename}</strong>
-                        <span>{pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}`} - {upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span>
-                      </div>
-                      <button type="button" className="ghost-button danger-button" onClick={() => void deleteUpload(upload)}>Delete</button>
-                    </div>
-                  ))}
-                </div>
-              ) : <p className="hint">No IGC uploads have been stored for this task yet.</p>}
-            </div>
-          </SectionCard>
-        ) : null}
-        {!canManagePlatform || scoresPortalTab === "results" ? (
-        <SectionCard title="Results portal" description="Task results and overall standings are visible to all signed-in users.">
-          <div className="stack">
-            <div className="tab-row">
-              <button type="button" className={scoringTab === "task" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("task")}>Task results</button>
-              <button type="button" className={scoringTab === "overall" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("overall")}>Overall results</button>
-            </div>
-            {scoringTab === "task" ? (
-              <div className="stack form-block">
-                <label className="stack compact">
-                  <span>Selected task</span>
-                  <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                    <option value="">Select a task</option>
-                    {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-                  </select>
-                </label>
-                {taskDefinitionRows.length ? (
-                  <div className="results-sheet task-definition-sheet">
-                    <div className="results-sheet-header">
-                      <h3>Task definition</h3>
-                      <p>{selectedTask?.name ?? taskDraft.name} {taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type) ? `- ${taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)}` : ""}</p>
-                    </div>
-                    <div className="results-table-wrap">
-                      <table className="results-table results-table-compact">
-                        <thead>
-                          <tr>
-                            <th>No</th>
-                            <th>Leg Dist.</th>
-                            <th>Id</th>
-                            <th>Radius</th>
-                            <th>Open</th>
-                            <th>Close</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {taskDefinitionRows.map((row) => (
-                            <tr key={row.label}>
-                              <td><strong>{row.label}</strong></td>
-                              <td>{row.legDistanceKm.toFixed(1)} km</td>
-                              <td>{row.identifier}</td>
-                              <td>{row.radiusLabel}</td>
-                              <td>{row.openLabel}</td>
-                              <td>{row.closeLabel}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    {startGateLabels.length ? <p className="hint task-definition-gates">Start gates: {startGateLabels.join(", ")}</p> : null}
-                  </div>
-                ) : null}
-                {results.length ? (
-                  <div className="results-sheet">
-                    <div className="results-sheet-header results-sheet-header-actions">
-                      <div>
-                        <h3>{selectedTask?.name ?? "Task results"}</h3>
-                        <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
-                      </div>
-                      <div className="button-row">
-                        <a href={`/dashboard/live?task=${selectedTaskId}`} className="ghost-button">Live View</a>
-                        <a href={`/dashboard/replay?task=${selectedTaskId}`} className="ghost-button">Replay</a>
-                        <button
-                          type="button"
-                          className="ghost-button"
-                          onClick={() => void downloadAllIgcFiles()}
-                          disabled={resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all}
-                        >
-                          {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all ? "Preparing..." : "Download all IGC files"}
-                        </button>
-                        {resultsDownloadFeedback?.all ? <div className={`status-chip ${resultsDownloadFeedback.type}`}>{resultsDownloadFeedback.text}</div> : null}
-                      </div>
-                    </div>
-                    <div className="results-table-wrap">
-                      <table className="results-table results-table-task">
-                          <thead>
-                            <tr>
-                              <th>#</th>
-                              <th>Name</th>
-                              <th>Nat</th>
-                              <th>Glider</th>
-                              <th>SS</th>
-                              <th>ES</th>
-                              <th><span className="results-header-stack"><span>Time</span><span>[h:m:s]</span></span></th>
-                              <th><span className="results-header-stack"><span>Speed</span><span>[km/h]</span></span></th>
-                              <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
-                              {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
-                              <th>Total</th>
-                              <th>IGC file</th>
-                              {canManagePlatform ? <th>State</th> : null}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {results.map((result) => {
-                              const pilot = pilotById.get(result.pilot_id);
-                              return (
-                                <tr key={result.id}>
-                                  <td>{result.rank ?? "-"}</td>
-                                <td>
-                                  <strong>{result.pilot_name}</strong>
-                                  <div className="results-name-meta">{result.status.toUpperCase()}{result.result_state === "provisional" ? <span className="result-state-badge provisional"> · PROVISIONAL</span> : null}</div>
-                                </td>
-                                <td>{pilot?.nation ?? "-"}</td>
-                                <td>-</td>
-                                <td>{formatClockTime(result.started_at, true)}</td>
-                                  <td>{formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
-                                  <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
-                                  <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
-                                  <td>{result.distance_flown_km.toFixed(1)}</td>
-                                  {taskResultsColumns.map((column) => (
-                                    <td key={column.key}>{formatResultPoints(gapAwardedPoints(result, column.key))}</td>
-                                  ))}
-                                  <td className="results-table-total">{result.score_points.toFixed(1)}</td>
-                                  <td>
-                                    <button
-                                      type="button"
-                                      className="ghost-button"
-                                      disabled={resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id}
-                                      onClick={() => void downloadUploadFile(result.upload_id, uploadById.get(result.upload_id)?.filename ?? `${result.pilot_name}.igc`)}
-                                    >
-                                      {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id ? "Preparing..." : "Download"}
-                                    </button>
-                                  </td>
-                                  {canManagePlatform ? (
-                                    <td>
-                                      {result.result_state === "provisional" ? (
-                                        <button
-                                          type="button"
-                                          className="ghost-button"
-                                          onClick={() => void promoteResult(result.id)}
-                                        >
-                                          Promote to Official
-                                        </button>
-                                      ) : (
-                                        <span className="result-state-badge official">Official</span>
-                                      )}
-                                    </td>
-                                  ) : null}
-                                </tr>
-                              );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    {taskDraft.points.length ? (
-                      <div className="results-task-map">
-                        <div className="results-sheet-header">
-                          <h3>Task map</h3>
-                          <p>Waypoints, cylinders, course line, and checked pilot tracks for the selected task.</p>
-                        </div>
-                        <div className="results-task-map-layout">
-                          <div className="results-task-map-pilot-list">
-                            <div className="results-task-map-pilot-header">
-                              <strong>Show pilot tracks</strong>
-                            </div>
-                            <div className="results-task-map-pilot-items">
-                              {results.map((result) => {
-                                const isChecked = selectedResultUploadIds.includes(result.upload_id);
-                                const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
-                                return (
-                                  <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
-                                    />
-                                    <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                                    <button type="button" className="results-task-map-pilot-button" onClick={() => setHighlightedResultUploadId(result.upload_id)}>
-                                      <span className="results-task-map-pilot-copy">
-                                      <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-                                      <small>{result.status.toUpperCase()} · {result.score_points.toFixed(1)} pts</small>
-                                      </span>
-                                    </button>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                          <TaskMap
-                            turnpoints={resultsTaskMapTurnpoints}
-                            airspaces={[]}
-                            taskPoints={taskDraft.points}
-                            optimizedRoute={taskDistanceMetrics.routeCoordinates}
-                            legMetrics={taskDistanceMetrics.legMetrics}
-                            totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
-                            optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
-                            track={resultsTrackOverlay}
-                            editable={false}
-                            taskEditorOverlay={resultsTrackPilotList}
-                            highlightedTrackUploadId={highlightedResultUploadId}
-                            fitKey={`${selectedTaskId}:${selectedResultUploadIds.join(",")}`}
-                            units={{
-                              altitude: settingsForm.altitude_unit,
-                              speed: settingsForm.speed_unit,
-                              distance: settingsForm.distance_unit,
-                              vario: settingsForm.vario_unit,
-                            }}
-                          />
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ) : <p className="hint">No scored task results are available yet for the selected task.</p>}
-              </div>
-            ) : (
-              <div className="stack form-block">
-                {pilotSummary.length ? (
-                  <>
-                    <div className="results-table-wrap">
-                      <table className="results-table results-table-compact">
-                        <thead>
-                          <tr>
-                            <th>Task</th>
-                            <th>Date</th>
-                            <th>Distance [km]</th>
-                            <th>Day Quality</th>
-                            <th>Type</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {scoredTasks.map((task) => (
-                            <tr key={task.id}>
-                              <td><strong>{task.name}</strong></td>
-                              <td>{formatDateLabel(task.published_at)}</td>
-                              <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
-                              <td>{selectedTaskId === task.id ? taskDayQuality(results) : "-"}</td>
-                              <td>{taskTypeLabel(task.task_type)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="results-table-wrap">
-                      <table className="results-table">
-                        <thead>
-                          <tr>
-                            <th>#</th>
-                            <th>Name</th>
-                            <th>Nat</th>
-                            <th>Glider</th>
-                            {scoredTasks.map((task, index) => <th key={task.id}>{`T ${index + 1}`}</th>)}
-                            <th>Total</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pilotSummary.map((summary, index) => {
-                            const pilot = pilotById.get(summary.pilot_id);
-                            return (
-                              <tr key={summary.pilot_id}>
-                                <td>{index + 1}</td>
-                                <td><strong>{summary.pilot_name}</strong></td>
-                                <td>{pilot?.nation ?? "-"}</td>
-                                <td>-</td>
-                                {scoredTasks.map((task) => <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatResultPoints(summary.task_scores[String(task.id)]) : "-"}</td>)}
-                                <td className="results-table-total">{summary.total_score_points.toFixed(1)}</td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  </>
-                ) : <p className="hint">No overall event results are available yet.</p>}
-              </div>
-            )}
-          </div>
-        </SectionCard>
-        ) : null}
-      </div>
-    );
-    }
-
-  function renderSettingsSection() {
-    return (
-      <div className="section-stack">
-        <div className="settings-summary-row">
-          <span className="role-pill settings-role-pill">Active role: {settingsForm.role}</span>
-          <label className="settings-type-control">
-            <span>Current type</span>
-            <select value={settingsForm.profile_type} onChange={(event) => setSettingsForm((current) => ({ ...current, profile_type: event.target.value as "pilot" | "driver" }))}>
-              <option value="pilot">Pilot</option>
-              <option value="driver">Driver</option>
-            </select>
-          </label>
-        </div>
-        <SectionCard title="Account settings" description="Update the profile details used across the Aervyx portal.">
-          <form className="stack form-block" onSubmit={saveAccountSettings}>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Username / email</span>
-                <input
-                  type="email"
-                  value={settingsForm.username ?? ""}
-                  onChange={(event) =>
-                    setSettingsForm((current) => ({
-                      ...current,
-                      username: event.target.value,
-                      email: event.target.value,
-                    }))
-                  }
-                  placeholder="pilot@example.com"
-                  required
-                />
-              </label>
-              <label className="stack compact">
-                <span>Display name</span>
-                <input value={settingsForm.full_name ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, full_name: event.target.value }))} required />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Nation</span>
-                <input value={settingsForm.nation ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, nation: event.target.value.toUpperCase() }))} maxLength={3} />
-              </label>
-              <label className="stack compact">
-                <span>Competition number</span>
-                <input value={settingsForm.competition_number ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, competition_number: event.target.value }))} />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>First name</span>
-                <input value={settingsForm.first_name ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, first_name: event.target.value }))} />
-              </label>
-              <label className="stack compact">
-                <span>Last name</span>
-                <input value={settingsForm.last_name ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, last_name: event.target.value }))} />
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>CIVL ID</span>
-                <input value={settingsForm.civl_id ?? ""} onChange={(event) => setSettingsForm((current) => ({ ...current, civl_id: event.target.value }))} />
-              </label>
-              <div />
-            </div>
-            <div className="button-row">
-              <button type="submit">Save account settings</button>
-            </div>
-            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
-          </form>
-        </SectionCard>
-        <SectionCard title="Units" description="Choose how the scoring map and flight telemetry are displayed for your account.">
-          <form className="stack form-block" onSubmit={saveAccountSettings}>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Altitude</span>
-                <select
-                  value={settingsForm.altitude_unit}
-                  onChange={(event) => setSettingsForm((current) => ({ ...current, altitude_unit: event.target.value as "ft" | "m" }))}
-                >
-                  <option value="ft">Feet (ft)</option>
-                  <option value="m">Meters (m)</option>
-                </select>
-              </label>
-              <label className="stack compact">
-                <span>Speed</span>
-                <select
-                  value={settingsForm.speed_unit}
-                  onChange={(event) => setSettingsForm((current) => ({ ...current, speed_unit: event.target.value as "kph" | "mph" }))}
-                >
-                  <option value="kph">Kilometers per hour (kph)</option>
-                  <option value="mph">Miles per hour (mph)</option>
-                </select>
-              </label>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Distance</span>
-                <select
-                  value={settingsForm.distance_unit}
-                  onChange={(event) => setSettingsForm((current) => ({ ...current, distance_unit: event.target.value as "km" | "mi" }))}
-                >
-                  <option value="km">Kilometers (km)</option>
-                  <option value="mi">Miles (mi)</option>
-                </select>
-              </label>
-              <label className="stack compact">
-                <span>Vario</span>
-                <select
-                  value={settingsForm.vario_unit}
-                  onChange={(event) => setSettingsForm((current) => ({ ...current, vario_unit: event.target.value as "fpm" | "ms" }))}
-                >
-                  <option value="fpm">Feet per minute (ft/min)</option>
-                  <option value="ms">Meters per second (m/s)</option>
-                </select>
-              </label>
-            </div>
-            <div className="button-row">
-              <button type="submit">Save unit preferences</button>
-            </div>
-            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
-          </form>
-        </SectionCard>
-        <SectionCard title="Password" description="Change your password securely using your current password first.">
-          <form className="stack form-block" onSubmit={savePasswordSettings}>
-            <label className="stack compact">
-              <span>Current password</span>
-              <input
-                type={showCurrentSettingsPassword ? "text" : "password"}
-                value={settingsPasswordForm.current_password}
-                onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            <div className="button-row">
-              <button type="button" className="ghost-button" onClick={() => setShowCurrentSettingsPassword((current) => !current)}>
-                {showCurrentSettingsPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>New password</span>
-                <input type="password" value={settingsPasswordForm.new_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, new_password: event.target.value }))} autoComplete="new-password" required />
-              </label>
-              <label className="stack compact">
-                <span>Confirm new password</span>
-                <input type="password" value={settingsPasswordForm.confirm_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))} autoComplete="new-password" required />
-              </label>
-            </div>
-            <div className="button-row">
-              <button type="submit">Update password</button>
-            </div>
-            {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
-          </form>
-        </SectionCard>
-      </div>
-    );
-  }
-
-  function renderAdminSection() {
-    return (
-      <div className="section-stack">
-        <SectionCard title="Platform users" description="Admins can manage organizer and pilot accounts for the entire platform here.">
-          <div className="stack form-block">
-            {adminFeedback ? <div className={`status-chip ${adminFeedback.type}`}>{adminFeedback.text}</div> : null}
-            <div className="participant-table-wrap">
-              <table className="participant-table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Username</th>
-                    <th>Role</th>
-                    <th>Email</th>
-                    <th>Linked pilot</th>
-                    <th>Status</th>
-                    <th className="participant-table-actions">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {adminUsers.length ? (
-                    adminUsers.map((account) => (
-                      <tr key={account.id}>
-                        <td><strong>{account.full_name}</strong></td>
-                        <td>{account.username}</td>
-                        <td>
-                          <select
-                            value={account.role}
-                            disabled={account.id === user?.id}
-                            onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, role: event.target.value as AdminUserRecord["role"] } : entry))}
-                          >
-                            <option value="admin">Admin</option>
-                            <option value="organizer">Organizer</option>
-                            <option value="pilot">Pilot</option>
-                          </select>
-                        </td>
-                        <td>{account.email ?? "-"}</td>
-                        <td>{account.pilot_name ?? "-"}</td>
-                        <td>
-                          <label className="task-advanced-toggle">
-                            <input
-                              type="checkbox"
-                              checked={account.is_active}
-                              disabled={account.id === user?.id}
-                              onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, is_active: event.target.checked } : entry))}
-                            />
-                            <span>{account.is_active ? "Active" : "Disabled"}</span>
-                          </label>
-                        </td>
-                        <td className="participant-table-actions">
-                          <div className="compact-slot-actions">
-                            <button type="button" className="ghost-button" onClick={() => void saveAdminUser(account)}>Save</button>
-                            <button type="button" className="ghost-button danger-button" disabled={account.id === user?.id} onClick={() => void deleteAdminUser(account)}>Delete</button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={7} className="participant-table-empty">No platform users found.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
+      <ParticipantCards
+        selectedEventId={selectedEventId}
+        selectedEvent={selectedEvent}
+        pilots={pilots}
+        availableDirectoryPilots={availableDirectoryPilots}
+        selectedDirectoryPilotId={selectedDirectoryPilotId}
+        setSelectedDirectoryPilotId={setSelectedDirectoryPilotId}
+        pilotForm={pilotForm}
+        setPilotForm={setPilotForm}
+        canManagePlatform={canManagePlatform ?? false}
+        assignExistingPilot={assignExistingPilot}
+        createPilot={createPilot}
+        removePilot={removePilot}
+        uploadFile={uploadFile}
+        loadEvent={(t, id) => loadEvent(t, id)}
+        refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
+        refreshEvents={refreshEvents}
+        token={token}
+        setMessage={setMessage}
+      />
     );
   }
 
   function renderActiveSection() {
       if (user?.role === "pilot" && activeSection === "events") {
-        return renderTasksSection();
+        return (
+          <TasksSection
+            selectedEventId={selectedEventId}
+            selectedEvent={selectedEvent}
+            tasks={tasks}
+            selectedTaskId={selectedTaskId}
+            selectedTask={selectedTask}
+            taskDraft={taskDraft}
+            setTaskDraft={setTaskDraft}
+            taskPointAdvanced={taskPointAdvanced}
+            toggleTaskPointAdvanced={toggleTaskPointAdvanced}
+            taskPointTypeOptions={taskPointTypeOptions}
+            turnpoints={turnpoints}
+            turnpointSearch={turnpointSearch}
+            setTurnpointSearch={setTurnpointSearch}
+            filteredTurnpoints={filteredTurnpoints}
+            taskDistanceMetrics={taskDistanceMetrics}
+            currentTaskTypeBehavior={currentTaskTypeBehavior}
+            taskAdvancedOpen={taskAdvancedOpen}
+            setTaskAdvancedOpen={setTaskAdvancedOpen}
+            radiusDrafts={radiusDrafts}
+            setRadiusDrafts={setRadiusDrafts}
+            track={track}
+            visibleAirspaces={visibleAirspaces}
+            taskSectionMapTurnpoints={taskSectionMapTurnpoints}
+            settingsForm={settingsForm}
+            canManagePlatform={canManagePlatform ?? false}
+            taskFeedback={taskFeedback}
+            token={token}
+            activeSection={activeSection}
+            loadTask={loadTask}
+            addTurnpoint={addTurnpoint}
+            updatePoint={updatePoint}
+            removePoint={removePoint}
+            movePoint={movePoint}
+            saveTask={saveTask}
+            publishTask={publishTask}
+            unpublishTask={unpublishTask}
+            deleteTask={deleteTask}
+            startNewTask={startNewTask}
+            handleRadiusInputChange={handleRadiusInputChange}
+            handleRadiusInputBlur={handleRadiusInputBlur}
+            handleRadiusInputKeyDown={handleRadiusInputKeyDown}
+            radiusInputValue={radiusInputValue}
+          />
+        );
       }
       switch (activeSection) {
         case "events":
-          return renderEventsSection();
+          return (
+            <EventsSection
+              events={events}
+              selectedEventId={selectedEventId}
+              selectedEvent={selectedEvent}
+              eventEditorId={eventEditorId}
+              eventTab={eventTab}
+              setEventTab={setEventTab}
+              eventForm={eventForm}
+              setEventForm={setEventForm}
+              turnpoints={turnpoints}
+              turnpointSources={turnpointSources}
+              airspaces={airspaces}
+              airspaceSources={airspaceSources}
+              visibleAirspaces={visibleAirspaces}
+              pilots={pilots}
+              canManagePlatform={canManagePlatform ?? false}
+              isAdmin={isAdmin ?? false}
+              selectEvent={selectEvent}
+              createEventDraft={createEventDraft}
+              duplicateSelectedEvent={duplicateSelectedEvent}
+              deleteEvent={deleteEvent}
+              saveEvent={saveEvent}
+              toggleTurnpointSource={toggleTurnpointSource}
+              deleteTurnpointSource={deleteTurnpointSource}
+              uploadAirspaceFile={uploadAirspaceFile}
+              deleteAirspaceSource={deleteAirspaceSource}
+              toggleAirspaceSource={toggleAirspaceSource}
+              toggleVisibleAirspaceClass={toggleVisibleAirspaceClass}
+              uploadFile={uploadFile}
+              loadEvent={(t, id) => loadEvent(t, id)}
+              refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
+              refreshEvents={refreshEvents}
+              token={token}
+              setMessage={setMessage}
+              setError={setError}
+              renderParticipantCards={renderParticipantCardsNode}
+            />
+          );
         case "tasks":
-          return renderTasksSection();
+          return (
+            <TasksSection
+              selectedEventId={selectedEventId}
+              selectedEvent={selectedEvent}
+              tasks={tasks}
+              selectedTaskId={selectedTaskId}
+              selectedTask={selectedTask}
+              taskDraft={taskDraft}
+              setTaskDraft={setTaskDraft}
+              taskPointAdvanced={taskPointAdvanced}
+              toggleTaskPointAdvanced={toggleTaskPointAdvanced}
+              taskPointTypeOptions={taskPointTypeOptions}
+              turnpoints={turnpoints}
+              turnpointSearch={turnpointSearch}
+              setTurnpointSearch={setTurnpointSearch}
+              filteredTurnpoints={filteredTurnpoints}
+              taskDistanceMetrics={taskDistanceMetrics}
+              currentTaskTypeBehavior={currentTaskTypeBehavior}
+              taskAdvancedOpen={taskAdvancedOpen}
+              setTaskAdvancedOpen={setTaskAdvancedOpen}
+              radiusDrafts={radiusDrafts}
+              setRadiusDrafts={setRadiusDrafts}
+              track={track}
+              visibleAirspaces={visibleAirspaces}
+              taskSectionMapTurnpoints={taskSectionMapTurnpoints}
+              settingsForm={settingsForm}
+              canManagePlatform={canManagePlatform ?? false}
+              taskFeedback={taskFeedback}
+              token={token}
+              activeSection={activeSection}
+              loadTask={loadTask}
+              addTurnpoint={addTurnpoint}
+              updatePoint={updatePoint}
+              removePoint={removePoint}
+              movePoint={movePoint}
+              saveTask={saveTask}
+              publishTask={publishTask}
+              unpublishTask={unpublishTask}
+              deleteTask={deleteTask}
+              startNewTask={startNewTask}
+              handleRadiusInputChange={handleRadiusInputChange}
+              handleRadiusInputBlur={handleRadiusInputBlur}
+              handleRadiusInputKeyDown={handleRadiusInputKeyDown}
+              radiusInputValue={radiusInputValue}
+            />
+          );
         case "scoring":
-          return renderScoringSection();
+          return (
+            <ScoringSection
+              selectedEventId={selectedEventId}
+              selectedTaskId={selectedTaskId}
+              selectedTask={selectedTask}
+              tasks={tasks}
+              results={results}
+              uploads={uploads}
+              pilots={pilots}
+              pilotById={pilotById}
+              pilotNameById={pilotNameById}
+              uploadById={uploadById}
+              pilotSummary={pilotSummary}
+              scoredTasks={scoredTasks}
+              taskMetricsById={taskMetricsById}
+              taskDraft={taskDraft}
+              taskDistanceMetrics={taskDistanceMetrics}
+              taskDefinitionRows={taskDefinitionRows}
+              startGateLabels={startGateLabels}
+              taskResultsColumns={taskResultsColumns}
+              eventForm={eventForm}
+              settingsForm={settingsForm}
+              canManagePlatform={canManagePlatform ?? false}
+              scoresPortalTab={scoresPortalTab}
+              setScoresPortalTab={setScoresPortalTab}
+              scoringTab={scoringTab}
+              setScoringTab={setScoringTab}
+              adminUploadPilotId={adminUploadPilotId}
+              setAdminUploadPilotId={setAdminUploadPilotId}
+              uploadFeedback={uploadFeedback}
+              scoringFeedback={scoringFeedback}
+              resultsDownloadFeedback={resultsDownloadFeedback}
+              selectedResultUploadIds={selectedResultUploadIds}
+              resultTrackColorsByUploadId={resultTrackColorsByUploadId}
+              resultTrackPalette={resultTrackPalette}
+              highlightedResultUploadId={highlightedResultUploadId}
+              setHighlightedResultUploadId={setHighlightedResultUploadId}
+              resultsTrackOverlay={resultsTrackOverlay}
+              resultsTrackPilotList={resultsTrackPilotList}
+              resultsTaskMapTurnpoints={resultsTaskMapTurnpoints}
+              token={token}
+              activeSection={activeSection}
+              loadTask={loadTask}
+              uploadIgc={uploadIgc}
+              uploadIgcBatch={uploadIgcBatch}
+              deleteUpload={deleteUpload}
+              rescoreSelectedTask={rescoreSelectedTask}
+              promoteResult={promoteResult}
+              downloadUploadFile={downloadUploadFile}
+              downloadAllIgcFiles={downloadAllIgcFiles}
+              toggleResultTrack={toggleResultTrack}
+            />
+          );
         case "live_tracking":
-          return <SectionCard title="Live Tracking" description="Live tracking tools will be added here next."><p className="hint">This area is reserved for future live tracking workflows.</p></SectionCard>;
+          return (
+            <LiveTrackingSection
+              selectedEventId={selectedEventId}
+              selectedTaskId={selectedTaskId}
+              selectedTask={selectedTask}
+              tasks={tasks}
+              turnpoints={turnpoints}
+              visibleAirspaces={visibleAirspaces}
+              pilotNameById={pilotNameById}
+              token={token}
+              canManagePlatform={canManagePlatform ?? false}
+              units={{
+                altitude: settingsForm.altitude_unit,
+                speed: settingsForm.speed_unit,
+                distance: settingsForm.distance_unit,
+                vario: settingsForm.vario_unit,
+              }}
+              loadTask={loadTask}
+            />
+          );
         case "drivers":
           return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
         case "settings":
-          return renderSettingsSection();
+          return (
+            <SettingsSection
+              settingsForm={settingsForm}
+              setSettingsForm={setSettingsForm}
+              settingsPasswordForm={settingsPasswordForm}
+              setSettingsPasswordForm={setSettingsPasswordForm}
+              showCurrentSettingsPassword={showCurrentSettingsPassword}
+              setShowCurrentSettingsPassword={setShowCurrentSettingsPassword}
+              settingsFeedback={settingsFeedback}
+              saveAccountSettings={saveAccountSettings}
+              savePasswordSettings={savePasswordSettings}
+            />
+          );
         case "admin":
-          return isAdmin ? renderAdminSection() : renderSettingsSection();
+          return isAdmin ? (
+            <AdminSection
+              user={user}
+              adminUsers={adminUsers}
+              setAdminUsers={setAdminUsers}
+              adminFeedback={adminFeedback}
+              saveAdminUser={saveAdminUser}
+              deleteAdminUser={deleteAdminUser}
+            />
+          ) : (
+            <SettingsSection
+              settingsForm={settingsForm}
+              setSettingsForm={setSettingsForm}
+              settingsPasswordForm={settingsPasswordForm}
+              setSettingsPasswordForm={setSettingsPasswordForm}
+              showCurrentSettingsPassword={showCurrentSettingsPassword}
+              setShowCurrentSettingsPassword={setShowCurrentSettingsPassword}
+              settingsFeedback={settingsFeedback}
+              saveAccountSettings={saveAccountSettings}
+              savePasswordSettings={savePasswordSettings}
+            />
+          );
       }
     }
 
