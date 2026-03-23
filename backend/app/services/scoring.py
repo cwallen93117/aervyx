@@ -4,7 +4,7 @@ import math
 from datetime import datetime, time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, TrackPoint
@@ -633,8 +633,9 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
         trackpoints = trackpoints_by_upload.get(upload.id, [])
         evaluations.append({"upload": upload, "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None)})
 
-    session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
+    session.execute(text("DELETE FROM score_results WHERE task_id = :task_id"), {"task_id": task_id})
     session.flush()
+    session.expire_all()
 
     scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, event)
     results: list[ScoreResult] = []

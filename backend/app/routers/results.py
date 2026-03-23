@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -28,7 +28,29 @@ def rescore(task_id: int, admin: User = Depends(require_staff), session: Session
     results = rescore_task(session, task_id)
     log_action(session, actor_user_id=admin.id, action="task.rescore", entity_type="task", entity_id=str(task_id), details={"result_count": len(results)})
     session.commit()
-    return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
+    persisted_results = session.scalars(
+        select(ScoreResult).where(ScoreResult.task_id == task_id).order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
+    ).all()
+    return [ScoreResultResponse(**build_result_payload(session, result)) for result in persisted_results]
+
+
+@router.delete("/api/tasks/{task_id}/results")
+def delete_task_results(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict[str, int | str]:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    existing_count = session.scalar(select(func.count(ScoreResult.id)).where(ScoreResult.task_id == task_id)) or 0
+    session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="task.results.delete",
+        entity_type="task",
+        entity_id=str(task_id),
+        details={"deleted_count": int(existing_count)},
+    )
+    session.commit()
+    return {"status": "ok", "deleted_count": int(existing_count)}
 
 
 @router.post("/api/results/{result_id}/promote", response_model=ScoreResultResponse)

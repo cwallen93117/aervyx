@@ -130,7 +130,6 @@ export default function TasksSection(props: TasksSectionProps) {
     handleRadiusInputKeyDown,
     radiusInputValue,
   } = props;
-
   if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
   const fullscreenTaskEditor = canManagePlatform ? (
     <div className="map-task-editor">
@@ -328,23 +327,21 @@ export default function TasksSection(props: TasksSectionProps) {
               ) : null}
               <div className="task-point-list-table-wrap">
                 {taskDraft.points.length ? (
-                  <table className="task-point-list-table">
-                    <thead>
-                      <tr>
-                        <th></th>
-                        <th>Name</th>
-                        <th>Type</th>
-                        <th>Radius (m)</th>
-                        {canManagePlatform ? <th></th> : null}
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <>
+                    <div className={`task-point-list-grid-header${canManagePlatform ? " has-actions" : ""}`}>
+                      <span></span>
+                      <span>Name</span>
+                      <span>Type</span>
+                      <span>Radius (m)</span>
+                      {canManagePlatform ? <span></span> : null}
+                    </div>
+                    <div className="task-point-list-scroll">
                       {taskDraft.points.map((point, index) => {
                         const waypointCode = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code;
                         return (
-                          <tr
+                          <div
                             key={`compact-${point.turnpoint_id ?? point.name}-${index}`}
-                            className={`point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
+                            className={`task-point-list-grid-row point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}${canManagePlatform ? " has-actions" : ""}`}
                             draggable={canManagePlatform}
                             onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
                             onDragOver={(event) => event.preventDefault()}
@@ -353,14 +350,14 @@ export default function TasksSection(props: TasksSectionProps) {
                               movePoint(Number(event.dataTransfer.getData("text/plain")), index);
                             }}
                           >
-                            <td className="task-point-row-order">
+                            <div className="task-point-row-order">
                               <span className="drag-handle" title="Drag to reorder">{point.position}. :::</span>
-                            </td>
-                            <td className="task-point-row-name">
+                            </div>
+                            <div className="task-point-row-name">
                               <strong>{point.name}</strong>
                               {waypointCode ? <span>{waypointCode}</span> : null}
-                            </td>
-                            <td className="task-point-row-type">
+                            </div>
+                            <div className="task-point-row-type">
                               {canManagePlatform ? (
                                 <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
                                   {taskPointTypeOptions.map((option) => (
@@ -370,8 +367,8 @@ export default function TasksSection(props: TasksSectionProps) {
                               ) : (
                                 <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
                               )}
-                            </td>
-                            <td className="task-point-row-radius">
+                            </div>
+                            <div className="task-point-row-radius">
                               {canManagePlatform ? (
                                 <input
                                   type="text"
@@ -387,17 +384,17 @@ export default function TasksSection(props: TasksSectionProps) {
                               ) : (
                                 <span>{formatMeters(point.radius_m)}</span>
                               )}
-                            </td>
+                            </div>
                             {canManagePlatform ? (
-                              <td className="task-point-row-actions">
+                              <div className="task-point-row-actions">
                                 <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                              </td>
+                              </div>
                             ) : null}
-                          </tr>
+                          </div>
                         );
                       })}
-                    </tbody>
-                  </table>
+                    </div>
+                  </>
                 ) : null}
               </div>
               <div className="task-point-list task-point-list-legacy" aria-hidden="true">
