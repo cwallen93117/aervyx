@@ -1,0 +1,12 @@
+Aervyx local WSL2 setup has been staged.
+
+Repo root: C:\Projects\scoring software- codex
+WSL package installed: True
+Ubuntu 24.04 installed: True
+Docker Desktop installed: True
+
+Next Windows-required steps:
+1. Reboot Windows if WSL or VirtualMachinePlatform was just enabled.
+2. Launch Ubuntu once from the Start menu and create the Linux user/password.
+3. Start Docker Desktop once and wait for it to report running.
+4. Run '.\\scripts\\windows\\finish-local-wsl.ps1' from an elevated PowerShell.

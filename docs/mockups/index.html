@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Flight Scoring Dashboard Mockups</title>
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+  <main class="preview-shell">
+    <header class="topbar">
+      <div>
+        <h1>Dashboard Theme Preview Set</h1>
+        <p>Static HTML previews for the dashboard refresh. These are design-first mockups so you can pick a direction before we touch the live React app.</p>
+        <div class="preview-links">
+          <a class="preview-link" href="tasks.html">Open Tasks previews</a>
+          <a class="preview-link" href="scores.html">Open Scores previews</a>
+          <a class="preview-link" href="admin.html">Open Admin previews</a>
+        </div>
+      </div>
+      <div class="chip-row">
+        <span class="chip active"><strong>Theme pass</strong> Light mode first</span>
+        <span class="chip"><strong>Scope</strong> Tasks, Scores, Admin</span>
+        <span class="chip"><strong>Output</strong> 3 options per page</span>
+      </div>
+    </header>
+
+    <section class="hero">
+      <article class="panel">
+        <h3>What this preview set is trying to fix</h3>
+        <p>The dashboard works, but the visual hierarchy is weak in a few places. Tabs can read like plain labels, section headers do not separate content strongly enough, and dense workflows such as task details or scoring operations use more vertical space than they need.</p>
+        <p>This preview set explores a shared theme language with stronger separators, clearer tab affordance, tighter spacing, and a more deliberate admin-product look without changing backend behavior.</p>
+      </article>
+      <aside class="panel">
+        <h3>Common theme rules</h3>
+        <div class="chip-row">
+          <span class="chip active">Stronger tabs</span>
+          <span class="chip active">Cleaner spacing</span>
+          <span class="chip active">Clearer card hierarchy</span>
+          <span class="chip active">Map-friendly overlays</span>
+          <span class="chip active">Consistent action colors</span>
+        </div>
+      </aside>
+    </section>
+
+    <div class="section-title">
+      <h2>Theme directions</h2>
+      <p>Each page uses the same three directions so you can pick one family and then apply it consistently.</p>
+    </div>
+    <section class="theme-grid">
+      <article class="theme-card">
+        <div class="theme-swatch">
+          <span class="swatch" style="background:#ffffff"></span>
+          <span class="swatch" style="background:#edf3fb"></span>
+          <span class="swatch" style="background:#1f5eff"></span>
+        </div>
+        <h3>Option A: Conservative Cleanup</h3>
+        <p>Keeps the current product feeling familiar, but gives tabs and section headers more contrast and organizes dense forms into cleaner rows.</p>
+      </article>
+      <article class="theme-card">
+        <div class="theme-swatch">
+          <span class="swatch" style="background:#f8fbff"></span>
+          <span class="swatch" style="background:#dce6f8"></span>
+          <span class="swatch" style="background:#1746c0"></span>
+        </div>
+        <h3>Option B: Modern Product UI</h3>
+        <p>Pushes stronger panel framing, more obvious tabs, richer soft backgrounds, and a more deliberate application-shell aesthetic.</p>
+      </article>
+      <article class="theme-card">
+        <div class="theme-swatch">
+          <span class="swatch" style="background:#ffffff"></span>
+          <span class="swatch" style="background:#eef3fb"></span>
+          <span class="swatch" style="background:#163fb5"></span>
+        </div>
+        <h3>Option C: Compact Operations</h3>
+        <p>Optimized for denser workflows and quick scanning. Best for scorekeeping and task editing where vertical space matters more than decorative breathing room.</p>
+      </article>
+    </section>
+
+    <div class="section-title">
+      <h2>Page groups</h2>
+      <p>Each page file contains all three options side by side with representative content.</p>
+    </div>
+    <section class="theme-grid">
+      <article class="summary-card">
+        <h3><a href="tasks.html">Tasks</a></h3>
+        <p>Focuses on stronger section separation, condensed task details, and a cleaner relationship between task metadata, turnpoints, and the map.</p>
+      </article>
+      <article class="summary-card">
+        <h3><a href="scores.html">Scores</a></h3>
+        <p>Focuses on making the tabs actually read like tabs, clarifying Scoring Operations vs Results Portal, and improving table hierarchy.</p>
+      </article>
+      <article class="summary-card">
+        <h3><a href="admin.html">Admin</a></h3>
+        <p>Focuses on clearer separation between Platform Users and Site Settings, stronger grouping, and tighter vertical rhythm.</p>
+      </article>
+    </section>
+
+    <p class="preview-footer">Open the three preview files above, then choose one direction per page or mix the best ideas into a single implementation pass.</p>
+  </main>
+</body>
+</html>

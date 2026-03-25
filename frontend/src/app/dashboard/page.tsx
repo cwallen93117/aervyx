@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useState } from "react";
+import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppSidebar } from "../../components/AppSidebar";
 import { SectionCard } from "../../components/SectionCard";
@@ -20,6 +20,7 @@ import {
   type User,
   type AccountSettingsRecord,
   type AdminUserRecord,
+  type SiteSettingsRecord,
   type EventRecord,
   type PilotRecord,
   type TurnpointRecord,
@@ -43,6 +44,9 @@ import {
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured?.startsWith("/")) {
+    return configured;
+  }
   if (typeof window !== "undefined") {
     if (configured) {
       try {
@@ -55,9 +59,9 @@ function resolveApiBase() {
       }
       return configured;
     }
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+    return "/backend";
   }
-  return configured ?? "http://localhost:8000";
+  return configured ?? "/backend";
 }
 const TOKEN_KEY = "flightcomp-platform-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
@@ -170,6 +174,16 @@ function blankSettingsForm(): AccountSettingsRecord {
     nation: "",
     competition_number: "",
     civl_id: "",
+  };
+}
+
+function blankSiteSettingsForm(): SiteSettingsRecord {
+  return {
+    telemetry_vario_smoothing_seconds: 5,
+    telemetry_altitude_smoothing_seconds: 3,
+    telemetry_speed_smoothing_seconds: 3,
+    telemetry_glide_ratio_smoothing_seconds: 5,
+    updated_at: null,
   };
 }
 
@@ -435,7 +449,10 @@ export default function HomePage() {
   }>({ profile: null, password: null });
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
   const [adminFeedback, setAdminFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [siteSettings, setSiteSettings] = useState<SiteSettingsRecord>(blankSiteSettingsForm());
+  const [siteSettingsFeedback, setSiteSettingsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const resultTrackPalette = useMemo(() => ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d"], []);
+  const taskFeedbackTimeoutRef = useRef<number | null>(null);
 
   const selectedEvent = useMemo(() => events.find((event) => event.id === selectedEventId) ?? null, [events, selectedEventId]);
     const selectedTask = useMemo(() => tasks.find((task) => task.id === selectedTaskId) ?? null, [tasks, selectedTaskId]);
@@ -450,13 +467,17 @@ export default function HomePage() {
   const pilotById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, pilot])), [pilots]);
   const pilotNameById = useMemo(() => new Map(pilots.map((pilot) => [pilot.id, `${pilot.first_name} ${pilot.last_name}`.trim()])), [pilots]);
   const uploadById = useMemo(() => new Map(uploads.map((upload) => [upload.id, upload])), [uploads]);
+  const trackableResults = useMemo(
+    () => results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null),
+    [results],
+  );
   const resultTrackColorsByUploadId = useMemo(() => {
     const colorMap = new Map<number, string>();
-    results.forEach((result, index) => {
+    trackableResults.forEach((result, index) => {
       colorMap.set(result.upload_id, resultTrackPalette[index % resultTrackPalette.length]);
     });
     return colorMap;
-  }, [resultTrackPalette, results]);
+  }, [resultTrackPalette, trackableResults]);
   const filteredTurnpoints = useMemo(() => {
       const query = turnpointSearch.trim().toLowerCase();
       if (!query) return [];
@@ -491,13 +512,26 @@ export default function HomePage() {
     });
     return { type: "FeatureCollection", features };
   }, [pilotNameById, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
+  const allResultTrackIds = useMemo(() => trackableResults.map((result) => result.upload_id), [trackableResults]);
+  const allResultTracksChecked = useMemo(
+    () => allResultTrackIds.length > 0 && allResultTrackIds.every((uploadId) => selectedResultUploadIds.includes(uploadId)),
+    [allResultTrackIds, selectedResultUploadIds],
+  );
   const resultsTrackPilotList = (
     <div className="results-task-map-pilot-list">
       <div className="results-task-map-pilot-header">
         <strong>Show pilot tracks</strong>
+        <label className="results-task-map-pilot-master-toggle">
+          <input
+            type="checkbox"
+            checked={allResultTracksChecked}
+            disabled={!allResultTrackIds.length}
+            onChange={() => void toggleAllResultTracks()}
+          />
+        </label>
       </div>
       <div className="results-task-map-pilot-items">
-        {results.map((result) => {
+        {trackableResults.map((result) => {
           const isChecked = selectedResultUploadIds.includes(result.upload_id);
           const isHighlighted = highlightedResultUploadId === result.upload_id;
           const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
@@ -509,15 +543,15 @@ export default function HomePage() {
                 onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
               />
               <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-              <button
-                type="button"
-                className="results-task-map-pilot-button"
-                onClick={() => setHighlightedResultUploadId(result.upload_id)}
-              >
-                <span className="results-task-map-pilot-copy">
-                  <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="results-task-map-pilot-button"
+                  onClick={() => setHighlightedResultUploadId((current) => (current === result.upload_id ? null : result.upload_id))}
+                >
+                  <span className="results-task-map-pilot-copy">
+                    <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
+                  </span>
+                </button>
             </div>
           );
         })}
@@ -595,6 +629,25 @@ export default function HomePage() {
   const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
   const isAdmin = user?.role === "admin";
   const canManagePlatform = user?.role === "admin" || user?.role === "organizer";
+
+  function showTaskFeedback(feedback: { type: "success" | "error"; text: string }) {
+    setTaskFeedback(feedback);
+    if (taskFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(taskFeedbackTimeoutRef.current);
+    }
+    taskFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setTaskFeedback((current) => (current?.type === feedback.type && current?.text === feedback.text ? null : current));
+      taskFeedbackTimeoutRef.current = null;
+    }, 2000);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (taskFeedbackTimeoutRef.current !== null) {
+        window.clearTimeout(taskFeedbackTimeoutRef.current);
+      }
+    };
+  }, []);
   const resultsTaskMapTurnpoints = useMemo<MapTurnpoint[]>(
     () =>
       taskDraft.points.map((point, index) => ({
@@ -696,10 +749,11 @@ export default function HomePage() {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
     setToken(activeToken);
     setError("");
-    const [me, rawEvents, settings] = await Promise.all([
+    const [me, rawEvents, settings, loadedSiteSettings] = await Promise.all([
       apiFetch<User>("/api/auth/me", activeToken),
       apiFetch<EventRecord[]>("/api/events", activeToken),
       apiFetch<AccountSettingsRecord>("/api/auth/settings", activeToken),
+      apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken),
     ]);
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
@@ -708,6 +762,7 @@ export default function HomePage() {
     const preferredEvent = loadedEvents.find((event) => event.id === storedEventId) ?? loadedEvents[0] ?? null;
     setUser(me);
     setSettingsForm(settings);
+    setSiteSettings(loadedSiteSettings);
     setActiveSection(normalizedSection);
     setEvents(loadedEvents);
     void refreshPilotDirectory(activeToken, me);
@@ -772,6 +827,12 @@ export default function HomePage() {
     const loadedUsers = await apiFetch<AdminUserRecord[]>("/api/auth/users", activeToken);
     setAdminUsers(loadedUsers);
     return loadedUsers;
+  }
+
+  async function refreshSiteSettings(activeToken: string) {
+    const loadedSettings = await apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken);
+    setSiteSettings(loadedSettings);
+    return loadedSettings;
   }
 
   async function loadEvent(
@@ -991,6 +1052,26 @@ export default function HomePage() {
       setAdminFeedback({ type: "success", text: `Updated ${payload.full_name}.` });
     } catch (caught) {
       setAdminFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update that user." });
+    }
+  }
+
+  async function saveSiteSettings() {
+    if (!token) return;
+    setSiteSettingsFeedback(null);
+    try {
+      const payload = await apiFetch<SiteSettingsRecord>("/api/site-settings", token, {
+        method: "PATCH",
+        body: JSON.stringify({
+          telemetry_vario_smoothing_seconds: siteSettings.telemetry_vario_smoothing_seconds,
+          telemetry_altitude_smoothing_seconds: siteSettings.telemetry_altitude_smoothing_seconds,
+          telemetry_speed_smoothing_seconds: siteSettings.telemetry_speed_smoothing_seconds,
+          telemetry_glide_ratio_smoothing_seconds: siteSettings.telemetry_glide_ratio_smoothing_seconds,
+        }),
+      });
+      setSiteSettings(payload);
+      setSiteSettingsFeedback({ type: "success", text: "Site settings saved." });
+    } catch (caught) {
+      setSiteSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save site settings." });
     }
   }
 
@@ -1371,16 +1452,15 @@ export default function HomePage() {
       let savedTask: TaskRecord;
       if (taskDraft.id) {
         savedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}`, token, { method: "PUT", body: JSON.stringify(payload) });
-        setTaskFeedback({ type: "success", text: `Updated task ${taskDraft.name}.` });
       } else {
         savedTask = await apiFetch<TaskRecord>(`/api/events/${selectedEventId}/tasks`, token, { method: "POST", body: JSON.stringify(payload) });
-        setTaskFeedback({ type: "success", text: `Created task ${taskDraft.name}.` });
       }
       await loadEvent(token, selectedEventId, undefined, undefined, savedTask.id);
       await refreshEvents(token);
       setActiveSection("tasks");
+      showTaskFeedback({ type: "success", text: `${taskDraft.id ? "Updated" : "Created"} task ${taskDraft.name}.` });
     } catch (caught) {
-      setTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task save failed." });
+      showTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task save failed." });
     }
   }
 
@@ -1455,7 +1535,7 @@ export default function HomePage() {
       const unmatchedSummary = unmatched.length
         ? ` Unmatched: ${unmatched.map((item) => `${item.filename} (${item.message})`).join("; ")}`
         : "";
-      setUploadFeedback({ type: "success", text: `Uploaded ${matchedCount} of ${batchResults.length} IGC files automatically.${unmatchedSummary}` });
+      setUploadFeedback({ type: "success", text: `Uploaded ${matchedCount} of ${batchResults.length} IGC files in bulk.${unmatchedSummary}` });
       await loadTask(token, selectedTaskId);
       if (selectedEventId) {
         await refreshPilotSummary(token, selectedEventId);
@@ -1543,6 +1623,35 @@ export default function HomePage() {
     }
   }
 
+  async function toggleAllResultTracks() {
+    if (!token) return;
+    if (!allResultTrackIds.length) return;
+    if (allResultTracksChecked) {
+      setSelectedResultUploadIds([]);
+      setHighlightedResultUploadId(null);
+      return;
+    }
+    const missingUploadIds = allResultTrackIds.filter((uploadId) => !resultTracksByUploadId[uploadId]);
+    if (missingUploadIds.length) {
+      try {
+        const loadedCollections = await Promise.all(
+          missingUploadIds.map(async (uploadId) => [uploadId, await apiFetch<TrackCollection>(`/api/uploads/${uploadId}/track`, token)] as const),
+        );
+        setResultTracksByUploadId((current) => {
+          const next = { ...current };
+          loadedCollections.forEach(([uploadId, collection]) => {
+            next[uploadId] = collection;
+          });
+          return next;
+        });
+      } catch (caught) {
+        setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load all pilot tracks." });
+        return;
+      }
+    }
+    setSelectedResultUploadIds(allResultTrackIds);
+  }
+
   function toggleTaskPointAdvanced(checked: boolean) {
     setTaskPointAdvanced(checked);
     if (!checked) {
@@ -1569,6 +1678,28 @@ export default function HomePage() {
       setScoringFeedback({ type: "success", text: "Scoring completed for the selected task." });
     } catch (caught) {
       setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Scoring failed." });
+    }
+  }
+
+  async function deleteScoredTask() {
+    if (!token) return;
+    if (!selectedTaskId) {
+      setScoringFeedback({ type: "error", text: "Select a task before deleting scored results." });
+      return;
+    }
+    const taskName = selectedTask?.name ?? taskDraft.name ?? "this task";
+    const confirmed = window.confirm(`Delete all scored results for "${taskName}"? This keeps the task and uploaded IGC files, but removes the scoring output.`);
+    if (!confirmed) return;
+    try {
+      setScoringFeedback(null);
+      await apiFetch<{ status: string; deleted_count: number }>(`/api/tasks/${selectedTaskId}/results`, token, { method: "DELETE" });
+      await loadTask(token, selectedTaskId);
+      if (selectedEventId) {
+        await refreshPilotSummary(token, selectedEventId);
+      }
+      setScoringFeedback({ type: "success", text: `Deleted scored results for ${taskName}.` });
+    } catch (caught) {
+      setScoringFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not delete scored results." });
     }
   }
 
@@ -1776,28 +1907,34 @@ export default function HomePage() {
               setAdminUploadPilotId={setAdminUploadPilotId}
               uploadFeedback={uploadFeedback}
               scoringFeedback={scoringFeedback}
-              resultsDownloadFeedback={resultsDownloadFeedback}
-              selectedResultUploadIds={selectedResultUploadIds}
-              resultTrackColorsByUploadId={resultTrackColorsByUploadId}
-              resultTrackPalette={resultTrackPalette}
+                resultsDownloadFeedback={resultsDownloadFeedback}
+                selectedResultUploadIds={selectedResultUploadIds}
+                allResultTracksChecked={allResultTracksChecked}
+                resultTrackColorsByUploadId={resultTrackColorsByUploadId}
+                resultTrackPalette={resultTrackPalette}
               highlightedResultUploadId={highlightedResultUploadId}
               setHighlightedResultUploadId={setHighlightedResultUploadId}
               resultsTrackOverlay={resultsTrackOverlay}
               resultsTrackPilotList={resultsTrackPilotList}
               resultsTaskMapTurnpoints={resultsTaskMapTurnpoints}
+              allTurnpoints={turnpoints}
+              siteSettings={siteSettings}
               token={token}
               activeSection={activeSection}
               loadTask={loadTask}
+              refreshPilotSummary={refreshPilotSummary}
               uploadIgc={uploadIgc}
-              uploadIgcBatch={uploadIgcBatch}
-              deleteUpload={deleteUpload}
-              rescoreSelectedTask={rescoreSelectedTask}
-              promoteResult={promoteResult}
-              downloadUploadFile={downloadUploadFile}
-              downloadAllIgcFiles={downloadAllIgcFiles}
-              toggleResultTrack={toggleResultTrack}
-            />
-          );
+            uploadIgcBatch={uploadIgcBatch}
+            deleteUpload={deleteUpload}
+            rescoreSelectedTask={rescoreSelectedTask}
+            deleteScoredTask={deleteScoredTask}
+            promoteResult={promoteResult}
+                downloadUploadFile={downloadUploadFile}
+                downloadAllIgcFiles={downloadAllIgcFiles}
+                toggleResultTrack={toggleResultTrack}
+                toggleAllResultTracks={toggleAllResultTracks}
+              />
+            );
         case "live_tracking":
           return (
             <LiveTrackingSection
@@ -1844,6 +1981,10 @@ export default function HomePage() {
               adminFeedback={adminFeedback}
               saveAdminUser={saveAdminUser}
               deleteAdminUser={deleteAdminUser}
+              siteSettings={siteSettings}
+              setSiteSettings={setSiteSettings}
+              siteSettingsFeedback={siteSettingsFeedback}
+              saveSiteSettings={saveSiteSettings}
             />
           ) : (
             <SettingsSection
@@ -1890,10 +2031,11 @@ export default function HomePage() {
           />
           <section className="content-shell">
             <section className="panel hero content-hero">
-              <div>
-                <p className="eyebrow">{user.role === "admin" ? "Admin Portal" : user.role === "organizer" ? "Organizer Portal" : "Pilot Portal"}</p>
+              <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                <p className="lede">{selectedEvent ? `${selectedEvent.name} - ${selectedEvent.location}` : "Select or create an event to begin."}</p>
+                <span className="hero-event-context">
+                  {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
+                </span>
               </div>
               <div className="hero-actions">
                 <div className="role-pill">{user.role}</div>

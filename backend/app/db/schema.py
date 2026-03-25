@@ -4,14 +4,141 @@ from sqlalchemy.engine import Engine
 
 def ensure_runtime_schema(engine: Engine) -> None:
     inspector = inspect(engine)
-    if "events" not in inspector.get_table_names():
+    table_names = set(inspector.get_table_names())
+    dialect_name = engine.dialect.name
+
+    with engine.begin() as connection:
+        if "site_settings" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE site_settings (
+                      id INTEGER PRIMARY KEY,
+                      telemetry_vario_smoothing_seconds INTEGER NOT NULL DEFAULT 5,
+                      telemetry_altitude_smoothing_seconds INTEGER NOT NULL DEFAULT 3,
+                      telemetry_speed_smoothing_seconds INTEGER NOT NULL DEFAULT 3,
+                      telemetry_glide_ratio_smoothing_seconds INTEGER NOT NULL DEFAULT 5,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO site_settings (
+                      id,
+                      telemetry_vario_smoothing_seconds,
+                      telemetry_altitude_smoothing_seconds,
+                      telemetry_speed_smoothing_seconds,
+                      telemetry_glide_ratio_smoothing_seconds
+                    ) VALUES (1, 5, 3, 3, 5)
+                    """
+                )
+            )
+        else:
+            site_settings_columns = {column["name"] for column in inspector.get_columns("site_settings")}
+            if "telemetry_vario_smoothing_seconds" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN telemetry_vario_smoothing_seconds INTEGER DEFAULT 5"))
+            if "telemetry_altitude_smoothing_seconds" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN telemetry_altitude_smoothing_seconds INTEGER DEFAULT 3"))
+            if "telemetry_speed_smoothing_seconds" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN telemetry_speed_smoothing_seconds INTEGER DEFAULT 3"))
+            if "telemetry_glide_ratio_smoothing_seconds" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN telemetry_glide_ratio_smoothing_seconds INTEGER DEFAULT 5"))
+            if "updated_at" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO site_settings (
+                      id,
+                      telemetry_vario_smoothing_seconds,
+                      telemetry_altitude_smoothing_seconds,
+                      telemetry_speed_smoothing_seconds,
+                      telemetry_glide_ratio_smoothing_seconds
+                    )
+                    SELECT 1, 5, 3, 3, 5
+                    WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE id = 1)
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE site_settings
+                    SET
+                      telemetry_vario_smoothing_seconds = COALESCE(telemetry_vario_smoothing_seconds, 5),
+                      telemetry_altitude_smoothing_seconds = COALESCE(telemetry_altitude_smoothing_seconds, 3),
+                      telemetry_speed_smoothing_seconds = COALESCE(telemetry_speed_smoothing_seconds, 3),
+                      telemetry_glide_ratio_smoothing_seconds = COALESCE(telemetry_glide_ratio_smoothing_seconds, 5),
+                      updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
+                    WHERE id = 1
+                    """
+                )
+            )
+
+        if "task_scoring_inputs" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE task_scoring_inputs (
+                      id INTEGER PRIMARY KEY,
+                      task_id INTEGER NOT NULL,
+                      pilot_id INTEGER NOT NULL,
+                      selected_upload_id INTEGER,
+                      status_override VARCHAR(32),
+                      updated_by_user_id INTEGER,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                      FOREIGN KEY(pilot_id) REFERENCES pilots (id) ON DELETE CASCADE,
+                      FOREIGN KEY(selected_upload_id) REFERENCES igc_uploads (id) ON DELETE SET NULL,
+                      FOREIGN KEY(updated_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE UNIQUE INDEX uq_task_scoring_input_task_pilot ON task_scoring_inputs (task_id, pilot_id)"))
+            connection.execute(text("CREATE INDEX ix_task_scoring_input_task_pilot ON task_scoring_inputs (task_id, pilot_id)"))
+
+        if "score_penalties" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE score_penalties (
+                      id INTEGER PRIMARY KEY,
+                      task_id INTEGER NOT NULL,
+                      pilot_id INTEGER NOT NULL,
+                      penalty_type VARCHAR(20) NOT NULL,
+                      value FLOAT NOT NULL DEFAULT 0,
+                      reason VARCHAR(255) DEFAULT '',
+                      position INTEGER NOT NULL DEFAULT 0,
+                      applied_by_user_id INTEGER,
+                      applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      updated_by_user_id INTEGER,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(task_id) REFERENCES tasks (id) ON DELETE CASCADE,
+                      FOREIGN KEY(pilot_id) REFERENCES pilots (id) ON DELETE CASCADE,
+                      FOREIGN KEY(applied_by_user_id) REFERENCES users (id) ON DELETE SET NULL,
+                      FOREIGN KEY(updated_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_score_penalties_task_pilot ON score_penalties (task_id, pilot_id)"))
+
+    if "events" not in table_names:
         return
 
-    user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in inspector.get_table_names() else set()
+    user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
-    task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in inspector.get_table_names() else set()
-    turnpoint_source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")} if "turnpoint_sources" in inspector.get_table_names() else set()
-    airspace_source_columns = {column["name"] for column in inspector.get_columns("airspace_sources")} if "airspace_sources" in inspector.get_table_names() else set()
+    task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
+    score_result_details = {column["name"]: column for column in inspector.get_columns("score_results")} if "score_results" in table_names else {}
+    score_result_columns = set(score_result_details)
+    task_scoring_input_columns = {column["name"] for column in inspector.get_columns("task_scoring_inputs")} if "task_scoring_inputs" in table_names else set()
+    score_penalty_columns = {column["name"] for column in inspector.get_columns("score_penalties")} if "score_penalties" in table_names else set()
+    turnpoint_source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")} if "turnpoint_sources" in table_names else set()
+    airspace_source_columns = {column["name"] for column in inspector.get_columns("airspace_sources")} if "airspace_sources" in table_names else set()
     statements = {
         "scoring_formula": "ALTER TABLE events ADD COLUMN scoring_formula VARCHAR(40)",
         "nominal_distance_km": "ALTER TABLE events ADD COLUMN nominal_distance_km FLOAT",
@@ -66,20 +193,24 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "start_gate_count": "ALTER TABLE tasks ADD COLUMN start_gate_count INTEGER DEFAULT 1",
         "start_gate_interval_seconds": "ALTER TABLE tasks ADD COLUMN start_gate_interval_seconds INTEGER",
     }
-
+    score_result_statements = {
+        "raw_score_points": "ALTER TABLE score_results ADD COLUMN raw_score_points FLOAT DEFAULT 0",
+        "result_state": "ALTER TABLE score_results ADD COLUMN result_state VARCHAR(20) DEFAULT 'official'",
+        "scored_at": "ALTER TABLE score_results ADD COLUMN scored_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+    }
     with engine.begin() as connection:
-        if "users" in inspector.get_table_names() and "profile_type" not in user_columns:
+        if "users" in table_names and "profile_type" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN profile_type VARCHAR(20) DEFAULT 'pilot'"))
             connection.execute(text("UPDATE users SET profile_type = 'pilot' WHERE profile_type IS NULL"))
-        if "users" in inspector.get_table_names() and "altitude_unit" not in user_columns:
+        if "users" in table_names and "altitude_unit" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN altitude_unit VARCHAR(10) DEFAULT 'ft'"))
-        if "users" in inspector.get_table_names() and "speed_unit" not in user_columns:
+        if "users" in table_names and "speed_unit" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN speed_unit VARCHAR(10) DEFAULT 'kph'"))
-        if "users" in inspector.get_table_names() and "distance_unit" not in user_columns:
+        if "users" in table_names and "distance_unit" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN distance_unit VARCHAR(10) DEFAULT 'km'"))
-        if "users" in inspector.get_table_names() and "vario_unit" not in user_columns:
+        if "users" in table_names and "vario_unit" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN vario_unit VARCHAR(10) DEFAULT 'fpm'"))
-        if "users" in inspector.get_table_names():
+        if "users" in table_names:
             connection.execute(text("UPDATE users SET altitude_unit = 'ft' WHERE altitude_unit IS NULL"))
             connection.execute(text("UPDATE users SET speed_unit = 'kph' WHERE speed_unit IS NULL"))
             connection.execute(text("UPDATE users SET distance_unit = 'km' WHERE distance_unit IS NULL"))
@@ -90,7 +221,30 @@ def ensure_runtime_schema(engine: Engine) -> None:
         for column_name, statement in task_statements.items():
             if column_name not in task_columns:
                 connection.execute(text(statement))
-        table_names = set(inspector.get_table_names())
+        for column_name, statement in score_result_statements.items():
+            if column_name not in score_result_columns:
+                connection.execute(text(statement))
+        if "score_results" in table_names:
+            upload_id_column = score_result_details.get("upload_id")
+            if upload_id_column and upload_id_column.get("nullable") is False and dialect_name != "sqlite":
+                connection.execute(text("ALTER TABLE score_results ALTER COLUMN upload_id DROP NOT NULL"))
+            connection.execute(text("UPDATE score_results SET raw_score_points = COALESCE(raw_score_points, score_points, 0)"))
+            connection.execute(text("UPDATE score_results SET result_state = 'official' WHERE result_state IS NULL"))
+            connection.execute(text("UPDATE score_results SET scored_at = CURRENT_TIMESTAMP WHERE scored_at IS NULL"))
+        if "task_scoring_inputs" in table_names:
+            if "selected_upload_id" not in task_scoring_input_columns:
+                connection.execute(text("ALTER TABLE task_scoring_inputs ADD COLUMN selected_upload_id INTEGER"))
+            if "status_override" not in task_scoring_input_columns:
+                connection.execute(text("ALTER TABLE task_scoring_inputs ADD COLUMN status_override VARCHAR(32)"))
+            if "updated_by_user_id" not in task_scoring_input_columns:
+                connection.execute(text("ALTER TABLE task_scoring_inputs ADD COLUMN updated_by_user_id INTEGER"))
+            if "updated_at" not in task_scoring_input_columns:
+                connection.execute(text("ALTER TABLE task_scoring_inputs ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+        if "score_penalties" in table_names:
+            if "updated_by_user_id" not in score_penalty_columns:
+                connection.execute(text("ALTER TABLE score_penalties ADD COLUMN updated_by_user_id INTEGER"))
+            if "updated_at" not in score_penalty_columns:
+                connection.execute(text("ALTER TABLE score_penalties ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
         if "turnpoint_sources" in table_names and "enabled" not in turnpoint_source_columns:
             connection.execute(text("ALTER TABLE turnpoint_sources ADD COLUMN enabled BOOLEAN DEFAULT TRUE"))
         if "turnpoint_sources" in table_names:

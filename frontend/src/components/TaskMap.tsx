@@ -1,7 +1,7 @@
 "use client";
 
 import { COORDINATE_SYSTEM } from "@deck.gl/core";
-import { PathLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { PathLayer, PolygonLayer, ScatterplotLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,6 +13,12 @@ export type MapUnitPreferences = {
   speed: "kph" | "mph";
   distance: "km" | "mi";
   vario: "fpm" | "ms";
+};
+export type MapTelemetrySmoothing = {
+  telemetry_vario_smoothing_seconds: number;
+  telemetry_altitude_smoothing_seconds: number;
+  telemetry_speed_smoothing_seconds: number;
+  telemetry_glide_ratio_smoothing_seconds: number;
 };
 export type MapLivePosition = {
   id: string;
@@ -38,6 +44,8 @@ export type MapAirspaceRegion = {
   display_category: string;
   lower_limit_label: string | null;
   upper_limit_label: string | null;
+  lower_limit_m: number | null;
+  upper_limit_m: number | null;
   geometry_json: { type: string; coordinates: number[][][] };
   label_latitude: number | null;
   label_longitude: number | null;
@@ -54,8 +62,12 @@ export type TrackCollection = {
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
 const REPLAY_SPEEDS = [1, 2, 5, 10, 30, 60, 120, 300] as const;
+const ALTITUDE_MULTIPLIER_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5] as const;
 const TERRAIN_SOURCE_ID = "terrain-dem";
 const TERRAIN_EXAGGERATION = 1.25;
+const TRACK_WIDTH_PIXELS = 1.25;
+const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
+const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
 
 function createBasemapStyle(basemapMode: BasemapMode) {
   const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
@@ -121,12 +133,65 @@ function buildCircle(point: MapTaskPoint) {
 }
 
 function ensureGeoJsonSource(map: maplibregl.Map, id: string, data: Record<string, unknown>) {
+  const nextData =
+    typeof structuredClone === "function"
+      ? structuredClone(data)
+      : JSON.parse(JSON.stringify(data));
   const source = map.getSource(id) as GeoJSONSource | undefined;
   if (source) {
-    source.setData(data as never);
+    source.setData(nextData as never);
     return;
   }
-  map.addSource(id, { type: "geojson", data: data as never });
+  map.addSource(id, { type: "geojson", data: nextData as never });
+}
+
+function hasSource(map: maplibregl.Map, id: string) {
+  return !!map.getSource(id);
+}
+
+function safeAddLayer(map: maplibregl.Map, layer: Parameters<maplibregl.Map["addLayer"]>[0]) {
+  if (map.getLayer(layer.id)) {
+    return;
+  }
+  try {
+    map.addLayer(layer);
+  } catch (error) {
+    console.warn(`Unable to add map layer ${layer.id}.`, error);
+  }
+}
+
+function removeLayerIfPresent(map: maplibregl.Map, id: string) {
+  if (map.getLayer(id)) {
+    map.removeLayer(id);
+  }
+}
+
+function removeSourceIfPresent(map: maplibregl.Map, id: string) {
+  if (map.getSource(id)) {
+    map.removeSource(id);
+  }
+}
+
+function rebuildTaskGeometrySources(map: maplibregl.Map) {
+  [
+    "optimized-leg-labels",
+    "optimized-route-points",
+    "optimized-route-layer",
+    "task-route-layer",
+    "task-route-arrows-layer",
+    "task-points-layer",
+    "task-cylinders-outline",
+    "task-cylinders-fill",
+  ].forEach((layerId) => removeLayerIfPresent(map, layerId));
+  [
+    "optimized-leg-labels",
+    "optimized-route-points",
+    "optimized-route",
+    "task-route",
+    "task-route-arrows",
+    "task-points",
+    "task-cylinders",
+  ].forEach((sourceId) => removeSourceIfPresent(map, sourceId));
 }
 
 function scaleTrackPosition(position: TrackPosition, altitudeMultiplier: number): TrackPosition {
@@ -184,6 +249,314 @@ function formatSpeedLabel(speedKmh: number, unit: MapUnitPreferences["speed"]) {
   return `${speedKmh.toFixed(1)} km/h`;
 }
 
+function formatVarioLabel(verticalSpeedMps: number, unit: MapUnitPreferences["vario"]) {
+  if (unit === "fpm") {
+    return `${Math.round(verticalSpeedMps * 196.850394).toLocaleString()} ft/min`;
+  }
+  return `${verticalSpeedMps.toFixed(1)} m/s`;
+}
+
+function formatGlideRatioLabel(glideRatio: number) {
+  return `${glideRatio.toFixed(1)} : 1`;
+}
+
+function resolveAdaptiveTelemetrySmoothing(
+  baseSmoothing: MapTelemetrySmoothing,
+  mode: "replay" | "live",
+  isReplaying: boolean,
+  replaySpeed: number,
+): MapTelemetrySmoothing {
+  if (mode !== "replay" || !isReplaying || replaySpeed <= 1) {
+    return baseSmoothing;
+  }
+  // The original sqrt-only curve was too subtle below 5x, so the displayed
+  // telemetry barely changed at 2x-5x. This stronger but still capped curve
+  // makes low-speed replay meaningfully calmer without freezing the card.
+  const multiplier = Math.min(4, 0.8 + Math.sqrt(replaySpeed));
+  return {
+    telemetry_vario_smoothing_seconds: baseSmoothing.telemetry_vario_smoothing_seconds * multiplier,
+    telemetry_altitude_smoothing_seconds: baseSmoothing.telemetry_altitude_smoothing_seconds * multiplier,
+    telemetry_speed_smoothing_seconds: baseSmoothing.telemetry_speed_smoothing_seconds * multiplier,
+    telemetry_glide_ratio_smoothing_seconds: baseSmoothing.telemetry_glide_ratio_smoothing_seconds * multiplier,
+  };
+}
+
+function replayTelemetryThrottleMs(replaySpeed: number) {
+  if (replaySpeed <= 2) {
+    return 0;
+  }
+  if (replaySpeed <= 5) {
+    return 100;
+  }
+  if (replaySpeed <= 10) {
+    return 125;
+  }
+  if (replaySpeed <= 30) {
+    return 200;
+  }
+  return 250;
+}
+
+type FitTarget = {
+  kind: "task" | "turnpoints" | "fitTurnpoints" | "fallback";
+  coordinates: [number, number][];
+  signature: string;
+};
+
+function buildTaskGeometrySignature(taskPoints: MapTaskPoint[], optimizedRoute: [number, number][]) {
+  return [
+    taskPoints
+      .map((point) => `${point.position}:${point.point_type}:${point.latitude.toFixed(6)}:${point.longitude.toFixed(6)}:${point.radius_m}`)
+      .join("|"),
+    optimizedRoute.map((coordinate) => `${coordinate[0].toFixed(6)}:${coordinate[1].toFixed(6)}`).join("|"),
+  ].join("::");
+}
+
+type RouteArrowFeature = {
+  type: "Feature";
+  properties: { rotation: number };
+  geometry: { type: "Point"; coordinates: [number, number] };
+};
+
+function interpolateCoordinate(from: [number, number], to: [number, number], ratio = 0.5): [number, number] {
+  return [
+    from[0] + (to[0] - from[0]) * ratio,
+    from[1] + (to[1] - from[1]) * ratio,
+  ];
+}
+
+function bearingDegrees(from: [number, number], to: [number, number]) {
+  const fromLat = (from[1] * Math.PI) / 180;
+  const toLat = (to[1] * Math.PI) / 180;
+  const deltaLon = ((to[0] - from[0]) * Math.PI) / 180;
+  const y = Math.sin(deltaLon) * Math.cos(toLat);
+  const x = Math.cos(fromLat) * Math.sin(toLat) - Math.sin(fromLat) * Math.cos(toLat) * Math.cos(deltaLon);
+  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+}
+
+function buildRouteArrowData(coordinates: [number, number][]) {
+  return {
+    type: "FeatureCollection",
+    features: coordinates.slice(1).map((coordinate, index) => {
+      const previous = coordinates[index];
+      return {
+        type: "Feature",
+        properties: { rotation: bearingDegrees(previous, coordinate) - 90 },
+        geometry: {
+          type: "Point",
+          coordinates: interpolateCoordinate(previous, coordinate, 0.5),
+        },
+      } as RouteArrowFeature;
+    }),
+  } as const;
+}
+
+function buildTurnpointGeometrySignature(turnpoints: MapTurnpoint[]) {
+  return turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(6)}:${turnpoint.longitude.toFixed(6)}`).join("|");
+}
+
+function resolveFitTarget(
+  taskPoints: MapTaskPoint[],
+  optimizedRoute: [number, number][],
+  turnpoints: MapTurnpoint[],
+  fitTurnpoints?: MapTurnpoint[],
+): FitTarget {
+  if (taskPoints.length) {
+    const coordinates: [number, number][] = taskPoints.map((point) => [point.longitude, point.latitude]);
+    for (const coordinate of optimizedRoute) {
+      coordinates.push(coordinate);
+    }
+    return {
+      kind: "task",
+      coordinates,
+      signature: `task::${buildTaskGeometrySignature(taskPoints, optimizedRoute)}`,
+    };
+  }
+  if (turnpoints.length) {
+    return {
+      kind: "turnpoints",
+      coordinates: turnpoints.map((turnpoint) => [turnpoint.longitude, turnpoint.latitude]),
+      signature: `turnpoints::${buildTurnpointGeometrySignature(turnpoints)}`,
+    };
+  }
+  const fallbackTurnpoints = fitTurnpoints ?? [];
+  if (fallbackTurnpoints.length) {
+    return {
+      kind: "fitTurnpoints",
+      coordinates: fallbackTurnpoints.map((turnpoint) => [turnpoint.longitude, turnpoint.latitude]),
+      signature: `fit-turnpoints::${buildTurnpointGeometrySignature(fallbackTurnpoints)}`,
+    };
+  }
+  return {
+    kind: "fallback",
+    coordinates: [],
+    signature: "usa-fallback",
+  };
+}
+
+function buildBoundsOptions(
+  coordinates: [number, number][],
+  fallbackBounds: [[number, number], [number, number]],
+  padding: number,
+  maxZoom: number,
+) {
+  if (!coordinates.length) {
+    return {
+      bounds: fallbackBounds,
+      fitBoundsOptions: {
+        padding,
+        maxZoom,
+        duration: 0,
+      },
+    } as const;
+  }
+
+  const bounds = new maplibregl.LngLatBounds();
+  for (const coordinate of coordinates) {
+    bounds.extend(coordinate);
+  }
+
+  return {
+    bounds,
+    fitBoundsOptions: {
+      padding,
+      maxZoom,
+      duration: 0,
+    },
+  } as const;
+}
+
+function averageWithinWindow(values: Array<number | null>, timestamps: number[], windowMs: number): Array<number | null> {
+  if (!values.length) {
+    return [];
+  }
+  if (windowMs <= 0) {
+    return values;
+  }
+  const smoothed = new Array<number | null>(values.length).fill(null);
+  let startIndex = 0;
+  let sum = 0;
+  let count = 0;
+  for (let index = 0; index < values.length; index += 1) {
+    const currentTimestamp = timestamps[index];
+    const sample = values[index];
+    if (sample != null) {
+      sum += sample;
+      count += 1;
+    }
+    while (startIndex < index && currentTimestamp - timestamps[startIndex] > windowMs) {
+      const exiting = values[startIndex];
+      if (exiting != null) {
+        sum -= exiting;
+        count -= 1;
+      }
+      startIndex += 1;
+    }
+    smoothed[index] = count > 0 ? sum / count : null;
+  }
+  return smoothed;
+}
+
+type TrackTelemetrySeries = {
+  uploadId: number;
+  timestamps: number[];
+  altitudeM: Array<number | null>;
+  speedKmh: Array<number | null>;
+  verticalSpeedMps: Array<number | null>;
+  glideRatio: Array<number | null>;
+};
+
+type HighlightedTrackSnapshot = {
+  pilotName: string;
+  coordinate: [number, number];
+  altitudeM: number | null;
+  speedKmh: number | null;
+  verticalSpeedMps: number | null;
+  glideRatio: number | null;
+  color: string;
+};
+
+type TaskCylinderVolume = {
+  polygon: [number, number][];
+  pointType: string;
+};
+
+function buildTrackTelemetrySeries(
+  coordinates: TrackPosition[],
+  timestamps: number[],
+  smoothing: MapTelemetrySmoothing,
+): {
+  altitudeM: Array<number | null>;
+  speedKmh: Array<number | null>;
+  verticalSpeedMps: Array<number | null>;
+  glideRatio: Array<number | null>;
+} {
+  const altitudeSamples = coordinates.map((coordinate) => (coordinate.length > 2 && Number.isFinite(coordinate[2]) ? coordinate[2] ?? 0 : null));
+  const speedSamples = new Array<number | null>(coordinates.length).fill(null);
+  const verticalSpeedSamples = new Array<number | null>(coordinates.length).fill(null);
+  const glideRatioSamples = new Array<number | null>(coordinates.length).fill(null);
+
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const currentTimestamp = timestamps[index];
+    const previousTimestamp = timestamps[index - 1];
+    if (!Number.isFinite(currentTimestamp) || !Number.isFinite(previousTimestamp) || currentTimestamp <= previousTimestamp) {
+      continue;
+    }
+    const elapsedSeconds = (currentTimestamp - previousTimestamp) / 1000;
+    if (elapsedSeconds <= 0) {
+      continue;
+    }
+    const currentCoordinate = coordinates[index];
+    const previousCoordinate = coordinates[index - 1];
+    const distanceKm = haversineKm([previousCoordinate[0], previousCoordinate[1]], [currentCoordinate[0], currentCoordinate[1]]);
+    speedSamples[index] = distanceKm / (elapsedSeconds / 3600);
+    if (currentCoordinate.length > 2 && previousCoordinate.length > 2) {
+      const altitudeDeltaM = (currentCoordinate[2] ?? 0) - (previousCoordinate[2] ?? 0);
+      verticalSpeedSamples[index] = altitudeDeltaM / elapsedSeconds;
+      const altitudeLossM = -altitudeDeltaM;
+      if (altitudeLossM > 0.1) {
+        glideRatioSamples[index] = (distanceKm * 1000) / altitudeLossM;
+      }
+    }
+  }
+
+  return {
+    altitudeM: averageWithinWindow(altitudeSamples, timestamps, smoothing.telemetry_altitude_smoothing_seconds * 1000),
+    speedKmh: averageWithinWindow(speedSamples, timestamps, smoothing.telemetry_speed_smoothing_seconds * 1000),
+    verticalSpeedMps: averageWithinWindow(verticalSpeedSamples, timestamps, smoothing.telemetry_vario_smoothing_seconds * 1000),
+    glideRatio: averageWithinWindow(glideRatioSamples, timestamps, smoothing.telemetry_glide_ratio_smoothing_seconds * 1000),
+  };
+}
+
+function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: number) {
+  if (!timestamps.length) {
+    return -1;
+  }
+  if (currentReplayTime < timestamps[0]) {
+    return -1;
+  }
+  let index = 0;
+  while (index + 1 < timestamps.length && timestamps[index + 1] <= currentReplayTime) {
+    index += 1;
+  }
+  return index;
+}
+
+function pointTypeColor(pointType: string): [number, number, number] {
+  switch (pointType) {
+    case "launch":
+      return [249, 115, 22];
+    case "start":
+      return [37, 99, 235];
+    case "ESS":
+      return [124, 58, 237];
+    case "goal":
+      return [22, 163, 74];
+    default:
+      return [220, 38, 38];
+  }
+}
+
 function hexToRgb(hex: string): [number, number, number] {
   const normalized = hex.trim().replace("#", "");
   const expanded = normalized.length === 3
@@ -196,37 +569,90 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
 }
 
-function ensureMapLayers(map: maplibregl.Map) {
-  if (!map.getLayer("airspaces-fill")) {
-    map.addLayer({
-      id: "airspaces-fill",
-      type: "fill",
-      source: "airspaces",
-      paint: {
-        "fill-color": [
-          "match",
-          ["get", "display_category"],
-          "B", "#2563eb",
-          "C", "#f59e0b",
-          "D", "#14b8a6",
-          "P", "#dc2626",
-          "Q", "#db2777",
-          "R", "#7c3aed",
-          "TFR", "#0f172a",
-          "RESTRICTED_FIELD", "#b91c1c",
-          "#64748b",
-        ],
-        "fill-opacity": [
-          "case",
-          ["get", "is_restricted_field"],
-          0.22,
-          0.12,
-        ],
-      },
-    });
+function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
+  if (hasSource(map, "airspaces")) {
+    if (isPerspective3D) {
+      removeLayerIfPresent(map, "airspaces-fill");
+      if (!map.getLayer("airspaces-extrusion")) {
+        safeAddLayer(map, {
+          id: "airspaces-extrusion",
+          type: "fill-extrusion",
+          source: "airspaces",
+          paint: {
+            "fill-extrusion-color": [
+              "match",
+              ["get", "display_category"],
+              "B", "#2563eb",
+              "C", "#f59e0b",
+              "D", "#14b8a6",
+              "P", "#dc2626",
+              "Q", "#db2777",
+              "R", "#7c3aed",
+              "TFR", "#0f172a",
+              "RESTRICTED_FIELD", "#b91c1c",
+              "#64748b",
+            ],
+            "fill-extrusion-opacity": [
+              "case",
+              ["get", "is_restricted_field"],
+              0.24,
+              0.14,
+            ],
+            "fill-extrusion-base": [
+              "max",
+              0,
+              ["coalesce", ["get", "lower_limit_m"], 0],
+            ],
+            "fill-extrusion-height": [
+              "max",
+              50,
+              [
+                "-",
+                [
+                  "coalesce",
+                  ["get", "upper_limit_m"],
+                  ["+", ["coalesce", ["get", "lower_limit_m"], 0], 1500],
+                ],
+                ["coalesce", ["get", "lower_limit_m"], 0],
+              ],
+            ],
+          },
+        });
+      }
+    } else {
+      removeLayerIfPresent(map, "airspaces-extrusion");
+      if (!map.getLayer("airspaces-fill")) {
+        safeAddLayer(map, {
+          id: "airspaces-fill",
+          type: "fill",
+          source: "airspaces",
+          paint: {
+            "fill-color": [
+              "match",
+              ["get", "display_category"],
+              "B", "#2563eb",
+              "C", "#f59e0b",
+              "D", "#14b8a6",
+              "P", "#dc2626",
+              "Q", "#db2777",
+              "R", "#7c3aed",
+              "TFR", "#0f172a",
+              "RESTRICTED_FIELD", "#b91c1c",
+              "#64748b",
+            ],
+            "fill-opacity": [
+              "case",
+              ["get", "is_restricted_field"],
+              0.22,
+              0.12,
+            ],
+          },
+        });
+      }
+    }
   }
-  if (!map.getLayer("airspaces-outline")) {
-    map.addLayer({
+  if (hasSource(map, "airspaces") && !map.getLayer("airspaces-outline")) {
+    safeAddLayer(map, {
       id: "airspaces-outline",
       type: "line",
       source: "airspaces",
@@ -259,8 +685,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("airspace-labels")) {
-    map.addLayer({
+  if (hasSource(map, "airspace-labels") && !map.getLayer("airspace-labels")) {
+    safeAddLayer(map, {
       id: "airspace-labels",
       type: "symbol",
       source: "airspace-labels",
@@ -278,11 +704,11 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("turnpoints-layer")) {
-    map.addLayer({ id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+  if (hasSource(map, "turnpoints") && !map.getLayer("turnpoints-layer")) {
+    safeAddLayer(map, { id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
   }
-  if (!map.getLayer("turnpoints-labels")) {
-    map.addLayer({
+  if (hasSource(map, "turnpoints") && !map.getLayer("turnpoints-labels")) {
+    safeAddLayer(map, {
       id: "turnpoints-labels",
       type: "symbol",
       source: "turnpoints",
@@ -300,8 +726,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("task-cylinders-fill")) {
-    map.addLayer({
+  if (hasSource(map, "task-cylinders") && !map.getLayer("task-cylinders-fill")) {
+    safeAddLayer(map, {
       id: "task-cylinders-fill",
       type: "fill",
       source: "task-cylinders",
@@ -319,8 +745,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("task-cylinders-outline")) {
-    map.addLayer({
+  if (hasSource(map, "task-cylinders") && !map.getLayer("task-cylinders-outline")) {
+    safeAddLayer(map, {
       id: "task-cylinders-outline",
       type: "line",
       source: "task-cylinders",
@@ -338,11 +764,36 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("task-route-layer")) {
-    map.addLayer({ id: "task-route-layer", type: "line", source: "task-route", paint: { "line-color": "#1d4ed8", "line-width": 3 } });
+  if (hasSource(map, "task-route") && !map.getLayer("task-route-layer")) {
+    safeAddLayer(map, { id: "task-route-layer", type: "line", source: "task-route", paint: { "line-color": "#1d4ed8", "line-width": 3 } });
   }
-  if (!map.getLayer("optimized-route-layer")) {
-    map.addLayer({
+  if (hasSource(map, "task-route-arrows") && !map.getLayer("task-route-arrows-layer")) {
+    safeAddLayer(map, {
+      id: "task-route-arrows-layer",
+      type: "symbol",
+      source: "task-route-arrows",
+      layout: {
+        "text-field": "\u25B6",
+        "text-size": 26,
+        "text-anchor": "center",
+        "text-offset": [0, -0.16],
+        "text-rotate": ["coalesce", ["get", "rotation"], 0],
+        "text-rotation-alignment": "map",
+        "text-pitch-alignment": "map",
+        "text-allow-overlap": true,
+        "text-ignore-placement": true,
+        "text-keep-upright": false,
+        "symbol-placement": "point",
+      },
+      paint: {
+        "text-color": "#1d4ed8",
+        "text-halo-color": "rgba(255,255,255,0.9)",
+        "text-halo-width": 1.2,
+      },
+    });
+  }
+  if (hasSource(map, "optimized-route") && !map.getLayer("optimized-route-layer")) {
+    safeAddLayer(map, {
       id: "optimized-route-layer",
       type: "line",
       source: "optimized-route",
@@ -357,8 +808,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("optimized-route-points")) {
-    map.addLayer({
+  if (hasSource(map, "optimized-route-points") && !map.getLayer("optimized-route-points")) {
+    safeAddLayer(map, {
       id: "optimized-route-points",
       type: "circle",
       source: "optimized-route-points",
@@ -370,8 +821,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("optimized-leg-labels")) {
-    map.addLayer({
+  if (hasSource(map, "optimized-leg-labels") && !map.getLayer("optimized-leg-labels")) {
+    safeAddLayer(map, {
       id: "optimized-leg-labels",
       type: "symbol",
       source: "optimized-leg-labels",
@@ -390,8 +841,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("task-points-layer")) {
-    map.addLayer({
+  if (hasSource(map, "task-points") && !map.getLayer("task-points-layer")) {
+    safeAddLayer(map, {
       id: "task-points-layer",
       type: "circle",
       source: "task-points",
@@ -411,8 +862,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("live-positions-layer")) {
-    map.addLayer({
+  if (hasSource(map, "live-positions") && !map.getLayer("live-positions-layer")) {
+    safeAddLayer(map, {
       id: "live-positions-layer",
       type: "circle",
       source: "live-positions",
@@ -424,8 +875,8 @@ function ensureMapLayers(map: maplibregl.Map) {
       },
     });
   }
-  if (!map.getLayer("live-position-labels")) {
-    map.addLayer({
+  if (hasSource(map, "live-position-labels") && !map.getLayer("live-position-labels")) {
+    safeAddLayer(map, {
       id: "live-position-labels",
       type: "symbol",
       source: "live-position-labels",
@@ -479,6 +930,8 @@ function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: 
   map.fitBounds(bounds, { padding: 48, maxZoom: 11, duration: 0 });
 }
 
+const USA_FIT_BOUNDS: [[number, number], [number, number]] = [[-125, 24], [-66.5, 49.5]];
+
 export const TaskMap = React.memo(function TaskMap({
   turnpoints,
   airspaces = [],
@@ -495,8 +948,17 @@ export const TaskMap = React.memo(function TaskMap({
   hideFullscreenDistanceOverlay = false,
   highlightedTrackUploadId,
   fitKey,
+  fitTurnpoints,
+  viewStateKey,
+  preserveViewStateOnRemount = false,
   mode = "replay",
   units = { altitude: "ft", speed: "kph", distance: "km", vario: "fpm" },
+  telemetrySmoothing = {
+    telemetry_vario_smoothing_seconds: 5,
+    telemetry_altitude_smoothing_seconds: 3,
+    telemetry_speed_smoothing_seconds: 3,
+    telemetry_glide_ratio_smoothing_seconds: 5,
+  },
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -513,19 +975,29 @@ export const TaskMap = React.memo(function TaskMap({
   hideFullscreenDistanceOverlay?: boolean;
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
+  fitTurnpoints?: MapTurnpoint[];
+  viewStateKey?: string | number | null;
+  preserveViewStateOnRemount?: boolean;
   mode?: "replay" | "live";
   units?: MapUnitPreferences;
+  telemetrySmoothing?: MapTelemetrySmoothing;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
+  const scaleControlRef = useRef<maplibregl.ScaleControl | null>(null);
   const turnpointsRef = useRef(turnpoints);
   const taskPointsRef = useRef(taskPoints);
   const optimizedRouteRef = useRef(optimizedRoute);
   const trackRef = useRef(track);
-  const turnpointSignatureRef = useRef("");
+  const fitGeometrySignatureRef = useRef("");
   const fitKeyRef = useRef<string>("");
+  const fitTargetKindRef = useRef<FitTarget["kind"]>("fallback");
+  const renderedTaskGeometrySignatureRef = useRef("");
+  const programmaticCameraMoveRef = useRef(false);
+  const manualViewChangedRef = useRef(false);
+  const lastCenteredHighlightRef = useRef<number | null>(null);
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const animationFrameRef = useRef<number | null>(null);
@@ -533,13 +1005,14 @@ export const TaskMap = React.memo(function TaskMap({
   const replayClockRef = useRef<number | null>(null);
   const replayIndexRef = useRef(0);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
-  const [altitudeMultiplier, setAltitudeMultiplier] = useState(10);
+  const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPerspective3D, setIsPerspective3D] = useState(false);
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replaySpeed, setReplaySpeed] = useState(10);
   const [replayHasInteracted, setReplayHasInteracted] = useState(false);
+  const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const livePositionData = useMemo(() => ({
@@ -585,6 +1058,8 @@ export const TaskMap = React.memo(function TaskMap({
         type_code: airspace.type_code ?? "",
         lower_limit_label: airspace.lower_limit_label ?? "",
         upper_limit_label: airspace.upper_limit_label ?? "",
+        lower_limit_m: airspace.lower_limit_m ?? null,
+        upper_limit_m: airspace.upper_limit_m ?? null,
         is_restricted_field: airspace.is_restricted_field,
       },
       geometry: airspace.geometry_json,
@@ -607,6 +1082,7 @@ export const TaskMap = React.memo(function TaskMap({
   }), [airspaces]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
+  const routeArrowData = useMemo(() => buildRouteArrowData(taskPoints.map((point) => [point.longitude, point.latitude])), [taskPoints]);
   const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
   const optimizedRoutePointData = useMemo(() => ({
     type: "FeatureCollection",
@@ -625,48 +1101,147 @@ export const TaskMap = React.memo(function TaskMap({
     })),
   }), [legMetrics, units.distance]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
-  const replayTimestamps = useMemo(() => {
-    const firstFeature = track?.features[0];
-    const raw = firstFeature?.properties?.timestamps;
-    if (!Array.isArray(raw)) {
+  const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(taskPoints, optimizedRoute), [optimizedRoute, taskPoints]);
+  const resolvedFitTarget = useMemo(
+    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, fitTurnpoints),
+    [fitTurnpoints, optimizedRoute, taskPoints, turnpoints],
+  );
+  const cylinderVolumes = useMemo<TaskCylinderVolume[]>(
+    () =>
+      taskPoints.map((point) => ({
+        polygon: (buildCircle(point).geometry.coordinates[0] as [number, number][]),
+        pointType: point.point_type,
+      })),
+    [taskPoints],
+  );
+  const trackFeatureTimelines = useMemo(() => {
+    if (!track) {
+      return [] as Array<{ uploadId: number; timestamps: number[]; coordinateCount: number }>;
+    }
+    return track.features.map((feature) => {
+      const raw = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
+      const timestamps = raw
+        .slice(0, feature.geometry.coordinates.length)
+        .map((value) => Date.parse(String(value)))
+        .filter((value) => Number.isFinite(value));
+      return {
+        uploadId: Number(feature.properties?.upload_id ?? 0),
+        timestamps,
+        coordinateCount: feature.geometry.coordinates.length,
+      };
+    });
+  }, [track]);
+  const effectiveTelemetrySmoothing = useMemo(
+    () => resolveAdaptiveTelemetrySmoothing(telemetrySmoothing, mode, isReplaying, replaySpeed),
+    [isReplaying, mode, replaySpeed, telemetrySmoothing],
+  );
+  const smoothedTrackTelemetrySeries = useMemo<TrackTelemetrySeries[]>(() => {
+    if (!track) {
       return [];
     }
-    return raw
-      .map((value) => Date.parse(String(value)))
-      .filter((value) => Number.isFinite(value));
-  }, [track]);
-  const replayTotal = replayTimestamps.length;
+    return track.features.map((feature, featureIndex) => {
+      const timestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
+      const limitedCoordinates = feature.geometry.coordinates.slice(0, timestamps.length);
+      const series = buildTrackTelemetrySeries(limitedCoordinates, timestamps, effectiveTelemetrySmoothing);
+      return {
+        uploadId: Number(feature.properties?.upload_id ?? 0),
+        timestamps,
+        altitudeM: series.altitudeM,
+        speedKmh: series.speedKmh,
+        verticalSpeedMps: series.verticalSpeedMps,
+        glideRatio: series.glideRatio,
+      };
+    });
+  }, [effectiveTelemetrySmoothing, track, trackFeatureTimelines]);
+  const replayTimeline = useMemo(() => {
+    const unique = new Set<number>();
+    trackFeatureTimelines.forEach((feature) => {
+      feature.timestamps.forEach((timestamp) => unique.add(timestamp));
+    });
+    return Array.from(unique).sort((left, right) => left - right);
+  }, [trackFeatureTimelines]);
+  const replayTotal = replayTimeline.length;
+  const visibleTrackLengths = useMemo(() => {
+    if (!track) {
+      return [] as number[];
+    }
+    const hasReplay = replayTotal > 0;
+    const shouldSliceTrack = hasReplay && (isReplaying || replayHasInteracted);
+    const currentReplayTime = hasReplay ? replayTimeline[Math.min(replayIndex, replayTotal - 1)] : null;
+    return track.features.map((feature, featureIndex) => {
+      if (!shouldSliceTrack || currentReplayTime == null) {
+        return feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0;
+      }
+      const parsedFeatureTimestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
+      if (!parsedFeatureTimestamps.length) {
+        return 0;
+      }
+      const replayCoordinateIndex = findReplayCoordinateIndex(parsedFeatureTimestamps, currentReplayTime);
+      if (replayCoordinateIndex < 0) {
+        return 0;
+      }
+      return Math.min(replayCoordinateIndex + 1, feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0);
+    });
+  }, [isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, track, trackFeatureTimelines]);
+  const fullTrackPathData = useMemo(() => {
+    if (!track) {
+      return [] as Array<{
+        uploadId: number;
+        path: [number, number, number][];
+        color: [number, number, number];
+        highlighted: boolean;
+      }>;
+    }
+    return track.features
+      .filter((feature) => feature.geometry.type === "LineString")
+      .map((feature, featureIndex) => ({
+        uploadId: Number(feature.properties?.upload_id ?? 0),
+        path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, altitudeMultiplier) as [number, number, number]),
+        color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
+        highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+      }));
+  }, [altitudeMultiplier, highlightedTrackUploadId, track]);
   const displayTrack = useMemo<TrackCollection | null>(() => {
     if (!track) {
       return null;
     }
-    const hasReplay = replayTotal > 0;
-    const shouldSliceTrack = hasReplay && (isReplaying || replayHasInteracted);
     return {
       type: "FeatureCollection",
-      features: track.features.map((feature) => {
-        const featureTimestamps = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
-        const visibleLength = shouldSliceTrack
-          ? Math.min(replayIndex + 1, featureTimestamps.length || feature.geometry.coordinates.length)
-          : feature.geometry.coordinates.length;
-        return {
-          ...feature,
-          geometry: {
-            ...feature.geometry,
-            coordinates: feature.geometry.coordinates
-              .slice(0, visibleLength)
-              .map((coordinate) => scaleTrackPosition(coordinate, altitudeMultiplier)),
-          },
-        };
-      }),
+      features: track.features.map((feature, featureIndex) => ({
+        ...feature,
+        geometry: {
+          ...feature.geometry,
+          coordinates:
+            feature.geometry.type === "LineString"
+              ? fullTrackPathData[featureIndex]?.path.slice(0, visibleTrackLengths[featureIndex] ?? 0) ?? []
+              : feature.geometry.coordinates,
+        },
+      })),
     };
-  }, [altitudeMultiplier, isReplaying, replayHasInteracted, replayIndex, replayTotal, track]);
+  }, [fullTrackPathData, track, visibleTrackLengths]);
   const replayMarkerData = useMemo(() => {
     if (!track || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
     }
-    const firstFeature = track.features[0];
-    const coordinate = firstFeature?.geometry.coordinates[Math.min(replayIndex, firstFeature.geometry.coordinates.length - 1)];
+    const targetFeatureIndex = highlightedTrackUploadId != null
+      ? track.features.findIndex((feature) => Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId)
+      : 0;
+    const featureIndex = targetFeatureIndex >= 0 ? targetFeatureIndex : 0;
+    const targetFeature = track.features[featureIndex];
+    const targetTimestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
+    if (!targetFeature || !targetTimestamps.length) {
+      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
+    }
+    const shouldUseReplayPosition = isReplaying || replayHasInteracted;
+    let coordinateIndex = targetTimestamps.length - 1;
+    if (shouldUseReplayPosition) {
+      const currentReplayTime = replayTimeline[Math.min(replayIndex, replayTotal - 1)];
+      coordinateIndex = findReplayCoordinateIndex(targetTimestamps, currentReplayTime);
+    }
+    if (coordinateIndex < 0) {
+      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
+    }
+    const coordinate = targetFeature.geometry.coordinates[Math.min(coordinateIndex, targetFeature.geometry.coordinates.length - 1)];
     if (!coordinate) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
     }
@@ -683,35 +1258,133 @@ export const TaskMap = React.memo(function TaskMap({
         },
       ],
     };
-  }, [altitudeMultiplier, replayIndex, replayTotal, track]);
+  }, [altitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, track, trackFeatureTimelines]);
+  const maxScoredTrackAltitudeM = useMemo(() => {
+    if (!track) {
+      return 15000;
+    }
+    let maxAltitude = 0;
+    for (const feature of track.features) {
+      if (feature.geometry.type !== "LineString") {
+        continue;
+      }
+      for (const coordinate of feature.geometry.coordinates) {
+        if (coordinate.length > 2 && Number.isFinite(coordinate[2])) {
+          maxAltitude = Math.max(maxAltitude, coordinate[2] ?? 0);
+        }
+      }
+    }
+    return maxAltitude > 0 ? maxAltitude : 15000;
+  }, [track]);
   const deckTrackLayers = useMemo(() => {
     const layers = [];
+    if (isPerspective3D && cylinderVolumes.length) {
+      layers.push(
+        new PolygonLayer({
+          id: "task-cylinder-volumes-3d",
+          data: cylinderVolumes,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          extruded: true,
+          wireframe: false,
+          getPolygon: (item: TaskCylinderVolume) => item.polygon,
+          getElevation: maxScoredTrackAltitudeM * altitudeMultiplier,
+          getFillColor: (item: TaskCylinderVolume) => [...pointTypeColor(item.pointType), 40],
+          getLineColor: (item: TaskCylinderVolume) => pointTypeColor(item.pointType),
+          lineWidthUnits: "pixels",
+          lineWidthMinPixels: 1,
+          pickable: false,
+        }),
+      );
+    }
     if (displayTrack) {
-      const pathData = displayTrack.features
-        .filter((feature) => feature.geometry.type === "LineString" && feature.geometry.coordinates.length > 1)
-        .map((feature) => ({
-          uploadId: Number(feature.properties?.upload_id ?? 0),
-          path: feature.geometry.coordinates as [number, number, number][],
-          color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
-          highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
-        }));
+      const pathData = fullTrackPathData
+        .map((item, index) => ({
+          ...item,
+          visibleLength: visibleTrackLengths[index] ?? 0,
+        }))
+        .filter((item) => item.path.length > 1 && item.visibleLength > 0);
       if (pathData.length) {
+        /*
+        Previous 3D ribbon experiment, kept here for later tuning if we want to revisit
+        extruded replay tracks instead of the flat PathLayer.
+
+        Constants that were used:
+          const TRACK_RIBBON_WIDTH_METERS = 8;
+          const HIGHLIGHTED_TRACK_RIBBON_WIDTH_METERS = 11;
+          const TRACK_RIBBON_ELEVATION_RATIO = 0.3;
+          const METERS_PER_DEGREE_LATITUDE = 111320;
+
+        Helper functions that were used:
+          metersPerDegreeLongitude(...)
+          normalizeVector(...)
+          buildTrackRibbonSides(...)
+          buildTrackRibbonPolygonFromSides(...)
+
+        if (isPerspective3D) {
+          const ribbonBaseData = fullTrackPathData
+            .map((item) => {
+              const widthMeters = item.highlighted ? HIGHLIGHTED_TRACK_RIBBON_WIDTH_METERS : TRACK_RIBBON_WIDTH_METERS;
+              const ribbonSides = buildTrackRibbonSides(item.path, widthMeters);
+              if (!ribbonSides) {
+                return null;
+              }
+              return {
+                leftSide: ribbonSides.leftSide,
+                rightSide: ribbonSides.rightSide,
+                color: item.color,
+                elevation: widthMeters * TRACK_RIBBON_ELEVATION_RATIO,
+              };
+            })
+            .filter((item) => item != null);
+
+          const ribbonData = ribbonBaseData
+            .map((item, index) => ({
+              ...item,
+              visibleLength: visibleTrackLengths[index] ?? 0,
+            }))
+            .filter((item) => item.visibleLength > 1);
+
+          layers.push(
+            new PolygonLayer({
+              id: "igc-track-3d",
+              data: ribbonData,
+              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+              extruded: true,
+              filled: true,
+              wireframe: false,
+              getPolygon: (item) =>
+                buildTrackRibbonPolygonFromSides(item.leftSide, item.rightSide, item.visibleLength) ?? [],
+              getElevation: (item) => item.elevation,
+              getFillColor: (item) => [...item.color, 210],
+              pickable: false,
+              parameters: {
+                depthTest: false,
+              },
+            }),
+          );
+        } else {
+        */
         layers.push(
-          new PathLayer({
-            id: "igc-track-3d",
-            data: pathData,
-            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-            positionFormat: "XYZ",
-            getPath: (item: { path: [number, number, number][] }) => item.path,
-            getColor: (item: { color: [number, number, number] }) => item.color,
-            getWidth: (item: { highlighted: boolean }) => (item.highlighted ? 5 : 3),
+            new PathLayer({
+              id: "igc-track-3d",
+              data: pathData,
+              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+              positionFormat: "XYZ",
+              getPath: (item: { path: [number, number, number][]; visibleLength: number }) => item.path.slice(0, item.visibleLength),
+              getColor: (item: { color: [number, number, number] }) => item.color,
+              getWidth: (item: { highlighted: boolean }) =>
+                item.highlighted ? HIGHLIGHTED_TRACK_WIDTH_PIXELS : TRACK_WIDTH_PIXELS,
             widthUnits: "pixels",
-            widthMinPixels: 2,
+            widthMinPixels: 1,
             pickable: false,
             jointRounded: true,
             capRounded: true,
+            parameters: {
+              depthTest: false,
+            },
           }),
         );
+        // }
       }
     }
     const replayMarkerFeatures = replayMarkerData.features as Array<{
@@ -734,11 +1407,17 @@ export const TaskMap = React.memo(function TaskMap({
           lineWidthUnits: "pixels",
           lineWidthMinPixels: 3,
           pickable: false,
+          parameters: {
+            depthTest: false,
+          },
         }),
       );
     }
     return layers;
-  }, [displayTrack, highlightedTrackUploadId, replayMarkerData]);
+  }, [cylinderVolumes, displayTrack, fullTrackPathData, maxScoredTrackAltitudeM, replayMarkerData, visibleTrackLengths]);
+  const fitBounds = resolvedFitTarget.coordinates;
+  const fitGeometrySignature = resolvedFitTarget.signature;
+  const fitTargetKind = resolvedFitTarget.kind;
 
   useEffect(() => {
     turnpointsRef.current = turnpoints;
@@ -771,13 +1450,13 @@ export const TaskMap = React.memo(function TaskMap({
     setReplayHasInteracted(false);
     setReplayIndex(nextReplayIndex);
     replayIndexRef.current = nextReplayIndex;
-    replayClockRef.current = replayTotal > 0 ? replayTimestamps[nextReplayIndex] ?? null : null;
+    replayClockRef.current = replayTotal > 0 ? replayTimeline[nextReplayIndex] ?? null : null;
     lastFrameTimeRef.current = null;
     if (animationFrameRef.current !== null) {
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-  }, [track, replayTotal]);
+  }, [track, replayTimeline, replayTotal]);
 
   useEffect(() => {
     if (!isReplaying || replayTotal <= 1) {
@@ -804,12 +1483,12 @@ export const TaskMap = React.memo(function TaskMap({
         return;
       }
       if (replayClockRef.current == null) {
-        replayClockRef.current = replayTimestamps[currentIndex];
+        replayClockRef.current = replayTimeline[currentIndex];
       }
       replayClockRef.current += deltaMs * replaySpeed;
       const targetFlightTime = replayClockRef.current;
       let nextIndex = currentIndex;
-      while (nextIndex + 1 < replayTotal && replayTimestamps[nextIndex + 1] <= targetFlightTime) {
+      while (nextIndex + 1 < replayTotal && replayTimeline[nextIndex + 1] <= targetFlightTime) {
         nextIndex += 1;
       }
       if (nextIndex !== currentIndex) {
@@ -817,7 +1496,7 @@ export const TaskMap = React.memo(function TaskMap({
         setReplayIndex(nextIndex);
       }
       if (nextIndex >= replayTotal - 1) {
-        replayClockRef.current = replayTimestamps[replayTotal - 1] ?? replayClockRef.current;
+        replayClockRef.current = replayTimeline[replayTotal - 1] ?? replayClockRef.current;
         setIsReplaying(false);
         animationFrameRef.current = null;
         return;
@@ -833,7 +1512,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
       lastFrameTimeRef.current = null;
     };
-  }, [isReplaying, replaySpeed, replayTimestamps, replayTotal]);
+  }, [isReplaying, replaySpeed, replayTimeline, replayTotal]);
 
   useEffect(() => {
     if (!containerRef.current || mapRef.current) {
@@ -842,27 +1521,72 @@ export const TaskMap = React.memo(function TaskMap({
     const container = containerRef.current;
     const shell = shellRef.current;
     try {
+      const persistedViewState = viewStateKey != null ? persistedViewStateByKey.get(String(viewStateKey)) : null;
+      if (preserveViewStateOnRemount && persistedViewState) {
+        fitGeometrySignatureRef.current = fitGeometrySignature;
+        fitKeyRef.current = String(fitKey ?? "");
+        fitTargetKindRef.current = fitTargetKind;
+        manualViewChangedRef.current = true;
+      }
       const map = new maplibregl.Map({
         container,
         style: createBasemapStyle(basemapMode) as never,
-        center: [-118.18, 36.73],
-        zoom: 9,
+        ...(persistedViewState
+          ? {
+              center: persistedViewState.center,
+              zoom: persistedViewState.zoom,
+              bearing: persistedViewState.bearing,
+              pitch: persistedViewState.pitch,
+            }
+          : buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? 10 : 5)),
+        maxPitch: 85,
         attributionControl: false,
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
       map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
+      const scaleControl = new maplibregl.ScaleControl({
+        maxWidth: 120,
+        unit: units.distance === "mi" ? "imperial" : "metric",
+      });
+      map.addControl(scaleControl, "bottom-left");
+      scaleControlRef.current = scaleControl;
       const deckOverlay = new MapboxOverlay({ interleaved: false, layers: [] });
       map.addControl(deckOverlay);
       deckOverlayRef.current = deckOverlay;
       let compassButton: HTMLButtonElement | null = null;
       let handleCompassClick: ((event: Event) => void) | null = null;
+      const syncPerspectiveMode = () => {
+        setIsPerspective3D(map.getPitch() > 0.5);
+      };
       map.on("styledata", () => {
         map.resize();
       });
+      map.on("pitch", syncPerspectiveMode);
       map.on("moveend", () => {
-        setIsPerspective3D(map.getPitch() >= 40);
+        if (programmaticCameraMoveRef.current) {
+          programmaticCameraMoveRef.current = false;
+        }
+        if (viewStateKey != null) {
+          const center = map.getCenter();
+          persistedViewStateByKey.set(String(viewStateKey), {
+            center: [center.lng, center.lat],
+            zoom: map.getZoom(),
+            bearing: map.getBearing(),
+            pitch: map.getPitch(),
+          });
+        }
+        syncPerspectiveMode();
       });
+      const markManualInteraction = () => {
+        if (!programmaticCameraMoveRef.current) {
+          manualViewChangedRef.current = true;
+        }
+      };
+      map.on("dragstart", markManualInteraction);
+      map.on("zoomstart", markManualInteraction);
+      map.on("rotatestart", markManualInteraction);
+      map.on("pitchstart", markManualInteraction);
       map.on("click", (event) => {
         if (!editableRef.current || !onSelectTurnpointRef.current) {
           return;
@@ -889,6 +1613,7 @@ export const TaskMap = React.memo(function TaskMap({
         if (compassButton) {
           handleCompassClick = () => {
             window.setTimeout(() => {
+              programmaticCameraMoveRef.current = true;
               map.easeTo({ bearing: 0, pitch: 0, duration: 300 });
               setIsPerspective3D(false);
             }, 0);
@@ -900,10 +1625,7 @@ export const TaskMap = React.memo(function TaskMap({
         const fullscreenElement = document.fullscreenElement ?? ((document as Document & { webkitFullscreenElement?: Element | null }).webkitFullscreenElement ?? null);
         setIsFullscreen(fullscreenElement === shell);
         window.setTimeout(() => map.resize(), 0);
-        window.setTimeout(() => {
-          map.resize();
-          fitToData(map, turnpointsRef.current, taskPointsRef.current, optimizedRouteRef.current, trackRef.current ?? null);
-        }, 150);
+        window.setTimeout(() => map.resize(), 150);
       };
       document.addEventListener("fullscreenchange", handleFullscreenChange);
       document.addEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
@@ -916,10 +1638,16 @@ export const TaskMap = React.memo(function TaskMap({
         }
         document.removeEventListener("fullscreenchange", handleFullscreenChange);
         document.removeEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
+        map.off("dragstart", markManualInteraction);
+        map.off("zoomstart", markManualInteraction);
+        map.off("rotatestart", markManualInteraction);
+        map.off("pitchstart", markManualInteraction);
+        map.off("pitch", syncPerspectiveMode);
         if (deckOverlayRef.current) {
           map.removeControl(deckOverlayRef.current);
           deckOverlayRef.current = null;
         }
+        scaleControlRef.current = null;
         map.remove();
         mapRef.current = null;
       };
@@ -941,6 +1669,14 @@ export const TaskMap = React.memo(function TaskMap({
       setStyleGeneration((prev) => prev + 1);
     });
   }, [basemapMode]);
+
+  useEffect(() => {
+    const scaleControl = scaleControlRef.current;
+    if (!scaleControl) {
+      return;
+    }
+    scaleControl.setUnit(units.distance === "mi" ? "imperial" : "metric");
+  }, [units.distance]);
 
   useEffect(() => {
     const deckOverlay = deckOverlayRef.current;
@@ -976,39 +1712,18 @@ export const TaskMap = React.memo(function TaskMap({
     }
   }, [isPerspective3D, styleGeneration]);
 
-  const fitBounds = useMemo(() => {
-    const bounds: [number, number][] = [];
-    for (const turnpoint of turnpoints) {
-      bounds.push([turnpoint.longitude, turnpoint.latitude]);
-    }
-    for (const point of taskPoints) {
-      bounds.push([point.longitude, point.latitude]);
-    }
-    for (const coordinate of optimizedRoute) {
-      bounds.push(coordinate);
-    }
-    if (track) {
-      for (const feature of track.features) {
-        if (feature.geometry.type !== "LineString") {
-          continue;
-        }
-        for (const coordinate of feature.geometry.coordinates) {
-          bounds.push([coordinate[0], coordinate[1]]);
-        }
-      }
-    }
-    return bounds;
-  }, [turnpoints, taskPoints, optimizedRoute, track]);
-
   const applyFitBounds = useCallback((map: maplibregl.Map) => {
     if (fitBounds.length === 0) {
+      programmaticCameraMoveRef.current = true;
+      map.fitBounds(USA_FIT_BOUNDS, { padding: 32, maxZoom: 5, duration: 0 });
       return;
     }
     const lngLatBounds = new maplibregl.LngLatBounds();
     for (const coordinate of fitBounds) {
       lngLatBounds.extend(coordinate);
     }
-    map.fitBounds(lngLatBounds, { padding: 48, maxZoom: 11, duration: 0 });
+    programmaticCameraMoveRef.current = true;
+    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: 10, duration: 0 });
   }, [fitBounds]);
 
   // Sync turnpoint data to map
@@ -1019,7 +1734,7 @@ export const TaskMap = React.memo(function TaskMap({
     }
     const sync = () => {
       ensureGeoJsonSource(map, "turnpoints", turnpointData as never);
-      ensureMapLayers(map);
+      ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
       sync();
@@ -1037,14 +1752,14 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "airspaces", airspaceData as never);
       ensureGeoJsonSource(map, "airspace-labels", airspaceLabelData as never);
-      ensureMapLayers(map);
+      ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
       sync();
     } else {
       map.once("styledata", sync);
     }
-  }, [airspaceData, airspaceLabelData, styleGeneration]);
+  }, [airspaceData, airspaceLabelData, isPerspective3D, styleGeneration]);
 
   // Sync live position data to map
   useEffect(() => {
@@ -1055,7 +1770,7 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "live-positions", livePositionData as never);
       ensureGeoJsonSource(map, "live-position-labels", livePositionLabelData as never);
-      ensureMapLayers(map);
+      ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
       sync();
@@ -1073,18 +1788,25 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "task-points", taskPointData as never);
       ensureGeoJsonSource(map, "task-route", routeData as never);
+      ensureGeoJsonSource(map, "task-route-arrows", routeArrowData as never);
       ensureGeoJsonSource(map, "optimized-route", optimizedRouteData as never);
       ensureGeoJsonSource(map, "optimized-route-points", optimizedRoutePointData as never);
       ensureGeoJsonSource(map, "optimized-leg-labels", legLabelData as never);
       ensureGeoJsonSource(map, "task-cylinders", cylinderData as never);
-      ensureMapLayers(map);
+      ensureMapLayers(map, isPerspective3D);
+      map.triggerRepaint();
+      renderedTaskGeometrySignatureRef.current = taskGeometrySignature;
     };
-    if (map.isStyleLoaded()) {
+    try {
       sync();
-    } else {
-      map.once("styledata", sync);
+    } catch (error) {
+      if (!map.isStyleLoaded()) {
+        map.once("styledata", sync);
+        return;
+      }
+      console.error("Unable to sync task geometry to the map.", error);
     }
-  }, [routeData, cylinderData, taskPointData, optimizedRouteData, optimizedRoutePointData, legLabelData, styleGeneration]);
+  }, [routeData, routeArrowData, cylinderData, taskPointData, optimizedRouteData, optimizedRoutePointData, legLabelData, styleGeneration, taskGeometrySignature]);
 
   // Sync track data to map
   useEffect(() => {
@@ -1095,7 +1817,7 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
       ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
-      ensureMapLayers(map);
+      ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
       sync();
@@ -1110,12 +1832,18 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
-    const nextTurnpointSignature = turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(4)}:${turnpoint.longitude.toFixed(4)}`).join("|");
+    const nextFitGeometrySignature = fitGeometrySignature;
     const nextFitKey = String(fitKey ?? "");
-    const shouldFitToTurnpoints = nextTurnpointSignature !== turnpointSignatureRef.current;
-    const shouldFitToTask = nextFitKey !== fitKeyRef.current;
+    const nextFitTargetKind = fitTargetKind;
+    const previousFitTargetKind = fitTargetKindRef.current;
+    const shouldFitToTaskContext = nextFitKey !== fitKeyRef.current;
+    const shouldFitToTaskAfterFallback = nextFitTargetKind === "task" && previousFitTargetKind !== "task";
+    const shouldFitToWaypointGeometry =
+      nextFitTargetKind !== "task" &&
+      nextFitGeometrySignature !== fitGeometrySignatureRef.current;
 
-    if (shouldFitToTurnpoints || shouldFitToTask) {
+    if (shouldFitToTaskContext || shouldFitToTaskAfterFallback || shouldFitToWaypointGeometry) {
+      manualViewChangedRef.current = false;
       const doFit = () => {
         applyFitBounds(map);
       };
@@ -1124,16 +1852,22 @@ export const TaskMap = React.memo(function TaskMap({
       } else {
         map.once("styledata", doFit);
       }
+    } else if (manualViewChangedRef.current) {
+      fitGeometrySignatureRef.current = nextFitGeometrySignature;
+      fitKeyRef.current = nextFitKey;
+      fitTargetKindRef.current = nextFitTargetKind;
+      return;
     }
-    turnpointSignatureRef.current = nextTurnpointSignature;
+    fitGeometrySignatureRef.current = nextFitGeometrySignature;
     fitKeyRef.current = nextFitKey;
-  }, [turnpoints, fitKey, applyFitBounds]);
+    fitTargetKindRef.current = nextFitTargetKind;
+  }, [fitGeometrySignature, fitKey, fitTargetKind, applyFitBounds]);
 
   const replayVisible = !!track && replayTotal > 0;
-  const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[0]) : "--:--";
-  const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[replayTotal - 1]) : "--:--";
-  const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimestamps[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
-  const highlightedTrackTelemetry = useMemo(() => {
+  const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
+  const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[replayTotal - 1]) : "--:--";
+  const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
+  const highlightedTrackSnapshot = useMemo<HighlightedTrackSnapshot | null>(() => {
     if (!track || highlightedTrackUploadId == null) {
       return null;
     }
@@ -1141,45 +1875,77 @@ export const TaskMap = React.memo(function TaskMap({
     if (!highlightedFeature || highlightedFeature.geometry.type !== "LineString" || !highlightedFeature.geometry.coordinates.length) {
       return null;
     }
-    const timestamps = Array.isArray(highlightedFeature.properties?.timestamps)
-      ? highlightedFeature.properties.timestamps.map((value) => Date.parse(String(value))).filter((value) => Number.isFinite(value))
-      : [];
+    const timestamps = trackFeatureTimelines.find((feature) => feature.uploadId === highlightedTrackUploadId)?.timestamps ?? [];
+    const shouldUseReplayPosition = replayVisible && (isReplaying || replayHasInteracted);
     const coordinateIndex = timestamps.length
-      ? Math.min(replayIndex, highlightedFeature.geometry.coordinates.length - 1, timestamps.length - 1)
+      ? (() => {
+          if (!shouldUseReplayPosition) {
+            return Math.min(highlightedFeature.geometry.coordinates.length - 1, timestamps.length - 1);
+          }
+          const replayTime = replayTimeline[Math.min(replayIndex, replayTotal - 1)];
+          const index = findReplayCoordinateIndex(timestamps, replayTime);
+          return Math.max(0, Math.min(index, highlightedFeature.geometry.coordinates.length - 1, timestamps.length - 1));
+        })()
       : highlightedFeature.geometry.coordinates.length - 1;
     const coordinate = highlightedFeature.geometry.coordinates[Math.max(0, coordinateIndex)];
     if (!coordinate) {
       return null;
     }
-    const previousIndex = Math.max(0, coordinateIndex - 1);
-    const previousCoordinate = highlightedFeature.geometry.coordinates[previousIndex];
-    const currentTimestamp = timestamps[coordinateIndex];
-    const previousTimestamp = timestamps[previousIndex];
-    let speedKmh: number | null = null;
-    if (previousCoordinate && currentTimestamp && previousTimestamp && currentTimestamp > previousTimestamp) {
-      const distanceKm = haversineKm(
-        [previousCoordinate[0], previousCoordinate[1]],
-        [coordinate[0], coordinate[1]],
-      );
-      const elapsedHours = (currentTimestamp - previousTimestamp) / 3_600_000;
-      if (elapsedHours > 0) {
-        speedKmh = distanceKm / elapsedHours;
-      }
-    }
+    const telemetrySeries = smoothedTrackTelemetrySeries.find((series) => series.uploadId === highlightedTrackUploadId);
     return {
       pilotName: String(highlightedFeature.properties?.pilot_name ?? "Pilot"),
-      timeLabel: currentTimestamp ? formatReplayTimeLabel(currentTimestamp, true) : "--:--:--",
-      altitudeM: coordinate.length > 2 ? Math.round(coordinate[2] ?? 0) : 0,
-      speedKmh,
+      coordinate: [coordinate[0], coordinate[1]] as [number, number],
+      altitudeM: telemetrySeries?.altitudeM[coordinateIndex] ?? (coordinate.length > 2 ? Math.round(coordinate[2] ?? 0) : null),
+      speedKmh: telemetrySeries?.speedKmh[coordinateIndex] ?? null,
+      // Vertical speed is derived from the altitude delta between the current replay point
+      // and the immediately previous point divided by elapsed seconds; the smoothed display
+      // keeps that raw per-point derivation intact and only averages the shown values.
+      verticalSpeedMps: telemetrySeries?.verticalSpeedMps[coordinateIndex] ?? null,
+      glideRatio: telemetrySeries?.glideRatio[coordinateIndex] ?? null,
       color: String(highlightedFeature.properties?.color ?? "#2563eb"),
     };
-  }, [highlightedTrackUploadId, replayIndex, track]);
+  }, [highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, replayVisible, smoothedTrackTelemetrySeries, track, trackFeatureTimelines]);
+  const highlightedTrackSnapshotRef = useRef<HighlightedTrackSnapshot | null>(null);
+  const telemetryThrottleMs = useMemo(
+    () => (mode === "replay" && isReplaying ? replayTelemetryThrottleMs(replaySpeed) : 0),
+    [isReplaying, mode, replaySpeed],
+  );
 
-  function setReplaySpeedStep(direction: -1 | 1) {
-    const currentIndex = REPLAY_SPEEDS.indexOf(replaySpeed as (typeof REPLAY_SPEEDS)[number]);
-    const nextIndex = Math.min(REPLAY_SPEEDS.length - 1, Math.max(0, currentIndex + direction));
-    setReplaySpeed(REPLAY_SPEEDS[nextIndex]);
-  }
+  useEffect(() => {
+    highlightedTrackSnapshotRef.current = highlightedTrackSnapshot;
+  }, [highlightedTrackSnapshot]);
+
+  useEffect(() => {
+    if (telemetryThrottleMs <= 0) {
+      setDisplayedHighlightedTrackSnapshot(highlightedTrackSnapshot);
+      return;
+    }
+    setDisplayedHighlightedTrackSnapshot(highlightedTrackSnapshotRef.current);
+    const intervalId = window.setInterval(() => {
+      setDisplayedHighlightedTrackSnapshot(highlightedTrackSnapshotRef.current);
+    }, telemetryThrottleMs);
+    return () => window.clearInterval(intervalId);
+  }, [telemetryThrottleMs, highlightedTrackUploadId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !isPerspective3D) {
+      return;
+    }
+    if (highlightedTrackUploadId == null || !highlightedTrackSnapshot) {
+      lastCenteredHighlightRef.current = null;
+      return;
+    }
+    if (lastCenteredHighlightRef.current === highlightedTrackUploadId) {
+      return;
+    }
+    programmaticCameraMoveRef.current = true;
+    map.easeTo({
+      center: highlightedTrackSnapshot.coordinate,
+      duration: 250,
+    });
+    lastCenteredHighlightRef.current = highlightedTrackUploadId;
+  }, [highlightedTrackSnapshot, highlightedTrackUploadId, isPerspective3D]);
 
   return (
     <div
@@ -1198,30 +1964,32 @@ export const TaskMap = React.memo(function TaskMap({
               : undefined
         }
       />
-      <div className={isFullscreen ? "map-fullscreen-sidebar" : undefined}>
+      <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
-        {!(isFullscreen && hideFullscreenDistanceOverlay) ? (
-          <div className={isFullscreen ? "map-distance-overlay map-distance-overlay-stacked" : "map-distance-overlay"} aria-label="Task distance summary">
-            <div className="map-distance-box">
-              <strong>Total task</strong>
-              <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
-            </div>
-            <div className="map-distance-box">
-              <strong>Optimized</strong>
-              <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
+        {displayedHighlightedTrackSnapshot ? (
+          <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">
+            <strong style={{ color: displayedHighlightedTrackSnapshot.color }}>{displayedHighlightedTrackSnapshot.pilotName}</strong>
+            <div className="map-track-telemetry-grid">
+              <span>Speed</span>
+              <span>{displayedHighlightedTrackSnapshot.speedKmh != null ? formatSpeedLabel(displayedHighlightedTrackSnapshot.speedKmh, units.speed) : "--"}</span>
+              <span>Altitude</span>
+              <span>{displayedHighlightedTrackSnapshot.altitudeM != null ? formatAltitudeLabel(displayedHighlightedTrackSnapshot.altitudeM, units.altitude) : "--"}</span>
+              <span>Vertical speed</span>
+              <span>{displayedHighlightedTrackSnapshot.verticalSpeedMps != null ? formatVarioLabel(displayedHighlightedTrackSnapshot.verticalSpeedMps, units.vario) : "--"}</span>
+              <span>L/D</span>
+              <span>{displayedHighlightedTrackSnapshot.glideRatio != null ? formatGlideRatioLabel(displayedHighlightedTrackSnapshot.glideRatio) : "--"}</span>
             </div>
           </div>
         ) : null}
-        {highlightedTrackTelemetry ? (
-          <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">
-            <strong style={{ color: highlightedTrackTelemetry.color }}>{highlightedTrackTelemetry.pilotName}</strong>
-            <div className="map-track-telemetry-grid">
-              <span>Time</span>
-              <span>{highlightedTrackTelemetry.timeLabel}</span>
-              <span>Altitude</span>
-              <span>{formatAltitudeLabel(highlightedTrackTelemetry.altitudeM, units.altitude)}</span>
-              <span>Speed</span>
-              <span>{highlightedTrackTelemetry.speedKmh != null ? formatSpeedLabel(highlightedTrackTelemetry.speedKmh, units.speed) : "--"}</span>
+        {!(isFullscreen && hideFullscreenDistanceOverlay) ? (
+          <div className="map-distance-summary" aria-label="Task distance summary">
+            <div className="map-distance-summary-row">
+              <strong>Total:</strong>
+              <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
+            </div>
+            <div className="map-distance-summary-row">
+              <strong>Optimized:</strong>
+              <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
             </div>
           </div>
         ) : null}
@@ -1237,15 +2005,16 @@ export const TaskMap = React.memo(function TaskMap({
             if (!map) {
               return;
             }
-            const nextIs3D = !isPerspective3D;
-            map.easeTo({
-              pitch: nextIs3D ? 60 : 0,
-              duration: 300,
-            });
-            setIsPerspective3D(nextIs3D);
-          }}
+              const nextIs3D = !isPerspective3D;
+              programmaticCameraMoveRef.current = true;
+              map.easeTo({
+                pitch: nextIs3D ? 80 : 0,
+                duration: 300,
+              });
+              setIsPerspective3D(nextIs3D);
+            }}
         >
-          {isPerspective3D ? "2D" : "3D"}
+          {isPerspective3D ? "3D" : "2D"}
         </button>
       </div>
       <div className="map-picker-stack">
@@ -1253,12 +2022,11 @@ export const TaskMap = React.memo(function TaskMap({
           <label className="map-style-picker">
             <span>Altitude</span>
             <select value={String(altitudeMultiplier)} onChange={(event) => setAltitudeMultiplier(Number(event.target.value))}>
-              <option value="1">1×</option>
-              <option value="2">2×</option>
-              <option value="5">5×</option>
-              <option value="10">10×</option>
-              <option value="20">20×</option>
-              <option value="50">50×</option>
+              {ALTITUDE_MULTIPLIER_OPTIONS.map((multiplier) => (
+                <option key={multiplier} value={multiplier}>
+                  {multiplier}x
+                </option>
+              ))}
             </select>
           </label>
         ) : null}
@@ -1273,87 +2041,87 @@ export const TaskMap = React.memo(function TaskMap({
       </div>
       {replayVisible && mode === "replay" ? (
         <div className="replay-bar">
-          <div className="replay-controls">
-            <button
-              type="button"
-              className="replay-btn"
-              aria-label="Reset replay to start"
-              title="Reset to start"
-              onClick={() => {
-                setIsReplaying(false);
-                setReplayHasInteracted(true);
-                setReplayIndex(0);
-                replayIndexRef.current = 0;
-                replayClockRef.current = replayTimestamps[0] ?? null;
-                lastFrameTimeRef.current = null;
-              }}
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <rect x="2" y="2" width="2" height="10" fill="currentColor" />
-                <path d="M11 2.5V11.5L5 7L11 2.5Z" fill="currentColor" />
-              </svg>
-            </button>
-            <button type="button" className="replay-btn" aria-label="Slower replay" title="Slower" onClick={() => setReplaySpeedStep(-1)}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M10.5 2.5V11.5L5.5 7L10.5 2.5Z" fill="currentColor" />
-                <path d="M7.5 2.5V11.5L2.5 7L7.5 2.5Z" fill="currentColor" />
-              </svg>
-            </button>
-            <button
-              type="button"
-              className="replay-btn replay-btn-primary"
-              aria-label={isReplaying ? "Pause replay" : "Play replay"}
-              title={isReplaying ? "Pause" : "Play"}
-              onClick={() => {
-                if (replayIndex >= replayTotal - 1) {
+          <div className="replay-bar-main">
+            <div className="replay-scrubber-block">
+              <div className="replay-current-time">{replayCurrentLabel}</div>
+              <div className="replay-scrubber-row">
+                <span className="replay-time-label">{replayStartLabel}</span>
+                <input
+                  className="replay-scrubber"
+                  type="range"
+                  min={0}
+                  max={Math.max(0, replayTotal - 1)}
+                  value={replayIndex}
+                  onChange={(event) => {
+                    const nextIndex = Number(event.target.value);
+                    setIsReplaying(false);
+                    setReplayHasInteracted(true);
+                    lastFrameTimeRef.current = null;
+                    replayIndexRef.current = nextIndex;
+                    replayClockRef.current = replayTimeline[nextIndex] ?? null;
+                    setReplayIndex(nextIndex);
+                  }}
+                />
+                <span className="replay-time-label">{replayEndLabel}</span>
+              </div>
+            </div>
+            <div className="replay-controls">
+              <button
+                type="button"
+                className="replay-btn"
+                aria-label="Reset replay to start"
+                title="Reset to start"
+                onClick={() => {
+                  setIsReplaying(false);
+                  setReplayHasInteracted(true);
                   setReplayIndex(0);
                   replayIndexRef.current = 0;
-                  replayClockRef.current = replayTimestamps[0] ?? null;
-                }
-                setReplayHasInteracted(true);
-                lastFrameTimeRef.current = null;
-                setIsReplaying((current) => !current);
-              }}
-            >
-              {isReplaying ? (
+                  replayClockRef.current = replayTimeline[0] ?? null;
+                  lastFrameTimeRef.current = null;
+                }}
+              >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <rect x="3" y="2.5" width="3" height="9" fill="currentColor" />
-                  <rect x="8" y="2.5" width="3" height="9" fill="currentColor" />
+                  <rect x="2" y="2" width="2" height="10" fill="currentColor" />
+                  <path d="M11 2.5V11.5L5 7L11 2.5Z" fill="currentColor" />
                 </svg>
-              ) : (
-                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                  <path d="M4 2.5L11 7L4 11.5V2.5Z" fill="currentColor" />
-                </svg>
-              )}
-            </button>
-            <button type="button" className="replay-btn" aria-label="Faster replay" title="Faster" onClick={() => setReplaySpeedStep(1)}>
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-                <path d="M3.5 2.5V11.5L8.5 7L3.5 2.5Z" fill="currentColor" />
-                <path d="M6.5 2.5V11.5L11.5 7L6.5 2.5Z" fill="currentColor" />
-              </svg>
-            </button>
-            <span className="replay-speed-label">{replaySpeed}×</span>
-          </div>
-          <div className="replay-current-time">{replayCurrentLabel}</div>
-          <div className="replay-scrubber-row">
-            <span className="replay-time-label">{replayStartLabel}</span>
-            <input
-              className="replay-scrubber"
-              type="range"
-              min={0}
-              max={Math.max(0, replayTotal - 1)}
-              value={replayIndex}
-              onChange={(event) => {
-                const nextIndex = Number(event.target.value);
-                setIsReplaying(false);
-                setReplayHasInteracted(true);
-                lastFrameTimeRef.current = null;
-                replayIndexRef.current = nextIndex;
-                replayClockRef.current = replayTimestamps[nextIndex] ?? null;
-                setReplayIndex(nextIndex);
-              }}
-            />
-            <span className="replay-time-label">{replayEndLabel}</span>
+              </button>
+              <button
+                type="button"
+                className="replay-btn replay-btn-primary"
+                aria-label={isReplaying ? "Pause replay" : "Play replay"}
+                title={isReplaying ? "Pause" : "Play"}
+                onClick={() => {
+                  if (replayIndex >= replayTotal - 1) {
+                    setReplayIndex(0);
+                    replayIndexRef.current = 0;
+                    replayClockRef.current = replayTimeline[0] ?? null;
+                  }
+                  setReplayHasInteracted(true);
+                  lastFrameTimeRef.current = null;
+                  setIsReplaying((current) => !current);
+                }}
+              >
+                {isReplaying ? (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <rect x="3" y="2.5" width="3" height="9" fill="currentColor" />
+                    <rect x="8" y="2.5" width="3" height="9" fill="currentColor" />
+                  </svg>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+                    <path d="M4 2.5L11 7L4 11.5V2.5Z" fill="currentColor" />
+                  </svg>
+                )}
+              </button>
+              <label className="replay-speed-select">
+                <select aria-label="Replay speed" value={String(replaySpeed)} onChange={(event) => setReplaySpeed(Number(event.target.value))}>
+                  {REPLAY_SPEEDS.map((speed) => (
+                    <option key={speed} value={speed}>
+                      {speed}x
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
         </div>
       ) : null}

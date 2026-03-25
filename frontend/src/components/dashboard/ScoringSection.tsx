@@ -1,14 +1,17 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
+import ScoringOperationsPanel from "./ScoringOperationsPanel";
 import type {
   AccountSettingsRecord,
   EventFormState,
   PilotRecord,
   PilotSummaryRecord,
   ResultRecord,
+  SiteSettingsRecord,
   ScoresPortalTab,
   ScoringTab,
   TaskDraftState,
@@ -66,6 +69,13 @@ function formatResultPoints(value: number | null | undefined): string {
   return (value ?? 0).toFixed(1);
 }
 
+function formatPenaltyPoints(result: ResultRecord): string {
+  const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
+  const finalScore = Number(result.score_points ?? 0);
+  const penalty = rawScore - finalScore;
+  return penalty > 0.05 ? `-${penalty.toFixed(1)}` : "-";
+}
+
 function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | undefined): string {
   if (!elapsedSeconds || elapsedSeconds <= 0) return "-";
   return (distanceKm / (elapsedSeconds / 3600)).toFixed(1);
@@ -112,6 +122,15 @@ function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arr
   return Number(gap?.awarded_points?.[key] ?? 0);
 }
 
+function overallTaskHeader(task: TaskRecord): ReactNode {
+  return (
+    <span className="results-header-stack">
+      <span>{task.name}</span>
+      <span>{formatDateLabel(task.published_at)}</span>
+    </span>
+  );
+}
+
 export interface ScoringSectionProps {
   selectedEventId: number | null;
   selectedTaskId: number | null;
@@ -145,6 +164,7 @@ export interface ScoringSectionProps {
   taskResultsColumns: Array<{ key: "distance" | "speed" | "arrival" | "departure" | "leading"; label: string }>;
   eventForm: EventFormState;
   settingsForm: AccountSettingsRecord;
+  siteSettings: SiteSettingsRecord;
   canManagePlatform: boolean;
   scoresPortalTab: ScoresPortalTab;
   setScoresPortalTab: (tab: ScoresPortalTab) => void;
@@ -156,6 +176,7 @@ export interface ScoringSectionProps {
   scoringFeedback: { type: "success" | "error"; text: string } | null;
   resultsDownloadFeedback: { type: "success" | "error" | "pending"; text: string; uploadId: number | null; all: boolean } | null;
   selectedResultUploadIds: number[];
+  allResultTracksChecked: boolean;
   resultTrackColorsByUploadId: Map<number, string>;
   resultTrackPalette: string[];
   highlightedResultUploadId: number | null;
@@ -163,17 +184,21 @@ export interface ScoringSectionProps {
   resultsTrackOverlay: TrackCollection | null;
   resultsTrackPilotList: ReactNode;
   resultsTaskMapTurnpoints: MapTurnpoint[];
+  allTurnpoints: MapTurnpoint[];
   token: string;
   activeSection: string;
   loadTask: (activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData?: boolean) => Promise<void>;
+  refreshPilotSummary: (activeToken: string, eventId: number) => Promise<unknown>;
   uploadIgc: (file: File, pilotId?: number | null) => void;
   uploadIgcBatch: (files: FileList | File[]) => void;
   deleteUpload: (upload: UploadRecord) => void;
   rescoreSelectedTask: () => void;
+  deleteScoredTask: () => void;
   promoteResult: (resultId: number) => void;
   downloadUploadFile: (uploadId: number, filename: string) => void;
   downloadAllIgcFiles: () => void;
   toggleResultTrack: (uploadId: number, checked: boolean) => void;
+  toggleAllResultTracks: () => void;
 }
 
 export default function ScoringSection(props: ScoringSectionProps) {
@@ -197,6 +222,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     startGateLabels,
     taskResultsColumns,
     settingsForm,
+    siteSettings,
     canManagePlatform,
     scoresPortalTab,
     setScoresPortalTab,
@@ -208,6 +234,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     scoringFeedback,
     resultsDownloadFeedback,
     selectedResultUploadIds,
+    allResultTracksChecked,
     resultTrackColorsByUploadId,
     resultTrackPalette,
     highlightedResultUploadId,
@@ -215,18 +242,33 @@ export default function ScoringSection(props: ScoringSectionProps) {
     resultsTrackOverlay,
     resultsTrackPilotList,
     resultsTaskMapTurnpoints,
+    allTurnpoints,
     token,
     activeSection,
     loadTask,
+    refreshPilotSummary,
     uploadIgc,
     uploadIgcBatch,
     deleteUpload,
     rescoreSelectedTask,
+    deleteScoredTask,
     promoteResult,
     downloadUploadFile,
     downloadAllIgcFiles,
     toggleResultTrack,
+    toggleAllResultTracks,
   } = props;
+  const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
+  const scoringTaskMetrics = computeTaskOptimization(scoringTaskPoints);
+  const scoringTaskMapTurnpoints = scoringTaskPoints.map((point, index) => ({
+    id: point.turnpoint_id ?? -(index + 1),
+    name: point.name,
+    code: allTurnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? null,
+    latitude: point.latitude,
+    longitude: point.longitude,
+  }));
+  const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
+  const taskResultsIncludePenalty = results.some((result) => Number(result.raw_score_points ?? result.score_points ?? 0) - Number(result.score_points ?? 0) > 0.05);
 
   if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
   return (
@@ -238,76 +280,16 @@ export default function ScoringSection(props: ScoringSectionProps) {
         </div>
       ) : null}
       {canManagePlatform && scoresPortalTab === "admin" ? (
-        <SectionCard title="Scoring operations" description="Upload missing IGC files on behalf of pilots, then run scoring manually for the selected task.">
-          <div className="stack form-block">
-            <label className="stack compact">
-              <span>Selected task</span>
-              <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                <option value="">Select a task</option>
-                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-              </select>
-            </label>
-            <div className="inline-grid">
-              <label className="stack compact">
-                <span>Pilot for upload</span>
-                <select value={adminUploadPilotId ?? ""} onChange={(event) => setAdminUploadPilotId(event.target.value ? Number(event.target.value) : null)}>
-                  <option value="">Select a pilot</option>
-                  {pilots.map((pilot) => (
-                    <option key={pilot.id} value={pilot.id}>
-                      {pilot.first_name} {pilot.last_name}{pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="file-input">
-                Upload IGC for pilot
-                <input
-                  type="file"
-                  accept=".igc"
-                  disabled={!selectedTaskId || !adminUploadPilotId}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file && adminUploadPilotId) void uploadIgc(file, adminUploadPilotId);
-                    event.currentTarget.value = "";
-                  }}
-                />
-              </label>
-            </div>
-            <label className="file-input">
-              Upload multiple IGC files and auto-match pilots
-              <input
-                type="file"
-                accept=".igc"
-                multiple
-                disabled={!selectedTaskId}
-                onChange={(event) => {
-                  const files = event.target.files;
-                  if (files?.length) void uploadIgcBatch(files);
-                  event.currentTarget.value = "";
-                }}
-              />
-            </label>
-              {uploadFeedback ? <div className={`status-chip ${uploadFeedback.type}`}>{uploadFeedback.text}</div> : null}
-              <p className="hint">Bulk upload matches files to pilots using the IGC pilot header plus the filename against the event roster. Files that cannot be matched confidently are skipped and reported back to you.</p>
-              <div className="button-row">
-                <button type="button" onClick={() => void rescoreSelectedTask()}>Run scoring</button>
-                {scoringFeedback ? <div className={`status-chip ${scoringFeedback.type}`}>{scoringFeedback.text}</div> : null}
-              </div>
-              {uploads.length ? (
-              <div className="stack">
-                {uploads.map((upload) => (
-                  <div key={upload.id} className="record-card upload-record">
-                    <div>
-                      <strong>{upload.filename}</strong>
-                      <span>{pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}`} - {upload.sha256.slice(0, 12)}... uploaded {new Date(upload.uploaded_at).toLocaleString()}</span>
-                    </div>
-                    <button type="button" className="ghost-button danger-button" onClick={() => void deleteUpload(upload)}>Delete</button>
-                  </div>
-                ))}
-              </div>
-            ) : <p className="hint">No IGC uploads have been stored for this task yet.</p>}
-          </div>
-        </SectionCard>
+        <ScoringOperationsPanel
+          selectedEventId={selectedEventId}
+          selectedTaskId={selectedTaskId}
+          selectedTask={selectedTask}
+          tasks={tasks}
+          token={token}
+          activeSection={activeSection}
+          loadTask={loadTask}
+          refreshPilotSummary={refreshPilotSummary}
+        />
       ) : null}
       {!canManagePlatform || scoresPortalTab === "results" ? (
       <SectionCard title="Results portal" description="Task results and overall standings are visible to all signed-in users.">
@@ -317,14 +299,19 @@ export default function ScoringSection(props: ScoringSectionProps) {
             <button type="button" className={scoringTab === "overall" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("overall")}>Overall results</button>
           </div>
           {scoringTab === "task" ? (
-            <div className="stack form-block">
-              <label className="stack compact">
-                <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                  <option value="">Select a task</option>
-                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-                </select>
-              </label>
+            <div className="stack form-block compact-clusters">
+              <fieldset className="fieldset-cluster">
+                <legend>Task selection</legend>
+                <div className="cluster-stack">
+                  <label className="stack compact">
+                    <span>Selected task</span>
+                    <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
+                      <option value="">Select a task</option>
+                      {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                    </select>
+                  </label>
+                </div>
+              </fieldset>
               {taskDefinitionRows.length ? (
                 <div className="results-sheet task-definition-sheet">
                   <div className="results-sheet-header">
@@ -368,8 +355,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
                       <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
                     </div>
                     <div className="button-row">
-                      <a href={`/dashboard/live?task=${selectedTaskId}`} className="ghost-button">Live View</a>
-                      <a href={`/dashboard/replay?task=${selectedTaskId}`} className="ghost-button">Replay</a>
                       <button
                         type="button"
                         className="ghost-button"
@@ -395,6 +380,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             <th><span className="results-header-stack"><span>Speed</span><span>[km/h]</span></span></th>
                             <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
                             {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
+                            {taskResultsIncludePenalty ? <th>Penalty</th> : null}
                             <th>Total</th>
                             <th>IGC file</th>
                             {canManagePlatform ? <th>State</th> : null}
@@ -403,30 +389,51 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         <tbody>
                           {results.map((result) => {
                             const pilot = pilotById.get(result.pilot_id);
+                            const isUnscored = result.result_state === "unscored";
+                            const statusLabel = isUnscored ? null : result.status.toUpperCase();
+                            const taskPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "distance"));
+                            const timePoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "speed"));
+                            const arrivalPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "arrival"));
+                            const departurePoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "departure"));
+                            const leadingPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "leading"));
                             return (
                               <tr key={result.id}>
                                 <td>{result.rank ?? "-"}</td>
                               <td>
                                 <strong>{result.pilot_name}</strong>
-                                <div className="results-name-meta">{result.status.toUpperCase()}{result.result_state === "provisional" ? <span className="result-state-badge provisional"> &middot; PROVISIONAL</span> : null}</div>
+                                <div className="results-name-meta">
+                                  {statusLabel}
+                                  {result.result_state === "provisional" ? <span className="result-state-badge provisional">{statusLabel ? " · " : ""}PROVISIONAL</span> : null}
+                                  {isUnscored ? <span className="result-state-badge unscored">{statusLabel ? " · " : ""}UNSCORED</span> : null}
+                                </div>
                               </td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
-                              <td>{formatClockTime(result.started_at, true)}</td>
-                                <td>{formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
-                                <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
-                                <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
-                                <td>{result.distance_flown_km.toFixed(1)}</td>
+                              <td>{isUnscored ? "-" : formatClockTime(result.started_at, true)}</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
+                                <td>{isUnscored ? "-" : formatElapsedSeconds(result.elapsed_seconds)}</td>
+                                <td>{isUnscored ? "-" : formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
+                                <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>
                                 {taskResultsColumns.map((column) => (
-                                  <td key={column.key}>{formatResultPoints(gapAwardedPoints(result, column.key))}</td>
+                                  <td key={column.key}>
+                                    {column.key === "distance" ? taskPoints : column.key === "speed" ? timePoints : column.key === "arrival" ? arrivalPoints : column.key === "departure" ? departurePoints : leadingPoints}
+                                  </td>
                                 ))}
-                                <td className="results-table-total">{result.score_points.toFixed(1)}</td>
+                                {taskResultsIncludePenalty ? (
+                                  <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>
+                                    {formatPenaltyPoints(result)}
+                                  </td>
+                                ) : null}
+                                <td className={`results-table-total${isUnscored ? " scoring-ops-muted" : ""}`}>{isUnscored ? "-" : result.score_points.toFixed(1)}</td>
                                 <td>
                                   <button
                                     type="button"
                                     className="ghost-button"
-                                    disabled={resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id}
-                                    onClick={() => void downloadUploadFile(result.upload_id, uploadById.get(result.upload_id)?.filename ?? `${result.pilot_name}.igc`)}
+                                    disabled={result.upload_id == null || isUnscored || (resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id)}
+                                    onClick={() => {
+                                      if (result.upload_id == null) return;
+                                      void downloadUploadFile(result.upload_id, uploadById.get(result.upload_id)?.filename ?? `${result.pilot_name}.igc`);
+                                    }}
                                   >
                                     {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id ? "Preparing..." : "Download"}
                                   </button>
@@ -441,6 +448,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                       >
                                         Promote to Official
                                       </button>
+                                    ) : result.result_state === "unscored" ? (
+                                      <span className="result-state-badge unscored">Unscored</span>
                                     ) : (
                                       <span className="result-state-badge official">Official</span>
                                     )}
@@ -452,7 +461,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                       </tbody>
                     </table>
                   </div>
-                  {taskDraft.points.length ? (
+                  {scoringTaskPoints.length ? (
                     <div className="results-task-map">
                       <div className="results-sheet-header">
                         <h3>Task map</h3>
@@ -462,9 +471,17 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         <div className="results-task-map-pilot-list">
                           <div className="results-task-map-pilot-header">
                             <strong>Show pilot tracks</strong>
+                            <label className="results-task-map-pilot-master-toggle">
+                              <input
+                                type="checkbox"
+                                checked={allResultTracksChecked}
+                                disabled={!results.length}
+                                onChange={() => void toggleAllResultTracks()}
+                              />
+                            </label>
                           </div>
                           <div className="results-task-map-pilot-items">
-                            {results.map((result) => {
+                            {scoredTrackResults.map((result) => {
                               const isChecked = selectedResultUploadIds.includes(result.upload_id);
                               const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
                               return (
@@ -475,7 +492,15 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                     onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
                                   />
                                   <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                                  <button type="button" className="results-task-map-pilot-button" onClick={() => setHighlightedResultUploadId(result.upload_id)}>
+                                  <button
+                                    type="button"
+                                    className="results-task-map-pilot-button"
+                                    onClick={() =>
+                                      setHighlightedResultUploadId(
+                                        highlightedResultUploadId === result.upload_id ? null : result.upload_id,
+                                      )
+                                    }
+                                  >
                                     <span className="results-task-map-pilot-copy">
                                     <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
                                     <small>{result.status.toUpperCase()} &middot; {result.score_points.toFixed(1)} pts</small>
@@ -486,25 +511,27 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             })}
                           </div>
                         </div>
-                        <TaskMap
-                          turnpoints={resultsTaskMapTurnpoints}
-                          airspaces={[]}
-                          taskPoints={taskDraft.points}
-                          optimizedRoute={taskDistanceMetrics.routeCoordinates}
-                          legMetrics={taskDistanceMetrics.legMetrics}
-                          totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
-                          optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
+                      <TaskMap
+                        turnpoints={scoringTaskMapTurnpoints}
+                        airspaces={[]}
+                        taskPoints={scoringTaskPoints}
+                          optimizedRoute={scoringTaskMetrics.routeCoordinates}
+                          legMetrics={scoringTaskMetrics.legMetrics}
+                          totalDistanceKm={scoringTaskMetrics.totalDistanceKm}
+                          optimizedDistanceKm={scoringTaskMetrics.optimizedDistanceKm}
                           track={resultsTrackOverlay}
                           editable={false}
                           taskEditorOverlay={resultsTrackPilotList}
                           highlightedTrackUploadId={highlightedResultUploadId}
-                          fitKey={`${selectedTaskId}:${selectedResultUploadIds.join(",")}`}
+                          fitKey={selectedTaskId}
+                          fitTurnpoints={allTurnpoints}
                           units={{
                             altitude: settingsForm.altitude_unit,
                             speed: settingsForm.speed_unit,
                             distance: settingsForm.distance_unit,
                             vario: settingsForm.vario_unit,
                           }}
+                          telemetrySmoothing={siteSettings}
                         />
                       </div>
                     </div>
@@ -548,7 +575,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           <th>Name</th>
                           <th>Nat</th>
                           <th>Glider</th>
-                          {scoredTasks.map((task, index) => <th key={task.id}>{`T ${index + 1}`}</th>)}
+                          {scoredTasks.map((task) => <th key={task.id}>{overallTaskHeader(task)}</th>)}
                           <th>Total</th>
                         </tr>
                       </thead>

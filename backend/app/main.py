@@ -6,7 +6,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import airspace, auth, events, pilots, public, results, tasks, turnpoints, uploads
+from app.routers import airspace, auth, events, pilots, public, results, site_settings, tasks, turnpoints, uploads
 from app.services.seeding import bootstrap_demo_data
 
 try:
@@ -41,6 +41,7 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[0-1])\.\d+\.\d+)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -48,6 +49,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(auth.router)
+app.include_router(site_settings.router)
 app.include_router(public.router)
 app.include_router(events.router)
 app.include_router(pilots.router)

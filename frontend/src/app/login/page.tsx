@@ -4,6 +4,9 @@ import { type FormEvent, useEffect, useState } from "react";
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured?.startsWith("/")) {
+    return configured;
+  }
   if (typeof window !== "undefined") {
     if (configured) {
       try {
@@ -16,9 +19,9 @@ function resolveApiBase() {
       }
       return configured;
     }
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+    return "/backend";
   }
-  return configured ?? "http://localhost:8000";
+  return configured ?? "/backend";
 }
 const TOKEN_KEY = "flightcomp-platform-token";
 const SESSION_COOKIE = "flightcomp_session";

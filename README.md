@@ -52,6 +52,39 @@ See [docs/oss-reuse-evaluation.md](docs/oss-reuse-evaluation.md) for the current
 3. Copy `frontend/.env.local.example` to `frontend/.env.local`
 4. Start the stack with Docker Compose if you want to run locally
 
+## Frontend Review Workflow
+
+Frontend work in this repo can use a dedicated Claude advisory lane:
+
+- workflow note: `docs/frontend-gui-review-workflow.md`
+- Windows helper: `scripts/windows/claude-frontend-review.ps1`
+
+The intended pattern is:
+
+- Claude is consulted on frontend asks
+- Claude sets the direction for GUI-heavy frontend changes
+- Codex remains the implementation owner
+- Codex makes the final call only when a hard repo constraint forces an adjustment
+
+## Windows Local Development With WSL2
+
+The preferred Windows setup is:
+
+- WSL2 with Ubuntu 24.04
+- Docker Desktop using the WSL 2 backend
+- The app repo copied into the Linux filesystem under `~/projects/aervyx`
+
+Bootstrap helpers:
+
+- Windows side: `.\scripts\bootstrap.ps1 -WindowsWsl`
+- Post-reboot / post-Ubuntu-init: `.\scripts\windows\finish-local-wsl.ps1`
+- Linux side script: `scripts/wsl/bootstrap-aervyx.sh`
+
+After setup completes, local URLs are:
+
+- Frontend: `http://localhost:3000/login`
+- Backend health: `http://localhost:8000/health`
+
 ## QNAP / NAS Deployment
 
 The supported NAS flow is:

@@ -40,6 +40,9 @@ type MeshConfigRecord = {
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured?.startsWith("/")) {
+    return configured;
+  }
   if (typeof window !== "undefined") {
     if (configured) {
       try {
@@ -52,9 +55,9 @@ function resolveApiBase() {
       }
       return configured;
     }
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+    return "/backend";
   }
-  return configured ?? "http://localhost:8000";
+  return configured ?? "/backend";
 }
 
 function formatTime(value: string | null | undefined) {
@@ -472,6 +475,7 @@ export default function LiveTrackingSection({
               <div className="results-task-map-canvas">
                 <TaskMap
                   turnpoints={taskTurnpoints}
+                  fitTurnpoints={turnpoints}
                   airspaces={visibleAirspaces}
                   taskPoints={taskPoints}
                   track={liveTrack}

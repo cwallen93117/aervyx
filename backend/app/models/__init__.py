@@ -28,6 +28,17 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class SiteSettings(Base):
+    __tablename__ = "site_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    telemetry_vario_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=5)
+    telemetry_altitude_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=3)
+    telemetry_speed_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=3)
+    telemetry_glide_ratio_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=5)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Event(Base):
     __tablename__ = "events"
 
@@ -239,6 +250,41 @@ class IGCUpload(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class TaskScoringInput(Base):
+    __tablename__ = "task_scoring_inputs"
+    __table_args__ = (
+        UniqueConstraint("task_id", "pilot_id", name="uq_task_scoring_input_task_pilot"),
+        Index("ix_task_scoring_input_task_pilot", "task_id", "pilot_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), index=True)
+    selected_upload_id: Mapped[int | None] = mapped_column(ForeignKey("igc_uploads.id", ondelete="SET NULL"), nullable=True)
+    status_override: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class ScorePenalty(Base):
+    __tablename__ = "score_penalties"
+    __table_args__ = (
+        Index("ix_score_penalties_task_pilot", "task_id", "pilot_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), index=True)
+    penalty_type: Mapped[str] = mapped_column(String(20))
+    value: Mapped[float] = mapped_column(Float, default=0)
+    reason: Mapped[str] = mapped_column(String(255), default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    applied_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class TrackPoint(Base):
     __tablename__ = "track_points"
     __table_args__ = (
@@ -266,7 +312,7 @@ class ScoreResult(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
     pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), index=True)
-    upload_id: Mapped[int] = mapped_column(ForeignKey("igc_uploads.id", ondelete="CASCADE"), index=True)
+    upload_id: Mapped[int | None] = mapped_column(ForeignKey("igc_uploads.id", ondelete="SET NULL"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), default="uploaded")
     rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     distance_flown_km: Mapped[float] = mapped_column(Float, default=0)
@@ -274,6 +320,7 @@ class ScoreResult(Base):
     ess_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     goal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     elapsed_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    raw_score_points: Mapped[float] = mapped_column(Float, default=0)
     score_points: Mapped[float] = mapped_column(Float, default=0)
     details_json: Mapped[dict] = mapped_column(JSON, default=dict)
     result_state: Mapped[str] = mapped_column(String(20), default="official", index=True)

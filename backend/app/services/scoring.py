@@ -4,12 +4,13 @@ import math
 from datetime import datetime, time
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.models import Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, TrackPoint
+from app.models import Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
 
-STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "uploaded": 3}
+STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
+COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
 TIMEZONE_ALIASES = {
     "eastern": "America/New_York",
     "central": "America/Chicago",
@@ -57,6 +58,42 @@ def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
 
 def _isoformat_or_none(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
+
+
+def _blank_evaluation(status: str) -> dict:
+    return {
+        "status": status,
+        "distance_flown_km": 0.0,
+        "started_at": None,
+        "ess_at": None,
+        "goal_at": None,
+        "elapsed_seconds": None,
+        "score_points": 0.0,
+        "details": {"hits": [], "total_distance_km": 0.0},
+    }
+
+
+def _minimum_distance_evaluation(task: Task, event: Event | None = None) -> dict:
+    formula = _build_formula(task, event)
+    evaluation = _blank_evaluation("minimum_distance")
+    evaluation["distance_flown_km"] = round(formula["mindist_km"], 3)
+    evaluation["details"] = {
+        "hits": [],
+        "total_distance_km": 0.0,
+        "status_override": "minimum_distance",
+    }
+    return evaluation
+
+
+def _apply_penalties(raw_score: float, penalties: list[ScorePenalty]) -> float:
+    score = max(float(raw_score or 0.0), 0.0)
+    percentage_penalties = [penalty for penalty in penalties if penalty.penalty_type == "percentage"]
+    fixed_penalties = [penalty for penalty in penalties if penalty.penalty_type == "fixed"]
+    for penalty in percentage_penalties:
+        score -= score * (max(float(penalty.value or 0.0), 0.0) / 100.0)
+    for penalty in fixed_penalties:
+        score -= max(float(penalty.value or 0.0), 0.0)
+    return round(max(score, 0.0), 2)
 
 
 def _resolve_timezone_name(value: str | None) -> str:
@@ -507,7 +544,17 @@ def _serialize_stats(task_stats: dict) -> dict:
     }
 
 
-def _score_evaluations(task: Task, registered_pilot_count: int, evaluations: list[dict], event: Event | None = None) -> list[dict]:
+def _score_evaluations(
+    task: Task,
+    registered_pilot_count: int,
+    evaluations: list[dict],
+    penalties_by_pilot: dict[int, list[ScorePenalty]] | Event | None = None,
+    event: Event | None = None,
+) -> list[dict]:
+    if event is None and penalties_by_pilot is not None and not isinstance(penalties_by_pilot, dict):
+        event = penalties_by_pilot
+        penalties_by_pilot = None
+    penalties_by_pilot = penalties_by_pilot or {}
     formula = _build_formula(task, event)
     task_stats = _build_task_stats(task, registered_pilot_count, evaluations, formula)
     available_points = _points_weight(task_stats, formula)
@@ -521,12 +568,19 @@ def _score_evaluations(task: Task, registered_pilot_count: int, evaluations: lis
         ],
         key=lambda entry: entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"],
     )
-    arrival_places = {entry["upload"].id: index for index, entry in enumerate(arrival_entries, start=1)}
+    arrival_places = {
+        (entry.get("pilot_id") or (entry.get("upload").pilot_id if entry.get("upload") is not None else None)): index
+        for index, entry in enumerate(arrival_entries, start=1)
+        if (entry.get("pilot_id") or (entry.get("upload").pilot_id if entry.get("upload") is not None else None)) is not None
+    }
     first_arrival_at = task_stats["first_arrival_at"]
 
     scored: list[dict] = []
     for entry in evaluations:
-        upload = entry["upload"]
+        upload = entry.get("upload")
+        pilot_id = entry.get("pilot_id") or (upload.pilot_id if upload is not None else None)
+        if pilot_id is None:
+            raise KeyError("pilot_id")
         evaluation = entry["evaluation"]
         distance_points = _pilot_distance_score(evaluation, available_points, task_stats, kmdiff, formula)
         speed_points = _pilot_speed_score(evaluation, available_points, task_stats, formula)
@@ -540,14 +594,16 @@ def _score_evaluations(task: Task, registered_pilot_count: int, evaluations: lis
             evaluation,
             available_points,
             task_stats,
-            arrival_places.get(upload.id),
+            arrival_places.get(pilot_id),
             arrival_delta_seconds,
             formula,
         )
         if task_stats["goal"] == 0:
             arrival_points = round(arrival_points * formula["sspenalty"], 2)
         departure_points = _pilot_departure_score(evaluation, available_points, speed_points, task_stats, formula)
-        total_points = round(distance_points + speed_points + arrival_points + departure_points, 2)
+        raw_points = round(distance_points + speed_points + arrival_points + departure_points, 2)
+        pilot_penalties = penalties_by_pilot.get(pilot_id, [])
+        final_points = _apply_penalties(raw_points, pilot_penalties)
         details = dict(evaluation["details"])
         details["gap"] = {
             "formula": formula,
@@ -565,35 +621,43 @@ def _score_evaluations(task: Task, registered_pilot_count: int, evaluations: lis
                 "speed": speed_points,
                 "arrival": arrival_points,
                 "departure": departure_points,
-                "total": total_points,
+                "total": raw_points,
+                "final": final_points,
             },
         }
         scored.append(
             {
                 "task_id": task.id,
-                "pilot_id": upload.pilot_id,
-                "upload_id": upload.id,
+                "pilot_id": pilot_id,
+                "upload_id": upload.id if upload is not None else None,
                 "status": evaluation["status"],
                 "distance_flown_km": evaluation["distance_flown_km"],
                 "started_at": evaluation["started_at"],
                 "ess_at": evaluation["ess_at"],
                 "goal_at": evaluation["goal_at"],
                 "elapsed_seconds": evaluation["elapsed_seconds"],
-                "score_points": total_points,
+                "raw_score_points": raw_points,
+                "score_points": final_points,
                 "details_json": details,
             }
         )
 
     scored.sort(
         key=lambda result: (
-            -(result["score_points"] or 0.0),
+            0 if result["status"] in COMPETITIVE_STATUSES else 1,
+            -(result["raw_score_points"] or 0.0),
             STATUS_ORDER.get(result["status"], 99),
             result["elapsed_seconds"] or 10**9,
             -(result["distance_flown_km"] or 0.0),
         )
     )
-    for rank, result in enumerate(scored, start=1):
-        result["rank"] = rank
+    rank = 0
+    for result in scored:
+        if result["status"] in COMPETITIVE_STATUSES:
+            rank += 1
+            result["rank"] = rank
+        else:
+            result["rank"] = None
     return scored
 
 
@@ -612,15 +676,27 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     event = session.get(Event, task.event_id)
 
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at)).all()
-    latest_by_pilot: dict[int, IGCUpload] = {}
-    for upload in uploads:
-        latest_by_pilot[upload.pilot_id] = upload
+    uploads_by_id = {upload.id: upload for upload in uploads}
+    scoring_inputs = session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task_id)).all()
+    scoring_input_by_pilot = {entry.pilot_id: entry for entry in scoring_inputs}
+    penalties = session.scalars(
+        select(ScorePenalty).where(ScorePenalty.task_id == task_id).order_by(ScorePenalty.pilot_id.asc(), ScorePenalty.position.asc(), ScorePenalty.id.asc())
+    ).all()
+    penalties_by_pilot: dict[int, list[ScorePenalty]] = {}
+    for penalty in penalties:
+        penalties_by_pilot.setdefault(penalty.pilot_id, []).append(penalty)
 
     task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
-    registered_pilot_count = session.scalar(select(func.count(EventPilot.id)).where(EventPilot.event_id == task.event_id)) or 0
+    event_pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
+    registered_pilot_count = len(event_pilot_ids)
 
     # Batch-load all trackpoints for the relevant uploads in one query
-    upload_ids = [upload.id for upload in latest_by_pilot.values()]
+    selected_upload_ids = [
+        scoring_input.selected_upload_id
+        for scoring_input in scoring_inputs
+        if scoring_input.selected_upload_id is not None and scoring_input.selected_upload_id in uploads_by_id
+    ]
+    upload_ids = list(dict.fromkeys(selected_upload_ids))
     all_trackpoints = session.scalars(
         select(TrackPoint).where(TrackPoint.upload_id.in_(upload_ids)).order_by(TrackPoint.upload_id, TrackPoint.sequence)
     ).all() if upload_ids else []
@@ -629,16 +705,36 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
         trackpoints_by_upload.setdefault(tp.upload_id, []).append(tp)
 
     evaluations: list[dict] = []
-    for upload in latest_by_pilot.values():
-        trackpoints = trackpoints_by_upload.get(upload.id, [])
-        evaluations.append({"upload": upload, "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None)})
+    for pilot_id in event_pilot_ids:
+        scoring_input = scoring_input_by_pilot.get(pilot_id)
+        if scoring_input is None:
+            continue
+        if scoring_input.selected_upload_id is not None:
+            upload = uploads_by_id.get(scoring_input.selected_upload_id)
+            if upload is None or upload.pilot_id != pilot_id:
+                continue
+            trackpoints = trackpoints_by_upload.get(upload.id, [])
+            evaluations.append(
+                {
+                    "pilot_id": pilot_id,
+                    "upload": upload,
+                    "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None),
+                }
+            )
+            continue
+        if scoring_input.status_override == "minimum_distance":
+            evaluations.append({"pilot_id": pilot_id, "upload": None, "evaluation": _minimum_distance_evaluation(task, event)})
+        elif scoring_input.status_override in {"did_not_fly", "absent"}:
+            evaluations.append({"pilot_id": pilot_id, "upload": None, "evaluation": _blank_evaluation(scoring_input.status_override)})
 
-    session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
+    session.execute(text("DELETE FROM score_results WHERE task_id = :task_id"), {"task_id": task_id})
     session.flush()
+    session.expire_all()
 
-    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, event)
+    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, penalties_by_pilot, event)
     results: list[ScoreResult] = []
     for payload in scored_payloads:
+        payload["result_state"] = "provisional"
         result = ScoreResult(**payload)
         session.add(result)
         results.append(result)
@@ -663,6 +759,7 @@ def build_result_payload(session: Session, result: ScoreResult) -> dict:
         "ess_at": result.ess_at,
         "goal_at": result.goal_at,
         "elapsed_seconds": result.elapsed_seconds,
+        "raw_score_points": result.raw_score_points,
         "score_points": result.score_points,
         "details_json": result.details_json,
         "result_state": result.result_state,

@@ -10,17 +10,24 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import EventPilot, IGCUpload, Pilot, ScoreResult, Task, TrackPoint, User
+from app.models import EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.schemas import BulkUploadItemResponse, UploadResponse
 from app.services.audit import log_action
 from app.services.igc import parse_igc
 router = APIRouter(tags=["uploads"])
+
+
+def _normalized_upload_source(value: str | None) -> str:
+    normalized = str(value or "manual").strip().lower()
+    if normalized == "auto":
+        return "bulk"
+    return normalized or "manual"
 
 
 def _normalize_text(value: str | None) -> str:
@@ -119,13 +126,67 @@ def _match_pilot_for_upload(session: Session, event_id: int, filename: str, meta
     return best_pilot if best_score >= 60 else None
 
 
-async def _store_upload(session: Session, task: Task, file: UploadFile, content: bytes, pilot_id: int, uploaded_by_user_id: int) -> UploadResponse:
+def _manual_filename_with_suffix(session: Session, task_id: int, pilot_id: int, filename: str) -> str:
+    existing = {
+        str(name)
+        for name in session.scalars(
+            select(IGCUpload.filename).where(
+                IGCUpload.task_id == task_id,
+                IGCUpload.pilot_id == pilot_id,
+            )
+        ).all()
+    }
+    if filename not in existing:
+        return filename
+    path = Path(filename)
+    base = path.stem
+    suffix = path.suffix or ""
+    match = re.match(r"^(.*?)(\d+)$", base)
+    if match:
+        root = match.group(1)
+        counter = int(match.group(2))
+    else:
+        root = base
+        counter = 1
+    while True:
+        counter += 1
+        candidate = f"{root}{counter}{suffix}"
+        if candidate not in existing:
+            return candidate
+
+
+def _serialize_upload(upload: IGCUpload) -> UploadResponse:
+    return UploadResponse(
+        id=upload.id,
+        pilot_id=upload.pilot_id,
+        task_id=upload.task_id,
+        filename=upload.filename,
+        sha256=upload.sha256,
+        uploaded_at=upload.uploaded_at,
+        upload_source=_normalized_upload_source(str(upload.metadata_json.get("upload_source") or "manual")),
+        metadata_json=upload.metadata_json,
+    )
+
+
+async def _store_upload(
+    session: Session,
+    task: Task,
+    file: UploadFile,
+    content: bytes,
+    pilot_id: int,
+    uploaded_by_user_id: int,
+    upload_source: str = "manual",
+) -> UploadResponse:
     sha256 = hashlib.sha256(content).hexdigest()
     parsed = parse_igc(content)
+    filename = file.filename or "track.igc"
+    if upload_source == "manual":
+        filename = _manual_filename_with_suffix(session, task.id, pilot_id, filename)
+    parsed.metadata["upload_source"] = upload_source
     settings = get_settings()
     upload_dir = Path(settings.upload_root) / "igc" / sha256
     await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
-    stored_path = upload_dir / (file.filename or "track.igc")
+    stored_path = upload_dir / filename
     if not await asyncio.to_thread(stored_path.exists):
         await asyncio.to_thread(stored_path.write_bytes, content)
     upload = IGCUpload(
@@ -133,7 +194,7 @@ async def _store_upload(session: Session, task: Task, file: UploadFile, content:
         task_id=task.id,
         pilot_id=pilot_id,
         uploaded_by_user_id=uploaded_by_user_id,
-        filename=file.filename or stored_path.name,
+        filename=filename,
         sha256=sha256,
         stored_path=str(stored_path),
         metadata_json=parsed.metadata,
@@ -158,9 +219,9 @@ async def _store_upload(session: Session, task: Task, file: UploadFile, content:
         action="igc.upload",
         entity_type="igc_upload",
         entity_id=str(upload.id),
-        details={"task_id": task.id, "pilot_id": pilot_id, "sha256": sha256, "fix_count": parsed.metadata.get("fix_count")},
+        details={"task_id": task.id, "pilot_id": pilot_id, "sha256": sha256, "fix_count": parsed.metadata.get("fix_count"), "upload_source": upload_source},
     )
-    return UploadResponse.model_validate(upload)
+    return _serialize_upload(upload)
 
 
 @router.post("/api/tasks/{task_id}/uploads", response_model=UploadResponse)
@@ -176,7 +237,7 @@ async def upload_igc(task_id: int, file: UploadFile = File(...), pilot_id: int |
     if session.scalar(select(EventPilot).where(EventPilot.event_id == task.event_id, EventPilot.pilot_id == effective_pilot_id)) is None:
         raise HTTPException(status_code=400, detail="Pilot is not registered for this event")
     content = await file.read()
-    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id)
+    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source="manual")
     session.commit()
     return response
 
@@ -205,7 +266,7 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
                     )
                 )
                 continue
-            upload_response = await _store_upload(session, task, file, content, matched_pilot.id, user.id)
+            upload_response = await _store_upload(session, task, file, content, matched_pilot.id, user.id, upload_source="bulk")
             results.append(
                 BulkUploadItemResponse(
                     filename=filename,
@@ -236,7 +297,7 @@ def list_uploads(task_id: int, user: User = Depends(get_current_user), session: 
     if user.role == "pilot":
         query = query.where(IGCUpload.pilot_id == user.pilot_id)
     uploads = session.scalars(query).all()
-    return [UploadResponse.model_validate(upload) for upload in uploads]
+    return [_serialize_upload(upload) for upload in uploads]
 
 
 @router.delete("/api/uploads/{upload_id}")
@@ -248,6 +309,11 @@ def delete_upload(upload_id: int, user: User = Depends(get_current_user), sessio
         raise HTTPException(status_code=403, detail="Pilots can only delete their own uploads")
 
     stored_path = Path(upload.stored_path)
+    session.execute(
+        update(TaskScoringInput)
+        .where(TaskScoringInput.selected_upload_id == upload_id)
+        .values(selected_upload_id=None, status_override=None, updated_by_user_id=user.id)
+    )
     session.execute(delete(ScoreResult).where(ScoreResult.upload_id == upload_id))
     session.execute(delete(TrackPoint).where(TrackPoint.upload_id == upload_id))
     session.execute(delete(IGCUpload).where(IGCUpload.id == upload_id))
@@ -262,6 +328,46 @@ def delete_upload(upload_id: int, user: User = Depends(get_current_user), sessio
             pass
 
     return {"status": "deleted", "upload_id": upload_id}
+
+
+@router.delete("/api/tasks/{task_id}/uploads")
+def delete_all_uploads_for_task(task_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> dict[str, int | str]:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if user.role not in {"admin", "organizer"}:
+        raise HTTPException(status_code=403, detail="Organizer access required")
+
+    uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id)).all()
+    upload_ids = [upload.id for upload in uploads]
+    stored_paths = [Path(upload.stored_path) for upload in uploads]
+    if upload_ids:
+        session.execute(
+            update(TaskScoringInput)
+            .where(TaskScoringInput.task_id == task_id, TaskScoringInput.selected_upload_id.in_(upload_ids))
+            .values(selected_upload_id=None, updated_by_user_id=user.id)
+        )
+        session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
+        session.execute(delete(TrackPoint).where(TrackPoint.upload_id.in_(upload_ids)))
+        session.execute(delete(IGCUpload).where(IGCUpload.id.in_(upload_ids)))
+    log_action(
+        session,
+        actor_user_id=user.id,
+        action="igc.delete_all",
+        entity_type="task",
+        entity_id=str(task_id),
+        details={"upload_count": len(upload_ids)},
+    )
+    session.commit()
+
+    for stored_path in stored_paths:
+        if stored_path.exists():
+            stored_path.unlink()
+            try:
+                stored_path.parent.rmdir()
+            except OSError:
+                pass
+    return {"status": "deleted", "deleted_count": len(upload_ids)}
 
 
 @router.get("/api/uploads/{upload_id}/track")
