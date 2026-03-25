@@ -1,0 +1,37 @@
+name: aervyx_mobile
+description: Aervyx pilot tracking and competition companion app.
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+  flutter: ">=3.22.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # Networking
+  http: ^1.2.0
+  # State / storage
+  flutter_secure_storage: ^9.2.0
+  provider: ^6.1.0
+  # Maps
+  flutter_map: ^7.0.0
+  latlong2: ^0.9.0
+  # Location / GPS
+  geolocator: ^13.0.0
+  # Background execution
+  flutter_background_service: ^5.0.0
+  flutter_local_notifications: ^18.0.0
+  # Bluetooth (Meshtastic BLE)
+  flutter_blue_plus: ^1.35.0
+  # Utilities
+  intl: ^0.19.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true

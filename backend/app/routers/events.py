@@ -8,10 +8,27 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.schemas import EventCreate, EventResponse
+from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/events", tags=["events"])
+
+DEFAULT_SCORING_PRESETS = [
+    {"id": "airspace-minor", "label": "Airspace minor -5%", "penalty_type": "percentage", "value": 5, "reason": "Airspace minor"},
+    {"id": "airspace-major", "label": "Airspace major -20%", "penalty_type": "percentage", "value": 20, "reason": "Airspace major"},
+    {"id": "start-violation", "label": "Start violation -10%", "penalty_type": "percentage", "value": 10, "reason": "Start violation"},
+    {"id": "turnpoint-miss", "label": "Turnpoint miss -100%", "penalty_type": "percentage", "value": 100, "reason": "Turnpoint miss"},
+    {"id": "late-track-log", "label": "Late track log -50 pts", "penalty_type": "fixed", "value": 50, "reason": "Late track log"},
+    {"id": "safety-infraction", "label": "Safety infraction -100 pts", "penalty_type": "fixed", "value": 100, "reason": "Safety infraction"},
+]
+
+
+def _event_scoring_presets(event: Event) -> list[ScoringPresetEntry]:
+    penalties_json = event.penalties_json or {}
+    raw = penalties_json.get("scoring_operations_presets")
+    if not isinstance(raw, list) or not raw:
+        raw = DEFAULT_SCORING_PRESETS
+    return [ScoringPresetEntry.model_validate(item) for item in raw]
 
 
 def _event_create_payload(event: Event) -> dict:
@@ -279,6 +296,40 @@ def update_event(event_id: int, payload: EventCreate, admin: User = Depends(requ
     session.commit()
     session.refresh(event)
     return _event_payload(session, event)
+
+
+@router.get("/{event_id}/scoring-presets", response_model=list[ScoringPresetEntry])
+def get_scoring_presets(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[ScoringPresetEntry]:
+    event = session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return _event_scoring_presets(event)
+
+
+@router.patch("/{event_id}/scoring-presets", response_model=list[ScoringPresetEntry])
+def update_scoring_presets(
+    event_id: int,
+    payload: ScoringPresetUpdate,
+    admin: User = Depends(require_staff),
+    session: Session = Depends(get_session),
+) -> list[ScoringPresetEntry]:
+    event = session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    penalties_json = dict(event.penalties_json or {})
+    penalties_json["scoring_operations_presets"] = [item.model_dump() for item in payload.presets]
+    event.penalties_json = penalties_json
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="event.scoring_presets.update",
+        entity_type="event",
+        entity_id=str(event_id),
+        details={"preset_count": len(payload.presets)},
+    )
+    session.commit()
+    session.refresh(event)
+    return _event_scoring_presets(event)
 
 
 @router.delete("/{event_id}", status_code=204)

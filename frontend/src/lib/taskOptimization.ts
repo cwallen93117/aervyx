@@ -112,6 +112,10 @@ export function computeTaskOptimization(points: RoutePointLike[]) {
   const optimized = centers.map((center) => ({ ...center }));
 
   for (let iteration = 0; iteration < 14; iteration += 1) {
+    let prevTotal = 0;
+    for (let i = 1; i < optimized.length; i += 1) {
+      prevTotal += distance(optimized[i - 1], optimized[i]);
+    }
     for (let index = 0; index < centers.length; index += 1) {
       const center = centers[index];
       const radiusKm = radiiKm[index];
@@ -126,6 +130,11 @@ export function computeTaskOptimization(points: RoutePointLike[]) {
       const candidate = closestPointOnSegment(center, optimized[index - 1], optimized[index + 1]);
       optimized[index] = projectInsideCircle(center, radiusKm, candidate);
     }
+    let newTotal = 0;
+    for (let i = 1; i < optimized.length; i += 1) {
+      newTotal += distance(optimized[i - 1], optimized[i]);
+    }
+    if (Math.abs(newTotal - prevTotal) < 0.001) break;
   }
 
   let totalDistanceKm = 0;

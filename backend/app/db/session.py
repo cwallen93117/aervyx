@@ -21,6 +21,9 @@ if not settings.database_url.startswith("sqlite"):
             "pool_pre_ping": True,
             "pool_recycle": 300,
             "pool_use_lifo": True,
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_timeout": 30,
         }
     )
 

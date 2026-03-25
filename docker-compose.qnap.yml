@@ -2,6 +2,7 @@ services:
   db:
     image: postgis/postgis:16-3.4
     restart: unless-stopped
+    command: postgres -c shared_buffers=256MB -c work_mem=16MB -c effective_cache_size=512MB -c random_page_cost=1.1 -c max_connections=100
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-flightcomp}
       POSTGRES_USER: ${POSTGRES_USER:-flightcomp}
@@ -16,6 +17,17 @@ services:
       timeout: 5s
       retries: 10
 
+  mqtt:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
   backend:
     build:
       context: ./backend
@@ -23,8 +35,14 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mqtt:
+        condition: service_started
     env_file:
       - ./backend/.env
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: "1883"
+      MESH_MQTT_TOPIC_PREFIX: aervyx
     restart: unless-stopped
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -48,3 +66,5 @@ services:
 volumes:
   postgres_data:
   backend_uploads:
+  mosquitto_data:
+  mosquitto_log:

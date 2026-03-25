@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scores Page Mockups</title>
+  <link rel="stylesheet" href="preview.css">
+</head>
+<body>
+  <main class="preview-shell">
+    <header class="topbar">
+      <div>
+        <h1>Scores Page Preview Options</h1>
+        <p>Focus areas: make tabs unmistakably look like tabs, clean up scoring workflow hierarchy, and improve visual separation between Scoring Operations and Results Portal.</p>
+      </div>
+      <div class="preview-links">
+        <a class="preview-link" href="index.html">Back to index</a>
+        <a class="preview-link" href="tasks.html">Tasks previews</a>
+        <a class="preview-link" href="admin.html">Admin previews</a>
+      </div>
+    </header>
+
+    <div class="options-grid">
+      <section class="option-card">
+        <header class="option-header">
+          <div>
+            <h3>Option A: Conservative Cleanup</h3>
+            <p>Mostly the same structure, but tabs become more obvious and the scoring table reads as a proper operations sheet.</p>
+          </div>
+          <span class="option-badge">Safe</span>
+        </header>
+        <div class="mockup">
+          <div class="mock-window">
+            <div class="window-top">
+              <div>
+                <h4>Scores</h4>
+                <p>Clear tabs, cleaner footer actions, and better row tint logic.</p>
+              </div>
+              <div class="tab-strip">
+                <span class="tab active">Scoring operations</span>
+                <span class="tab">Results portal</span>
+              </div>
+            </div>
+            <div class="body-pad block-stack">
+              <div class="banner">
+                <div class="label">Selected task</div>
+                <div class="value small">Task 1 - Draft</div>
+              </div>
+              <div class="legend-box">
+                <span class="swatch-label"><span class="swatch-green"></span>Scored / status assigned</span>
+                <span class="swatch-label"><span class="swatch-white"></span>Unscored</span>
+                <span class="swatch-label"><span class="swatch-yellow"></span>Penalty applied</span>
+              </div>
+              <div class="table-card">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Rank</th>
+                      <th>Name</th>
+                      <th>Status / file</th>
+                      <th>Actions</th>
+                      <th>Penalty</th>
+                      <th>Time / distance</th>
+                      <th>Points</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr style="background:#edf8ef">
+                      <td><span class="rank-badge">1</span></td>
+                      <td><strong>Richard Niehaus</strong></td>
+                      <td>Richard_Niehaus.igc — Bulk</td>
+                      <td>Delete / Upload</td>
+                      <td>-</td>
+                      <td>2:08:01</td>
+                      <td>657.5</td>
+                    </tr>
+                    <tr style="background:#edf8ef">
+                      <td><span class="rank-badge">2</span></td>
+                      <td><strong>Charles Allen</strong></td>
+                      <td>Charles_Allen.igc — Bulk</td>
+                      <td>Delete / Upload</td>
+                      <td>-</td>
+                      <td>2:12:19</td>
+                      <td>623.4</td>
+                    </tr>
+                    <tr>
+                      <td><span class="rank-badge muted">-</span></td>
+                      <td><strong>Larry Huffman</strong></td>
+                      <td>- Select file or status -</td>
+                      <td>Upload</td>
+                      <td>-</td>
+                      <td>-</td>
+                      <td>-</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="footer-actions">
+                <span class="ghost-button">Upload all IGCs</span>
+                <span class="soft-button">Publish task</span>
+                <span class="danger-button">Delete all IGCs</span>
+                <span class="danger-button">Delete scored task</span>
+                <span class="chip active">Scoring uses the currently selected item in each pilot's dropdown.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option-card">
+        <header class="option-header">
+          <div>
+            <h3>Option B: Modern Product UI</h3>
+            <p>Leans into a stronger application feel with obvious two-level tabs and a more polished results-summary shell.</p>
+          </div>
+          <span class="option-badge">Bold</span>
+        </header>
+        <div class="mockup">
+          <div class="mock-window">
+            <div class="window-top">
+              <div>
+                <h4>Scores</h4>
+                <p>Tab states are impossible to miss, and the overall page hierarchy becomes much clearer.</p>
+              </div>
+              <div class="tab-strip strong">
+                <span class="tab active">Scoring operations</span>
+                <span class="tab">Results portal</span>
+              </div>
+            </div>
+            <div class="body-pad block-stack">
+              <div class="accent-band">
+                <div class="inline-meta">
+                  <span class="chip active">Task 1 - Draft</span>
+                  <span class="chip">Uploads auto-score</span>
+                  <span class="chip">Results remain unofficial until publish</span>
+                </div>
+              </div>
+              <div class="mini-header">
+                <div>
+                  <h5>Results portal sub-tabs</h5>
+                  <span>Secondary tabs use the same visual language, just lighter.</span>
+                </div>
+                <div class="tab-strip">
+                  <span class="tab active">Task results</span>
+                  <span class="tab">Overall results</span>
+                </div>
+              </div>
+              <div class="detail-grid two">
+                <div class="table-card">
+                  <div class="mini-header">
+                    <div>
+                      <h5>Scoring operations table</h5>
+                      <span>Rows feel like a deliberate operations sheet instead of a generic table</span>
+                    </div>
+                  </div>
+                  <div class="score-rows">
+                    <div class="score-row compact" style="background:#edf8ef">
+                      <span class="rank-badge">1</span>
+                      <div class="row-title">Richard Niehaus</div>
+                      <div class="row-title">Richard_Niehaus.igc — Bulk</div>
+                      <div class="row-subtitle">Delete / Upload</div>
+                      <div class="row-subtitle">-</div>
+                      <div class="row-title">2:08:01</div>
+                      <div class="row-title">657.5</div>
+                    </div>
+                    <div class="score-row compact" style="background:#fff5df">
+                      <span class="rank-badge">3</span>
+                      <div class="row-title">Jim Messina</div>
+                      <div class="row-title">James_Messina.igc — Manual</div>
+                      <div class="row-subtitle">Delete / Upload</div>
+                      <div class="row-subtitle">-10%</div>
+                      <div class="row-title">2:15:24</div>
+                      <div class="row-title" style="color:#b7791f">544.0</div>
+                    </div>
+                    <div class="score-row compact">
+                      <span class="rank-badge muted">-</span>
+                      <div class="row-title">Larry Huffman</div>
+                      <div class="row-title">- Select file or status -</div>
+                      <div class="row-subtitle">Upload</div>
+                      <div class="row-subtitle">-</div>
+                      <div class="row-title">-</div>
+                      <div class="row-title">-</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="summary-card">
+                  <h3>Task summary + status</h3>
+                  <p>Instead of burying publish state lower on the page, a modern variant gives it a stronger status panel treatment.</p>
+                  <div class="metrics-grid two" style="margin-top:14px">
+                    <div class="metric-stack">
+                      <h5>Task state</h5>
+                      <strong>Unofficial</strong>
+                      <p>Not yet published to overall standings</p>
+                    </div>
+                    <div class="metric-stack">
+                      <h5>Pilots scored</h5>
+                      <strong>7 / 10</strong>
+                      <p>3 unscored rows remain</p>
+                    </div>
+                  </div>
+                  <div class="button-row" style="margin-top:14px">
+                    <span class="soft-button">Publish task</span>
+                    <span class="ghost-button">Upload all IGCs</span>
+                    <span class="danger-button">Delete scored task</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="option-card">
+        <header class="option-header">
+          <div>
+            <h3>Option C: Compact Operations</h3>
+            <p>A denser scorekeeping layout where actions, state, and penalties are optimized for quick scanning during meet operations.</p>
+          </div>
+          <span class="option-badge">Operational</span>
+        </header>
+        <div class="mockup compact">
+          <div class="mock-window">
+            <div class="window-top">
+              <div>
+                <h4>Scores</h4>
+                <p>Denser controls, less vertical padding, clearer tab rails.</p>
+              </div>
+              <div class="tab-rail">
+                <span class="tab active">Scoring operations</span>
+                <span class="tab">Results portal</span>
+              </div>
+            </div>
+            <div class="body-pad block-stack">
+              <div class="detail-grid two">
+                <div class="helper-box">
+                  <div class="label">Selected task</div>
+                  <div class="value small">Task 1 - Draft</div>
+                </div>
+                <div class="legend-box">
+                  <span class="swatch-label"><span class="swatch-green"></span>Scored</span>
+                  <span class="swatch-label"><span class="swatch-white"></span>Unscored</span>
+                  <span class="swatch-label"><span class="swatch-yellow"></span>Penalty</span>
+                </div>
+              </div>
+              <div class="score-rows">
+                <div class="score-row compact" style="background:#edf8ef">
+                  <span class="rank-badge">1</span>
+                  <div class="row-title">Richard Niehaus</div>
+                  <div class="row-title">Richard_Niehaus.igc — Bulk</div>
+                  <div class="row-subtitle">Delete / Upload</div>
+                  <div class="row-subtitle">-</div>
+                  <div class="row-title">2:08:01</div>
+                  <div class="row-title">657.5</div>
+                </div>
+                <div class="score-row compact" style="background:#edf8ef">
+                  <span class="rank-badge">2</span>
+                  <div class="row-title">Charles Allen</div>
+                  <div class="row-title">Charles_Allen.igc — Bulk</div>
+                  <div class="row-subtitle">Delete / Upload</div>
+                  <div class="row-subtitle">-</div>
+                  <div class="row-title">2:12:19</div>
+                  <div class="row-title">623.4</div>
+                </div>
+                <div class="score-row compact">
+                  <span class="rank-badge muted">-</span>
+                  <div class="row-title">John Simon</div>
+                  <div class="row-title">- Select file or status -</div>
+                  <div class="row-subtitle">Upload</div>
+                  <div class="row-subtitle">-</div>
+                  <div class="row-title">-</div>
+                  <div class="row-title">-</div>
+                </div>
+              </div>
+              <div class="footer-actions">
+                <span class="ghost-button">Upload all IGCs</span>
+                <span class="soft-button">Publish task</span>
+                <span class="danger-button">Delete all IGCs</span>
+                <span class="danger-button">Delete scored task</span>
+                <span class="chip">Publish makes results official for overall standings</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

@@ -43,6 +43,10 @@ class AccountSettingsResponse(BaseModel):
     full_name: str
     role: str
     profile_type: str
+    altitude_unit: str = "ft"
+    speed_unit: str = "kph"
+    distance_unit: str = "km"
+    vario_unit: str = "fpm"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -59,6 +63,10 @@ class AccountSettingsUpdate(BaseModel):
     username: str
     full_name: str
     profile_type: str = "pilot"
+    altitude_unit: str = "ft"
+    speed_unit: str = "kph"
+    distance_unit: str = "km"
+    vario_unit: str = "fpm"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -90,6 +98,23 @@ class AdminUserUpdate(BaseModel):
     role: str
     profile_type: str
     is_active: bool = True
+
+
+class SiteSettingsResponse(BaseModel):
+    telemetry_vario_smoothing_seconds: int = Field(default=5, ge=0, le=30)
+    telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
+    telemetry_speed_smoothing_seconds: int = Field(default=3, ge=0, le=30)
+    telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SiteSettingsUpdate(BaseModel):
+    telemetry_vario_smoothing_seconds: int = Field(default=5, ge=0, le=30)
+    telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
+    telemetry_speed_smoothing_seconds: int = Field(default=3, ge=0, le=30)
+    telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
 
 
 class EventCreate(BaseModel):
@@ -318,6 +343,7 @@ class UploadResponse(BaseModel):
     filename: str
     sha256: str
     uploaded_at: datetime
+    upload_source: str = "manual"
     metadata_json: dict
 
     model_config = ConfigDict(from_attributes=True)
@@ -336,7 +362,7 @@ class ScoreResultResponse(BaseModel):
     id: int
     task_id: int
     pilot_id: int
-    upload_id: int
+    upload_id: int | None
     pilot_name: str
     competition_number: str | None
     status: str
@@ -346,8 +372,10 @@ class ScoreResultResponse(BaseModel):
     ess_at: datetime | None
     goal_at: datetime | None
     elapsed_seconds: int | None
+    raw_score_points: float = 0
     score_points: float
     details_json: dict
+    result_state: str = "official"
 
 
 class PilotSummaryResponse(BaseModel):
@@ -358,3 +386,85 @@ class PilotSummaryResponse(BaseModel):
     tasks_scored: int
     best_distance_km: float
     task_scores: dict[int, float] = Field(default_factory=dict)
+
+
+class TaskScoringInputUpdate(BaseModel):
+    selected_upload_id: int | None = None
+    status_override: str | None = None
+
+
+class ScorePenaltyEntry(BaseModel):
+    id: int | None = None
+    penalty_type: str = Field(pattern="^(percentage|fixed)$")
+    value: float = Field(ge=0)
+    reason: str = ""
+    position: int = Field(default=0, ge=0)
+    applied_by: str | None = None
+    applied_at: datetime | None = None
+
+
+class ScorePenaltySaveEntry(BaseModel):
+    penalty_type: str = Field(pattern="^(percentage|fixed)$")
+    value: float = Field(ge=0)
+    reason: str = ""
+    position: int = Field(default=0, ge=0)
+
+
+class ScorePenaltySaveRequest(BaseModel):
+    penalties: list[ScorePenaltySaveEntry] = Field(default_factory=list)
+
+
+class PenaltyAuditEntry(BaseModel):
+    actor_name: str
+    timestamp: datetime
+    summary: str
+
+
+class ScoringPresetEntry(BaseModel):
+    id: str
+    label: str
+    penalty_type: str = Field(pattern="^(percentage|fixed)$")
+    value: float = Field(ge=0)
+    reason: str
+
+
+class ScoringPresetUpdate(BaseModel):
+    presets: list[ScoringPresetEntry] = Field(default_factory=list)
+
+
+class ScoringUploadOption(BaseModel):
+    id: int
+    filename: str
+    upload_source: str
+    label: str
+    uploaded_at: datetime
+
+
+class ScoringOperationsResultSummary(BaseModel):
+    result_id: int
+    upload_id: int | None = None
+    status: str
+    rank: int | None = None
+    distance_flown_km: float = 0
+    elapsed_seconds: int | None = None
+    raw_score_points: float = 0
+    score_points: float = 0
+    result_state: str = "official"
+
+
+class ScoringOperationsRow(BaseModel):
+    pilot_id: int
+    pilot_name: str
+    competition_number: str | None = None
+    selected_upload_id: int | None = None
+    status_override: str | None = None
+    uploads: list[ScoringUploadOption] = Field(default_factory=list)
+    result: ScoringOperationsResultSummary | None = None
+    penalties: list[ScorePenaltyEntry] = Field(default_factory=list)
+    penalty_summary: str | None = None
+    penalty_audit: list[PenaltyAuditEntry] = Field(default_factory=list)
+    row_classification: str = "unscored"
+
+
+class ScoringOperationsResponse(BaseModel):
+    rows: list[ScoringOperationsRow] = Field(default_factory=list)

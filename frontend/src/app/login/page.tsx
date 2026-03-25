@@ -4,6 +4,9 @@ import { type FormEvent, useEffect, useState } from "react";
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured?.startsWith("/")) {
+    return configured;
+  }
   if (typeof window !== "undefined") {
     if (configured) {
       try {
@@ -16,9 +19,9 @@ function resolveApiBase() {
       }
       return configured;
     }
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
+    return "/backend";
   }
-  return configured ?? "http://localhost:8000";
+  return configured ?? "/backend";
 }
 const TOKEN_KEY = "flightcomp-platform-token";
 const SESSION_COOKIE = "flightcomp_session";
@@ -179,127 +182,129 @@ export default function LoginPage() {
       <section className="aervyx-auth-panel-wrap">
         <div className="aervyx-auth-panel">
           <div className="aervyx-auth-panel-header">
-          <span className="aervyx-auth-panel-eyebrow">{authMode === "login" ? "Secure sign in" : "New account"}</span>
-          <h2>{authMode === "login" ? "Sign in to continue" : "Create your account"}</h2>
-          <p>{authMode === "login" ? "Use your portal credentials to enter the dashboard." : "Choose whether this account is for a pilot or an event organizer. Your email becomes your login."}</p>
+            <span className="aervyx-auth-panel-eyebrow">{authMode === "login" ? "Secure sign in" : "New account"}</span>
+            <h2>{authMode === "login" ? "Sign in to continue" : "Create your account"}</h2>
+            <p>{authMode === "login" ? "Use your portal credentials to enter the dashboard." : "Choose whether this account is for a pilot or an event organizer. Your email becomes your login."}</p>
           </div>
 
-          <div className="aervyx-auth-tabs">
-            <button type="button" className={authMode === "login" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => { setAuthMode("login"); setForgotMode(false); }}>
-              Log in
-            </button>
-            <button type="button" className={authMode === "register" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => { setAuthMode("register"); setForgotMode(false); }}>
-              Create account
-            </button>
-          </div>
+          <div className="aervyx-auth-panel-body">
+            <div className="aervyx-auth-tabs">
+              <button type="button" className={authMode === "login" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => { setAuthMode("login"); setForgotMode(false); }}>
+                Log in
+              </button>
+              <button type="button" className={authMode === "register" ? "aervyx-auth-tab active" : "aervyx-auth-tab"} onClick={() => { setAuthMode("register"); setForgotMode(false); }}>
+                Create account
+              </button>
+            </div>
 
-          {message ? <div className="aervyx-auth-banner success">{message}</div> : null}
-          {error ? <div className="aervyx-auth-banner error">{error}</div> : null}
+            {message ? <div className="aervyx-auth-banner success">{message}</div> : null}
+            {error ? <div className="aervyx-auth-banner error">{error}</div> : null}
 
-          {authMode === "login" ? (
-            <form className="aervyx-auth-form" onSubmit={handleLogin}>
-              <label className="stack compact">
-                <span>Username / email</span>
-                <div className="aervyx-auth-input-shell">
-                  <input
-                    value={loginForm.username}
-                    onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
-                    placeholder="pilot@example.com"
-                    autoComplete="username"
-                    required
-                  />
-                </div>
-              </label>
-              <label className="stack compact">
-                <span>Password</span>
-                <div className="aervyx-password-field">
-                  <input
-                    type={showLoginPassword ? "text" : "password"}
-                    value={loginForm.password}
-                    onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                    required
-                  />
-                </div>
-                <div className="aervyx-auth-inline-actions">
-                  <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
-                    {forgotMode ? "Hide password help" : "Forgot password?"}
-                  </button>
-                  <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
-                    {showLoginPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-              </label>
-              {forgotMode ? (
-                <div className="aervyx-auth-forgot-card">
-                  <strong>Password recovery</strong>
-                  <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
-                  <div className="aervyx-auth-forgot-form">
-                    <div className="aervyx-auth-input-shell">
-                      <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
+            {authMode === "login" ? (
+              <form className="aervyx-auth-form" onSubmit={handleLogin}>
+                <label className="stack compact">
+                  <span>Username / email</span>
+                  <div className="aervyx-auth-input-shell">
+                    <input
+                      value={loginForm.username}
+                      onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
+                      placeholder="pilot@example.com"
+                      autoComplete="username"
+                      required
+                    />
+                  </div>
+                </label>
+                <label className="stack compact">
+                  <span>Password</span>
+                  <div className="aervyx-password-field">
+                    <input
+                      type={showLoginPassword ? "text" : "password"}
+                      value={loginForm.password}
+                      onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      required
+                    />
+                  </div>
+                  <div className="aervyx-auth-inline-actions">
+                    <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
+                      {forgotMode ? "Hide password help" : "Forgot password?"}
+                    </button>
+                    <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
+                      {showLoginPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
+                </label>
+                {forgotMode ? (
+                  <div className="aervyx-auth-forgot-card">
+                    <strong>Password recovery</strong>
+                    <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
+                    <div className="aervyx-auth-forgot-form">
+                      <div className="aervyx-auth-input-shell">
+                        <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
+                      </div>
+                      <button type="button" className="aervyx-auth-helper-submit" onClick={() => handleForgotPassword()}>Continue</button>
                     </div>
-                    <button type="button" className="aervyx-auth-helper-submit" onClick={() => handleForgotPassword()}>Continue</button>
                   </div>
-                </div>
-              ) : null}
-              <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
-                {isSubmitting ? "Signing in..." : "Sign in"}
-              </button>
-              <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
-            </form>
-          ) : (
-            <form className="aervyx-auth-form" onSubmit={handleRegister}>
-              <label className="stack compact">
-                <span>Account role</span>
-                <select value={registerForm.account_role} onChange={(event) => setRegisterForm({ ...registerForm, account_role: event.target.value })}>
-                  <option value="pilot">Pilot</option>
-                  <option value="organizer">Event organizer</option>
-                </select>
-              </label>
-              <div className="inline-grid">
+                ) : null}
+                <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Signing in..." : "Sign in"}
+                </button>
+                <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
+              </form>
+            ) : (
+              <form className="aervyx-auth-form" onSubmit={handleRegister}>
                 <label className="stack compact">
-                  <span>First name</span>
+                  <span>Account role</span>
+                  <select value={registerForm.account_role} onChange={(event) => setRegisterForm({ ...registerForm, account_role: event.target.value })}>
+                    <option value="pilot">Pilot</option>
+                    <option value="organizer">Event organizer</option>
+                  </select>
+                </label>
+                <div className="inline-grid">
+                  <label className="stack compact">
+                    <span>First name</span>
+                    <div className="aervyx-auth-input-shell">
+                      <input value={registerForm.first_name} onChange={(event) => setRegisterForm({ ...registerForm, first_name: event.target.value })} autoComplete="given-name" required />
+                    </div>
+                  </label>
+                  <label className="stack compact">
+                    <span>Last name</span>
+                    <div className="aervyx-auth-input-shell">
+                      <input value={registerForm.last_name} onChange={(event) => setRegisterForm({ ...registerForm, last_name: event.target.value })} autoComplete="family-name" required />
+                    </div>
+                  </label>
+                </div>
+                <label className="stack compact">
+                  <span>Username / email</span>
                   <div className="aervyx-auth-input-shell">
-                    <input value={registerForm.first_name} onChange={(event) => setRegisterForm({ ...registerForm, first_name: event.target.value })} autoComplete="given-name" required />
+                    <input type="email" value={registerForm.email} onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })} autoComplete="email" required />
                   </div>
                 </label>
                 <label className="stack compact">
-                  <span>Last name</span>
-                  <div className="aervyx-auth-input-shell">
-                    <input value={registerForm.last_name} onChange={(event) => setRegisterForm({ ...registerForm, last_name: event.target.value })} autoComplete="family-name" required />
+                  <span>Password</span>
+                  <div className="aervyx-password-field">
+                    <input
+                      type={showRegisterPassword ? "text" : "password"}
+                      value={registerForm.password}
+                      onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })}
+                      autoComplete="new-password"
+                      required
+                    />
+                  </div>
+                  <div className="aervyx-auth-inline-actions aervyx-auth-inline-actions-end">
+                    <button type="button" className="aervyx-password-toggle" onClick={() => setShowRegisterPassword((value) => !value)}>
+                      {showRegisterPassword ? "Hide" : "Show"}
+                    </button>
                   </div>
                 </label>
-              </div>
-              <label className="stack compact">
-                <span>Username / email</span>
-                <div className="aervyx-auth-input-shell">
-                  <input type="email" value={registerForm.email} onChange={(event) => setRegisterForm({ ...registerForm, email: event.target.value })} autoComplete="email" required />
-                </div>
-              </label>
-              <label className="stack compact">
-                <span>Password</span>
-                <div className="aervyx-password-field">
-                  <input
-                    type={showRegisterPassword ? "text" : "password"}
-                    value={registerForm.password}
-                    onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })}
-                    autoComplete="new-password"
-                    required
-                  />
-                </div>
-                <div className="aervyx-auth-inline-actions aervyx-auth-inline-actions-end">
-                  <button type="button" className="aervyx-password-toggle" onClick={() => setShowRegisterPassword((value) => !value)}>
-                    {showRegisterPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
-              </label>
-              <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
-                {isSubmitting ? "Creating account..." : "Create account"}
-              </button>
-              <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
-            </form>
-          )}
+                <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
+                  {isSubmitting ? "Creating account..." : "Create account"}
+                </button>
+                <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
+              </form>
+            )}
+          </div>
         </div>
       </section>
     </main>
