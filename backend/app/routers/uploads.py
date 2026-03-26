@@ -20,6 +20,7 @@ from app.models import EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskScor
 from app.schemas import BulkUploadItemResponse, UploadResponse
 from app.services.audit import log_action
 from app.services.igc import parse_igc
+from app.services.logbook import sync_task_upload_to_logbook
 router = APIRouter(tags=["uploads"])
 
 
@@ -221,6 +222,7 @@ async def _store_upload(
         entity_id=str(upload.id),
         details={"task_id": task.id, "pilot_id": pilot_id, "sha256": sha256, "fix_count": parsed.metadata.get("fix_count"), "upload_source": upload_source},
     )
+    sync_task_upload_to_logbook(session, upload=upload, parsed=parsed)
     return _serialize_upload(upload)
 
 

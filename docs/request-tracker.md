@@ -1,6 +1,6 @@
 # Request Tracker
 
-Last updated: 2026-03-25
+Last updated: 2026-03-26
 
 Status guide:
 - `Deployed` means implemented and pushed through the live frontend/deployment flow.
@@ -67,6 +67,6 @@ Status guide:
 | Deployed | Match participant search input styling to the task turnpoint search field | Added `input[type="search"]` to the shared dashboard form-control styling so the `Add existing person` search box uses the same rounded height, padding, and field treatment as the turnpoint search and the rest of the site. The frontend was rebuilt, synced into the mounted WSL copy, and the frontend container was restarted. |
 | Deployed | Show aircraft type in live and replay pilot labels | Backed out the floating aircraft-marker experiment on the map and restored stable colored circle markers for live and replay positions. The aircraft type is now shown as a short prefix on the floating pilot label instead, using the pilot's first name, and the Settings-page aircraft selector was removed for now. |
 | Partial | Finish end-to-end Meshtastic and mobile-app integration | The repo already contains a live-tracking backend, MQTT ingest for Meshtastic payloads, a mesh-config endpoint, and a Flutter mobile app scaffold with BLE pairing and tracking services. What is still missing is full end-to-end validation and live product integration: confirming the mobile app builds against the current backend, verifying BLE configuration flow, and proving Meshtastic/mobile positions appear correctly in the live dashboard. |
-| Partial | Promote Logbook from mockup/design into the live dashboard | The logbook lane already has mockups and backend design docs, but there is no live dashboard tab or wired feature yet. This still needs the real sidebar entry, event-scoped read model/API work, and a production UI rather than the static mockups in `docs/mockups`. |
+| Deployed | Add pilot-wide personal logbook with manual flights, statistics, replay, and IGC downloads | Built a live `Logbook` dashboard section above `Settings` that lists the signed-in pilot's flights across task-uploaded IGCs, uploaded personal IGCs, and manual entries. Added a dedicated backend pilot-flight domain, logbook APIs, shared stat derivation from track data, automatic mirroring of new task IGC uploads into the logbook, manual flight creation, personal-flight replay using the existing replay map, and download support for IGC-backed flights. |
 | Working | Create Claude-led logbook mockup with left-nav Logbook tab | Created a frontend-only HTML mockup for a new `Logbook` section, including a left sidebar concept where `Logbook` sits above `Settings`. This is a static design deliverable in `docs/mockups`, not a live app feature yet. |
 | Working | Establish dedicated Logbook lane and backend design memo | Created a dedicated `Logbook` lane for logbook work and documented the planned backend shape in separate persistent docs so the feature direction is preserved before live implementation starts. |

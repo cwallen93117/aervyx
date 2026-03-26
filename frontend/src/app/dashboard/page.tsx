@@ -11,6 +11,7 @@ import EventsSection from "../../components/dashboard/EventsSection";
 import TasksSection from "../../components/dashboard/TasksSection";
 import ScoringSection from "../../components/dashboard/ScoringSection";
 import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection";
+import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
@@ -21,6 +22,9 @@ import {
   type AccountSettingsRecord,
   type AdminUserRecord,
   type SiteSettingsRecord,
+  type LogbookFlightSummaryRecord,
+  type LogbookFlightDetailRecord,
+  type LogbookFlightFormRecord,
   type EventRecord,
   type EventFormState,
   type PilotRecord,
@@ -76,6 +80,7 @@ const adminSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
+  { id: "logbook", label: "Logbook" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
@@ -85,6 +90,7 @@ const organizerSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
+  { id: "logbook", label: "Logbook" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
@@ -92,6 +98,7 @@ const pilotSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
+  { id: "logbook", label: "Logbook" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const guestSidebarItems = [
@@ -101,18 +108,18 @@ const guestSidebarItems = [
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
   if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings") {
+    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings") {
       return section;
     }
     return "tasks";
   }
   if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings") {
+    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings") {
       return section;
     }
     return "events";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "settings" || section === "admin") {
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings" || section === "admin") {
     return section;
   }
   return "events";
@@ -451,6 +458,14 @@ export default function HomePage() {
   const [adminFeedback, setAdminFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettingsRecord>(blankSiteSettingsForm());
   const [siteSettingsFeedback, setSiteSettingsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [logbookFlights, setLogbookFlights] = useState<LogbookFlightSummaryRecord[]>([]);
+  const [logbookLoading, setLogbookLoading] = useState(false);
+  const [logbookFeedback, setLogbookFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
+  const [logbookDetailFlight, setLogbookDetailFlight] = useState<LogbookFlightDetailRecord | null>(null);
+  const [logbookDetailLoading, setLogbookDetailLoading] = useState(false);
+  const [logbookReplayFlight, setLogbookReplayFlight] = useState<LogbookFlightSummaryRecord | null>(null);
+  const [logbookReplayTrack, setLogbookReplayTrack] = useState<TrackCollection | null>(null);
+  const [logbookReplayLoading, setLogbookReplayLoading] = useState(false);
   const resultTrackPalette = useMemo(() => ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d"], []);
   const taskFeedbackTimeoutRef = useRef<number | null>(null);
 
@@ -746,15 +761,25 @@ export default function HomePage() {
     });
   }, [activeSection, pilotSummaryEventId, selectedEventId, token]);
 
+  useEffect(() => {
+    if (!token || activeSection !== "logbook") {
+      return;
+    }
+    void refreshLogbookFlights(token).catch((caught) => {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load the logbook." });
+    });
+  }, [activeSection, token]);
+
   async function bootstrap(activeToken: string) {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
     setToken(activeToken);
     setError("");
-    const [me, rawEvents, settings, loadedSiteSettings] = await Promise.all([
+    const [me, rawEvents, settings, loadedSiteSettings, loadedLogbookFlights] = await Promise.all([
       apiFetch<User>("/api/auth/me", activeToken),
       apiFetch<EventRecord[]>("/api/events", activeToken),
       apiFetch<AccountSettingsRecord>("/api/auth/settings", activeToken),
       apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken),
+      apiFetch<LogbookFlightSummaryRecord[]>("/api/logbook/flights", activeToken),
     ]);
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
@@ -764,6 +789,7 @@ export default function HomePage() {
     setUser(me);
     setSettingsForm(settings);
     setSiteSettings(loadedSiteSettings);
+    setLogbookFlights(loadedLogbookFlights);
     setActiveSection(normalizedSection);
     setEvents(loadedEvents);
     void refreshPilotDirectory(activeToken, me);
@@ -834,6 +860,115 @@ export default function HomePage() {
     const loadedSettings = await apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken);
     setSiteSettings(loadedSettings);
     return loadedSettings;
+  }
+
+  async function refreshLogbookFlights(activeToken: string) {
+    setLogbookLoading(true);
+    try {
+      const loadedFlights = await apiFetch<LogbookFlightSummaryRecord[]>("/api/logbook/flights", activeToken);
+      setLogbookFlights(loadedFlights);
+      return loadedFlights;
+    } finally {
+      setLogbookLoading(false);
+    }
+  }
+
+  async function createManualLogbookFlight(form: LogbookFlightFormRecord) {
+    if (!token) return;
+    setLogbookFeedback({ type: "pending", text: "Saving manual flight..." });
+    try {
+      await apiFetch<LogbookFlightDetailRecord>("/api/logbook/flights", token, {
+        method: "POST",
+        body: JSON.stringify({
+          flight_date: form.flight_date,
+          site_name: form.site_name,
+          duration_seconds: form.duration_seconds.trim() ? Number(form.duration_seconds) : null,
+          highest_altitude_m: form.highest_altitude_m.trim() ? Number(form.highest_altitude_m) : null,
+          best_climb_mps: form.best_climb_mps.trim() ? Number(form.best_climb_mps) : null,
+          notes: form.notes.trim() || null,
+        }),
+      });
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({ type: "success", text: `Saved manual flight for ${form.site_name || "the logbook"}.` });
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save that flight." });
+      throw caught;
+    }
+  }
+
+  async function uploadLogbookFlight(file: File) {
+    if (!token) return;
+    setLogbookFeedback({ type: "pending", text: `Uploading ${file.name} into the logbook...` });
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      await apiFetch<LogbookFlightDetailRecord>("/api/logbook/flights/upload", token, {
+        method: "POST",
+        body: formData,
+      });
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({ type: "success", text: `Uploaded ${file.name} into your logbook.` });
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not upload that IGC file." });
+    }
+  }
+
+  async function openLogbookFlightDetail(flightId: number) {
+    if (!token) return;
+    setLogbookDetailLoading(true);
+    setLogbookDetailFlight(null);
+    try {
+      const detail = await apiFetch<LogbookFlightDetailRecord>(`/api/logbook/flights/${flightId}`, token);
+      setLogbookDetailFlight(detail);
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load that flight." });
+    } finally {
+      setLogbookDetailLoading(false);
+    }
+  }
+
+  function closeLogbookFlightDetail() {
+    setLogbookDetailLoading(false);
+    setLogbookDetailFlight(null);
+  }
+
+  async function openLogbookFlightReplay(flight: LogbookFlightSummaryRecord) {
+    if (!token) return;
+    setLogbookReplayFlight(flight);
+    setLogbookReplayTrack(null);
+    setLogbookReplayLoading(true);
+    try {
+      const trackCollection = await apiFetch<TrackCollection>(`/api/logbook/flights/${flight.id}/track`, token);
+      setLogbookReplayTrack(trackCollection);
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load that flight replay." });
+      setLogbookReplayFlight(null);
+    } finally {
+      setLogbookReplayLoading(false);
+    }
+  }
+
+  function closeLogbookFlightReplay() {
+    setLogbookReplayLoading(false);
+    setLogbookReplayFlight(null);
+    setLogbookReplayTrack(null);
+  }
+
+  async function downloadLogbookFlight(flightId: number) {
+    if (!token) return;
+    try {
+      const { blob, filename } = await apiFetchBlob(`/api/logbook/flights/${flightId}/download`, token);
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename ?? `flight-${flightId}.igc`;
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download that IGC file." });
+    }
   }
 
   async function loadEvent(
@@ -1974,6 +2109,34 @@ export default function HomePage() {
           );
         case "drivers":
           return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
+        case "logbook":
+          return (
+            <LogbookSection
+              user={user}
+              flights={logbookFlights}
+              loading={logbookLoading}
+              feedback={logbookFeedback}
+              detailFlight={logbookDetailFlight}
+              detailLoading={logbookDetailLoading}
+              replayFlight={logbookReplayFlight}
+              replayTrack={logbookReplayTrack}
+              replayLoading={logbookReplayLoading}
+              units={{
+                altitude: settingsForm.altitude_unit,
+                speed: settingsForm.speed_unit,
+                distance: settingsForm.distance_unit,
+                vario: settingsForm.vario_unit,
+              }}
+              telemetrySmoothing={siteSettings}
+              createManualFlight={createManualLogbookFlight}
+              uploadFlightFile={uploadLogbookFlight}
+              openFlightDetail={openLogbookFlightDetail}
+              closeFlightDetail={closeLogbookFlightDetail}
+              openFlightReplay={openLogbookFlightReplay}
+              closeFlightReplay={closeLogbookFlightReplay}
+              downloadFlight={downloadLogbookFlight}
+            />
+          );
         case "settings":
           return (
             <SettingsSection

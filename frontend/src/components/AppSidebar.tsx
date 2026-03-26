@@ -43,6 +43,13 @@ function SidebarIcon({ id }: { id: string }) {
           <circle cx="16" cy="17.5" r="1.4" fill="currentColor" />
         </svg>
       );
+    case "logbook":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <path d="M6 4.5h9.5l2.5 2.5v12H6Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+          <path d="M15.5 4.5V7h2.5M8.5 10h7M8.5 13h7M8.5 16h5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      );
     case "settings":
       return (
         <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
@@ -67,6 +74,7 @@ const itemThemes: Record<string, string> = {
   scoring: "theme-scoring",
   live_tracking: "theme-live-tracking",
   drivers: "theme-drivers",
+  logbook: "theme-logbook",
   settings: "theme-settings",
   admin: "theme-admin",
 };

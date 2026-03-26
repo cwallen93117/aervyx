@@ -1,6 +1,6 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 
-export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "settings" | "admin";
+export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
@@ -41,6 +41,45 @@ export type SiteSettingsRecord = {
   telemetry_speed_smoothing_seconds: number;
   telemetry_glide_ratio_smoothing_seconds: number;
   updated_at?: string | null;
+};
+export type LogbookFlightStatsRecord = {
+  duration_seconds: number | null;
+  highest_altitude_m: number | null;
+  best_climb_mps: number | null;
+  launch_time: string | null;
+  landing_time: string | null;
+  launch_altitude_m: number | null;
+  landing_altitude_m: number | null;
+  fix_count: number;
+  total_track_distance_km: number;
+  max_ground_speed_kmh: number | null;
+};
+export type LogbookFlightSummaryRecord = {
+  id: number;
+  source_kind: "task_upload" | "app_upload" | "manual" | string;
+  flight_date: string;
+  site_name: string;
+  duration_seconds: number | null;
+  highest_altitude_m: number | null;
+  best_climb_mps: number | null;
+  event_name: string | null;
+  task_name: string | null;
+  filename: string | null;
+  can_download: boolean;
+  can_replay: boolean;
+  has_statistics: boolean;
+};
+export type LogbookFlightDetailRecord = LogbookFlightSummaryRecord & {
+  notes: string | null;
+  stats: LogbookFlightStatsRecord;
+};
+export type LogbookFlightFormRecord = {
+  flight_date: string;
+  site_name: string;
+  duration_seconds: string;
+  highest_altitude_m: string;
+  best_climb_mps: string;
+  notes: string;
 };
 export type EventRecord = {
   id: number;

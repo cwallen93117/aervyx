@@ -282,6 +282,11 @@ input, select, textarea { font-family: inherit; }
   color: #7dd3fc;
 }
 
+.theme-logbook .nav-item-glyph {
+  background: rgba(34, 197, 94, 0.16);
+  color: #bbf7d0;
+}
+
 .theme-settings .nav-item-glyph {
   background: rgba(148, 163, 184, 0.16);
   color: #e2e8f0;
@@ -319,6 +324,11 @@ input, select, textarea { font-family: inherit; }
 .nav-item.active.theme-drivers .nav-item-glyph {
   background: rgba(14, 165, 233, 0.24);
   color: #e0f2fe;
+}
+
+.nav-item.active.theme-logbook .nav-item-glyph {
+  background: rgba(34, 197, 94, 0.24);
+  color: #f0fdf4;
 }
 
 .nav-item.active.theme-settings .nav-item-glyph {
@@ -2182,6 +2192,125 @@ button[type="submit"]:hover,
 .result-state-badge.unscored {
   color: #64748b;
   background: #e2e8f0;
+}
+
+.logbook-section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px 24px;
+}
+
+.logbook-table-wrap {
+  margin-top: 0;
+}
+
+.logbook-table td:nth-child(2) {
+  white-space: normal;
+}
+
+.logbook-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logbook-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(6px);
+}
+
+.logbook-modal {
+  width: min(92vw, 720px);
+  max-height: min(90vh, 920px);
+  overflow: auto;
+  border-radius: var(--r-xl);
+  border: 1px solid var(--line);
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.18);
+}
+
+.logbook-modal-wide {
+  width: min(92vw, 980px);
+}
+
+.logbook-modal-map {
+  width: min(96vw, 1320px);
+}
+
+.logbook-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  padding: 18px 22px 24px;
+}
+
+.logbook-stats-card {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--wash);
+  padding: 18px;
+}
+
+.logbook-stats-card h4 {
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+
+.logbook-stats-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+}
+
+.logbook-stats-list div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+}
+
+.logbook-stats-list dt {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.logbook-stats-list dd {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+}
+
+.logbook-stats-notes {
+  grid-column: 1 / -1;
+}
+
+.logbook-stats-notes p {
+  margin: 0;
+  color: var(--ink-secondary);
+  white-space: pre-wrap;
+}
+
+.logbook-replay-shell {
+  height: min(72vh, 820px);
+  padding: 0 0 18px;
+}
+
+.logbook-replay-shell .map-shell {
+  height: 100%;
+  min-height: 520px;
+  border-radius: 0 0 var(--r-xl) var(--r-xl);
 }
 
 .results-task-map {
@@ -4522,5 +4651,23 @@ details[open] > summary {
 
   .scoring-ops-preset-table-head {
     display: none;
+  }
+
+  .logbook-stats-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .logbook-row-actions {
+    flex-wrap: wrap;
+  }
+
+  .logbook-modal-overlay {
+    padding: 14px;
+  }
+
+  .logbook-modal,
+  .logbook-modal-wide,
+  .logbook-modal-map {
+    width: min(96vw, 96vw);
   }
 }

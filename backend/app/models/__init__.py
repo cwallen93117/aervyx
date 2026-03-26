@@ -251,6 +251,49 @@ class IGCUpload(Base):
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class PilotFlight(Base):
+    __tablename__ = "pilot_flights"
+    __table_args__ = (
+        UniqueConstraint("igc_upload_id", name="uq_pilot_flight_igc_upload"),
+        Index("ix_pilot_flights_pilot_date", "pilot_id", "flight_date"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), index=True)
+    source_kind: Mapped[str] = mapped_column(String(20), index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    igc_upload_id: Mapped[int | None] = mapped_column(ForeignKey("igc_uploads.id", ondelete="SET NULL"), nullable=True, index=True)
+    flight_date: Mapped[date] = mapped_column(Date, index=True)
+    site_name: Mapped[str] = mapped_column(String(160), default="")
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    highest_altitude_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    best_climb_mps: Mapped[float | None] = mapped_column(Float, nullable=True)
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    stored_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class PilotFlightTrackPoint(Base):
+    __tablename__ = "pilot_flight_track_points"
+    __table_args__ = (
+        Index("ix_pilot_flight_track_points_flight_seq", "flight_id", "sequence"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    flight_id: Mapped[int] = mapped_column(ForeignKey("pilot_flights.id", ondelete="CASCADE"), index=True)
+    sequence: Mapped[int] = mapped_column(Integer)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    pressure_altitude_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gps_altitude_m: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
 class TaskScoringInput(Base):
     __tablename__ = "task_scoring_inputs"
     __table_args__ = (

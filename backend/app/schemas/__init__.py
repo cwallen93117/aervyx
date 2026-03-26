@@ -472,3 +472,55 @@ class ScoringOperationsRow(BaseModel):
 
 class ScoringOperationsResponse(BaseModel):
     rows: list[ScoringOperationsRow] = Field(default_factory=list)
+
+
+class LogbookFlightCreate(BaseModel):
+    flight_date: date
+    site_name: str = ""
+    duration_seconds: int | None = Field(default=None, ge=0)
+    highest_altitude_m: float | None = None
+    best_climb_mps: float | None = None
+    notes: str | None = None
+
+
+class LogbookFlightUpdate(BaseModel):
+    flight_date: date | None = None
+    site_name: str | None = None
+    duration_seconds: int | None = Field(default=None, ge=0)
+    highest_altitude_m: float | None = None
+    best_climb_mps: float | None = None
+    notes: str | None = None
+
+
+class LogbookFlightStatsResponse(BaseModel):
+    duration_seconds: int | None = None
+    highest_altitude_m: float | None = None
+    best_climb_mps: float | None = None
+    launch_time: str | None = None
+    landing_time: str | None = None
+    launch_altitude_m: float | None = None
+    landing_altitude_m: float | None = None
+    fix_count: int = 0
+    total_track_distance_km: float = 0
+    max_ground_speed_kmh: float | None = None
+
+
+class LogbookFlightSummaryResponse(BaseModel):
+    id: int
+    source_kind: str
+    flight_date: date
+    site_name: str
+    duration_seconds: int | None = None
+    highest_altitude_m: float | None = None
+    best_climb_mps: float | None = None
+    event_name: str | None = None
+    task_name: str | None = None
+    filename: str | None = None
+    can_download: bool = False
+    can_replay: bool = False
+    has_statistics: bool = False
+
+
+class LogbookFlightDetailResponse(LogbookFlightSummaryResponse):
+    notes: str | None = None
+    stats: LogbookFlightStatsResponse

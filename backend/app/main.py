@@ -6,7 +6,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import airspace, auth, events, pilots, public, results, site_settings, tasks, turnpoints, uploads
+from app.routers import airspace, auth, events, logbook, pilots, public, results, site_settings, tasks, turnpoints, uploads
 from app.services.seeding import bootstrap_demo_data
 
 try:
@@ -58,6 +58,7 @@ app.include_router(airspace.router)
 app.include_router(tasks.router)
 app.include_router(uploads.router)
 app.include_router(results.router)
+app.include_router(logbook.router)
 if tracking is not None:
     app.include_router(tracking.router)
 
