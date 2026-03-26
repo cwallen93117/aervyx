@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useMemo, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
@@ -122,11 +122,14 @@ function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arr
   return Number(gap?.awarded_points?.[key] ?? 0);
 }
 
-function overallTaskHeader(task: TaskRecord): ReactNode {
+function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactNode {
+  const stateClassName = resultState === "provisional" ? "provisional" : resultState === "official" ? "official" : "";
+  const stateLabel = resultState === "provisional" ? "Unofficial" : resultState === "official" ? "Official" : "";
   return (
     <span className="results-header-stack">
       <span>{task.name}</span>
       <span>{formatDateLabel(task.published_at)}</span>
+      {stateLabel ? <span className={`result-state-badge ${stateClassName}`}>{stateLabel}</span> : null}
     </span>
   );
 }
@@ -192,9 +195,7 @@ export interface ScoringSectionProps {
   uploadIgc: (file: File, pilotId?: number | null) => void;
   uploadIgcBatch: (files: FileList | File[]) => void;
   deleteUpload: (upload: UploadRecord) => void;
-  rescoreSelectedTask: () => void;
   deleteScoredTask: () => void;
-  promoteResult: (resultId: number) => void;
   downloadUploadFile: (uploadId: number, filename: string) => void;
   downloadAllIgcFiles: () => void;
   toggleResultTrack: (uploadId: number, checked: boolean) => void;
@@ -250,16 +251,40 @@ export default function ScoringSection(props: ScoringSectionProps) {
     uploadIgc,
     uploadIgcBatch,
     deleteUpload,
-    rescoreSelectedTask,
     deleteScoredTask,
-    promoteResult,
     downloadUploadFile,
     downloadAllIgcFiles,
     toggleResultTrack,
     toggleAllResultTracks,
   } = props;
+  const publishedTasks = tasks.filter((task) => task.status === "published");
+  const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
   const scoringTaskMetrics = computeTaskOptimization(scoringTaskPoints);
+  const overallTaskResultStates = useMemo(() => {
+    const states = new Map<number, string>();
+    for (const task of scoredTasks) {
+      const taskId = String(task.id);
+      let resolved: string | null = null;
+      for (const summary of pilotSummary) {
+        const next = summary.task_result_states?.[taskId];
+        if (!next) continue;
+        if (next === "provisional") {
+          resolved = "provisional";
+          break;
+        }
+        if (next === "official") {
+          resolved = "official";
+        }
+      }
+      if (resolved) states.set(task.id, resolved);
+    }
+    return states;
+  }, [pilotSummary, scoredTasks]);
+  const selectedTaskResultsOfficial = useMemo(
+    () => results.some((result) => result.result_state !== "unscored") && results.every((result) => result.result_state === "official" || result.result_state === "unscored"),
+    [results],
+  );
   const scoringTaskMapTurnpoints = scoringTaskPoints.map((point, index) => ({
     id: point.turnpoint_id ?? -(index + 1),
     name: point.name,
@@ -275,8 +300,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
     <div className="section-stack">
       {canManagePlatform ? (
         <div className="tab-row">
-          <button type="button" className={scoresPortalTab === "admin" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("admin")}>Scoring operations</button>
-          <button type="button" className={scoresPortalTab === "results" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("results")}>Results portal</button>
+          <button type="button" className={scoresPortalTab === "admin" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("admin")}>Operations</button>
+          <button type="button" className={scoresPortalTab === "results" ? "tab-button active" : "tab-button"} onClick={() => setScoresPortalTab("results")}>Results</button>
         </div>
       ) : null}
       {canManagePlatform && scoresPortalTab === "admin" ? (
@@ -286,13 +311,12 @@ export default function ScoringSection(props: ScoringSectionProps) {
           selectedTask={selectedTask}
           tasks={tasks}
           token={token}
-          activeSection={activeSection}
-          loadTask={loadTask}
-          refreshPilotSummary={refreshPilotSummary}
-        />
-      ) : null}
+            activeSection={activeSection}
+            loadTask={loadTask}
+            refreshPilotSummary={refreshPilotSummary}
+          />
+        ) : null}
       {!canManagePlatform || scoresPortalTab === "results" ? (
-      <SectionCard title="Results portal" description="Task results and overall standings are visible to all signed-in users.">
         <div className="stack">
           <div className="tab-row">
             <button type="button" className={scoringTab === "task" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("task")}>Task results</button>
@@ -305,9 +329,9 @@ export default function ScoringSection(props: ScoringSectionProps) {
                 <div className="cluster-stack">
                   <label className="stack compact">
                     <span>Selected task</span>
-                    <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
+                    <select value={scoringSelectedTaskId} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = publishedTasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
                       <option value="">Select a task</option>
-                      {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                      {publishedTasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
                     </select>
                   </label>
                 </div>
@@ -390,7 +414,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           {results.map((result) => {
                             const pilot = pilotById.get(result.pilot_id);
                             const isUnscored = result.result_state === "unscored";
+                            const hideUnscoredState = isUnscored && selectedTaskResultsOfficial;
                             const statusLabel = isUnscored ? null : result.status.toUpperCase();
+                            const stateClassName = hideUnscoredState ? "" : isUnscored ? "unscored" : result.result_state === "official" ? "official" : "provisional";
+                            const stateLabel = hideUnscoredState ? "" : isUnscored ? "Unscored" : result.result_state === "official" ? "Official" : "Unofficial";
                             const taskPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "distance"));
                             const timePoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "speed"));
                             const arrivalPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "arrival"));
@@ -399,14 +426,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             return (
                               <tr key={result.id}>
                                 <td>{result.rank ?? "-"}</td>
-                              <td>
-                                <strong>{result.pilot_name}</strong>
-                                <div className="results-name-meta">
-                                  {statusLabel}
-                                  {result.result_state === "provisional" ? <span className="result-state-badge provisional">{statusLabel ? " · " : ""}PROVISIONAL</span> : null}
-                                  {isUnscored ? <span className="result-state-badge unscored">{statusLabel ? " · " : ""}UNSCORED</span> : null}
-                                </div>
-                              </td>
+                                <td>
+                                  <strong>{result.pilot_name}</strong>
+                                  {statusLabel ? <div className="results-name-meta">{statusLabel}</div> : null}
+                                </td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
                               <td>{isUnscored ? "-" : formatClockTime(result.started_at, true)}</td>
@@ -439,21 +462,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                   </button>
                                 </td>
                                 {canManagePlatform ? (
-                                  <td>
-                                    {result.result_state === "provisional" ? (
-                                      <button
-                                        type="button"
-                                        className="ghost-button"
-                                        onClick={() => void promoteResult(result.id)}
-                                      >
-                                        Promote to Official
-                                      </button>
-                                    ) : result.result_state === "unscored" ? (
-                                      <span className="result-state-badge unscored">Unscored</span>
-                                    ) : (
-                                      <span className="result-state-badge official">Official</span>
-                                    )}
-                                  </td>
+                                  <td>{stateLabel ? <span className={`result-state-badge ${stateClassName}`}>{stateLabel}</span> : null}</td>
                                 ) : null}
                               </tr>
                             );
@@ -575,7 +584,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           <th>Name</th>
                           <th>Nat</th>
                           <th>Glider</th>
-                          {scoredTasks.map((task) => <th key={task.id}>{overallTaskHeader(task)}</th>)}
+                          {scoredTasks.map((task) => <th key={task.id}>{overallTaskHeader(task, overallTaskResultStates.get(task.id) ?? null)}</th>)}
                           <th>Total</th>
                         </tr>
                       </thead>
@@ -601,7 +610,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
             </div>
           )}
         </div>
-      </SectionCard>
       ) : null}
     </div>
   );

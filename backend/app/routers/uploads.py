@@ -376,6 +376,10 @@ def get_track_geojson(upload_id: int, user: User = Depends(get_current_user), se
     if upload is None:
         raise HTTPException(status_code=404, detail="Upload not found")
     pilot = session.get(Pilot, upload.pilot_id)
+    pilot_user = session.scalar(select(User).where(User.pilot_id == upload.pilot_id).order_by(User.id.asc()))
+    aircraft_icon = (pilot_user.aircraft_icon or "hang_glider").strip().lower() if pilot_user is not None else "hang_glider"
+    if aircraft_icon not in {"hang_glider", "paraglider", "sailplane"}:
+        aircraft_icon = "hang_glider"
     points = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload_id).order_by(TrackPoint.sequence)).all()
     coordinates = [
         [
@@ -397,6 +401,7 @@ def get_track_geojson(upload_id: int, user: User = Depends(get_current_user), se
                 "properties": {
                     "upload_id": upload.id,
                     "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
+                    "aircraft_icon": aircraft_icon,
                     "timestamps": timestamps,
                 },
                 "geometry": {"type": "LineString", "coordinates": coordinates},

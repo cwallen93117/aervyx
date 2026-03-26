@@ -9,7 +9,6 @@ Aervyx is an open-source hang gliding and paragliding competition platform. It c
 - Protected competition workspace at `/dashboard`
 - Admin workflows for events, participants, turnpoints, airspace, tasks, scoring parameters, uploads, and manual scoring runs
 - Pilot and public-safe results views with task definitions and task maps
-- NAS-oriented deployment flow for QNAP Container Station
 
 ## Stack
 
@@ -24,7 +23,6 @@ Aervyx is an open-source hang gliding and paragliding competition platform. It c
 - `backend/` API, scoring logic, models, routers, tests
 - `frontend/` Next.js landing page, login, dashboard, signup endpoint
 - `docs/` architecture, deployment, and product notes
-- `scripts/qnap/` GitHub sync and deploy helpers for the NAS
 
 ## Auth And Routing
 
@@ -85,19 +83,8 @@ After setup completes, local URLs are:
 - Frontend: `http://localhost:3000/login`
 - Backend health: `http://localhost:8000/health`
 
-## QNAP / NAS Deployment
-
-The supported NAS flow is:
-
-1. Store the repo under `/share/Container/aervyx`
-2. Use `scripts/qnap/github-sync.sh` to clone or pull from GitHub
-3. Use `scripts/qnap/deploy.sh` to build and launch the stack
-
-Detailed instructions live in [docs/deployment-qnap.md](docs/deployment-qnap.md).
-
 ## Current Runtime Shape
 
 - Landing page is branded as Aervyx
 - Login uses the same visual theme as the landing page
 - Dashboard bootstraps against the backend API and no longer contains its own fallback login page
-- NAS deployment currently targets the private GitHub repository [cwallen93117/aervyx](https://github.com/cwallen93117/aervyx)

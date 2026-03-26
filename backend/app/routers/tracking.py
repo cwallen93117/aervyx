@@ -56,6 +56,7 @@ class PositionResponse(BaseModel):
     source: str | None
     device_id: str | None
     battery_level: int | None
+    aircraft_icon: str = "hang_glider"
 
 
 class MeshConfigResponse(BaseModel):
@@ -110,6 +111,7 @@ def post_position(
         source=pos.source,
         device_id=pos.device_id,
         battery_level=pos.battery_level,
+        aircraft_icon=(user.aircraft_icon or "hang_glider"),
     )
 
 

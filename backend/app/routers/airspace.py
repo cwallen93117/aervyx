@@ -12,7 +12,7 @@ from app.db import get_session
 from app.deps import get_current_user, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, User
 from app.schemas import AirspaceRegionResponse, AirspaceSourceResponse, AirspaceSourceUpdate, AirspaceUploadResponse
-from app.services.airspace import parse_airspace_upload
+from app.services.airspace import _display_category, parse_airspace_upload
 from app.services.audit import log_action
 
 router = APIRouter(tags=["airspace"])
@@ -23,6 +23,13 @@ def _kind(kind: str) -> str:
     if normalized not in {"airspace", "restricted_field"}:
         raise HTTPException(status_code=400, detail="Airspace kind must be 'airspace' or 'restricted_field'.")
     return normalized
+
+
+def _kind_or_blank(kind: str | None) -> str:
+    normalized = (kind or "").strip().lower()
+    if not normalized:
+        return ""
+    return _kind(normalized)
 
 
 def _source_payload(session: Session, source: AirspaceSource) -> AirspaceSourceResponse:
@@ -59,17 +66,18 @@ def list_airspaces(event_id: int, user: User = Depends(get_current_user), sessio
 @router.post("/api/events/{event_id}/airspaces/upload", response_model=AirspaceUploadResponse)
 async def upload_airspace(
     event_id: int,
-    kind: str = Query(...),
+    kind: str = Query(""),
     file: UploadFile = File(...),
     admin: User = Depends(require_staff),
     session: Session = Depends(get_session),
 ) -> AirspaceUploadResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    kind = _kind(kind)
+    stored_kind = _kind_or_blank(kind)
+    parse_kind = stored_kind or "airspace"
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
-    file_format, records = parse_airspace_upload(file.filename or "airspace.txt", content, kind=kind)
+    file_format, records = parse_airspace_upload(file.filename or "airspace.txt", content, kind=parse_kind)
     settings = get_settings()
     upload_dir = Path(settings.upload_root) / "airspace" / sha256
     upload_dir.mkdir(parents=True, exist_ok=True)
@@ -78,7 +86,7 @@ async def upload_airspace(
         stored_path.write_bytes(content)
     source = AirspaceSource(
         event_id=event_id,
-        kind=kind,
+        kind=stored_kind,
         filename=file.filename or stored_path.name,
         content_type=file.content_type,
         file_format=file_format,
@@ -113,10 +121,10 @@ async def upload_airspace(
         action="airspace.upload",
         entity_type="airspace_source",
         entity_id=str(source.id),
-        details={"event_id": event_id, "kind": kind, "filename": source.filename, "sha256": sha256, "count": len(records)},
+        details={"event_id": event_id, "kind": stored_kind, "parse_kind": parse_kind, "filename": source.filename, "sha256": sha256, "count": len(records)},
     )
     session.commit()
-    return AirspaceUploadResponse(source_id=source.id, kind=kind, format=file_format, imported_count=len(records), sha256=sha256, filename=source.filename)
+    return AirspaceUploadResponse(source_id=source.id, kind=stored_kind, format=file_format, imported_count=len(records), sha256=sha256, filename=source.filename)
 
 
 @router.patch("/api/events/{event_id}/airspace-sources/{source_id}", response_model=AirspaceSourceResponse)
@@ -124,14 +132,31 @@ def update_airspace_source(event_id: int, source_id: int, payload: AirspaceSourc
     source = session.get(AirspaceSource, source_id)
     if source is None or source.event_id != event_id:
         raise HTTPException(status_code=404, detail="Airspace source not found")
-    source.enabled = payload.enabled
+    updated_fields: dict[str, object] = {"filename": source.filename}
+    if payload.enabled is not None:
+        source.enabled = payload.enabled
+        updated_fields["enabled"] = payload.enabled
+    if payload.kind is not None:
+        next_kind = _kind_or_blank(payload.kind)
+        source.kind = next_kind
+        parse_kind = next_kind or "airspace"
+        regions = session.scalars(select(AirspaceRegion).where(AirspaceRegion.source_id == source.id)).all()
+        for region in regions:
+            region.is_restricted_field = next_kind == "restricted_field"
+            region.display_category = _display_category(
+                kind=parse_kind,
+                name=region.name,
+                class_code=region.class_code,
+                type_code=region.type_code,
+            )
+        updated_fields["kind"] = next_kind
     log_action(
         session,
         actor_user_id=admin.id,
-        action="airspace.toggle",
+        action="airspace.update",
         entity_type="airspace_source",
         entity_id=str(source_id),
-        details={"event_id": event_id, "enabled": payload.enabled, "filename": source.filename},
+        details={"event_id": event_id, **updated_fields},
     )
     session.commit()
     session.refresh(source)

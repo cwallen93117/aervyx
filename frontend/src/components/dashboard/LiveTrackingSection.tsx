@@ -29,6 +29,7 @@ type LivePositionRecord = {
   source: string | null;
   device_id: string | null;
   battery_level: number | null;
+  aircraft_icon: "hang_glider" | "paraglider" | "sailplane";
 };
 
 type MeshConfigRecord = {
@@ -119,6 +120,7 @@ function buildTrackCollection(
           pilot_id: pilotId,
           pilot_name: pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`,
           color: colorForPilot(pilotId, pilotIds),
+          aircraft_icon: positions[positions.length - 1]?.aircraft_icon ?? "hang_glider",
           timestamps: positions.map((position) => position.timestamp),
         },
         geometry: {
@@ -362,6 +364,7 @@ export default function LiveTrackingSection({
       batteryLevel: position.battery_level,
       source: position.source,
       color: colorForPilot(position.pilot_id, pilotIds),
+      aircraftType: position.aircraft_icon ?? "hang_glider",
     }));
   }, [livePositionsByPilot, pilotNameById]);
 

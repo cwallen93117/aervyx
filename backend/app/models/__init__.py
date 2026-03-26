@@ -22,6 +22,7 @@ class User(Base):
     speed_unit: Mapped[str] = mapped_column(String(10), default="kph")
     distance_unit: Mapped[str] = mapped_column(String(10), default="km")
     vario_unit: Mapped[str] = mapped_column(String(10), default="fpm")
+    aircraft_icon: Mapped[str] = mapped_column(String(20), default="hang_glider")
     password_hash: Mapped[str] = mapped_column(String(255))
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

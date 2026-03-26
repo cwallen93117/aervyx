@@ -143,13 +143,16 @@ export default function ScoringOperationsPanel({
   const [savingPenalties, setSavingPenalties] = useState(false);
   const rowUploadRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const bulkUploadRef = useRef<HTMLInputElement | null>(null);
+  const publishedTasks = tasks.filter((task) => task.status === "published");
+  const activePublishedTaskId = selectedTask?.status === "published" ? selectedTaskId : null;
+  const scoringSelectedTaskId = activePublishedTaskId ?? "";
 
   const refreshRows = async () => {
-    if (!token || !selectedTaskId) {
+    if (!token || !activePublishedTaskId) {
       setRows([]);
       return;
     }
-    const payload = await apiFetch<ScoringOperationsResponseRecord>(`/api/tasks/${selectedTaskId}/scoring-operations`, token);
+    const payload = await apiFetch<ScoringOperationsResponseRecord>(`/api/tasks/${activePublishedTaskId}/scoring-operations`, token);
     setRows(payload.rows);
   };
 
@@ -157,14 +160,14 @@ export default function ScoringOperationsPanel({
     let cancelled = false;
 
     async function load() {
-      if (!selectedTaskId || !token) {
+      if (!activePublishedTaskId || !token) {
         setRows([]);
         return;
       }
       setLoading(true);
       try {
         const [ops, presetData] = await Promise.all([
-          apiFetch<ScoringOperationsResponseRecord>(`/api/tasks/${selectedTaskId}/scoring-operations`, token),
+          apiFetch<ScoringOperationsResponseRecord>(`/api/tasks/${activePublishedTaskId}/scoring-operations`, token),
           selectedEventId
             ? apiFetch<ScoringPresetRecord[]>(`/api/events/${selectedEventId}/scoring-presets`, token)
             : Promise.resolve([]),
@@ -188,12 +191,12 @@ export default function ScoringOperationsPanel({
     return () => {
       cancelled = true;
     };
-  }, [selectedEventId, selectedTaskId, token]);
+  }, [activePublishedTaskId, selectedEventId, token]);
 
   const hasResults = useMemo(() => rows.some((row) => row.result != null), [rows]);
-  const hasProvisionalResults = useMemo(
-    () => rows.some((row) => row.result?.result_state === "provisional"),
-    [rows],
+  const taskResultsOfficial = useMemo(
+    () => hasResults && rows.every((row) => row.result == null || row.result.result_state === "official"),
+    [hasResults, rows],
   );
   const taskDistanceKm = useMemo(() => computeTaskOptimization(selectedTask?.points ?? []).totalDistanceKm, [selectedTask?.points]);
   const sortedRows = useMemo(
@@ -212,8 +215,8 @@ export default function ScoringOperationsPanel({
   );
 
   const reloadTaskAndRows = async () => {
-    if (!token || !selectedTaskId) return;
-    await loadTask(token, selectedTaskId, undefined, activeSection === "scoring");
+    if (!token || !activePublishedTaskId) return;
+    await loadTask(token, activePublishedTaskId, undefined, activeSection === "scoring");
     await refreshRows();
   };
 
@@ -222,15 +225,50 @@ export default function ScoringOperationsPanel({
     await refreshPilotSummary(token, selectedEventId);
   };
 
+  const handleRescoreTask = async () => {
+    if (!token || !activePublishedTaskId) return;
+    try {
+      const rowsToAutoSelect = rows
+        .filter((row) => row.selected_upload_id == null && !row.status_override && row.uploads.length > 0)
+        .map((row) => {
+          const newestUpload = [...row.uploads].sort(
+            (left, right) => Date.parse(right.uploaded_at || "") - Date.parse(left.uploaded_at || ""),
+          )[0];
+          return newestUpload ? { pilotId: row.pilot_id, uploadId: newestUpload.id } : null;
+        })
+        .filter((row): row is { pilotId: number; uploadId: number } => row != null);
+      setFeedback({
+        type: "pending",
+        text: rowsToAutoSelect.length
+          ? `Selecting ${rowsToAutoSelect.length} most recent file${rowsToAutoSelect.length === 1 ? "" : "s"} and scoring ${selectedTask?.name ?? "the selected task"}...`
+          : `Scoring ${selectedTask?.name ?? "the selected task"}...`,
+      });
+      if (rowsToAutoSelect.length) {
+        await Promise.all(rowsToAutoSelect.map((row) => saveSelectionAndRescore(row.pilotId, row.uploadId, null)));
+      }
+      await apiFetch(`/api/tasks/${activePublishedTaskId}/rescore`, token, { method: "POST" });
+      await reloadTaskAndRows();
+      await refreshEventSummary();
+      setFeedback({
+        type: "success",
+        text: rowsToAutoSelect.length
+          ? `Selected the most recent files and scored ${selectedTask?.name ?? "the selected task"}.`
+          : `Scoring completed for ${selectedTask?.name ?? "the selected task"}.`,
+      });
+    } catch (caught) {
+      setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Scoring failed." });
+    }
+  };
+
   const handleTaskChange = async (event: ChangeEvent<HTMLSelectElement>) => {
     if (!token) return;
     const nextTaskId = Number(event.target.value);
-    const nextTask = tasks.find((task) => task.id === nextTaskId);
+    const nextTask = publishedTasks.find((task) => task.id === nextTaskId);
     if (nextTask) await loadTask(token, nextTaskId, nextTask, activeSection === "scoring");
   };
 
   const handleSelectionChange = async (pilotId: number, rawValue: string) => {
-    if (!token || !selectedTaskId) return;
+    if (!token || !activePublishedTaskId) return;
     const payload =
       rawValue.startsWith("file:")
         ? { selected_upload_id: Number(rawValue.slice(5)), status_override: null }
@@ -239,11 +277,11 @@ export default function ScoringOperationsPanel({
           : { selected_upload_id: null, status_override: null };
     try {
       setFeedback({ type: "pending", text: "Updating scoring..." });
-      await apiFetch(`/api/tasks/${selectedTaskId}/scoring-inputs/${pilotId}`, token, {
+      await apiFetch(`/api/tasks/${activePublishedTaskId}/scoring-inputs/${pilotId}`, token, {
         method: "PATCH",
         body: JSON.stringify(payload),
       });
-      await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
+      await apiFetch(`/api/tasks/${activePublishedTaskId}/rescore`, token, { method: "POST" });
       await reloadTaskAndRows();
       await refreshEventSummary();
       setFeedback({ type: "success", text: "Scoring updated." });
@@ -253,8 +291,8 @@ export default function ScoringOperationsPanel({
   };
 
   const saveSelectionAndRescore = async (pilotId: number, selectedUploadId: number | null, statusOverride: string | null) => {
-    if (!token || !selectedTaskId) return;
-    await apiFetch(`/api/tasks/${selectedTaskId}/scoring-inputs/${pilotId}`, token, {
+    if (!token || !activePublishedTaskId) return;
+    await apiFetch(`/api/tasks/${activePublishedTaskId}/scoring-inputs/${pilotId}`, token, {
       method: "PATCH",
       body: JSON.stringify({
         selected_upload_id: selectedUploadId,
@@ -264,15 +302,15 @@ export default function ScoringOperationsPanel({
   };
 
   const handleSingleUpload = async (pilotId: number, file: File) => {
-    if (!token || !selectedTaskId) return;
+    if (!token || !activePublishedTaskId) return;
     const formData = new FormData();
     formData.append("file", file);
     formData.append("pilot_id", String(pilotId));
     try {
       setFeedback({ type: "pending", text: `Uploading ${file.name}...` });
-      const uploaded = await apiFetch<UploadedIgcRecord>(`/api/tasks/${selectedTaskId}/uploads`, token, { method: "POST", body: formData });
+      const uploaded = await apiFetch<UploadedIgcRecord>(`/api/tasks/${activePublishedTaskId}/uploads`, token, { method: "POST", body: formData });
       await saveSelectionAndRescore(pilotId, uploaded.id, null);
-      await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
+      await apiFetch(`/api/tasks/${activePublishedTaskId}/rescore`, token, { method: "POST" });
       await reloadTaskAndRows();
       await refreshEventSummary();
       setFeedback({ type: "success", text: `Uploaded and scored ${file.name}.` });
@@ -282,12 +320,12 @@ export default function ScoringOperationsPanel({
   };
 
   const handleBulkUpload = async (files: FileList | File[]) => {
-    if (!token || !selectedTaskId) return;
+    if (!token || !activePublishedTaskId) return;
     const formData = new FormData();
     Array.from(files).forEach((file) => formData.append("files", file));
     try {
       setFeedback({ type: "pending", text: `Uploading ${Array.from(files).length} IGC files...` });
-      const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${selectedTaskId}/uploads/bulk`, token, { method: "POST", body: formData });
+      const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${activePublishedTaskId}/uploads/bulk`, token, { method: "POST", body: formData });
       const matchedUploads = batchResults.filter(
         (item): item is BulkUploadItemRecord & { pilot_id: number; upload_id: number } =>
           item.matched === true && item.pilot_id != null && item.upload_id != null,
@@ -296,7 +334,7 @@ export default function ScoringOperationsPanel({
         await Promise.all(
           matchedUploads.map((item) => saveSelectionAndRescore(item.pilot_id, item.upload_id, null)),
         );
-        await apiFetch(`/api/tasks/${selectedTaskId}/rescore`, token, { method: "POST" });
+        await apiFetch(`/api/tasks/${activePublishedTaskId}/rescore`, token, { method: "POST" });
       }
       await reloadTaskAndRows();
       await refreshEventSummary();
@@ -319,10 +357,10 @@ export default function ScoringOperationsPanel({
   };
 
   const savePenalties = async () => {
-    if (!token || !selectedTaskId || activeRow == null) return;
+    if (!token || !activePublishedTaskId || activeRow == null) return;
     try {
       setSavingPenalties(true);
-      await apiFetch(`/api/tasks/${selectedTaskId}/penalties/${activeRow.pilot_id}`, token, {
+      await apiFetch(`/api/tasks/${activePublishedTaskId}/penalties/${activeRow.pilot_id}`, token, {
         method: "PUT",
         body: JSON.stringify({
           penalties: draftPenalties.map((penalty, index) => ({
@@ -358,7 +396,7 @@ export default function ScoringOperationsPanel({
         await apiFetch(`/api/tasks/${selectedTaskId}/results`, token, { method: "DELETE" });
         await reloadTaskAndRows();
         await refreshEventSummary();
-        setFeedback({ type: "success", text: `Deleted scoring results for ${selectedTask?.name ?? "the selected task"}.` });
+          setFeedback({ type: "success", text: `Deleted scoring results for ${selectedTask?.name ?? "the selected task"} and cleared all file/status selections.` });
       }
     } catch (caught) {
       setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Action failed." });
@@ -367,48 +405,74 @@ export default function ScoringOperationsPanel({
     }
   };
 
-  const publishTaskResults = async () => {
-    if (!token || !selectedTaskId) return;
+  const toggleTaskResultsState = async () => {
+    if (!token || !activePublishedTaskId) return;
     try {
-      setFeedback({ type: "pending", text: "Publishing task results..." });
-      const payload = await apiFetch<{ status: string; published_count: number }>(`/api/tasks/${selectedTaskId}/publish-results`, token, {
+      setFeedback({ type: "pending", text: taskResultsOfficial ? "Marking task unofficial..." : "Marking task official..." });
+      const payload = await apiFetch<{ status: string; published_count?: number; unpublished_count?: number }>(`/api/tasks/${activePublishedTaskId}/${taskResultsOfficial ? "unpublish-results" : "publish-results"}`, token, {
         method: "POST",
       });
       await reloadTaskAndRows();
       await refreshEventSummary();
       setFeedback({
         type: "success",
-        text:
-          payload.published_count > 0
-            ? `Published ${payload.published_count} result${payload.published_count === 1 ? "" : "s"} for ${selectedTask?.name ?? "the selected task"}.`
-            : `All results for ${selectedTask?.name ?? "the selected task"} were already official.`,
+        text: taskResultsOfficial
+          ? payload.unpublished_count
+            ? `Marked ${payload.unpublished_count} result${payload.unpublished_count === 1 ? "" : "s"} as unofficial for ${selectedTask?.name ?? "the selected task"}.`
+            : `All scored results for ${selectedTask?.name ?? "the selected task"} were already unofficial.`
+          : payload.published_count
+            ? `Marked ${payload.published_count} result${payload.published_count === 1 ? "" : "s"} as official for ${selectedTask?.name ?? "the selected task"}.`
+            : `All scored results for ${selectedTask?.name ?? "the selected task"} were already official.`,
       });
     } catch (caught) {
-      setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not publish task results." });
+      setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update task result state." });
     }
   };
 
   return (
     <>
-      <SectionCard
-        title="Scoring operations"
-        description="Select a file or status for each pilot. Scoring uses the currently selected dropdown value and updates automatically."
-      >
+      <SectionCard>
         <div className="stack form-block compact-clusters">
           <fieldset className="fieldset-cluster">
             <legend>Task selection</legend>
-            <div className="cluster-stack">
+            <div className="cluster-stack scoring-ops-task-selection">
               <label className="stack compact">
                 <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => void handleTaskChange(event)}>
+                <select value={scoringSelectedTaskId} onChange={(event) => void handleTaskChange(event)}>
                   <option value="">Select a task</option>
-                  {tasks.map((task) => (
+                  {publishedTasks.map((task) => (
                     <option key={task.id} value={task.id}>
-                      {task.name} - {task.status}
+                      {task.name}
                     </option>
                   ))}
                 </select>
               </label>
+              <div className="scoring-ops-task-actions">
+                <button
+                  type="button"
+                  className="scoring-ops-footer-btn secondary"
+                  onClick={() => void handleRescoreTask()}
+                  disabled={!activePublishedTaskId}
+                >
+                  Score task
+                </button>
+                <button
+                  type="button"
+                  className={`scoring-ops-footer-btn ${taskResultsOfficial ? "state-official" : "state-unofficial"}`}
+                  onClick={() => void toggleTaskResultsState()}
+                  disabled={!activePublishedTaskId || !hasResults}
+                >
+                  {taskResultsOfficial ? "Official" : "Unofficial"}
+                </button>
+                <button
+                  type="button"
+                  className="scoring-ops-footer-btn destructive"
+                  onClick={() => setConfirmAction("delete_scored_task")}
+                  disabled={!activePublishedTaskId}
+                >
+                  Delete scored task
+                </button>
+              </div>
             </div>
           </fieldset>
 
@@ -570,35 +634,17 @@ export default function ScoringOperationsPanel({
                   type="button"
                   className="scoring-ops-footer-btn secondary"
                   onClick={() => bulkUploadRef.current?.click()}
-                  disabled={!selectedTaskId}
+                  disabled={!activePublishedTaskId}
                 >
                   Upload all IGCs
-                </button>
-              </div>
-              <div className="scoring-ops-footer-right">
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn primary"
-                  onClick={() => void publishTaskResults()}
-                  disabled={!selectedTaskId || !hasProvisionalResults}
-                >
-                  Publish task
                 </button>
                 <button
                   type="button"
                   className="scoring-ops-footer-btn destructive"
                   onClick={() => setConfirmAction("delete_all")}
-                  disabled={!selectedTaskId}
+                  disabled={!activePublishedTaskId}
                 >
                   Delete all IGCs
-                </button>
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn destructive"
-                  onClick={() => setConfirmAction("delete_scored_task")}
-                  disabled={!selectedTaskId}
-                >
-                  Delete scored task
                 </button>
               </div>
             </div>
@@ -628,11 +674,13 @@ export default function ScoringOperationsPanel({
 
       <div className={`scoring-ops-modal-overlay${confirmAction ? " active" : ""}`} onClick={() => setConfirmAction(null)}>
         <div className="scoring-ops-modal" onClick={(event) => event.stopPropagation()}>
-          <div className="scoring-ops-modal-title">{confirmAction === "delete_all" ? "Delete all IGCs?" : "Delete scored task?"}</div>
+          <div className="scoring-ops-modal-title">
+            {confirmAction === "delete_all" ? "Delete all IGCs?" : "Delete scored task?"}
+          </div>
           <div className="scoring-ops-modal-body">
             {confirmAction === "delete_all"
               ? "Are you sure you want to delete all IGC files for this task? This cannot be undone."
-              : "Are you sure you want to delete the scored task? All scoring results will be lost. This cannot be undone."}
+                : "Are you sure you want to delete the scored task? All scoring results will be lost, and every Status / File selector will be reset to blank. This cannot be undone."}
           </div>
           <div className="scoring-ops-modal-actions">
             <button type="button" className="scoring-ops-footer-btn secondary" onClick={() => setConfirmAction(null)}>Cancel</button>

@@ -3,12 +3,12 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_staff
-from app.models import Event, IGCUpload, ScoreResult, Task, TaskPoint, TrackPoint, Turnpoint, TurnpointSource, User
+from app.models import Event, IGCUpload, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse
 from app.services.audit import log_action
 
@@ -176,10 +176,26 @@ def unpublish_task(task_id: int, admin: User = Depends(require_staff), session: 
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
+    session.execute(delete(ScorePenalty).where(ScorePenalty.task_id == task_id))
+    session.query(TaskScoringInput).where(TaskScoringInput.task_id == task_id).update(
+        {
+            TaskScoringInput.selected_upload_id: None,
+            TaskScoringInput.status_override: None,
+        },
+        synchronize_session=False,
+    )
     task.status = "draft"
     task.published_at = None
     task.version += 1
-    log_action(session, actor_user_id=admin.id, action="task.unpublish", entity_type="task", entity_id=str(task.id), details={"version": task.version})
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="task.unpublish",
+        entity_type="task",
+        entity_id=str(task.id),
+        details={"version": task.version, "cleared_scoring": True},
+    )
     session.commit()
     return _task_response(session, task)
 

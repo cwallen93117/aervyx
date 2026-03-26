@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Logbook Mockup - Split View</title>
+  <link rel="stylesheet" href="logbook.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div>
+        <h1>Logbook Mockup, Split View</h1>
+        <p>A slightly more app-like alternative. It keeps Koifly's simplicity, but splits the feed from the detail panel so one selected entry can stay in focus while the list stays compact.</p>
+        <div class="toolbar-row" style="margin-top: 16px;">
+          <a class="ghost-link" href="index.html">Back to mockup index</a>
+          <span class="pill"><strong>Alternative</strong> Split view</span>
+          <span class="pill"><strong>Scope</strong> Frontend-only concept</span>
+        </div>
+      </div>
+      <div class="chip-row">
+        <span class="status-chip"><strong>Mode</strong> Working copy</span>
+        <span class="status-chip"><strong>Context</strong> Selected entry shown</span>
+      </div>
+    </header>
+
+    <section class="workbench-split">
+      <aside class="sidebar">
+        <div class="brand-row">
+          <div class="brand-mark">A</div>
+          <div class="brand-copy">
+            <strong>Aervyx</strong>
+            <span>Operations shell</span>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-label">Sections</div>
+          <div class="nav-stack">
+            <div class="nav-item"><span>Events</span><small>Setup</small></div>
+            <div class="nav-item"><span>Tasks</span><small>Planning</small></div>
+            <div class="nav-item"><span>Scores</span><small>Results</small></div>
+            <div class="nav-item active"><span>Logbook</span><small>Ledger</small></div>
+            <div class="nav-item"><span>Live Tracking</span><small>Now</small></div>
+            <div class="nav-item"><span>Drivers</span><small>Roster</small></div>
+            <div class="nav-item"><span>Settings</span><small>Config</small></div>
+          </div>
+        </div>
+
+        <div class="sidebar-section">
+          <div class="sidebar-label">Event context</div>
+          <div class="summary-box">
+            <div class="label">Event</div>
+            <div class="value">Spring Classic 2026</div>
+            <div class="meta">Day 2 · 38 pilots · noon task</div>
+          </div>
+        </div>
+      </aside>
+
+      <section class="app-shell">
+        <article class="hero">
+          <div class="hero-top">
+            <div>
+              <h2>Compact list on the left, detail on the right</h2>
+              <p>This version borrows the master/detail structure of older Koifly screens and keeps the record view clean. It is useful when the user needs to inspect one log item without losing the list context.</p>
+            </div>
+            <div class="button-row">
+              <button class="button ghost" type="button">Filter</button>
+              <button class="button primary" type="button">Add note</button>
+            </div>
+          </div>
+
+          <div class="toolbar">
+            <label class="searchbar" aria-label="Search logbook entries">
+              <span>Search</span>
+              <input type="text" value="" placeholder="Search users, categories, notes..." />
+            </label>
+            <span class="filter-chip active">All</span>
+            <span class="filter-chip">Scoring</span>
+            <span class="filter-chip">Safety</span>
+            <span class="filter-chip">Admin</span>
+          </div>
+        </article>
+
+        <div class="workbench-split" style="grid-template-columns: minmax(0, 1fr) 330px; gap: 18px;">
+          <article class="feed-panel">
+            <div class="section-title">
+              <div>
+                <h3>Activity list</h3>
+                <span>Each row is a one-line record with just enough context to scan fast.</span>
+              </div>
+              <span class="pill"><strong>12</strong> items</span>
+            </div>
+
+            <div class="feed-stack">
+              <div class="feed-item">
+                <div class="feed-time">08:12</div>
+                <div class="feed-body">
+                  <div class="feed-head">
+                    <strong>Drivers checked in</strong>
+                    <span class="chip amber">Roster</span>
+                  </div>
+                  <p class="feed-copy">Two late check-ins were flagged to the director and added to the live list.</p>
+                  <div class="feed-meta">
+                    <span class="chip">Charles</span>
+                    <span class="chip">Staff</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="feed-item">
+                <div class="feed-time">09:04</div>
+                <div class="feed-body">
+                  <div class="feed-head">
+                    <strong>Weather briefing posted</strong>
+                    <span class="chip green">Safety</span>
+                  </div>
+                  <p class="feed-copy">Cloud base, wind trend, and launch order added before the task window opened.</p>
+                  <div class="feed-meta">
+                    <span class="chip">Event HQ</span>
+                    <span class="chip">Pinned</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="feed-item active">
+                <div class="feed-time">10:26</div>
+                <div class="feed-body">
+                  <div class="feed-head">
+                    <strong>Task 1 published</strong>
+                    <span class="chip blue">Scoring</span>
+                  </div>
+                  <p class="feed-copy">Official status set and overall standings refreshed.</p>
+                  <div class="feed-meta">
+                    <span class="chip">Published</span>
+                    <span class="chip">Visible to all</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="feed-item">
+                <div class="feed-time">11:08</div>
+                <div class="feed-body">
+                  <div class="feed-head">
+                    <strong>Penalty correction saved</strong>
+                    <span class="chip rose">Correction</span>
+                  </div>
+                  <p class="feed-copy">The audit trail preserves the before/after score change and the reason for the edit.</p>
+                  <div class="feed-meta">
+                    <span class="chip">Charles Allen</span>
+                    <span class="chip">Revised</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="feed-item">
+                <div class="feed-time">12:14</div>
+                <div class="feed-body">
+                  <div class="feed-head">
+                    <strong>Final log notes synchronized</strong>
+                    <span class="chip">Admin</span>
+                  </div>
+                  <p class="feed-copy">Wrap-up note added for the afternoon task window and shared with staff.</p>
+                  <div class="feed-meta">
+                    <span class="chip">Shared</span>
+                    <span class="chip">Final</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <aside class="details">
+            <div>
+              <h3>Selected entry</h3>
+              <p>The detail panel stays compact and lets the user inspect one record at a time without leaving the list context.</p>
+            </div>
+
+            <div class="detail-card">
+              <div class="label">Title</div>
+              <div class="value">Penalty correction recorded</div>
+              <p>Focused entry for the score change that needs to be visible to operations staff.</p>
+            </div>
+
+            <div class="detail-card">
+              <div class="label">Key fields</div>
+              <div class="detail-list" style="margin-top: 12px;">
+                <div class="detail-row"><span>Time</span><strong>11:08 AM</strong></div>
+                <div class="detail-row"><span>Category</span><strong>Scoring</strong></div>
+                <div class="detail-row"><span>User</span><strong>Charles</strong></div>
+                <div class="detail-row"><span>Visibility</span><strong>Staff only</strong></div>
+              </div>
+            </div>
+
+            <div class="detail-card">
+              <div class="label">Detail copy</div>
+              <p>The audit trail preserves the before/after totals, the reason, and the target pilot so it reads like an operational record instead of a social post.</p>
+            </div>
+
+            <div class="composer">
+              <h3>Quick note</h3>
+              <p>Mocked as a lightweight action surface for future implementation.</p>
+              <textarea placeholder="Add a log note or correction..."></textarea>
+              <div class="footer">
+                <span class="pill"><strong>Shared</strong> staff-visible</span>
+                <div class="actions">
+                  <button class="button ghost" type="button">Save draft</button>
+                  <button class="button primary" type="button">Publish</button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

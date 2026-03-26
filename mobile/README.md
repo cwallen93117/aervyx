@@ -18,7 +18,7 @@ flutter pub get
 # Run on a connected device / emulator
 flutter run
 
-# Override the backend URL (e.g. for a local network NAS)
+# Override the backend URL (e.g. for a local network host)
 flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8000
 ```
 

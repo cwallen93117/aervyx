@@ -2,7 +2,7 @@
 
 ## Overview
 
-Phase 1 uses a three-service deployment model designed for Docker Compose on a QNAP NAS:
+Phase 1 uses a three-service deployment model built around Docker Compose:
 
 - `frontend`: Next.js application for admin and pilot workflows
 - `backend`: FastAPI API for auth, ingest, scoring orchestration, and auditability
@@ -48,4 +48,4 @@ The implementation will keep FastAPI and Next.js as the core stack, while applyi
 
 ## Deployment Direction
 
-Phase 1 deployment is NAS-first through Docker Compose. Desktop execution is optional for development only and is not assumed to be installed on this machine.
+Phase 1 deployment is self-hosted through Docker Compose. Desktop-local execution remains supported for development.

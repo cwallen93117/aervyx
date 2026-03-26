@@ -30,7 +30,7 @@ The outcome of that evaluation is documented in `docs/oss-reuse-evaluation.md`.
 - Parsed trackpoint storage separate from original IGC evidence
 - Task progress detection, scoring, ranking, and results views
 - Audit logging for scoring-relevant actions
-- Docker Compose deployment path for QNAP NAS
+- Docker Compose deployment path
 
 ## Phase 1 Success Conditions
 

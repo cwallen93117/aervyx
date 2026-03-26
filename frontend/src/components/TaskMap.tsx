@@ -1,7 +1,7 @@
 "use client";
 
 import { COORDINATE_SYSTEM } from "@deck.gl/core";
-import { PathLayer, PolygonLayer, ScatterplotLayer } from "@deck.gl/layers";
+import { PathLayer, PolygonLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -33,6 +33,7 @@ export type MapLivePosition = {
   batteryLevel: number | null;
   source: string | null;
   color?: string | null;
+  aircraftType?: "hang_glider" | "paraglider" | "sailplane" | null;
 };
 type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
@@ -61,10 +62,12 @@ export type TrackCollection = {
 };
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
+type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
 const REPLAY_SPEEDS = [1, 2, 5, 10, 30, 60, 120, 300] as const;
 const ALTITUDE_MULTIPLIER_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5] as const;
 const TERRAIN_SOURCE_ID = "terrain-dem";
 const TERRAIN_EXAGGERATION = 1.25;
+const MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
 const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
@@ -111,6 +114,29 @@ function createBasemapStyle(basemapMode: BasemapMode) {
 }
 
 const buildCircleCache = new Map<string, number[][]>();
+
+function normalizeAircraftIcon(value: unknown): AircraftIconType {
+  switch (value) {
+    case "paraglider":
+    case "sailplane":
+      return value;
+    case "hang_glider":
+    default:
+      return "hang_glider";
+  }
+}
+
+function firstNameFromPilotName(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return "Pilot";
+  }
+  return trimmed.split(/\s+/)[0] ?? trimmed;
+}
+
+function aircraftPilotLabel(_kind: AircraftIconType, pilotName: string) {
+  return firstNameFromPilotName(pilotName);
+}
 
 function buildCircle(point: MapTaskPoint) {
   const cacheKey = `${point.latitude}:${point.longitude}:${point.radius_m}`;
@@ -863,36 +889,10 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
     });
   }
   if (hasSource(map, "live-positions") && !map.getLayer("live-positions-layer")) {
-    safeAddLayer(map, {
-      id: "live-positions-layer",
-      type: "circle",
-      source: "live-positions",
-      paint: {
-        "circle-radius": 6,
-        "circle-color": ["coalesce", ["get", "color"], "#0ea5e9"],
-        "circle-stroke-width": 2,
-        "circle-stroke-color": "#ffffff",
-      },
-    });
+    // Live pilot labels are rendered with deck.gl so they can follow the pilot altitude in 3D.
   }
-  if (hasSource(map, "live-position-labels") && !map.getLayer("live-position-labels")) {
-    safeAddLayer(map, {
-      id: "live-position-labels",
-      type: "symbol",
-      source: "live-position-labels",
-      layout: {
-        "text-field": ["get", "name"],
-        "text-size": 11,
-        "text-offset": [0, 1.15],
-        "text-anchor": "top",
-        "text-optional": true,
-      },
-      paint: {
-        "text-color": "#10203a",
-        "text-halo-color": "#ffffff",
-        "text-halo-width": 1.2,
-      },
-    });
+  if (hasSource(map, "replay-marker") && !map.getLayer("replay-marker-layer")) {
+    // Replay pilot labels are rendered with deck.gl so they can follow the pilot altitude in 3D.
   }
 }
 
@@ -1024,6 +1024,7 @@ export const TaskMap = React.memo(function TaskMap({
         pilot_id: position.pilotId ?? "",
         name: position.pilotName,
         color: position.color ?? "#0ea5e9",
+        aircraft_icon: normalizeAircraftIcon(position.aircraftType),
         battery_level: position.batteryLevel ?? "",
         source: position.source ?? "",
       },
@@ -1033,19 +1034,16 @@ export const TaskMap = React.memo(function TaskMap({
       },
     })),
   }), [livePositions]);
-  const livePositionLabelData = useMemo(() => ({
-    type: "FeatureCollection",
-    features: livePositions.map((position) => ({
-      type: "Feature",
-      properties: {
-        name: position.pilotName,
-      },
-      geometry: {
-        type: "Point",
-        coordinates: [position.longitude, position.latitude],
-      },
-    })),
-  }), [livePositions]);
+  const livePilotLabelData = useMemo(
+    () =>
+      livePositions.map((position) => ({
+        nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
+        altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
+        position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * altitudeMultiplier] as [number, number, number],
+        color: hexToRgb(String(position.color ?? "#0ea5e9")),
+      })),
+    [altitudeMultiplier, livePositions, units.altitude],
+  );
   const airspaceData = useMemo(() => ({
     type: "FeatureCollection",
     features: airspaces.map((airspace) => ({
@@ -1223,42 +1221,80 @@ export const TaskMap = React.memo(function TaskMap({
     if (!track || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
     }
-    const targetFeatureIndex = highlightedTrackUploadId != null
-      ? track.features.findIndex((feature) => Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId)
-      : 0;
-    const featureIndex = targetFeatureIndex >= 0 ? targetFeatureIndex : 0;
-    const targetFeature = track.features[featureIndex];
-    const targetTimestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
-    if (!targetFeature || !targetTimestamps.length) {
-      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
-    }
     const shouldUseReplayPosition = isReplaying || replayHasInteracted;
-    let coordinateIndex = targetTimestamps.length - 1;
-    if (shouldUseReplayPosition) {
-      const currentReplayTime = replayTimeline[Math.min(replayIndex, replayTotal - 1)];
-      coordinateIndex = findReplayCoordinateIndex(targetTimestamps, currentReplayTime);
-    }
-    if (coordinateIndex < 0) {
-      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
-    }
-    const coordinate = targetFeature.geometry.coordinates[Math.min(coordinateIndex, targetFeature.geometry.coordinates.length - 1)];
-    if (!coordinate) {
-      return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
-    }
-    return {
-      type: "FeatureCollection",
-      features: [
+    const currentReplayTime = replayTimeline[Math.min(replayIndex, replayTotal - 1)];
+    const features = track.features.flatMap((feature, featureIndex) => {
+      if (feature.geometry.type !== "LineString" || !feature.geometry.coordinates.length) {
+        return [];
+      }
+      const featureTimestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
+      if (!featureTimestamps.length) {
+        return [];
+      }
+      let coordinateIndex = featureTimestamps.length - 1;
+      if (shouldUseReplayPosition) {
+        coordinateIndex = findReplayCoordinateIndex(featureTimestamps, currentReplayTime);
+      }
+      if (coordinateIndex < 0) {
+        return [];
+      }
+      const coordinate = feature.geometry.coordinates[Math.min(coordinateIndex, feature.geometry.coordinates.length - 1)];
+      if (!coordinate) {
+        return [];
+      }
+      return [
         {
           type: "Feature",
-          properties: {},
+          properties: {
+            upload_id: Number(feature.properties?.upload_id ?? 0),
+            color: String(feature.properties?.color ?? "#2563eb"),
+            aircraft_icon: normalizeAircraftIcon(feature.properties?.aircraft_icon),
+            highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+            label: aircraftPilotLabel(
+              normalizeAircraftIcon(feature.properties?.aircraft_icon),
+              String(feature.properties?.pilot_name ?? "Pilot"),
+            ),
+            altitude_label: (() => {
+              const telemetrySeries = smoothedTrackTelemetrySeries[featureIndex];
+              const smoothedAltitudeM = telemetrySeries?.altitudeM[Math.min(coordinateIndex, telemetrySeries.altitudeM.length - 1)];
+              const fallbackAltitudeM = coordinate.length > 2 && Number.isFinite(coordinate[2]) ? Number(coordinate[2] ?? 0) : null;
+              const altitudeM = smoothedAltitudeM ?? fallbackAltitudeM;
+              return altitudeM != null ? formatAltitudeLabel(altitudeM, units.altitude) : "";
+            })(),
+          },
           geometry: {
             type: "Point",
             coordinates: scaleTrackPosition(coordinate, altitudeMultiplier),
           },
         },
-      ],
+      ];
+    });
+    return {
+      type: "FeatureCollection",
+      features,
     };
-  }, [altitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, track, trackFeatureTimelines]);
+  }, [altitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, track, trackFeatureTimelines, units.altitude]);
+  const replayPilotLabelData = useMemo(
+    () =>
+      (replayMarkerData.features as Array<{ geometry?: { coordinates?: [number, number, number] | [number, number] }; properties?: Record<string, unknown> }>)
+        .flatMap((feature) => {
+          const coordinates = feature.geometry?.coordinates;
+          if (!coordinates) {
+            return [];
+          }
+          const z = coordinates.length > 2 ? coordinates[2] ?? 0 : 0;
+          return [
+            {
+              nameLabel: String(feature.properties?.label ?? "Pilot"),
+              altitudeLabel: String(feature.properties?.altitude_label ?? ""),
+              position: [coordinates[0], coordinates[1], z] as [number, number, number],
+              color: hexToRgb(String(feature.properties?.color ?? "#2563eb")),
+              highlighted: Boolean(feature.properties?.highlighted),
+            },
+          ];
+        }),
+    [replayMarkerData],
+  );
   const maxScoredTrackAltitudeM = useMemo(() => {
     if (!track) {
       return 15000;
@@ -1384,37 +1420,66 @@ export const TaskMap = React.memo(function TaskMap({
             },
           }),
         );
+        const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
+        if (labelData.length) {
+          layers.push(
+            new TextLayer({
+              id: `pilot-name-labels-${mode}`,
+              data: labelData,
+              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+              billboard: true,
+              getPosition: (item: { position: [number, number, number] }) => item.position,
+              getText: (item: { nameLabel: string }) => item.nameLabel,
+              getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
+              getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
+              sizeUnits: "pixels",
+              sizeMinPixels: 12,
+              getPixelOffset: [0, -16],
+              getTextAnchor: "middle",
+              getAlignmentBaseline: "bottom",
+              characterSet: "auto",
+              fontFamily: "Segoe UI, Arial, sans-serif",
+              fontWeight: 700,
+              outlineWidth: 2,
+              outlineColor: [255, 255, 255, 230],
+              pickable: false,
+              parameters: {
+                depthTest: false,
+              },
+            }),
+          );
+          layers.push(
+            new TextLayer({
+              id: `pilot-altitude-labels-${mode}`,
+              data: labelData.filter((item: { altitudeLabel?: string }) => Boolean(item.altitudeLabel)),
+              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+              billboard: true,
+              getPosition: (item: { position: [number, number, number] }) => item.position,
+              getText: (item: { altitudeLabel: string }) => item.altitudeLabel,
+              getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
+              getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
+              sizeUnits: "pixels",
+              sizeMinPixels: 10,
+              getPixelOffset: [0, -3],
+              getTextAnchor: "middle",
+              getAlignmentBaseline: "bottom",
+              characterSet: "auto",
+              fontFamily: "Segoe UI, Arial, sans-serif",
+              fontWeight: 400,
+              outlineWidth: 2,
+              outlineColor: [255, 255, 255, 230],
+              pickable: false,
+              parameters: {
+                depthTest: false,
+              },
+            }),
+          );
+        }
         // }
       }
     }
-    const replayMarkerFeatures = replayMarkerData.features as Array<{
-      geometry?: { coordinates?: [number, number, number] };
-    }>;
-    if (replayMarkerFeatures.length) {
-      layers.push(
-        new ScatterplotLayer({
-          id: "igc-replay-marker-3d",
-          data: replayMarkerFeatures,
-          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-          getPosition: (item: { geometry?: { coordinates?: [number, number, number] } }) => item.geometry?.coordinates ?? [0, 0, 0],
-          getRadius: 9,
-          radiusUnits: "pixels",
-          radiusMinPixels: 8,
-          stroked: true,
-          filled: true,
-          getFillColor: [255, 255, 255],
-          getLineColor: [37, 99, 235],
-          lineWidthUnits: "pixels",
-          lineWidthMinPixels: 3,
-          pickable: false,
-          parameters: {
-            depthTest: false,
-          },
-        }),
-      );
-    }
     return layers;
-  }, [cylinderVolumes, displayTrack, fullTrackPathData, maxScoredTrackAltitudeM, replayMarkerData, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -1539,14 +1604,14 @@ export const TaskMap = React.memo(function TaskMap({
               pitch: persistedViewState.pitch,
             }
           : buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? 10 : 5)),
-        maxPitch: 85,
+        maxPitch: MAX_MAP_PITCH,
         attributionControl: false,
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
       map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
       const scaleControl = new maplibregl.ScaleControl({
-        maxWidth: 120,
+        maxWidth: 96,
         unit: units.distance === "mi" ? "imperial" : "metric",
       });
       map.addControl(scaleControl, "bottom-left");
@@ -1700,7 +1765,7 @@ export const TaskMap = React.memo(function TaskMap({
         isPerspective3D
           ? {
               source: TERRAIN_SOURCE_ID,
-              exaggeration: TERRAIN_EXAGGERATION,
+              exaggeration: TERRAIN_EXAGGERATION * Math.max(1, altitudeMultiplier),
             }
           : null,
       );
@@ -1710,7 +1775,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", applyTerrain);
     }
-  }, [isPerspective3D, styleGeneration]);
+  }, [altitudeMultiplier, isPerspective3D, styleGeneration]);
 
   const applyFitBounds = useCallback((map: maplibregl.Map) => {
     if (fitBounds.length === 0) {
@@ -1769,7 +1834,6 @@ export const TaskMap = React.memo(function TaskMap({
     }
     const sync = () => {
       ensureGeoJsonSource(map, "live-positions", livePositionData as never);
-      ensureGeoJsonSource(map, "live-position-labels", livePositionLabelData as never);
       ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
@@ -1777,7 +1841,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [livePositionData, livePositionLabelData, styleGeneration]);
+  }, [livePositionData, styleGeneration]);
 
   // Sync task route data to map
   useEffect(() => {

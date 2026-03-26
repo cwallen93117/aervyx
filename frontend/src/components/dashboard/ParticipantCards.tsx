@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent } from "react";
+import { type FormEvent, useMemo, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import type { EventRecord, PilotRecord } from "./types";
 
@@ -8,13 +8,12 @@ export interface ParticipantCardsProps {
   selectedEventId: number | null;
   selectedEvent: EventRecord | null;
   pilots: PilotRecord[];
+  sitePilots: PilotRecord[];
   availableDirectoryPilots: PilotRecord[];
-  selectedDirectoryPilotId: number | null;
-  setSelectedDirectoryPilotId: (id: number | null) => void;
   pilotForm: { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string };
   setPilotForm: (form: { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string }) => void;
   canManagePlatform: boolean;
-  assignExistingPilot: () => void;
+  assignExistingPilot: (pilotId: number | null) => void;
   createPilot: (event: FormEvent<HTMLFormElement>) => void;
   removePilot: (pilot: PilotRecord) => void;
   uploadFile: <T>(path: string, file: File) => Promise<T>;
@@ -30,9 +29,8 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
     selectedEventId,
     selectedEvent,
     pilots,
+    sitePilots,
     availableDirectoryPilots,
-    selectedDirectoryPilotId,
-    setSelectedDirectoryPilotId,
     pilotForm,
     setPilotForm,
     canManagePlatform,
@@ -46,6 +44,31 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
     token,
     setMessage,
   } = props;
+  const [directorySearch, setDirectorySearch] = useState("");
+  const assignedPilotIds = useMemo(() => new Set(pilots.map((pilot) => pilot.id)), [pilots]);
+  const normalizedDirectorySearch = directorySearch.trim().toLowerCase();
+  const searchableDirectoryPilots = useMemo(() => {
+    if (!sitePilots.length) return availableDirectoryPilots;
+    return sitePilots;
+  }, [availableDirectoryPilots, sitePilots]);
+  const filteredDirectoryPilots = useMemo(() => {
+    if (!normalizedDirectorySearch) return searchableDirectoryPilots;
+    if (normalizedDirectorySearch.includes("*")) return searchableDirectoryPilots;
+    return searchableDirectoryPilots.filter((pilot) => {
+      const haystack = [
+        pilot.first_name,
+        pilot.last_name,
+        pilot.email ?? "",
+        pilot.portal_username ?? "",
+        pilot.competition_number ?? "",
+        pilot.civl_id ?? "",
+        pilot.nation ?? "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(normalizedDirectorySearch);
+    });
+  }, [normalizedDirectorySearch, searchableDirectoryPilots]);
 
   if (!selectedEventId) {
     return (
@@ -59,53 +82,104 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
       <SectionCard title="Participant intake" description="Add a pilot manually or import a roster CSV for the selected event.">
         {canManagePlatform ? (
           <div className="participant-intake-stack">
-            <div className="record-card stack compact participant-directory-card">
-              <strong>Add existing person</strong>
-              <span>Select from the global people directory, including pilots who created their own accounts.</span>
-              <div className="participant-intake-row">
-                <select value={selectedDirectoryPilotId ?? ""} onChange={(event) => setSelectedDirectoryPilotId(event.target.value ? Number(event.target.value) : null)}>
-                  <option value="">Select a person</option>
-                  {availableDirectoryPilots.map((pilot) => (
-                    <option key={pilot.id} value={pilot.id}>
-                      {pilot.first_name} {pilot.last_name}{pilot.email ? ` - ${pilot.email}` : ""}{pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
-                    </option>
-                  ))}
-                </select>
-                <button type="button" onClick={() => void assignExistingPilot()} disabled={!selectedDirectoryPilotId}>Add to event</button>
+            <div className="participant-intake-split">
+              <div className="record-card stack compact participant-directory-card">
+                <strong>Add existing person</strong>
+                <span>Select from the global people directory, including pilots who created their own accounts.</span>
+                <div className="task-search-panel">
+                  <label className="stack compact">
+                    <span>Search registered users</span>
+                    <input
+                      type="search"
+                      placeholder="Search by name, email, username, comp #, CIVL ID, nation, or * for all"
+                      value={directorySearch}
+                      onChange={(event) => setDirectorySearch(event.target.value)}
+                    />
+                  </label>
+                  {directorySearch.trim() ? (
+                    filteredDirectoryPilots.length ? (
+                      <div className="task-search-results">
+                        {filteredDirectoryPilots.map((pilot) => {
+                          const alreadyAssigned = assignedPilotIds.has(pilot.id);
+                          return (
+                            <div key={pilot.id} className="task-search-row participant-search-row">
+                              <div>
+                                <strong>{pilot.first_name} {pilot.last_name}</strong>
+                                <span>
+                                  {pilot.portal_username ? `@${pilot.portal_username}` : "No portal username"}
+                                  {pilot.email ? ` - ${pilot.email}` : ""}
+                                  {pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
+                                  {pilot.civl_id ? ` - CIVL ${pilot.civl_id}` : ""}
+                                  {pilot.nation ? ` - ${pilot.nation}` : ""}
+                                  {alreadyAssigned ? " - already in event" : ""}
+                                </span>
+                              </div>
+                              <button type="button" className="ghost-button" onClick={() => void assignExistingPilot(pilot.id)} disabled={alreadyAssigned}>
+                                {alreadyAssigned ? "Added" : "Add"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="hint">No registered site users match that search.</p>
+                    )
+                  ) : null}
+                </div>
               </div>
+              <form className="record-card stack compact participant-intake-form participant-intake-form-card" onSubmit={createPilot}>
+                <strong>Create new pilot</strong>
+                <span>Add a new pilot profile directly to the event and site directory.</span>
+                <div className="participant-intake-grid participant-intake-grid--two">
+                  <label className="stack compact">
+                    <span>First name</span>
+                    <input value={pilotForm.first_name} onChange={(event) => setPilotForm({ ...pilotForm, first_name: event.target.value })} placeholder="First name" />
+                  </label>
+                  <label className="stack compact">
+                    <span>Last name</span>
+                    <input value={pilotForm.last_name} onChange={(event) => setPilotForm({ ...pilotForm, last_name: event.target.value })} placeholder="Last name" />
+                  </label>
+                </div>
+                <div className="participant-intake-grid participant-intake-grid--three">
+                  <label className="stack compact">
+                    <span>Email</span>
+                    <input type="email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} placeholder="pilot@example.com" />
+                  </label>
+                  <label className="stack compact">
+                    <span>Nation</span>
+                    <input value={pilotForm.nation} onChange={(event) => setPilotForm({ ...pilotForm, nation: event.target.value })} placeholder="Nation" />
+                  </label>
+                  <label className="stack compact">
+                    <span>Competition #</span>
+                    <input value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} placeholder="Competition #" />
+                  </label>
+                  <label className="stack compact">
+                    <span>CIVL ID</span>
+                    <input value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} placeholder="CIVL ID" />
+                  </label>
+                </div>
+                <div className="button-row participant-intake-actions">
+                  <button type="submit">Create new pilot</button>
+                  <label className="file-input">
+                    Import CSV
+                    <input
+                      type="file"
+                      accept=".csv"
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        await uploadFile<unknown>(`/api/events/${selectedEventId}/pilots/import-csv`, file);
+                        setMessage(`Imported pilots from ${file.name}.`);
+                        await loadEvent(token, selectedEventId);
+                        await refreshPilotDirectory(token);
+                        await refreshEvents(token);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                </div>
+              </form>
             </div>
-            <form className="stack form-block compact participant-intake-form" onSubmit={createPilot}>
-              <div className="participant-intake-grid participant-intake-grid--two">
-                <input placeholder="First name" value={pilotForm.first_name} onChange={(event) => setPilotForm({ ...pilotForm, first_name: event.target.value })} />
-                <input placeholder="Last name" value={pilotForm.last_name} onChange={(event) => setPilotForm({ ...pilotForm, last_name: event.target.value })} />
-              </div>
-              <div className="participant-intake-grid participant-intake-grid--three">
-                <input placeholder="Email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} />
-                <input placeholder="Nation" value={pilotForm.nation} onChange={(event) => setPilotForm({ ...pilotForm, nation: event.target.value })} />
-                <input placeholder="Competition #" value={pilotForm.competition_number} onChange={(event) => setPilotForm({ ...pilotForm, competition_number: event.target.value })} />
-                <input placeholder="CIVL ID" value={pilotForm.civl_id} onChange={(event) => setPilotForm({ ...pilotForm, civl_id: event.target.value })} />
-              </div>
-              <div className="button-row participant-intake-actions">
-                <button type="submit">Create new pilot</button>
-                <label className="file-input">
-                  Import CSV
-                  <input
-                    type="file"
-                    accept=".csv"
-                    onChange={async (event) => {
-                      const file = event.target.files?.[0];
-                      if (!file) return;
-                      await uploadFile<unknown>(`/api/events/${selectedEventId}/pilots/import-csv`, file);
-                      setMessage(`Imported pilots from ${file.name}.`);
-                      await loadEvent(token, selectedEventId);
-                      await refreshPilotDirectory(token);
-                      await refreshEvents(token);
-                      event.currentTarget.value = "";
-                    }}
-                  />
-                </label>
-              </div>
-            </form>
           </div>
         ) : (
           <p className="hint">Pilot management is available to organizers and admins. Pilots can still review the roster below.</p>

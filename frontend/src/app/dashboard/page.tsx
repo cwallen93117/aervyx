@@ -22,6 +22,7 @@ import {
   type AdminUserRecord,
   type SiteSettingsRecord,
   type EventRecord,
+  type EventFormState,
   type PilotRecord,
   type TurnpointRecord,
   type TurnpointSourceRecord,
@@ -168,6 +169,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     speed_unit: "kph",
     distance_unit: "km",
     vario_unit: "fpm",
+    aircraft_icon: "hang_glider",
     email: "",
     first_name: "",
     last_name: "",
@@ -415,11 +417,9 @@ export default function HomePage() {
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [eventForm, setEventForm] = useState(blankEventForm());
     const [pilotForm, setPilotForm] = useState({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
-    const [selectedDirectoryPilotId, setSelectedDirectoryPilotId] = useState<number | null>(null);
     const [taskDraft, setTaskDraft] = useState<TaskDraftState>(blankTaskDraft());
   const [radiusDrafts, setRadiusDrafts] = useState<Record<string, string>>({});
   const [turnpointSearch, setTurnpointSearch] = useState("");
-  const [taskAdvancedOpen, setTaskAdvancedOpen] = useState(false);
   const [taskPointAdvanced, setTaskPointAdvanced] = useState(false);
   const [scoringFeedback, setScoringFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [eventFormFeedback, setEventFormFeedback] = useState<Record<"details" | "scoring" | "airspace", { type: "success" | "error"; text: string } | null>>({
@@ -481,6 +481,7 @@ export default function HomePage() {
   const filteredTurnpoints = useMemo(() => {
       const query = turnpointSearch.trim().toLowerCase();
       if (!query) return [];
+      if (query.includes("*")) return turnpoints;
       return turnpoints
         .filter((turnpoint) => {
           const haystack = `${turnpoint.name} ${turnpoint.code ?? ""}`.toLowerCase();
@@ -967,6 +968,7 @@ export default function HomePage() {
           speed_unit: settingsForm.speed_unit,
           distance_unit: settingsForm.distance_unit,
           vario_unit: settingsForm.vario_unit,
+          aircraft_icon: settingsForm.aircraft_icon,
           email: normalizeIdentityEmail(settingsForm.username) || null,
           first_name: settingsForm.first_name || null,
           last_name: settingsForm.last_name || null,
@@ -984,6 +986,7 @@ export default function HomePage() {
         speed_unit: payload.speed_unit,
         distance_unit: payload.distance_unit,
         vario_unit: payload.vario_unit,
+        aircraft_icon: payload.aircraft_icon,
         email: payload.email,
         first_name: payload.first_name,
         last_name: payload.last_name,
@@ -1087,63 +1090,62 @@ export default function HomePage() {
     }
   }
 
-  async function saveEvent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function persistEventForm(nextForm: EventFormState, successMessage?: string) {
     if (!token) return;
     let penaltiesJson: Record<string, unknown>;
     try {
-      penaltiesJson = JSON.parse(eventForm.penalties_text || "{}") as Record<string, unknown>;
+      penaltiesJson = JSON.parse(nextForm.penalties_text || "{}") as Record<string, unknown>;
     } catch {
       setError("Scoring penalties must be valid JSON before saving the event.");
       return;
     }
     const payload = {
-      name: eventForm.name,
-      location: eventForm.location,
-      starts_on: eventForm.starts_on,
-      ends_on: eventForm.ends_on,
-      timezone: eventForm.timezone,
-      scoring_formula: eventForm.scoring_formula,
-      nominal_distance_km: eventForm.nominal_distance_km,
-      nominal_time_hours: eventForm.nominal_time_hours,
-      nominal_launch: eventForm.nominal_launch,
-      minimum_distance_km: eventForm.minimum_distance_km,
-      nominal_goal_percent: eventForm.nominal_goal_percent,
-      score_back_time_minutes: eventForm.score_back_time_minutes,
-      goal_ss_penalty: eventForm.goal_ss_penalty,
-      day_quality_override: eventForm.day_quality_override,
-      time_points_if_not_in_goal: eventForm.time_points_if_not_in_goal,
-      jump_the_gun_factor: eventForm.jump_the_gun_factor,
-      jump_the_gun_max_seconds: eventForm.jump_the_gun_max_seconds,
-      stopped_glide_bonus: eventForm.stopped_glide_bonus,
-      use_1000_points_for_max_day_quality: eventForm.use_1000_points_for_max_day_quality,
-      normalize_1000_before_day_quality: eventForm.normalize_1000_before_day_quality,
-      use_distance_points: eventForm.use_distance_points,
-      use_time_points: eventForm.use_time_points,
-      use_leading_points: eventForm.use_leading_points,
-      use_arrival_position_points: eventForm.use_arrival_position_points,
-      use_arrival_time_points: eventForm.use_arrival_time_points,
-      use_departure_points: eventForm.use_departure_points,
-      use_difficulty_for_distance_points: eventForm.use_difficulty_for_distance_points,
-      use_distance_squared_for_lc: eventForm.use_distance_squared_for_lc,
-      use_semi_circle_control_zone_for_goal_line: eventForm.use_semi_circle_control_zone_for_goal_line,
-      use_proportional_leading_weight_if_nobody_in_goal: eventForm.use_proportional_leading_weight_if_nobody_in_goal,
-      redistribute_removed_time_points_as_distance_points: eventForm.redistribute_removed_time_points_as_distance_points,
-      use_best_score_for_ftv_validity: eventForm.use_best_score_for_ftv_validity,
-      use_constant_leading_weight: eventForm.use_constant_leading_weight,
-      use_pwca2019_for_lc: eventForm.use_pwca2019_for_lc,
-      use_flat_decline_of_timepoints: eventForm.use_flat_decline_of_timepoints,
-      scoring_altitude: eventForm.scoring_altitude,
-      final_glide_decelerator: eventForm.final_glide_decelerator,
-      no_final_glide_decelerator_reason: eventForm.no_final_glide_decelerator_reason,
-      min_time_span_for_valid_task_minutes: eventForm.min_time_span_for_valid_task_minutes,
-      leading_weight_factor: eventForm.leading_weight_factor,
-      turnpoint_radius_tolerance: eventForm.turnpoint_radius_tolerance,
-      turnpoint_radius_minimum_absolute_tolerance_m: eventForm.turnpoint_radius_minimum_absolute_tolerance_m,
-      number_of_decimals_task_results: eventForm.number_of_decimals_task_results,
-      number_of_decimals_competition_results: eventForm.number_of_decimals_competition_results,
-      visible_airspace_classes_json: eventForm.visible_airspace_classes_json,
-      show_restricted_fields: eventForm.show_restricted_fields,
+      name: nextForm.name,
+      location: nextForm.location,
+      starts_on: nextForm.starts_on,
+      ends_on: nextForm.ends_on,
+      timezone: nextForm.timezone,
+      scoring_formula: nextForm.scoring_formula,
+      nominal_distance_km: nextForm.nominal_distance_km,
+      nominal_time_hours: nextForm.nominal_time_hours,
+      nominal_launch: nextForm.nominal_launch,
+      minimum_distance_km: nextForm.minimum_distance_km,
+      nominal_goal_percent: nextForm.nominal_goal_percent,
+      score_back_time_minutes: nextForm.score_back_time_minutes,
+      goal_ss_penalty: nextForm.goal_ss_penalty,
+      day_quality_override: nextForm.day_quality_override,
+      time_points_if_not_in_goal: nextForm.time_points_if_not_in_goal,
+      jump_the_gun_factor: nextForm.jump_the_gun_factor,
+      jump_the_gun_max_seconds: nextForm.jump_the_gun_max_seconds,
+      stopped_glide_bonus: nextForm.stopped_glide_bonus,
+      use_1000_points_for_max_day_quality: nextForm.use_1000_points_for_max_day_quality,
+      normalize_1000_before_day_quality: nextForm.normalize_1000_before_day_quality,
+      use_distance_points: nextForm.use_distance_points,
+      use_time_points: nextForm.use_time_points,
+      use_leading_points: nextForm.use_leading_points,
+      use_arrival_position_points: nextForm.use_arrival_position_points,
+      use_arrival_time_points: nextForm.use_arrival_time_points,
+      use_departure_points: nextForm.use_departure_points,
+      use_difficulty_for_distance_points: nextForm.use_difficulty_for_distance_points,
+      use_distance_squared_for_lc: nextForm.use_distance_squared_for_lc,
+      use_semi_circle_control_zone_for_goal_line: nextForm.use_semi_circle_control_zone_for_goal_line,
+      use_proportional_leading_weight_if_nobody_in_goal: nextForm.use_proportional_leading_weight_if_nobody_in_goal,
+      redistribute_removed_time_points_as_distance_points: nextForm.redistribute_removed_time_points_as_distance_points,
+      use_best_score_for_ftv_validity: nextForm.use_best_score_for_ftv_validity,
+      use_constant_leading_weight: nextForm.use_constant_leading_weight,
+      use_pwca2019_for_lc: nextForm.use_pwca2019_for_lc,
+      use_flat_decline_of_timepoints: nextForm.use_flat_decline_of_timepoints,
+      scoring_altitude: nextForm.scoring_altitude,
+      final_glide_decelerator: nextForm.final_glide_decelerator,
+      no_final_glide_decelerator_reason: nextForm.no_final_glide_decelerator_reason,
+      min_time_span_for_valid_task_minutes: nextForm.min_time_span_for_valid_task_minutes,
+      leading_weight_factor: nextForm.leading_weight_factor,
+      turnpoint_radius_tolerance: nextForm.turnpoint_radius_tolerance,
+      turnpoint_radius_minimum_absolute_tolerance_m: nextForm.turnpoint_radius_minimum_absolute_tolerance_m,
+      number_of_decimals_task_results: nextForm.number_of_decimals_task_results,
+      number_of_decimals_competition_results: nextForm.number_of_decimals_competition_results,
+      visible_airspace_classes_json: nextForm.visible_airspace_classes_json,
+      show_restricted_fields: nextForm.show_restricted_fields,
       penalties_json: penaltiesJson,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
@@ -1152,11 +1154,16 @@ export default function HomePage() {
     setEventEditorId(nextEvent.id);
     setEventForm(eventToForm(nextEvent));
     window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
-    setMessage(`${eventEditorId ? "Updated" : "Created"} event ${savedEvent.name}.`);
+    setMessage(successMessage ?? `${eventEditorId ? "Updated" : "Created"} event ${savedEvent.name}.`);
     await loadEvent(token, nextEvent.id, nextEvent);
     if (!selectedTaskId) {
       setTaskDraft(taskDraftFromEvent(nextEvent));
     }
+  }
+
+  async function saveEvent(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await persistEventForm(eventForm);
   }
 
   async function createEventDraft() {
@@ -1241,10 +1248,9 @@ export default function HomePage() {
     await refreshEvents(token);
   }
 
-  async function assignExistingPilot() {
-    if (!token || !selectedEventId || !selectedDirectoryPilotId) return;
-    const payload = await apiFetch<PilotRecord>(`/api/events/${selectedEventId}/pilots/${selectedDirectoryPilotId}/assign`, token, { method: "POST" });
-    setSelectedDirectoryPilotId(null);
+  async function assignExistingPilot(pilotId: number | null) {
+    if (!token || !selectedEventId || !pilotId) return;
+    const payload = await apiFetch<PilotRecord>(`/api/events/${selectedEventId}/pilots/${pilotId}/assign`, token, { method: "POST" });
     setMessage(`Added ${payload.first_name} ${payload.last_name} to ${selectedEvent?.name ?? "the event"}.`);
     await loadEvent(token, selectedEventId);
     await refreshPilotDirectory(token);
@@ -1287,17 +1293,27 @@ export default function HomePage() {
     await refreshEvents(token);
   }
 
-  async function uploadAirspaceFile(kind: "airspace" | "restricted_field", file: File) {
+  async function uploadAirspaceFile(files: FileList | File[]) {
     if (!selectedEventId) return;
-    const response = await uploadFile<AirspaceUploadResponse>(`/api/events/${selectedEventId}/airspaces/upload?kind=${kind}`, file);
-    setMessage(`Stored ${response.imported_count} ${kind === "airspace" ? "airspace regions" : "restricted fields"} from ${file.name}.`);
+    const uploadQueue = Array.from(files);
+    if (!uploadQueue.length) return;
+
+    let importedCount = 0;
+    for (const file of uploadQueue) {
+      const response = await uploadFile<AirspaceUploadResponse>(`/api/events/${selectedEventId}/airspaces/upload?kind=`, file);
+      importedCount += response.imported_count;
+    }
+
+    const fileLabel = uploadQueue.length === 1 ? ` from ${uploadQueue[0].name}` : ` across ${uploadQueue.length} files`;
+    setMessage(`Stored ${importedCount} overlays${fileLabel}. Choose labels in the table when you're ready.`);
     await loadEvent(token, selectedEventId, selectedEvent);
     await refreshEvents(token);
   }
 
   async function deleteAirspaceSource(source: AirspaceSourceRecord) {
     if (!token || !selectedEventId) return;
-    const confirmed = window.confirm(`Delete ${source.filename}? This removes its ${source.kind === "airspace" ? "airspace polygons" : "restricted fields"} from the database.`);
+    const sourceLabel = source.kind === "restricted_field" ? "restricted fields" : source.kind === "airspace" ? "airspace overlays" : "overlays";
+    const confirmed = window.confirm(`Delete ${source.filename}? This removes its ${sourceLabel} from the database.`);
     if (!confirmed) return;
     await apiFetch<void>(`/api/events/${selectedEventId}/airspace-sources/${source.id}`, token, { method: "DELETE" });
     setMessage(`Deleted ${source.filename}.`);
@@ -1305,13 +1321,18 @@ export default function HomePage() {
     await refreshEvents(token);
   }
 
-  async function toggleAirspaceSource(source: AirspaceSourceRecord, enabled: boolean) {
+  async function updateAirspaceSource(source: AirspaceSourceRecord, updates: { enabled?: boolean; kind?: AirspaceSourceRecord["kind"] }) {
     if (!token || !selectedEventId) return;
     await apiFetch<AirspaceSourceRecord>(`/api/events/${selectedEventId}/airspace-sources/${source.id}`, token, {
       method: "PATCH",
-      body: JSON.stringify({ enabled }),
+      body: JSON.stringify(updates),
     });
-    setMessage(`${enabled ? "Enabled" : "Hidden"} ${source.filename} on the event map.`);
+    if (typeof updates.enabled === "boolean") {
+      setMessage(`${updates.enabled ? "Enabled" : "Hidden"} ${source.filename} on the event map.`);
+    } else if (updates.kind !== undefined) {
+      const label = updates.kind === "restricted_field" ? "Restricted fields" : updates.kind === "airspace" ? "Airspace" : "No label";
+      setMessage(`Updated ${source.filename} to ${label}.`);
+    }
     await loadEvent(token, selectedEventId, selectedEvent);
   }
 
@@ -1481,7 +1502,7 @@ export default function HomePage() {
     try {
       setTaskFeedback(null);
       const unpublishedTask = await apiFetch<TaskRecord>(`/api/tasks/${taskDraft.id}/unpublish`, token, { method: "POST" });
-      setTaskFeedback({ type: "success", text: `Unpublished task ${taskDraft.name}.` });
+      setTaskFeedback({ type: "success", text: `Unpublished task ${taskDraft.name} and cleared its scoring.` });
       if (selectedEventId) await loadEvent(token, selectedEventId, undefined, undefined, unpublishedTask.id);
     } catch (caught) {
       setTaskFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Task unpublish failed." });
@@ -1719,9 +1740,8 @@ export default function HomePage() {
         selectedEventId={selectedEventId}
         selectedEvent={selectedEvent}
         pilots={pilots}
+        sitePilots={pilotDirectory}
         availableDirectoryPilots={availableDirectoryPilots}
-        selectedDirectoryPilotId={selectedDirectoryPilotId}
-        setSelectedDirectoryPilotId={setSelectedDirectoryPilotId}
         pilotForm={pilotForm}
         setPilotForm={setPilotForm}
         canManagePlatform={canManagePlatform ?? false}
@@ -1756,10 +1776,9 @@ export default function HomePage() {
             turnpointSearch={turnpointSearch}
             setTurnpointSearch={setTurnpointSearch}
             filteredTurnpoints={filteredTurnpoints}
+            startGateLabels={startGateLabels}
             taskDistanceMetrics={taskDistanceMetrics}
             currentTaskTypeBehavior={currentTaskTypeBehavior}
-            taskAdvancedOpen={taskAdvancedOpen}
-            setTaskAdvancedOpen={setTaskAdvancedOpen}
             radiusDrafts={radiusDrafts}
             setRadiusDrafts={setRadiusDrafts}
             track={track}
@@ -1811,14 +1830,14 @@ export default function HomePage() {
               createEventDraft={createEventDraft}
               duplicateSelectedEvent={duplicateSelectedEvent}
               deleteEvent={deleteEvent}
-              saveEvent={saveEvent}
-              toggleTurnpointSource={toggleTurnpointSource}
-              deleteTurnpointSource={deleteTurnpointSource}
-              uploadAirspaceFile={uploadAirspaceFile}
-              deleteAirspaceSource={deleteAirspaceSource}
-              toggleAirspaceSource={toggleAirspaceSource}
-              toggleVisibleAirspaceClass={toggleVisibleAirspaceClass}
-              uploadFile={uploadFile}
+                saveEvent={saveEvent}
+                saveEventForm={persistEventForm}
+                toggleTurnpointSource={toggleTurnpointSource}
+                deleteTurnpointSource={deleteTurnpointSource}
+                uploadAirspaceFile={uploadAirspaceFile}
+                deleteAirspaceSource={deleteAirspaceSource}
+                toggleAirspaceSource={updateAirspaceSource}
+                uploadFile={uploadFile}
               loadEvent={(t, id) => loadEvent(t, id)}
               refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
               refreshEvents={refreshEvents}
@@ -1845,10 +1864,9 @@ export default function HomePage() {
               turnpointSearch={turnpointSearch}
               setTurnpointSearch={setTurnpointSearch}
               filteredTurnpoints={filteredTurnpoints}
+              startGateLabels={startGateLabels}
               taskDistanceMetrics={taskDistanceMetrics}
               currentTaskTypeBehavior={currentTaskTypeBehavior}
-              taskAdvancedOpen={taskAdvancedOpen}
-              setTaskAdvancedOpen={setTaskAdvancedOpen}
               radiusDrafts={radiusDrafts}
               setRadiusDrafts={setRadiusDrafts}
               track={track}
@@ -1924,13 +1942,11 @@ export default function HomePage() {
               loadTask={loadTask}
               refreshPilotSummary={refreshPilotSummary}
               uploadIgc={uploadIgc}
-            uploadIgcBatch={uploadIgcBatch}
-            deleteUpload={deleteUpload}
-            rescoreSelectedTask={rescoreSelectedTask}
-            deleteScoredTask={deleteScoredTask}
-            promoteResult={promoteResult}
-                downloadUploadFile={downloadUploadFile}
-                downloadAllIgcFiles={downloadAllIgcFiles}
+              uploadIgcBatch={uploadIgcBatch}
+              deleteUpload={deleteUpload}
+              deleteScoredTask={deleteScoredTask}
+                  downloadUploadFile={downloadUploadFile}
+                  downloadAllIgcFiles={downloadAllIgcFiles}
                 toggleResultTrack={toggleResultTrack}
                 toggleAllResultTracks={toggleAllResultTracks}
               />

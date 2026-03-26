@@ -12,9 +12,9 @@ engine_kwargs = {
     "connect_args": connect_args,
 }
 
-# QNAP/Postgres can briefly restart during recovery. Pre-ping and recycle stale
-# pooled connections so login and API requests recover instead of hanging on a
-# dead socket.
+# A containerized Postgres instance can briefly restart during recovery. Pre-ping
+# and recycle stale pooled connections so login and API requests recover instead
+# of hanging on a dead socket.
 if not settings.database_url.startswith("sqlite"):
     engine_kwargs.update(
         {

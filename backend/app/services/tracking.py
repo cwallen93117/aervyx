@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import LivePosition, TrackingSession
+from app.models import LivePosition, TrackingSession, User
 
 
 # ---------------------------------------------------------------------------
@@ -18,6 +18,23 @@ from app.models import LivePosition, TrackingSession
 
 _subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
 logger = logging.getLogger("aervyx.tracking")
+VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
+
+
+def _normalize_aircraft_icon(value: str | None) -> str:
+    candidate = (value or "").strip().lower()
+    return candidate if candidate in VALID_AIRCRAFT_ICONS else "hang_glider"
+
+
+def _aircraft_icons_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int, str]:
+    if not pilot_ids:
+        return {}
+    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids)).order_by(User.id.asc())).all()
+    aircraft_icons: dict[int, str] = {}
+    for user in users:
+        if user.pilot_id is not None and user.pilot_id not in aircraft_icons:
+            aircraft_icons[user.pilot_id] = _normalize_aircraft_icon(user.aircraft_icon)
+    return aircraft_icons
 
 
 def subscribe(task_id: int) -> asyncio.Queue[dict[str, Any]]:
@@ -136,6 +153,7 @@ def store_position(
         "source": pos.source,
         "device_id": pos.device_id,
         "battery_level": pos.battery_level,
+        "aircraft_icon": _aircraft_icons_by_pilot(session, [pilot_id]).get(pilot_id, "hang_glider") if pilot_id is not None else "hang_glider",
     }
     _publish(task_id, message)
 
@@ -158,6 +176,7 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
 
     if not active_pilots:
         return []
+    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, [pilot_id for pilot_id in active_pilots if pilot_id is not None])
 
     # Use a subquery with ROW_NUMBER() to get latest position per pilot
     row_num = sa_func.row_number().over(
@@ -193,6 +212,7 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
             "source": row.source,
             "device_id": row.device_id,
             "battery_level": row.battery_level,
+            "aircraft_icon": aircraft_icons_by_pilot.get(row.pilot_id, "hang_glider"),
         }
         for row in rows
     ]
@@ -215,6 +235,7 @@ def get_position_history(
     query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
 
     rows = session.scalars(query).all()
+    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, [pos.pilot_id for pos in rows if pos.pilot_id is not None])
     return [
         {
             "id": str(pos.id),
@@ -230,6 +251,7 @@ def get_position_history(
             "source": pos.source,
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
+            "aircraft_icon": aircraft_icons_by_pilot.get(pos.pilot_id, "hang_glider"),
         }
         for pos in rows
     ]

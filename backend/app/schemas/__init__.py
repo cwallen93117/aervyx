@@ -47,6 +47,7 @@ class AccountSettingsResponse(BaseModel):
     speed_unit: str = "kph"
     distance_unit: str = "km"
     vario_unit: str = "fpm"
+    aircraft_icon: str = "hang_glider"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -67,6 +68,7 @@ class AccountSettingsUpdate(BaseModel):
     speed_unit: str = "kph"
     distance_unit: str = "km"
     vario_unit: str = "fpm"
+    aircraft_icon: str = "hang_glider"
     email: str | None = None
     first_name: str | None = None
     last_name: str | None = None
@@ -259,7 +261,8 @@ class AirspaceUploadResponse(BaseModel):
 
 
 class AirspaceSourceUpdate(BaseModel):
-    enabled: bool
+    enabled: bool | None = None
+    kind: str | None = None
 
 
 class AirspaceRegionResponse(BaseModel):
@@ -386,6 +389,7 @@ class PilotSummaryResponse(BaseModel):
     tasks_scored: int
     best_distance_km: float
     task_scores: dict[int, float] = Field(default_factory=dict)
+    task_result_states: dict[int, str] = Field(default_factory=dict)
 
 
 class TaskScoringInputUpdate(BaseModel):

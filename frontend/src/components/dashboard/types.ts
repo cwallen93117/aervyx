@@ -3,6 +3,7 @@ import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } f
 export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
+export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
 export type AccountSettingsRecord = {
   username: string;
   full_name: string;
@@ -12,6 +13,7 @@ export type AccountSettingsRecord = {
   speed_unit: "kph" | "mph";
   distance_unit: "km" | "mi";
   vario_unit: "fpm" | "ms";
+  aircraft_icon: AircraftIconType;
   email: string | null;
   first_name: string | null;
   last_name: string | null;
@@ -122,7 +124,7 @@ export type TaskRecord = {
   points: TaskPointRecord[];
 };
 export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string };
-export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number> };
+export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number>; task_result_states: Record<string, string> };
 export type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; upload_source?: "manual" | "bulk" | "tracker" | string; metadata_json: Record<string, unknown> };
 export type ScoringUploadOptionRecord = { id: number; filename: string; upload_source: "manual" | "bulk" | "tracker" | string; label: string; uploaded_at: string };
 export type ScorePenaltyRecord = { id?: number | null; penalty_type: "percentage" | "fixed"; value: number; reason: string; position: number; applied_by?: string | null; applied_at?: string | null };
@@ -146,10 +148,11 @@ export type ScoringOperationsResponseRecord = { rows: ScoringOperationsRowRecord
 export type ScoringInputSelectionRecord = { selected_upload_id: number | null; status_override: "minimum_distance" | "did_not_fly" | "absent" | null };
 export type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
 export type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; message: string };
+export type AirspaceSourceKind = "" | "airspace" | "restricted_field";
 export type AirspaceSourceRecord = {
   id: number;
   event_id: number;
-  kind: "airspace" | "restricted_field";
+  kind: AirspaceSourceKind;
   filename: string;
   file_format: string;
   sha256: string;
@@ -157,7 +160,7 @@ export type AirspaceSourceRecord = {
   region_count: number;
   enabled?: boolean;
 };
-export type AirspaceUploadResponse = { source_id: number; kind: "airspace" | "restricted_field"; format: string; imported_count: number; sha256: string; filename: string };
+export type AirspaceUploadResponse = { source_id: number; kind: AirspaceSourceKind; format: string; imported_count: number; sha256: string; filename: string };
 export type TaskDraftState = {
   id: number | null;
   name: string;

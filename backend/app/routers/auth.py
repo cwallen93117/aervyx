@@ -26,6 +26,7 @@ VALID_ALTITUDE_UNITS = {"ft", "m"}
 VALID_SPEED_UNITS = {"kph", "mph"}
 VALID_DISTANCE_UNITS = {"km", "mi"}
 VALID_VARIO_UNITS = {"fpm", "ms"}
+VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 
 
 def _is_valid_email(value: str) -> bool:
@@ -56,6 +57,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         speed_unit=user.speed_unit,
         distance_unit=user.distance_unit,
         vario_unit=user.vario_unit,
+        aircraft_icon=user.aircraft_icon,
         email=pilot.email if pilot else (user.username if "@" in user.username else None),
         first_name=pilot.first_name if pilot else None,
         last_name=pilot.last_name if pilot else None,
@@ -150,6 +152,7 @@ def update_settings(
     speed_unit = payload.speed_unit.strip().lower() if payload.speed_unit else "kph"
     distance_unit = payload.distance_unit.strip().lower() if payload.distance_unit else "km"
     vario_unit = payload.vario_unit.strip().lower() if payload.vario_unit else "fpm"
+    aircraft_icon = payload.aircraft_icon.strip().lower() if payload.aircraft_icon else "hang_glider"
     if altitude_unit not in VALID_ALTITUDE_UNITS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Altitude unit must be ft or m")
     if speed_unit not in VALID_SPEED_UNITS:
@@ -158,6 +161,8 @@ def update_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Distance unit must be km or mi")
     if vario_unit not in VALID_VARIO_UNITS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
+    if aircraft_icon not in VALID_AIRCRAFT_ICONS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Aircraft icon must be hang_glider, paraglider, or sailplane")
 
     normalized_email_identity = _normalize_email_identity(payload.username, payload.email)
     if normalized_email_identity is None:
@@ -177,6 +182,7 @@ def update_settings(
     user.speed_unit = speed_unit
     user.distance_unit = distance_unit
     user.vario_unit = vario_unit
+    user.aircraft_icon = aircraft_icon
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     if pilot is not None:

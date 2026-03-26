@@ -91,17 +91,24 @@ def _task_scoring_input(session: Session, task_id: int, pilot_id: int) -> TaskSc
     return entry
 
 
+def _effective_selected_upload_id(entry: TaskScoringInput | None) -> int | None:
+    if entry is not None and entry.selected_upload_id is not None:
+        return entry.selected_upload_id
+    return None
+
+
 @router.get("/api/tasks/{task_id}/results", response_model=list[ScoreResultResponse])
 def get_task_results(task_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[ScoreResultResponse]:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    official_results = session.scalars(
-        select(ScoreResult)
-        .where(ScoreResult.task_id == task_id, ScoreResult.result_state == "official")
-        .order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
+    results_query = select(ScoreResult).where(ScoreResult.task_id == task_id)
+    if user.role not in {"admin", "organizer"}:
+        results_query = results_query.where(ScoreResult.result_state == "official")
+    visible_results = session.scalars(
+        results_query.order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
-    results_by_pilot = {result.pilot_id: result for result in official_results}
+    results_by_pilot = {result.pilot_id: result for result in visible_results}
     pilots = session.execute(
         select(Pilot)
         .join(EventPilot, EventPilot.pilot_id == Pilot.id)
@@ -227,7 +234,7 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
                 pilot_id=pilot.id,
                 pilot_name=f"{pilot.first_name} {pilot.last_name}".strip(),
                 competition_number=pilot.competition_number,
-                selected_upload_id=entry.selected_upload_id if entry else None,
+                selected_upload_id=_effective_selected_upload_id(entry),
                 status_override=entry.status_override if entry else None,
                 uploads=[
                     ScoringUploadOption(
@@ -417,6 +424,31 @@ def publish_task_results(task_id: int, admin: User = Depends(require_staff), ses
     return {"status": "ok", "published_count": published_count}
 
 
+@router.post("/api/tasks/{task_id}/unpublish-results")
+def unpublish_task_results(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict[str, int | str]:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    results = session.scalars(select(ScoreResult).where(ScoreResult.task_id == task_id)).all()
+    if not results:
+        return {"status": "ok", "unpublished_count": 0}
+    unpublished_count = 0
+    for result in results:
+        if result.result_state != "provisional":
+            result.result_state = "provisional"
+            unpublished_count += 1
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="task.results.unpublish",
+        entity_type="task",
+        entity_id=str(task_id),
+        details={"unpublished_count": unpublished_count},
+    )
+    session.commit()
+    return {"status": "ok", "unpublished_count": unpublished_count}
+
+
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])
 def pilot_summary(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[PilotSummaryResponse]:
     pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
@@ -429,19 +461,21 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     }
 
     # Batch-load all per-task scores for these pilots in this event
-    score_rows = session.execute(
-        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points)
+    score_rows_query = (
+        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points, ScoreResult.result_state)
         .join(Task, Task.id == ScoreResult.task_id)
         .where(
             Task.event_id == event_id,
             ScoreResult.pilot_id.in_(pilot_ids),
-            ScoreResult.result_state == "official",
         )
         .order_by(ScoreResult.task_id.asc())
-    ).all()
+    )
+    if user.role not in {"admin", "organizer"}:
+        score_rows_query = score_rows_query.where(ScoreResult.result_state == "official")
+    score_rows = session.execute(score_rows_query).all()
 
     # Batch-load aggregates for all pilots in one query
-    agg_rows = session.execute(
+    agg_rows_query = (
         select(
             ScoreResult.pilot_id,
             func.coalesce(func.sum(ScoreResult.score_points), 0),
@@ -452,15 +486,19 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
         .where(
             Task.event_id == event_id,
             ScoreResult.pilot_id.in_(pilot_ids),
-            ScoreResult.result_state == "official",
         )
         .group_by(ScoreResult.pilot_id)
-    ).all()
+    )
+    if user.role not in {"admin", "organizer"}:
+        agg_rows_query = agg_rows_query.where(ScoreResult.result_state == "official")
+    agg_rows = session.execute(agg_rows_query).all()
 
     # Build lookup structures
     task_scores_by_pilot: dict[int, dict[int, float]] = {}
-    for pid, tid, pts in score_rows:
+    task_states_by_pilot: dict[int, dict[int, str]] = {}
+    for pid, tid, pts, result_state in score_rows:
         task_scores_by_pilot.setdefault(pid, {})[int(tid)] = float(pts or 0)
+        task_states_by_pilot.setdefault(pid, {})[int(tid)] = str(result_state or "official")
 
     agg_by_pilot: dict[int, tuple] = {row[0]: row[1:] for row in agg_rows}
 
@@ -476,5 +514,6 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
             tasks_scored=int(agg[1] or 0),
             best_distance_km=float(agg[2] or 0),
             task_scores=task_scores_by_pilot.get(pilot_id, {}),
+            task_result_states=task_states_by_pilot.get(pilot_id, {}),
         ))
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

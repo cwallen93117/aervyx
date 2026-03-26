@@ -677,6 +677,9 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
 
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at)).all()
     uploads_by_id = {upload.id: upload for upload in uploads}
+    uploads_by_pilot: dict[int, list[IGCUpload]] = {}
+    for upload in reversed(uploads):
+        uploads_by_pilot.setdefault(upload.pilot_id, []).append(upload)
     scoring_inputs = session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task_id)).all()
     scoring_input_by_pilot = {entry.pilot_id: entry for entry in scoring_inputs}
     penalties = session.scalars(
@@ -690,12 +693,16 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     event_pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
     registered_pilot_count = len(event_pilot_ids)
 
-    # Batch-load all trackpoints for the relevant uploads in one query
-    selected_upload_ids = [
-        scoring_input.selected_upload_id
-        for scoring_input in scoring_inputs
-        if scoring_input.selected_upload_id is not None and scoring_input.selected_upload_id in uploads_by_id
-    ]
+    # Batch-load trackpoints only for explicitly selected uploads.
+    selected_upload_ids: list[int] = []
+    for pilot_id in event_pilot_ids:
+        scoring_input = scoring_input_by_pilot.get(pilot_id)
+        if (
+            scoring_input is not None
+            and scoring_input.selected_upload_id is not None
+            and scoring_input.selected_upload_id in uploads_by_id
+        ):
+            selected_upload_ids.append(scoring_input.selected_upload_id)
     upload_ids = list(dict.fromkeys(selected_upload_ids))
     all_trackpoints = session.scalars(
         select(TrackPoint).where(TrackPoint.upload_id.in_(upload_ids)).order_by(TrackPoint.upload_id, TrackPoint.sequence)
@@ -707,10 +714,11 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     evaluations: list[dict] = []
     for pilot_id in event_pilot_ids:
         scoring_input = scoring_input_by_pilot.get(pilot_id)
-        if scoring_input is None:
-            continue
-        if scoring_input.selected_upload_id is not None:
-            upload = uploads_by_id.get(scoring_input.selected_upload_id)
+        effective_upload_id = None
+        if scoring_input is not None and scoring_input.selected_upload_id is not None:
+            effective_upload_id = scoring_input.selected_upload_id
+        if effective_upload_id is not None:
+            upload = uploads_by_id.get(effective_upload_id)
             if upload is None or upload.pilot_id != pilot_id:
                 continue
             trackpoints = trackpoints_by_upload.get(upload.id, [])
@@ -721,6 +729,8 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
                     "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None),
                 }
             )
+            continue
+        if scoring_input is None:
             continue
         if scoring_input.status_override == "minimum_distance":
             evaluations.append({"pilot_id": pilot_id, "upload": None, "evaluation": _minimum_distance_evaluation(task, event)})
