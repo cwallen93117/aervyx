@@ -21,21 +21,28 @@ class AuthService extends ChangeNotifier {
   AuthService(this._api);
 
   /// Try to restore a saved session on app start.
+  /// Uses a short timeout so the app never hangs on a white screen.
   Future<void> tryRestoreSession() async {
     _loading = true;
     notifyListeners();
 
-    final savedToken = await _storage.read(key: 'access_token');
-    if (savedToken != null) {
-      _api.setToken(savedToken);
-      try {
-        final json = await _api.get(ApiConfig.mePath);
-        _user = User.fromJson(json);
-      } catch (_) {
-        // Token expired or invalid — clear it.
-        await _storage.delete(key: 'access_token');
-        _api.setToken(null);
+    try {
+      final savedToken = await _storage.read(key: 'access_token');
+      if (savedToken != null) {
+        _api.setToken(savedToken);
+        try {
+          final json = await _api
+              .get(ApiConfig.mePath)
+              .timeout(const Duration(seconds: 3));
+          _user = User.fromJson(json);
+        } catch (_) {
+          // Token expired, invalid, or backend unreachable — clear it.
+          await _storage.delete(key: 'access_token');
+          _api.setToken(null);
+        }
       }
+    } catch (_) {
+      // Secure storage or other init failure — proceed to login screen.
     }
 
     _loading = false;
@@ -79,6 +86,22 @@ class AuthService extends ChangeNotifier {
     _user = auth.user;
     notifyListeners();
   }
+
+  /// Enter BLE test mode — bypasses login with a local-only user.
+  /// Tracking/backend features won't work, but BLE pairing will.
+  void enterBleTestMode() {
+    _user = const User(
+      id: 0,
+      username: 'ble-test',
+      fullName: 'BLE Test Mode',
+      role: 'pilot',
+      profileType: 'pilot',
+    );
+    _loading = false;
+    notifyListeners();
+  }
+
+  bool get isBleTestMode => _user?.username == 'ble-test';
 
   /// Log out and clear stored credentials.
   Future<void> logout() async {

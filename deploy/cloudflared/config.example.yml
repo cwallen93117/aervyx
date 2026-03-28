@@ -1,0 +1,9 @@
+tunnel: YOUR-TUNNEL-ID
+credentials-file: /etc/cloudflared/YOUR-TUNNEL-ID.json
+
+ingress:
+  - hostname: aervyx.net
+    service: http://frontend:3000
+  - hostname: api.aervyx.net
+    service: http://backend:8000
+  - service: http_status:404

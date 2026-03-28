@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
+import { type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
-import type { AdminUserRecord, SiteSettingsRecord, User } from "./types";
+import type { AdminSiteRecord, AdminUserRecord, SiteSettingsRecord, User } from "./types";
 
-type AdminTab = "platform_users" | "site_settings";
+type AdminTab = "platform_users" | "site_settings" | "sites_database";
 
 export interface AdminSectionProps {
   user: User | null;
@@ -14,6 +15,13 @@ export interface AdminSectionProps {
   adminFeedback: { type: "success" | "error"; text: string } | null;
   saveAdminUser: (userRecord: AdminUserRecord) => void;
   deleteAdminUser: (userRecord: AdminUserRecord) => void;
+  adminSites: AdminSiteRecord[];
+  setAdminSites: (sites: AdminSiteRecord[] | ((current: AdminSiteRecord[]) => AdminSiteRecord[])) => void;
+  adminSitesFeedback: { type: "success" | "error" | "pending"; text: string } | null;
+  saveAdminSite: (siteRecord: AdminSiteRecord) => void;
+  deleteAdminSite: (siteRecord: AdminSiteRecord) => void;
+  rescanAdminFlightSites: () => void;
+  scanIgcForNewSites: () => void;
   siteSettings: SiteSettingsRecord;
   setSiteSettings: (settings: SiteSettingsRecord | ((current: SiteSettingsRecord) => SiteSettingsRecord)) => void;
   siteSettingsFeedback: { type: "success" | "error"; text: string } | null;
@@ -28,12 +36,66 @@ export default function AdminSection(props: AdminSectionProps) {
     adminFeedback,
     saveAdminUser,
     deleteAdminUser,
+    adminSites,
+    setAdminSites,
+    adminSitesFeedback,
+    saveAdminSite,
+    deleteAdminSite,
+    rescanAdminFlightSites,
+    scanIgcForNewSites,
     siteSettings,
     setSiteSettings,
     siteSettingsFeedback,
     saveSiteSettings,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
+  const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!adminSites.length) {
+      setSelectedSiteId(null);
+      return;
+    }
+    if (selectedSiteId == null || !adminSites.some((site) => site.id === selectedSiteId)) {
+      setSelectedSiteId(adminSites[0].id);
+    }
+  }, [adminSites, selectedSiteId]);
+
+  const selectedSite = useMemo(
+    () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
+    [adminSites, selectedSiteId],
+  );
+  const previewTurnpoints = useMemo<MapTurnpoint[]>(
+    () =>
+      selectedSite
+        ? [
+            {
+              id: selectedSite.id,
+              name: selectedSite.name || "Site",
+              code: selectedSite.city_state || null,
+              latitude: selectedSite.latitude,
+              longitude: selectedSite.longitude,
+            },
+          ]
+        : [],
+    [selectedSite],
+  );
+
+  function addSiteDraft() {
+    setAdminSites((current) => [
+      ...current,
+      {
+        id: -Date.now(),
+        name: "",
+        city_state: "",
+        latitude: 0,
+        longitude: 0,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+    ]);
+  }
 
   return (
     <div className="section-stack">
@@ -51,6 +113,13 @@ export default function AdminSection(props: AdminSectionProps) {
           onClick={() => setActiveTab("site_settings")}
         >
           Site settings
+        </button>
+        <button
+          type="button"
+          className={activeTab === "sites_database" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("sites_database")}
+        >
+          Sites database
         </button>
       </div>
       {activeTab === "platform_users" ? (
@@ -118,8 +187,192 @@ export default function AdminSection(props: AdminSectionProps) {
             </div>
           </div>
         </SectionCard>
+      ) : activeTab === "sites_database" ? (
+        <SectionCard title="Sites database" description="Maintain the site catalog used by logbook site matching and future same-site flight discovery.">
+          <div className="stack form-block compact-clusters">
+            {adminSitesFeedback ? <div className={`status-chip ${adminSitesFeedback.type}`}>{adminSitesFeedback.text}</div> : null}
+            {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
+            <div className="logbook-bulk-actions">
+              <div className="button-row compact">
+                <button type="button" className="ghost-button" onClick={addSiteDraft}>
+                  Add site
+                </button>
+                <button type="button" className="ghost-button" onClick={() => void saveSiteSettings()}>
+                  Save matching settings
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => {
+                    const confirmed = window.confirm("Scan all IGC files for new takeoff sites? This will create new sites for any unique takeoff locations not already in the database.");
+                    if (confirmed) {
+                      void scanIgcForNewSites();
+                    }
+                  }}
+                >
+                  Scan IGC for new sites
+                </button>
+                <button
+                  type="button"
+                  className="ghost-button danger-button"
+                  onClick={() => {
+                    const confirmed = window.confirm("Rescan all unmatched IGC-backed flights for site matches?");
+                    if (confirmed) {
+                      void rescanAdminFlightSites();
+                    }
+                  }}
+                >
+                  Rescan all flights for site match
+                </button>
+              </div>
+              <label className="stack compact logbook-site-radius-control">
+                <span>Site match radius (m)</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={siteSettings.site_match_radius_m}
+                  onChange={(event) =>
+                    setSiteSettings((current) => ({
+                      ...current,
+                      site_match_radius_m: Math.max(1, Number(event.target.value || 1)),
+                    }))
+                  }
+                />
+              </label>
+            </div>
+            <div className="admin-sites-layout">
+              <div className="results-table-wrap">
+                <table className="results-table logbook-table">
+                  <thead>
+                    <tr>
+                      <th>Site name</th>
+                      <th>City / State</th>
+                      <th>Flights</th>
+                      <th>Map</th>
+                      <th className="participant-table-actions">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {adminSites.length ? (
+                      adminSites.map((site) => {
+                        const isSelected = selectedSiteId === site.id;
+                        return (
+                          <tr key={site.id} className={isSelected ? "site-database-row selected" : "site-database-row"}>
+                            <td>
+                              <input
+                                value={site.name}
+                                placeholder="Site name"
+                                onChange={(event) =>
+                                  setAdminSites((current) =>
+                                    current.map((entry) => (entry.id === site.id ? { ...entry, name: event.target.value } : entry)),
+                                  )
+                                }
+                              />
+                            </td>
+                            <td>
+                              <input
+                                value={site.city_state}
+                                placeholder="City / State"
+                                onChange={(event) =>
+                                  setAdminSites((current) =>
+                                    current.map((entry) => (entry.id === site.id ? { ...entry, city_state: event.target.value } : entry)),
+                                  )
+                                }
+                              />
+                            </td>
+                            <td className="site-database-flight-count">{site.flight_count ?? 0}</td>
+                            <td>
+                              <div className="site-database-map-cell">
+                                <button type="button" className="ghost-button" onClick={() => setSelectedSiteId(site.id)}>
+                                  View map
+                                </button>
+                                <div className="site-database-coordinates">
+                                  <input
+                                    type="number"
+                                    step="0.000001"
+                                    value={site.latitude}
+                                    onChange={(event) =>
+                                      setAdminSites((current) =>
+                                        current.map((entry) => (entry.id === site.id ? { ...entry, latitude: Number(event.target.value || 0) } : entry)),
+                                      )
+                                    }
+                                  />
+                                  <input
+                                    type="number"
+                                    step="0.000001"
+                                    value={site.longitude}
+                                    onChange={(event) =>
+                                      setAdminSites((current) =>
+                                        current.map((entry) => (entry.id === site.id ? { ...entry, longitude: Number(event.target.value || 0) } : entry)),
+                                      )
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            </td>
+                            <td className="participant-table-actions">
+                              <div className="compact-slot-actions">
+                                <button type="button" className="ghost-button" onClick={() => void saveAdminSite(site)}>
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  className="ghost-button danger-button"
+                                  onClick={() => {
+                                    const confirmed = window.confirm(`Delete ${site.name || "this site"}?`);
+                                    if (confirmed) {
+                                      void deleteAdminSite(site);
+                                    }
+                                  }}
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="participant-table-empty">No sites in the database yet.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="logbook-site-preview">
+                <div className="section-card-header">
+                  <div>
+                    <h3>Map preview</h3>
+                    <p className="hint">{selectedSite ? "Visual confirmation for the selected site." : "Select a site to preview its map location."}</p>
+                  </div>
+                </div>
+                <div className="logbook-site-preview-map">
+                  {selectedSite ? (
+                    <TaskMap
+                      turnpoints={previewTurnpoints}
+                      taskPoints={[]}
+                      optimizedRoute={[]}
+                      legMetrics={[]}
+                      totalDistanceKm={0}
+                      optimizedDistanceKm={0}
+                      track={null}
+                      editable={false}
+                    />
+                  ) : (
+                    <div className="logbook-site-preview-label empty">
+                      <strong>No site selected</strong>
+                      <span>Select a site row to preview it on the map.</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
       ) : (
-        <SectionCard title="Site settings" description="These admin-only settings control how telemetry is smoothed on the Scores map.">
+        <SectionCard title="Site settings" description="These admin-only settings control replay smoothing and map behavior across the dashboard.">
           <div className="stack form-block compact-clusters">
             {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
             <div className="fieldset-grid two-up">
@@ -197,8 +450,29 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                 </div>
               </fieldset>
+              <fieldset className="fieldset-cluster">
+                <legend>Map view</legend>
+                <div className="cluster-stack">
+                  <label className="stack compact">
+                    <span>Maximum map pitch</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={85}
+                      step={1}
+                      value={siteSettings.max_map_pitch_degrees}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          max_map_pitch_degrees: Number(event.target.value || 0),
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              </fieldset>
             </div>
-            <p className="hint">Use 0 to disable smoothing. Allowed range is 0 to 30 seconds.</p>
+            <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 85 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
             <div className="button-row">
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save site settings

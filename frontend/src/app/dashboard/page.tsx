@@ -20,10 +20,15 @@ import {
   type EventTab,
   type User,
   type AccountSettingsRecord,
+  type AdminSiteRecord,
+  type AdminSiteRescanResultRecord,
+  type AdminSiteScanIgcResultRecord,
   type AdminUserRecord,
   type SiteSettingsRecord,
   type LogbookFlightSummaryRecord,
   type LogbookFlightDetailRecord,
+  type LogbookFolderImportResultRecord,
+  type LogbookBulkDeleteResponseRecord,
   type LogbookFlightFormRecord,
   type EventRecord,
   type EventFormState,
@@ -192,6 +197,8 @@ function blankSiteSettingsForm(): SiteSettingsRecord {
     telemetry_altitude_smoothing_seconds: 3,
     telemetry_speed_smoothing_seconds: 3,
     telemetry_glide_ratio_smoothing_seconds: 5,
+    max_map_pitch_degrees: 75,
+    site_match_radius_m: 1000,
     updated_at: null,
   };
 }
@@ -383,6 +390,13 @@ async function apiFetchBlob(path: string, token: string, init: RequestInit = {})
   return { blob: await response.blob(), filename: match?.[1] ?? null };
 }
 
+function logbookImportFileKey(file: File) {
+  const relativePath = "webkitRelativePath" in file && typeof file.webkitRelativePath === "string" && file.webkitRelativePath.trim()
+    ? file.webkitRelativePath.trim()
+    : file.name;
+  return `${relativePath}::${file.size}::${file.lastModified}`;
+}
+
 async function apiFetchPublic<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
@@ -456,6 +470,8 @@ export default function HomePage() {
   }>({ profile: null, password: null });
   const [adminUsers, setAdminUsers] = useState<AdminUserRecord[]>([]);
   const [adminFeedback, setAdminFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [adminSites, setAdminSites] = useState<AdminSiteRecord[]>([]);
+  const [adminSitesFeedback, setAdminSitesFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettingsRecord>(blankSiteSettingsForm());
   const [siteSettingsFeedback, setSiteSettingsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [logbookFlights, setLogbookFlights] = useState<LogbookFlightSummaryRecord[]>([]);
@@ -794,6 +810,7 @@ export default function HomePage() {
     setEvents(loadedEvents);
     void refreshPilotDirectory(activeToken, me);
     void refreshAdminUsers(activeToken, me);
+    void refreshAdminSites(activeToken, me);
     if (preferredEvent) {
       window.localStorage.setItem(LAST_EVENT_KEY, String(preferredEvent.id));
       setSelectedEventId(preferredEvent.id);
@@ -856,6 +873,16 @@ export default function HomePage() {
     return loadedUsers;
   }
 
+  async function refreshAdminSites(activeToken: string, activeUser?: User | null) {
+    if ((activeUser ?? user)?.role !== "admin") {
+      setAdminSites([]);
+      return [];
+    }
+    const loadedSites = await apiFetch<AdminSiteRecord[]>("/api/admin/sites", activeToken);
+    setAdminSites(loadedSites);
+    return loadedSites;
+  }
+
   async function refreshSiteSettings(activeToken: string) {
     const loadedSettings = await apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken);
     setSiteSettings(loadedSettings);
@@ -910,6 +937,73 @@ export default function HomePage() {
       setLogbookFeedback({ type: "success", text: `Uploaded ${file.name} into your logbook.` });
     } catch (caught) {
       setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not upload that IGC file." });
+    }
+  }
+
+  async function scanLogbookFolderFlights(files: File[], confirmedFileKeys: string[] = []) {
+    if (!token) {
+      return { imported: [], skipped: [], review_needed: [] } satisfies LogbookFolderImportResultRecord;
+    }
+    const igcFiles = files.filter((file) => file.name.toLowerCase().endsWith(".igc"));
+    if (!igcFiles.length) {
+      const emptyResult = { imported: [], skipped: [], review_needed: [] } satisfies LogbookFolderImportResultRecord;
+      setLogbookFeedback({ type: "error", text: "No IGC files were found in that folder selection." });
+      return emptyResult;
+    }
+    setLogbookFeedback({ type: "pending", text: `Scanning ${igcFiles.length} IGC file${igcFiles.length === 1 ? "" : "s"} from the selected folder...` });
+    try {
+      const formData = new FormData();
+      const relativePaths = igcFiles.map((file) => ("webkitRelativePath" in file && file.webkitRelativePath ? file.webkitRelativePath : file.name));
+      const fileKeys = igcFiles.map((file) => logbookImportFileKey(file));
+      igcFiles.forEach((file) => formData.append("files", file, file.name));
+      formData.append("relative_paths_json", JSON.stringify(relativePaths));
+      formData.append("file_keys_json", JSON.stringify(fileKeys));
+      if (confirmedFileKeys.length) {
+        formData.append("confirmed_file_keys_json", JSON.stringify(confirmedFileKeys));
+      }
+      const result = await apiFetch<LogbookFolderImportResultRecord>("/api/logbook/flights/import-folder", token, {
+        method: "POST",
+        body: formData,
+      });
+      await refreshLogbookFlights(token);
+      const summaryText = [
+        result.imported.length ? `${result.imported.length} imported` : null,
+        result.review_needed.length ? `${result.review_needed.length} need review` : null,
+        result.skipped.length ? `${result.skipped.length} skipped` : null,
+      ].filter(Boolean).join(" - ");
+      setLogbookFeedback({
+        type: result.review_needed.length ? "pending" : "success",
+        text: summaryText ? `Folder scan complete: ${summaryText}.` : "Folder scan complete.",
+      });
+      return result;
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not scan that folder." });
+      throw caught;
+    }
+  }
+
+  async function attachLogbookFlightFile(flight: LogbookFlightSummaryRecord, file: File) {
+    if (!token) return;
+    const flightLabel = flight.site_name || flight.filename || "that flight";
+    setLogbookFeedback({ type: "pending", text: `Attaching ${file.name} to ${flightLabel}...` });
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const updated = await apiFetch<LogbookFlightDetailRecord>(`/api/logbook/flights/${flight.id}/upload`, token, {
+        method: "POST",
+        body: formData,
+      });
+      if (logbookDetailFlight?.id === flight.id) {
+        setLogbookDetailFlight(updated);
+      }
+      if (logbookReplayFlight?.id === flight.id) {
+        setLogbookReplayFlight(updated);
+      }
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({ type: "success", text: `Attached ${file.name} to ${flightLabel}.` });
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not attach that IGC file." });
+      throw caught;
     }
   }
 
@@ -968,6 +1062,123 @@ export default function HomePage() {
       URL.revokeObjectURL(url);
     } catch (caught) {
       setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download that IGC file." });
+    }
+  }
+
+  async function deleteLogbookFlight(flight: LogbookFlightSummaryRecord) {
+    if (!token) return;
+    const flightLabel = flight.filename ?? flight.site_name ?? "that flight";
+    setLogbookFeedback({ type: "pending", text: `Deleting ${flightLabel}...` });
+    try {
+      await apiFetch<void>(`/api/logbook/flights/${flight.id}`, token, { method: "DELETE" });
+      if (logbookDetailFlight?.id === flight.id) {
+        setLogbookDetailFlight(null);
+        setLogbookDetailLoading(false);
+      }
+      if (logbookReplayFlight?.id === flight.id) {
+        setLogbookReplayFlight(null);
+        setLogbookReplayTrack(null);
+        setLogbookReplayLoading(false);
+      }
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({ type: "success", text: `Deleted ${flight.filename ?? "that flight"} from the logbook.` });
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not delete that flight." });
+    }
+  }
+
+  async function bulkDeleteLogbookFlights(flightsToDelete: LogbookFlightSummaryRecord[]) {
+    if (!token || !flightsToDelete.length) return;
+    const selectedIds = flightsToDelete.map((flight) => flight.id);
+    setLogbookFeedback({
+      type: "pending",
+      text: `Deleting ${selectedIds.length} selected flight${selectedIds.length === 1 ? "" : "s"}...`,
+    });
+    try {
+      const result = await apiFetch<LogbookBulkDeleteResponseRecord>("/api/logbook/flights", token, {
+        method: "DELETE",
+        body: JSON.stringify({ flight_ids: selectedIds }),
+      });
+      const deletedIdSet = new Set(result.deleted_ids);
+      if (logbookDetailFlight && deletedIdSet.has(logbookDetailFlight.id)) {
+        setLogbookDetailFlight(null);
+        setLogbookDetailLoading(false);
+      }
+      if (logbookReplayFlight && deletedIdSet.has(logbookReplayFlight.id)) {
+        setLogbookReplayFlight(null);
+        setLogbookReplayTrack(null);
+        setLogbookReplayLoading(false);
+      }
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({
+        type: "success",
+        text: `Deleted ${result.deleted_count} selected flight${result.deleted_count === 1 ? "" : "s"} from the logbook.`,
+      });
+    } catch (caught) {
+      setLogbookFeedback({
+        type: "error",
+        text: caught instanceof Error ? caught.message : "Could not delete the selected flights.",
+      });
+      throw caught;
+    }
+  }
+
+  async function saveLogbookFlightNotes(flightId: number, notes: string) {
+    if (!token) return;
+    setLogbookFeedback({ type: "pending", text: "Saving flight notes..." });
+    try {
+      const updated = await apiFetch<LogbookFlightDetailRecord>(`/api/logbook/flights/${flightId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ notes }),
+      });
+      setLogbookDetailFlight(updated);
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({ type: "success", text: "Saved flight notes." });
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save flight notes." });
+      throw caught;
+    }
+  }
+
+  async function setLogbookFlightStar(flight: LogbookFlightSummaryRecord, starred: boolean) {
+    if (!token) return;
+    const flightLabel = flight.site_name || flight.filename || "that flight";
+    setLogbookFlights((current) =>
+      current.map((entry) => (entry.id === flight.id ? { ...entry, starred } : entry)),
+    );
+    if (logbookReplayFlight?.id === flight.id) {
+      setLogbookReplayFlight({ ...logbookReplayFlight, starred });
+    }
+    if (logbookDetailFlight?.id === flight.id) {
+      setLogbookDetailFlight({ ...logbookDetailFlight, starred });
+    }
+    try {
+      const updated = await apiFetch<LogbookFlightDetailRecord>(`/api/logbook/flights/${flight.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ starred }),
+      });
+      setLogbookFlights((current) =>
+        current.map((entry) => (entry.id === flight.id ? { ...entry, ...updated } : entry)),
+      );
+      if (logbookDetailFlight?.id === flight.id) {
+        setLogbookDetailFlight(updated);
+      }
+      if (logbookReplayFlight?.id === flight.id) {
+        setLogbookReplayFlight(updated);
+      }
+      setLogbookFeedback({ type: "success", text: `${starred ? "Starred" : "Unstarred"} ${flightLabel}.` });
+    } catch (caught) {
+      setLogbookFlights((current) =>
+        current.map((entry) => (entry.id === flight.id ? { ...entry, starred: flight.starred } : entry)),
+      );
+      if (logbookReplayFlight?.id === flight.id) {
+        setLogbookReplayFlight({ ...flight, starred: flight.starred });
+      }
+      if (logbookDetailFlight?.id === flight.id) {
+        setLogbookDetailFlight({ ...logbookDetailFlight, starred: flight.starred });
+      }
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update that flight." });
+      throw caught;
     }
   }
 
@@ -1204,12 +1415,96 @@ export default function HomePage() {
           telemetry_altitude_smoothing_seconds: siteSettings.telemetry_altitude_smoothing_seconds,
           telemetry_speed_smoothing_seconds: siteSettings.telemetry_speed_smoothing_seconds,
           telemetry_glide_ratio_smoothing_seconds: siteSettings.telemetry_glide_ratio_smoothing_seconds,
+          max_map_pitch_degrees: siteSettings.max_map_pitch_degrees,
+          site_match_radius_m: siteSettings.site_match_radius_m,
         }),
       });
       setSiteSettings(payload);
       setSiteSettingsFeedback({ type: "success", text: "Site settings saved." });
     } catch (caught) {
       setSiteSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save site settings." });
+    }
+  }
+
+  async function saveAdminSite(siteRecord: AdminSiteRecord) {
+    if (!token) return;
+    setAdminSitesFeedback({ type: "pending", text: `Saving ${siteRecord.name || "site"}...` });
+    try {
+      const payload = {
+        name: siteRecord.name,
+        city_state: siteRecord.city_state,
+        latitude: siteRecord.latitude,
+        longitude: siteRecord.longitude,
+        is_active: siteRecord.is_active,
+      };
+      const saved = siteRecord.id < 0
+        ? await apiFetch<AdminSiteRecord>("/api/admin/sites", token, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          })
+        : await apiFetch<AdminSiteRecord>(`/api/admin/sites/${siteRecord.id}`, token, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          });
+      setAdminSites((current) =>
+        siteRecord.id < 0
+          ? [...current.filter((entry) => entry.id !== siteRecord.id), saved].sort((a, b) => a.name.localeCompare(b.name))
+          : current.map((entry) => (entry.id === saved.id ? saved : entry)),
+      );
+      setAdminSitesFeedback({ type: "success", text: `Saved ${saved.name}.` });
+    } catch (caught) {
+      setAdminSitesFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save that site." });
+    }
+  }
+
+  async function deleteAdminSite(siteRecord: AdminSiteRecord) {
+    if (!token) return;
+    setAdminSitesFeedback(null);
+    try {
+      await apiFetch<void>(`/api/admin/sites/${siteRecord.id}`, token, { method: "DELETE" });
+      setAdminSites((current) => current.filter((entry) => entry.id !== siteRecord.id));
+      setAdminSitesFeedback({ type: "success", text: `Deleted ${siteRecord.name}.` });
+    } catch (caught) {
+      setAdminSitesFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not delete that site." });
+    }
+  }
+
+  async function rescanAdminFlightSites() {
+    if (!token) return;
+    setAdminSitesFeedback({ type: "pending", text: "Rescanning unmatched flights for site matches..." });
+    try {
+      const result = await apiFetch<AdminSiteRescanResultRecord>("/api/admin/sites/rescan-flights", token, {
+        method: "POST",
+      });
+      await refreshLogbookFlights(token);
+      setAdminSitesFeedback({
+        type: "success",
+        text: `Scanned ${result.scanned_count} flights, matched ${result.matched_count}, ${result.unmatched_count} still unmatched.`,
+      });
+    } catch (caught) {
+      setAdminSitesFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not rescan flights for site matches." });
+    }
+  }
+
+  async function scanIgcForNewSites() {
+    if (!token) return;
+    setAdminSitesFeedback({ type: "pending", text: "Scanning all IGC files for new takeoff sites..." });
+    try {
+      const result = await apiFetch<AdminSiteScanIgcResultRecord>("/api/admin/sites/scan-igc", token, {
+        method: "POST",
+      });
+      if (result.sites.length) {
+        setAdminSites((current) => [...current, ...result.sites]);
+      }
+      // Refresh existing sites to get updated flight counts
+      const refreshed = await apiFetch<AdminSiteRecord[]>("/api/admin/sites", token);
+      setAdminSites(refreshed);
+      setAdminSitesFeedback({
+        type: "success",
+        text: `Scanned ${result.total_igc_scanned} IGC files. Created ${result.new_sites_created} new site${result.new_sites_created === 1 ? "" : "s"}, matched ${result.flights_matched} flights.`,
+      });
+    } catch (caught) {
+      setAdminSitesFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not scan IGC files for new sites." });
     }
   }
 
@@ -2130,11 +2425,17 @@ export default function HomePage() {
               telemetrySmoothing={siteSettings}
               createManualFlight={createManualLogbookFlight}
               uploadFlightFile={uploadLogbookFlight}
+              scanFolderForFlights={scanLogbookFolderFlights}
+              attachFlightFile={attachLogbookFlightFile}
               openFlightDetail={openLogbookFlightDetail}
               closeFlightDetail={closeLogbookFlightDetail}
               openFlightReplay={openLogbookFlightReplay}
               closeFlightReplay={closeLogbookFlightReplay}
               downloadFlight={downloadLogbookFlight}
+              deleteFlight={deleteLogbookFlight}
+              bulkDeleteFlights={bulkDeleteLogbookFlights}
+              saveFlightNotes={saveLogbookFlightNotes}
+              setFlightStar={setLogbookFlightStar}
             />
           );
         case "settings":
@@ -2160,6 +2461,13 @@ export default function HomePage() {
               adminFeedback={adminFeedback}
               saveAdminUser={saveAdminUser}
               deleteAdminUser={deleteAdminUser}
+              adminSites={adminSites}
+              setAdminSites={setAdminSites}
+              adminSitesFeedback={adminSitesFeedback}
+              saveAdminSite={saveAdminSite}
+              deleteAdminSite={deleteAdminSite}
+              rescanAdminFlightSites={rescanAdminFlightSites}
+              scanIgcForNewSites={scanIgcForNewSites}
               siteSettings={siteSettings}
               setSiteSettings={setSiteSettings}
               siteSettingsFeedback={siteSettingsFeedback}
@@ -2182,18 +2490,8 @@ export default function HomePage() {
     }
 
   if (!user) {
-    if (authChecking) {
-      return (
-        <main className="shell">
-          <div className="dashboard-loading-shell">
-            <div className="dashboard-loading-card">
-              <h2>Loading Aervyx workspace...</h2>
-              <p>Restoring your session, events, tasks, and scores.</p>
-            </div>
-          </div>
-        </main>
-      );
-    }
+    // Stay invisible while checking auth — the login page remains visible
+    // until bootstrap completes, then we render the full dashboard.
     return null;
   }
 
@@ -2212,9 +2510,11 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                <span className="hero-event-context">
-                  {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
-                </span>
+                {activeSection !== "logbook" ? (
+                  <span className="hero-event-context">
+                    {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
+                  </span>
+                ) : null}
               </div>
               <div className="hero-actions">
                 <div className="role-pill">{user.role}</div>

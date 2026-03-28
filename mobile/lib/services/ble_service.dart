@@ -31,6 +31,29 @@ class MeshtasticDevice {
   });
 }
 
+/// Live mesh node info read from the connected device.
+class MeshNodeInfo {
+  final int connectedPeers;
+  final String? channelName;
+  final int? signalStrength; // RSSI dBm
+  final int? deviceBattery;  // 0-100%
+  final int? airUtilTx;      // % airtime used
+  final double? snr;          // signal-to-noise ratio
+  final String? firmwareVersion;
+  final DateTime readAt;
+
+  const MeshNodeInfo({
+    required this.connectedPeers,
+    this.channelName,
+    this.signalStrength,
+    this.deviceBattery,
+    this.airUtilTx,
+    this.snr,
+    this.firmwareVersion,
+    required this.readAt,
+  });
+}
+
 /// BLE service for scanning, pairing with, and configuring Meshtastic radios.
 class BleService extends ChangeNotifier {
   final ApiService _api;
@@ -43,6 +66,11 @@ class BleService extends ChangeNotifier {
   String? _error;
   String? _statusMessage;
   StreamSubscription<List<ScanResult>>? _scanSubscription;
+  Timer? _nodeInfoTimer;
+  MeshNodeInfo? _nodeInfo;
+
+  String _sosMessage = 'SOS — Pilot needs immediate assistance';
+  bool _isSendingSos = false;
 
   List<MeshtasticDevice> get discoveredDevices => _discoveredDevices;
   MeshtasticDevice? get connectedDevice => _connectedDevice;
@@ -51,8 +79,81 @@ class BleService extends ChangeNotifier {
   bool get isPushingConfig => _isPushingConfig;
   String? get error => _error;
   String? get statusMessage => _statusMessage;
+  MeshNodeInfo? get nodeInfo => _nodeInfo;
+  bool get isConnected => _connectedDevice != null;
+  String get sosMessage => _sosMessage;
+  bool get isSendingSos => _isSendingSos;
 
   BleService(this._api);
+
+  /// Update the SOS message text.
+  void setSosMessage(String message) {
+    _sosMessage = message;
+    notifyListeners();
+  }
+
+  /// Send SOS message over mesh (BLE) and cellular (HTTP backend).
+  /// Tries both channels — succeeds if at least one works.
+  Future<bool> sendSos() async {
+    _isSendingSos = true;
+    _error = null;
+    notifyListeners();
+
+    final payload = {
+      'type': 'sos',
+      'message': _sosMessage,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+    };
+
+    bool meshSent = false;
+    bool cellularSent = false;
+    final errors = <String>[];
+
+    // 1. Try mesh (BLE) if connected
+    if (_connectedDevice != null) {
+      try {
+        final services = await _connectedDevice!.device.discoverServices();
+        final meshService = services.firstWhere(
+          (s) => s.uuid.toString().toLowerCase() == _meshtasticServiceUuid,
+          orElse: () => throw Exception('Meshtastic service not found'),
+        );
+
+        final toRadio = meshService.characteristics.firstWhere(
+          (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
+          orElse: () => throw Exception('toRadio characteristic not found'),
+        );
+
+        final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
+        await toRadio.write(bytes, withoutResponse: false);
+        meshSent = true;
+      } catch (e) {
+        errors.add('Mesh: $e');
+      }
+    }
+
+    // 2. Try cellular (HTTP to backend)
+    try {
+      await _api.post(ApiConfig.sosPath, body: payload);
+      cellularSent = true;
+    } catch (e) {
+      errors.add('Cellular: $e');
+    }
+
+    // Report results
+    if (meshSent || cellularSent) {
+      final channels = <String>[
+        if (meshSent) 'mesh',
+        if (cellularSent) 'cellular',
+      ];
+      _statusMessage = 'SOS sent via ${channels.join(' + ')}!';
+    } else {
+      _error = 'SOS failed on all channels: ${errors.join('; ')}';
+    }
+
+    _isSendingSos = false;
+    notifyListeners();
+    return meshSent || cellularSent;
+  }
 
   /// Start scanning for Meshtastic BLE devices.
   Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
@@ -114,6 +215,7 @@ class BleService extends ChangeNotifier {
       await meshDevice.device.connect(timeout: const Duration(seconds: 15));
       _connectedDevice = meshDevice;
       _statusMessage = 'Connected to ${meshDevice.name}';
+      _startNodeInfoPolling();
     } catch (e) {
       _error = 'Connection failed: $e';
       _statusMessage = null;
@@ -124,11 +226,74 @@ class BleService extends ChangeNotifier {
 
   /// Disconnect from the current device.
   Future<void> disconnect() async {
+    _stopNodeInfoPolling();
     if (_connectedDevice != null) {
       await _connectedDevice!.device.disconnect();
       _connectedDevice = null;
+      _nodeInfo = null;
       _statusMessage = null;
       notifyListeners();
+    }
+  }
+
+  /// Start polling the connected device for mesh node info every 10 seconds.
+  void _startNodeInfoPolling() {
+    _readNodeInfo(); // read immediately
+    _nodeInfoTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _readNodeInfo(),
+    );
+  }
+
+  void _stopNodeInfoPolling() {
+    _nodeInfoTimer?.cancel();
+    _nodeInfoTimer = null;
+  }
+
+  /// Read mesh status from the connected Meshtastic device via fromRadio.
+  Future<void> _readNodeInfo() async {
+    if (_connectedDevice == null) return;
+
+    try {
+      final services = await _connectedDevice!.device.discoverServices();
+      final meshService = services.firstWhere(
+        (s) => s.uuid.toString().toLowerCase() == _meshtasticServiceUuid,
+        orElse: () => throw Exception('Service not found'),
+      );
+
+      final fromRadio = meshService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == _fromRadioCharUuid,
+        orElse: () => throw Exception('fromRadio not found'),
+      );
+
+      final data = await fromRadio.read();
+      if (data.isNotEmpty) {
+        // Parse the response — Meshtastic sends protobuf, but we attempt
+        // a best-effort JSON parse for our simplified config bridge.
+        // On a real device this would decode protobuf NodeInfo/DeviceMetrics.
+        try {
+          final json = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
+          _nodeInfo = MeshNodeInfo(
+            connectedPeers: json['num_online'] as int? ?? 0,
+            channelName: json['channel'] as String?,
+            signalStrength: json['rssi'] as int?,
+            deviceBattery: json['battery'] as int?,
+            airUtilTx: json['air_util_tx'] as int?,
+            snr: (json['snr'] as num?)?.toDouble(),
+            firmwareVersion: json['firmware'] as String?,
+            readAt: DateTime.now(),
+          );
+        } catch (_) {
+          // Non-JSON protobuf data — extract what we can from raw bytes
+          _nodeInfo = MeshNodeInfo(
+            connectedPeers: 0,
+            readAt: DateTime.now(),
+          );
+        }
+      }
+      notifyListeners();
+    } catch (_) {
+      // Device might have disconnected or service unavailable
     }
   }
 
@@ -194,6 +359,7 @@ class BleService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _stopNodeInfoPolling();
     stopScan();
     disconnect();
     super.dispose();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_service.dart';
+import '../widgets/aervyx_logo.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -51,16 +52,13 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
-                  'Aervyx',
-                  style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold),
-                ),
+                const AervyxLogo(size: 80),
                 const SizedBox(height: 8),
                 const Text(
                   'Pilot Companion',
-                  style: TextStyle(fontSize: 16, color: Colors.grey),
+                  style: TextStyle(fontSize: 14, color: Colors.grey),
                 ),
-                const SizedBox(height: 48),
+                const SizedBox(height: 40),
                 TextField(
                   controller: _emailCtl,
                   decoration: const InputDecoration(
@@ -97,6 +95,30 @@ class _LoginScreenState extends State<LoginScreen> {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Text('Log In'),
+                  ),
+                ),
+                const SizedBox(height: 32),
+                const Divider(),
+                const SizedBox(height: 12),
+                Text(
+                  'Or test without a server',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.grey[600],
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      context.read<AuthService>().enterBleTestMode();
+                    },
+                    icon: const Icon(Icons.bluetooth),
+                    label: const Text('BLE Test Mode'),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.blueGrey),
+                    ),
                   ),
                 ),
               ],

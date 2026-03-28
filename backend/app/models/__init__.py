@@ -37,6 +37,8 @@ class SiteSettings(Base):
     telemetry_altitude_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=3)
     telemetry_speed_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=3)
     telemetry_glide_ratio_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=5)
+    max_map_pitch_degrees: Mapped[int] = mapped_column(Integer, default=75)
+    site_match_radius_m: Mapped[int] = mapped_column(Integer, default=1000)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -106,6 +108,20 @@ class Pilot(Base):
     competition_number: Mapped[str | None] = mapped_column(String(20), nullable=True, index=True)
     civl_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FlightSite(Base):
+    __tablename__ = "flight_sites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), index=True)
+    city_state: Mapped[str] = mapped_column(String(160), default="")
+    latitude: Mapped[float] = mapped_column(Float)
+    longitude: Mapped[float] = mapped_column(Float)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    flight_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class EventPilot(Base):
@@ -263,8 +279,10 @@ class PilotFlight(Base):
     source_kind: Mapped[str] = mapped_column(String(20), index=True)
     event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
+    site_id: Mapped[int | None] = mapped_column(ForeignKey("flight_sites.id", ondelete="SET NULL"), nullable=True, index=True)
     igc_upload_id: Mapped[int | None] = mapped_column(ForeignKey("igc_uploads.id", ondelete="SET NULL"), nullable=True, index=True)
     flight_date: Mapped[date] = mapped_column(Date, index=True)
+    starred: Mapped[bool] = mapped_column(Boolean, default=False)
     site_name: Mapped[str] = mapped_column(String(160), default="")
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)

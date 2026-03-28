@@ -2205,14 +2205,328 @@ button[type="submit"]:hover,
   margin-top: 0;
 }
 
-.logbook-table td:nth-child(2) {
+.logbook-bulk-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.logbook-site-radius-control {
+  min-width: 220px;
+}
+
+.admin-sites-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(320px, 0.9fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.site-database-row input {
+  width: 100%;
+}
+
+.site-database-row.selected {
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.site-database-map-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.site-database-coordinates {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.logbook-site-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.logbook-site-preview-map {
+  min-height: 320px;
+  margin: 0 22px 22px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.logbook-site-preview-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 18px;
+  background: transparent;
+}
+
+.logbook-site-preview-label strong {
+  font-size: 0.92rem;
+  color: var(--ink);
+}
+
+.logbook-site-preview-label span {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.logbook-site-preview-label.empty {
+  min-height: 320px;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+}
+
+.logbook-site-preview-map .map-shell {
+  height: 320px;
+  min-height: 320px;
+  border: 0;
+  border-radius: 0;
+}
+
+@media (max-width: 1100px) {
+  .admin-sites-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.logbook-site-cell {
   white-space: normal;
+}
+
+.logbook-select-column {
+  width: 48px;
+  text-align: center;
+}
+
+.logbook-select-column input {
+  width: 16px;
+  height: 16px;
+}
+
+.logbook-star-column {
+  width: 56px;
+  text-align: center;
+}
+
+.logbook-star-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #94a3b8;
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.logbook-star-button:hover {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+  color: #475569;
+}
+
+.logbook-star-button.active {
+  color: #d97706;
+}
+
+.logbook-year-row td {
+  padding: 0;
+  background: #f8fbff;
+}
+
+.logbook-year-toggle {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 16px;
+  border: 0;
+  background: transparent;
+  color: #27466f;
+  text-align: left;
+}
+
+.logbook-year-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.logbook-year-meta {
+  color: #64748b;
+  font-size: 0.85rem;
+}
+
+.logbook-year-chevron {
+  color: #64748b;
+  font-size: 1rem;
+  font-weight: 700;
 }
 
 .logbook-row-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+.logbook-import-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 22px 18px;
+}
+
+.logbook-import-section {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--wash);
+  overflow: hidden;
+}
+
+.logbook-import-section-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.logbook-import-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.logbook-import-section-title {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.logbook-import-section-badge {
+  min-width: 32px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.logbook-import-section-badge.success {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.logbook-import-section-badge.pending {
+  color: #9a3412;
+  background: #ffedd5;
+}
+
+.logbook-import-section-badge.muted {
+  color: var(--muted);
+  background: rgba(148, 163, 184, 0.18);
+}
+
+.logbook-import-section-chevron {
+  width: 8px;
+  height: 8px;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(45deg);
+  transition: transform 160ms ease;
+}
+
+.logbook-import-section[open] .logbook-import-section-chevron {
+  transform: rotate(225deg);
+}
+
+.logbook-import-section-body {
+  padding: 0 14px 10px;
+}
+
+.logbook-import-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 340px;
+  overflow: auto;
+}
+
+.logbook-import-list.compact {
+  gap: 0;
+  max-height: 200px;
+}
+
+.logbook-import-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.logbook-import-row:last-child {
+  border-bottom: none;
+}
+
+.logbook-import-row strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logbook-import-row .hint {
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.logbook-import-review-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.logbook-import-review-row:last-child {
+  border-bottom: none;
+}
+
+.logbook-import-review-row.selected {
+  background: rgba(37, 99, 235, 0.04);
+}
+
+.logbook-import-review-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.logbook-import-review-copy .logbook-import-row {
+  padding: 0;
+  border-bottom: none;
+}
+
+.logbook-import-actions {
+  padding: 0 22px 20px;
+  justify-content: flex-end;
 }
 
 .logbook-modal-overlay {
@@ -2757,6 +3071,21 @@ button[type="submit"]:hover,
   max-width: calc(100vw - 24px);
 }
 
+.map-fullscreen-overlay-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: calc(100vw - 24px);
+}
+
+.map-fullscreen-overlay-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: calc(100vw - 24px);
+}
+
 .map-distance-box,
 .map-distance-summary {
   padding: 8px 10px;
@@ -2834,6 +3163,15 @@ button[type="submit"]:hover,
   width: min(560px, calc(100vw - 24px));
   max-height: calc(100vh - 180px);
   overflow: hidden;
+}
+
+.map-fullscreen-overlay-top .map-task-editor-overlay {
+  width: auto;
+  max-width: min(560px, calc(100vw - 198px));
+}
+
+.map-fullscreen-overlay-top .map-distance-summary {
+  flex: 0 0 auto;
 }
 
 .map-control-stack {
@@ -3038,6 +3376,14 @@ button[type="submit"]:hover,
 @media (max-width: 1100px) {
   .replay-bar-main {
     width: min(560px, calc(100% - 324px));
+  }
+
+  .map-fullscreen-overlay-top {
+    flex-wrap: wrap;
+  }
+
+  .map-fullscreen-overlay-top .map-task-editor-overlay {
+    max-width: calc(100vw - 24px);
   }
 }
 
@@ -4655,6 +5001,16 @@ details[open] > summary {
 
   .logbook-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .logbook-import-row,
+  .logbook-import-review-copy .logbook-import-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .logbook-import-row .hint {
+    text-align: left;
   }
 
   .logbook-row-actions {

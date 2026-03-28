@@ -5,6 +5,7 @@ import 'app.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
 import 'services/ble_service.dart';
+import 'services/igc_service.dart';
 import 'services/tracking_service.dart';
 
 void main() async {
@@ -12,15 +13,23 @@ void main() async {
 
   final apiService = ApiService();
   final authService = AuthService(apiService);
-  await authService.tryRestoreSession();
+  final igcService = IgcService();
+
+  // Restore session with a safety net — app must never hang on startup
+  try {
+    await authService.tryRestoreSession();
+  } catch (_) {
+    // If anything goes wrong, proceed to login screen
+  }
 
   runApp(
     MultiProvider(
       providers: [
         Provider<ApiService>.value(value: apiService),
         ChangeNotifierProvider<AuthService>.value(value: authService),
+        ChangeNotifierProvider<IgcService>.value(value: igcService),
         ChangeNotifierProvider<TrackingService>(
-          create: (_) => TrackingService(apiService),
+          create: (_) => TrackingService(apiService, igcService),
         ),
         ChangeNotifierProvider<BleService>(
           create: (_) => BleService(apiService),

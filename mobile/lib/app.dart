@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/login_screen.dart';
-import 'screens/task_list_screen.dart';
+import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
 
 class AervyxApp extends StatelessWidget {
@@ -14,12 +14,12 @@ class AervyxApp extends StatelessWidget {
       title: 'Aervyx',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        colorSchemeSeed: const Color(0xFF2563EB),
+        colorSchemeSeed: const Color(0xFF00E5FF),
         useMaterial3: true,
         brightness: Brightness.light,
       ),
       darkTheme: ThemeData(
-        colorSchemeSeed: const Color(0xFF2563EB),
+        colorSchemeSeed: const Color(0xFF00E5FF),
         useMaterial3: true,
         brightness: Brightness.dark,
       ),
@@ -31,7 +31,7 @@ class AervyxApp extends StatelessWidget {
             );
           }
           return auth.isLoggedIn
-              ? const TaskListScreen()
+              ? const HomeScreen()
               : const LoginScreen();
         },
       ),

@@ -530,12 +530,14 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           optimizedDistanceKm={scoringTaskMetrics.optimizedDistanceKm}
                           track={resultsTrackOverlay}
                           editable={false}
-                          taskEditorOverlay={resultsTrackPilotList}
-                          highlightedTrackUploadId={highlightedResultUploadId}
-                          fitKey={selectedTaskId}
-                          fitTurnpoints={allTurnpoints}
-                          units={{
-                            altitude: settingsForm.altitude_unit,
+                        taskEditorOverlay={resultsTrackPilotList}
+                        highlightedTrackUploadId={highlightedResultUploadId}
+                        fitKey={selectedTaskId}
+                        viewStateKey={`scores-replay-${selectedTaskId ?? "none"}`}
+                        preserveViewStateOnRemount
+                        fitTurnpoints={allTurnpoints}
+                        units={{
+                          altitude: settingsForm.altitude_unit,
                             speed: settingsForm.speed_unit,
                             distance: settingsForm.distance_unit,
                             vario: settingsForm.vario_unit,

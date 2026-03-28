@@ -18,6 +18,8 @@ def _get_site_settings(session: Session) -> SiteSettings:
             telemetry_altitude_smoothing_seconds=3,
             telemetry_speed_smoothing_seconds=3,
             telemetry_glide_ratio_smoothing_seconds=5,
+            max_map_pitch_degrees=75,
+            site_match_radius_m=1000,
         )
         session.add(settings)
         session.commit()
@@ -41,6 +43,8 @@ def update_site_settings(
     settings.telemetry_altitude_smoothing_seconds = payload.telemetry_altitude_smoothing_seconds
     settings.telemetry_speed_smoothing_seconds = payload.telemetry_speed_smoothing_seconds
     settings.telemetry_glide_ratio_smoothing_seconds = payload.telemetry_glide_ratio_smoothing_seconds
+    settings.max_map_pitch_degrees = payload.max_map_pitch_degrees
+    settings.site_match_radius_m = payload.site_match_radius_m
     session.add(settings)
     session.commit()
     session.refresh(settings)

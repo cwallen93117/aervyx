@@ -1,7 +1,7 @@
 class Position {
-  final String id;
+  final String? id;
   final int? pilotId;
-  final int taskId;
+  final int? taskId;
   final double lat;
   final double lon;
   final double? alt;
@@ -14,9 +14,9 @@ class Position {
   final int? batteryLevel;
 
   const Position({
-    required this.id,
+    this.id,
     this.pilotId,
-    required this.taskId,
+    this.taskId,
     required this.lat,
     required this.lon,
     this.alt,
@@ -32,7 +32,7 @@ class Position {
   factory Position.fromJson(Map<String, dynamic> json) => Position(
         id: json['id'] as String,
         pilotId: json['pilot_id'] as int?,
-        taskId: json['task_id'] as int,
+        taskId: json['task_id'] as int?,
         lat: (json['lat'] as num).toDouble(),
         lon: (json['lon'] as num).toDouble(),
         alt: (json['alt'] as num?)?.toDouble(),
@@ -46,7 +46,7 @@ class Position {
       );
 
   Map<String, dynamic> toJson() => {
-        'task_id': taskId,
+        if (taskId != null) 'task_id': taskId,
         'lat': lat,
         'lon': lon,
         if (alt != null) 'alt': alt,

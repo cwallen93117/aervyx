@@ -1,10 +1,10 @@
 "use client";
 
-import { type ChangeEvent, type FormEvent, useMemo, useRef, useState } from "react";
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { TaskMap, type MapTelemetrySmoothing, type MapUnitPreferences } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
-import type { LogbookFlightDetailRecord, LogbookFlightFormRecord, LogbookFlightSummaryRecord, TrackCollection, User } from "./types";
+import type { LogbookFlightDetailRecord, LogbookFlightFormRecord, LogbookFlightSummaryRecord, LogbookFolderImportResultRecord, TrackCollection, User } from "./types";
 
 export interface LogbookSectionProps {
   user: User | null;
@@ -20,11 +20,29 @@ export interface LogbookSectionProps {
   telemetrySmoothing: MapTelemetrySmoothing;
   createManualFlight: (form: LogbookFlightFormRecord) => Promise<void>;
   uploadFlightFile: (file: File) => Promise<void>;
+  scanFolderForFlights: (files: File[], confirmedFileKeys?: string[]) => Promise<LogbookFolderImportResultRecord>;
+  attachFlightFile: (flight: LogbookFlightSummaryRecord, file: File) => Promise<void>;
   openFlightDetail: (flightId: number) => Promise<void>;
   closeFlightDetail: () => void;
   openFlightReplay: (flight: LogbookFlightSummaryRecord) => Promise<void>;
   closeFlightReplay: () => void;
   downloadFlight: (flightId: number) => Promise<void>;
+  deleteFlight: (flight: LogbookFlightSummaryRecord) => Promise<void>;
+  bulkDeleteFlights: (flights: LogbookFlightSummaryRecord[]) => Promise<void>;
+  saveFlightNotes: (flightId: number, notes: string) => Promise<void>;
+  setFlightStar: (flight: LogbookFlightSummaryRecord, starred: boolean) => Promise<void>;
+}
+
+type PendingFolderFile = {
+  key: string;
+  file: File;
+};
+
+function logbookImportFileKey(file: File) {
+  const relativePath = "webkitRelativePath" in file && typeof file.webkitRelativePath === "string" && file.webkitRelativePath.trim()
+    ? file.webkitRelativePath.trim()
+    : file.name;
+  return `${relativePath}::${file.size}::${file.lastModified}`;
 }
 
 function blankManualFlightForm(): LogbookFlightFormRecord {
@@ -104,18 +122,74 @@ export default function LogbookSection(props: LogbookSectionProps) {
     telemetrySmoothing,
     createManualFlight,
     uploadFlightFile,
+    scanFolderForFlights,
+    attachFlightFile,
     openFlightDetail,
     closeFlightDetail,
     openFlightReplay,
     closeFlightReplay,
     downloadFlight,
+    deleteFlight,
+    bulkDeleteFlights,
+    saveFlightNotes,
+    setFlightStar,
   } = props;
 
   const [manualForm, setManualForm] = useState<LogbookFlightFormRecord>(blankManualFlightForm());
   const [manualOpen, setManualOpen] = useState(false);
   const [manualSubmitting, setManualSubmitting] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
+  const [collapsedYears, setCollapsedYears] = useState<Record<string, boolean>>({});
+  const [attachFlightId, setAttachFlightId] = useState<number | null>(null);
+  const [folderImportResult, setFolderImportResult] = useState<LogbookFolderImportResultRecord | null>(null);
+  const [pendingFolderFiles, setPendingFolderFiles] = useState<PendingFolderFile[]>([]);
+  const [selectedReviewKeys, setSelectedReviewKeys] = useState<Record<string, boolean>>({});
+  const [selectedFlightIds, setSelectedFlightIds] = useState<Record<number, boolean>>({});
+  const [folderImportSubmitting, setFolderImportSubmitting] = useState(false);
+  const [folderImportNotice, setFolderImportNotice] = useState<string | null>(null);
   const uploadRef = useRef<HTMLInputElement | null>(null);
+  const folderUploadRef = useRef<HTMLInputElement | null>(null);
+  const attachUploadRef = useRef<HTMLInputElement | null>(null);
   const hasPilotProfile = Boolean(user?.pilot_id);
+  const groupedFlights = useMemo(() => {
+    const groups: Array<{ year: string; flights: LogbookFlightSummaryRecord[] }> = [];
+    const groupMap = new Map<string, LogbookFlightSummaryRecord[]>();
+    flights.forEach((flight) => {
+      const parsedYear = Number.parseInt(flight.flight_date.slice(0, 4), 10);
+      const year = Number.isFinite(parsedYear) ? String(parsedYear) : "Unknown year";
+      const existing = groupMap.get(year);
+      if (existing) {
+        existing.push(flight);
+        return;
+      }
+      const created = [flight];
+      groupMap.set(year, created);
+      groups.push({ year, flights: created });
+    });
+    return groups;
+  }, [flights]);
+  const allFlightIds = useMemo(() => flights.map((flight) => flight.id), [flights]);
+  const selectedCount = useMemo(
+    () => allFlightIds.filter((flightId) => selectedFlightIds[flightId]).length,
+    [allFlightIds, selectedFlightIds],
+  );
+  const allSelected = allFlightIds.length > 0 && selectedCount === allFlightIds.length;
+
+  useEffect(() => {
+    setSelectedFlightIds((current) => {
+      const nextEntries = Object.entries(current).filter(([flightId, selected]) => {
+        if (!selected) {
+          return false;
+        }
+        return allFlightIds.includes(Number(flightId));
+      });
+      if (nextEntries.length === Object.keys(current).length) {
+        return current;
+      }
+      return Object.fromEntries(nextEntries.map(([flightId, selected]) => [Number(flightId), selected]));
+    });
+  }, [allFlightIds]);
 
   async function submitManualFlight(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -138,12 +212,169 @@ export default function LogbookSection(props: LogbookSectionProps) {
     await uploadFlightFile(file);
   }
 
+  async function handleAttachUploadSelection(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    const flightId = attachFlightId;
+    setAttachFlightId(null);
+    if (!file || flightId == null) {
+      return;
+    }
+    const flight = flights.find((entry) => entry.id === flightId);
+    if (!flight) {
+      return;
+    }
+    await attachFlightFile(flight, file);
+  }
+
   const replayTitle = useMemo(() => {
     if (!replayFlight) {
       return "Flight replay";
     }
-    return `${formatFlightDate(replayFlight.flight_date)} - ${replayFlight.site_name || replayFlight.task_name || "Flight replay"}`;
+    const primaryLabel = replayFlight.site_name || replayFlight.task_name || "Flight";
+    return `${formatFlightDate(replayFlight.flight_date)} - ${primaryLabel}`;
   }, [replayFlight]);
+
+  useEffect(() => {
+    setNotesDraft(detailFlight?.notes ?? "");
+  }, [detailFlight]);
+
+  useEffect(() => {
+    const input = folderUploadRef.current as (HTMLInputElement & { webkitdirectory?: boolean; directory?: boolean }) | null;
+    if (!input) {
+      return;
+    }
+    input.multiple = true;
+    input.setAttribute("webkitdirectory", "");
+    input.setAttribute("directory", "");
+  }, []);
+
+  async function handleDeleteFlight(flight: LogbookFlightSummaryRecord) {
+    const confirmed = window.confirm("Are you sure you want to delete this flight? It can't be restored.");
+    if (!confirmed) {
+      return;
+    }
+    await deleteFlight(flight);
+  }
+
+  function toggleFlightSelection(flightId: number, checked: boolean) {
+    setSelectedFlightIds((current) => ({
+      ...current,
+      [flightId]: checked,
+    }));
+  }
+
+  function handleSelectAllFlights() {
+    setSelectedFlightIds(Object.fromEntries(allFlightIds.map((flightId) => [flightId, true])));
+  }
+
+  function handleClearSelectedFlights() {
+    setSelectedFlightIds({});
+  }
+
+  async function handleDeleteSelectedFlights() {
+    const selectedFlights = flights.filter((flight) => selectedFlightIds[flight.id]);
+    if (!selectedFlights.length) {
+      return;
+    }
+    const confirmed = window.confirm(
+      `Are you sure you want to delete the selected ${selectedFlights.length} flight${selectedFlights.length === 1 ? "" : "s"}? This cannot be undone.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    await bulkDeleteFlights(selectedFlights);
+    setSelectedFlightIds({});
+  }
+
+  async function handleSaveNotes() {
+    if (!detailFlight) {
+      return;
+    }
+    setNotesSaving(true);
+    try {
+      await saveFlightNotes(detailFlight.id, notesDraft);
+    } finally {
+      setNotesSaving(false);
+    }
+  }
+
+  async function handleToggleStar(flight: LogbookFlightSummaryRecord) {
+    await setFlightStar(flight, !flight.starred);
+  }
+
+  async function handleFolderSelection(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!selectedFiles.length) {
+      return;
+    }
+    const igcFiles = selectedFiles.filter((file) => file.name.toLowerCase().endsWith(".igc"));
+    if (!igcFiles.length) {
+      setFolderImportResult({ imported: [], skipped: [], review_needed: [] });
+      setPendingFolderFiles([]);
+      setSelectedReviewKeys({});
+      setFolderImportNotice(null);
+      return;
+    }
+    const keyedFiles = igcFiles.map((file) => ({ key: logbookImportFileKey(file), file }));
+    setFolderImportNotice(null);
+    setPendingFolderFiles(keyedFiles);
+    setFolderImportSubmitting(true);
+    try {
+      const result = await scanFolderForFlights(igcFiles);
+      setFolderImportResult(result);
+      setSelectedReviewKeys(
+        Object.fromEntries(result.review_needed.map((item) => [item.file_key, true])),
+      );
+    } finally {
+      setFolderImportSubmitting(false);
+    }
+  }
+
+  async function handleConfirmFolderImport() {
+    const confirmedKeys = Object.entries(selectedReviewKeys)
+      .filter(([, selected]) => selected)
+      .map(([key]) => key);
+    const confirmedFiles = pendingFolderFiles
+      .filter((entry) => confirmedKeys.includes(entry.key))
+      .map((entry) => entry.file);
+    if (!confirmedFiles.length) {
+      return;
+    }
+    setFolderImportSubmitting(true);
+    try {
+      const confirmationResult = await scanFolderForFlights(confirmedFiles, confirmedKeys);
+      setFolderImportResult((current) => ({
+        imported: [...(current?.imported ?? []), ...confirmationResult.imported],
+        skipped: [...(current?.skipped ?? []), ...confirmationResult.skipped],
+        review_needed: [
+          ...((current?.review_needed ?? []).filter((item) => !confirmedKeys.includes(item.file_key))),
+          ...confirmationResult.review_needed,
+        ],
+      }));
+      setPendingFolderFiles((current) => current.filter((entry) => !confirmedKeys.includes(entry.key)));
+      setSelectedReviewKeys((current) => {
+        const retainedEntries = Object.entries(current).filter(([key, selected]) => !confirmedKeys.includes(key) && selected);
+        const reviewEntries = confirmationResult.review_needed.map((item) => [item.file_key, true] as const);
+        return Object.fromEntries([...retainedEntries, ...reviewEntries]);
+      });
+    } finally {
+      setFolderImportSubmitting(false);
+    }
+  }
+
+  function closeFolderImportModal() {
+    const remainingReviewCount = folderImportResult?.review_needed.length ?? 0;
+    const skippedCount = folderImportResult?.skipped.length ?? 0;
+    setFolderImportResult(null);
+    setPendingFolderFiles([]);
+    setSelectedReviewKeys({});
+    setFolderImportSubmitting(false);
+    if (remainingReviewCount || skippedCount) {
+      setFolderImportNotice("Unimported IGC files were discarded from this scan session.");
+    }
+  }
 
   return (
     <div className="section-stack">
@@ -154,11 +385,16 @@ export default function LogbookSection(props: LogbookSectionProps) {
           hasPilotProfile ? (
             <div className="button-row compact">
               <input ref={uploadRef} type="file" accept=".igc" hidden onChange={handleUploadSelection} />
+              <input ref={folderUploadRef} type="file" accept=".igc" hidden onChange={handleFolderSelection} />
+              <input ref={attachUploadRef} type="file" accept=".igc" hidden onChange={handleAttachUploadSelection} />
               <button type="button" className="ghost-button" onClick={() => uploadRef.current?.click()}>
                 Upload IGC
               </button>
-              <button type="button" onClick={() => setManualOpen(true)}>
-                Add flight
+              <button type="button" className="ghost-button" onClick={() => folderUploadRef.current?.click()} disabled={folderImportSubmitting}>
+                {folderImportSubmitting ? "Scanning..." : "Scan Folder for IGCs"}
+              </button>
+              <button type="button" className="ghost-button" onClick={() => setManualOpen(true)}>
+                Manually Add Flight
               </button>
             </div>
           ) : null
@@ -171,10 +407,40 @@ export default function LogbookSection(props: LogbookSectionProps) {
         ) : (
           <div className="logbook-section-body">
             {feedback ? <div className={`status-chip ${feedback.type}`}>{feedback.text}</div> : null}
+            {folderImportNotice ? <div className="status-chip pending">{folderImportNotice}</div> : null}
+            <div className="logbook-bulk-actions">
+              <div className="button-row compact">
+                <button type="button" className="ghost-button" onClick={handleSelectAllFlights} disabled={!allFlightIds.length || allSelected}>
+                  Select all
+                </button>
+                <button type="button" className="ghost-button" onClick={handleClearSelectedFlights} disabled={!selectedCount}>
+                  Clear selection
+                </button>
+                <button type="button" className="ghost-button danger-button" onClick={() => void handleDeleteSelectedFlights()} disabled={!selectedCount}>
+                  Delete selected
+                </button>
+              </div>
+              <span className="hint">{selectedCount} selected</span>
+            </div>
             <div className="results-table-wrap logbook-table-wrap">
               <table className="results-table logbook-table">
                 <thead>
                   <tr>
+                    <th className="logbook-select-column">
+                      <input
+                        type="checkbox"
+                        aria-label={allSelected ? "Clear all selected flights" : "Select all flights"}
+                        checked={allSelected}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            handleSelectAllFlights();
+                            return;
+                          }
+                          handleClearSelectedFlights();
+                        }}
+                      />
+                    </th>
+                    <th className="logbook-star-column" aria-label="Starred">★</th>
                     <th>Date</th>
                     <th>Site</th>
                     <th>Duration</th>
@@ -187,45 +453,113 @@ export default function LogbookSection(props: LogbookSectionProps) {
                 <tbody>
                   {loading ? (
                     <tr>
-                      <td colSpan={7} className="results-table-empty">Loading logbook flights...</td>
+                      <td colSpan={9} className="results-table-empty">Loading logbook flights...</td>
                     </tr>
-                  ) : flights.length ? (
-                    flights.map((flight) => (
-                      <tr key={flight.id}>
-                        <td>{formatFlightDate(flight.flight_date)}</td>
-                        <td>
-                          <strong>{flight.site_name || "—"}</strong>
-                          {flight.task_name || flight.event_name ? (
-                            <div className="hint">{[flight.task_name, flight.event_name].filter(Boolean).join(" - ")}</div>
-                          ) : null}
-                        </td>
-                        <td>{formatDuration(flight.duration_seconds)}</td>
-                        <td>{formatAltitude(flight.highest_altitude_m, units.altitude)}</td>
-                        <td>{formatVario(flight.best_climb_mps, units.vario)}</td>
-                        <td>
-                          <span className="status-chip pending">{sourceLabel(flight.source_kind)}</span>
-                        </td>
-                        <td>
-                          <div className="logbook-row-actions">
-                            <button type="button" className="ghost-button" onClick={() => void openFlightDetail(flight.id)} disabled={!flight.has_statistics}>
-                              Statistics
-                            </button>
-                            <button type="button" className="ghost-button" onClick={() => void openFlightReplay(flight)} disabled={!flight.can_replay}>
-                              Replay
-                            </button>
-                            <button type="button" className="ghost-button" onClick={() => void downloadFlight(flight.id)} disabled={!flight.can_download}>
-                              Download IGC
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
+                  ) : null}
+                  {!loading && !groupedFlights.length ? (
                     <tr>
-                      <td colSpan={7} className="results-table-empty">No flights have been recorded yet.</td>
+                      <td colSpan={9} className="results-table-empty">No flights have been recorded yet.</td>
                     </tr>
-                  )}
+                  ) : null}
                 </tbody>
+                {!loading
+                  ? groupedFlights.map((group) => {
+                      const isCollapsed = collapsedYears[group.year] ?? false;
+                      return (
+                        <tbody key={group.year}>
+                          <tr className="logbook-year-row">
+                            <td colSpan={9}>
+                              <button
+                                type="button"
+                                className="logbook-year-toggle"
+                                onClick={() =>
+                                  setCollapsedYears((current) => ({
+                                    ...current,
+                                    [group.year]: !isCollapsed,
+                                  }))
+                                }
+                                aria-expanded={!isCollapsed}
+                              >
+                                <span className="logbook-year-label">{group.year}</span>
+                                <span className="logbook-year-meta">{group.flights.length} {group.flights.length === 1 ? "flight" : "flights"}</span>
+                                <span className="logbook-year-chevron">{isCollapsed ? "+" : "-"}</span>
+                              </button>
+                            </td>
+                          </tr>
+                          {!isCollapsed
+                            ? group.flights.map((flight) => (
+                                <tr key={flight.id}>
+                                  <td className="logbook-select-column">
+                                    <input
+                                      type="checkbox"
+                                      aria-label={`Select ${flight.filename ?? flight.site_name ?? "flight"}`}
+                                      checked={selectedFlightIds[flight.id] ?? false}
+                                      onChange={(event) => toggleFlightSelection(flight.id, event.target.checked)}
+                                    />
+                                  </td>
+                                  <td className="logbook-star-column">
+                                    <button
+                                      type="button"
+                                      className={`logbook-star-button${flight.starred ? " active" : ""}`}
+                                      aria-label={flight.starred ? "Unstar flight" : "Star flight"}
+                                      aria-pressed={flight.starred}
+                                      onClick={() => void handleToggleStar(flight)}
+                                    >
+                                      {flight.starred ? "★" : "☆"}
+                                    </button>
+                                  </td>
+                                  <td>{formatFlightDate(flight.flight_date)}</td>
+                                  <td className="logbook-site-cell">
+                                    <strong>{flight.site_name || "--"}</strong>
+                                    {flight.task_name || flight.event_name ? (
+                                      <div className="hint">{[flight.task_name, flight.event_name].filter(Boolean).join(" - ")}</div>
+                                    ) : null}
+                                  </td>
+                                  <td>{formatDuration(flight.duration_seconds)}</td>
+                                  <td>{formatAltitude(flight.highest_altitude_m, units.altitude)}</td>
+                                  <td>{formatVario(flight.best_climb_mps, units.vario)}</td>
+                                  <td>
+                                    <span className="status-chip pending">{sourceLabel(flight.source_kind)}</span>
+                                  </td>
+                                  <td>
+                                    <div className="logbook-row-actions">
+                                      <button type="button" className="ghost-button" onClick={() => void openFlightDetail(flight.id)}>
+                                        Statistics
+                                      </button>
+                                      {flight.can_replay ? (
+                                        <button type="button" className="ghost-button" onClick={() => void openFlightReplay(flight)}>
+                                          Replay
+                                        </button>
+                                      ) : null}
+                                      {flight.can_download ? (
+                                        <button type="button" className="ghost-button" onClick={() => void downloadFlight(flight.id)}>
+                                          Download IGC
+                                        </button>
+                                      ) : null}
+                                      {!flight.can_download ? (
+                                        <button
+                                          type="button"
+                                          className="ghost-button"
+                                          onClick={() => {
+                                            setAttachFlightId(flight.id);
+                                            attachUploadRef.current?.click();
+                                          }}
+                                        >
+                                          Upload IGC file
+                                        </button>
+                                      ) : null}
+                                      <button type="button" className="ghost-button danger-button" onClick={() => void handleDeleteFlight(flight)}>
+                                        Delete flight
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            : null}
+                        </tbody>
+                      );
+                    })
+                  : null}
               </table>
             </div>
           </div>
@@ -286,6 +620,114 @@ export default function LogbookSection(props: LogbookSectionProps) {
         </div>
       ) : null}
 
+      {folderImportResult ? (
+        <div className="logbook-modal-overlay active" role="presentation">
+          <div className="logbook-modal">
+            <div className="section-card-header">
+              <div>
+                <h3>Folder import results</h3>
+                <p className="hint">Scanned the selected folder and its subfolders for IGC files.</p>
+              </div>
+              <div className="button-row compact">
+                <button type="button" className="ghost-button" onClick={closeFolderImportModal}>Close</button>
+              </div>
+            </div>
+            <div className="logbook-import-sections">
+              <details className="logbook-import-section" open>
+                <summary className="logbook-import-section-summary">
+                  <span className="logbook-import-section-title">Imported</span>
+                  <span className="logbook-import-section-badge success">{folderImportResult.imported.length}</span>
+                  <span className="logbook-import-section-chevron" aria-hidden="true" />
+                </summary>
+                <div className="logbook-import-section-body">
+                  {folderImportResult.imported.length ? (
+                    <div className="logbook-import-list compact">
+                      {folderImportResult.imported.map((item) => (
+                        <div key={`imported-${item.file_key}`} className="logbook-import-row">
+                          <strong title={item.relative_path || item.filename}>{item.relative_path || item.filename}</strong>
+                          <span className="hint">{item.detected_pilot_name || item.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="hint">No files were imported automatically.</p>}
+                </div>
+              </details>
+
+              <details className="logbook-import-section" open>
+                <summary className="logbook-import-section-summary">
+                  <span className="logbook-import-section-title">Need review</span>
+                  <span className="logbook-import-section-badge pending">{folderImportResult.review_needed.length}</span>
+                  <span className="logbook-import-section-chevron" aria-hidden="true" />
+                </summary>
+                <div className="logbook-import-section-body">
+                  {folderImportResult.review_needed.length ? (
+                    <div className="logbook-import-list compact">
+                      {folderImportResult.review_needed.map((item) => {
+                        const selected = selectedReviewKeys[item.file_key] ?? false;
+                        return (
+                          <label
+                            key={`review-${item.file_key}`}
+                            className={`logbook-import-review-row${selected ? " selected" : ""}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={(event) =>
+                                setSelectedReviewKeys((current) => ({
+                                  ...current,
+                                  [item.file_key]: event.target.checked,
+                                }))
+                              }
+                            />
+                            <div className="logbook-import-review-copy">
+                              <div className="logbook-import-row">
+                                <strong title={item.relative_path || item.filename}>{item.relative_path || item.filename}</strong>
+                                <span className="hint">{item.detected_pilot_name ? `Detected: ${item.detected_pilot_name}` : "No pilot detected"}</span>
+                              </div>
+                              <span className="hint">{item.reason}</span>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ) : <p className="hint">No uncertain files are waiting for review.</p>}
+                </div>
+              </details>
+
+              <details className="logbook-import-section">
+                <summary className="logbook-import-section-summary">
+                  <span className="logbook-import-section-title">Skipped</span>
+                  <span className="logbook-import-section-badge muted">{folderImportResult.skipped.length}</span>
+                  <span className="logbook-import-section-chevron" aria-hidden="true" />
+                </summary>
+                <div className="logbook-import-section-body">
+                  {folderImportResult.skipped.length ? (
+                    <div className="logbook-import-list compact">
+                      {folderImportResult.skipped.map((item) => (
+                        <div key={`skipped-${item.file_key}-${item.reason}`} className="logbook-import-row">
+                          <strong title={item.relative_path || item.filename}>{item.relative_path || item.filename}</strong>
+                          <span className="hint">{item.reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="hint">No files were skipped.</p>}
+                </div>
+              </details>
+            </div>
+            {folderImportResult.review_needed.length ? (
+              <div className="button-row logbook-import-actions">
+                <button type="button" className="ghost-button" onClick={closeFolderImportModal} disabled={folderImportSubmitting}>
+                  Cancel
+                </button>
+                <button type="button" onClick={() => void handleConfirmFolderImport()} disabled={folderImportSubmitting}>
+                  {folderImportSubmitting ? "Importing..." : "Import Selected Matches"}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {detailFlight || detailLoading ? (
         <div className="logbook-modal-overlay active" role="presentation">
           <div className="logbook-modal logbook-modal-wide">
@@ -316,11 +758,12 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   </dl>
                 </div>
                 <div className="logbook-stats-card">
-                  <h4>Derived statistics</h4>
+                  <h4>Statistics</h4>
                   <dl className="logbook-stats-list">
                     <div><dt>Launch altitude</dt><dd>{formatAltitude(detailFlight.stats.launch_altitude_m, units.altitude)}</dd></div>
                     <div><dt>Landing altitude</dt><dd>{formatAltitude(detailFlight.stats.landing_altitude_m, units.altitude)}</dd></div>
-                    <div><dt>Fix count</dt><dd>{detailFlight.stats.fix_count || 0}</dd></div>
+                    <div><dt>Time in thermals</dt><dd>{formatDuration(detailFlight.stats.time_in_thermals_seconds)}</dd></div>
+                    <div><dt>Time on glide</dt><dd>{formatDuration(detailFlight.stats.time_on_glide_seconds)}</dd></div>
                     <div><dt>Total track distance</dt><dd>{detailFlight.stats.total_track_distance_km ? `${detailFlight.stats.total_track_distance_km.toFixed(1)} km` : "--"}</dd></div>
                     <div><dt>Max ground speed</dt><dd>{detailFlight.stats.max_ground_speed_kmh ? `${detailFlight.stats.max_ground_speed_kmh.toFixed(1)} km/h` : "--"}</dd></div>
                     <div><dt>IGC file</dt><dd>{detailFlight.filename || "--"}</dd></div>
@@ -328,7 +771,14 @@ export default function LogbookSection(props: LogbookSectionProps) {
                 </div>
                 <div className="logbook-stats-card logbook-stats-notes">
                   <h4>Notes</h4>
-                  <p>{detailFlight.notes?.trim() ? detailFlight.notes : "No notes saved for this flight yet."}</p>
+                  <div className="stack compact">
+                    <textarea rows={5} value={notesDraft} onChange={(event) => setNotesDraft(event.target.value)} placeholder="Add personal notes about this flight..." />
+                    <div className="button-row">
+                      <button type="button" onClick={() => void handleSaveNotes()} disabled={notesSaving}>
+                        {notesSaving ? "Saving..." : "Save notes"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
@@ -359,6 +809,8 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   taskPoints={[]}
                   track={replayTrack}
                   editable={false}
+                  hideDistanceSummary
+                  highlightedTrackUploadId={replayFlight.id}
                   units={units}
                   telemetrySmoothing={telemetrySmoothing}
                   mode="replay"

@@ -107,6 +107,8 @@ class SiteSettingsResponse(BaseModel):
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_speed_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
+    max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
+    site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -117,6 +119,51 @@ class SiteSettingsUpdate(BaseModel):
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_speed_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
+    max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
+    site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
+
+
+class FlightSiteCreate(BaseModel):
+    name: str
+    city_state: str = ""
+    latitude: float
+    longitude: float
+    is_active: bool = True
+
+
+class FlightSiteUpdate(BaseModel):
+    name: str
+    city_state: str = ""
+    latitude: float
+    longitude: float
+    is_active: bool = True
+
+
+class FlightSiteResponse(BaseModel):
+    id: int
+    name: str
+    city_state: str
+    latitude: float
+    longitude: float
+    is_active: bool
+    flight_count: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class FlightSiteRescanResponse(BaseModel):
+    scanned_count: int = 0
+    matched_count: int = 0
+    unmatched_count: int = 0
+
+
+class FlightSiteScanIgcResponse(BaseModel):
+    new_sites_created: int = 0
+    flights_matched: int = 0
+    total_igc_scanned: int = 0
+    sites: list[FlightSiteResponse] = []
 
 
 class EventCreate(BaseModel):
@@ -490,6 +537,7 @@ class LogbookFlightUpdate(BaseModel):
     highest_altitude_m: float | None = None
     best_climb_mps: float | None = None
     notes: str | None = None
+    starred: bool | None = None
 
 
 class LogbookFlightStatsResponse(BaseModel):
@@ -500,7 +548,8 @@ class LogbookFlightStatsResponse(BaseModel):
     landing_time: str | None = None
     launch_altitude_m: float | None = None
     landing_altitude_m: float | None = None
-    fix_count: int = 0
+    time_in_thermals_seconds: int = 0
+    time_on_glide_seconds: int = 0
     total_track_distance_km: float = 0
     max_ground_speed_kmh: float | None = None
 
@@ -509,7 +558,10 @@ class LogbookFlightSummaryResponse(BaseModel):
     id: int
     source_kind: str
     flight_date: date
+    starred: bool = False
+    site_id: int | None = None
     site_name: str
+    site_city_state: str | None = None
     duration_seconds: int | None = None
     highest_altitude_m: float | None = None
     best_climb_mps: float | None = None
@@ -524,3 +576,28 @@ class LogbookFlightSummaryResponse(BaseModel):
 class LogbookFlightDetailResponse(LogbookFlightSummaryResponse):
     notes: str | None = None
     stats: LogbookFlightStatsResponse
+
+
+class LogbookFolderImportItemResponse(BaseModel):
+    file_key: str
+    sha256: str
+    filename: str
+    relative_path: str | None = None
+    detected_pilot_name: str | None = None
+    reason: str
+    flight_id: int | None = None
+
+
+class LogbookFolderImportResponse(BaseModel):
+    imported: list[LogbookFolderImportItemResponse] = Field(default_factory=list)
+    skipped: list[LogbookFolderImportItemResponse] = Field(default_factory=list)
+    review_needed: list[LogbookFolderImportItemResponse] = Field(default_factory=list)
+
+
+class LogbookBulkDeleteRequest(BaseModel):
+    flight_ids: list[int] = Field(default_factory=list)
+
+
+class LogbookBulkDeleteResponse(BaseModel):
+    deleted_ids: list[int] = Field(default_factory=list)
+    deleted_count: int = 0

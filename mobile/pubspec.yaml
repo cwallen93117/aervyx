@@ -25,6 +25,11 @@ dependencies:
   flutter_local_notifications: ^18.0.0
   # Bluetooth (Meshtastic BLE)
   flutter_blue_plus: ^1.35.0
+  # Battery
+  battery_plus: ^6.0.0
+  # File storage / sharing
+  path_provider: ^2.1.0
+  share_plus: ^10.0.0
   # Utilities
   intl: ^0.19.0
 

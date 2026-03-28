@@ -19,6 +19,7 @@ export type MapTelemetrySmoothing = {
   telemetry_altitude_smoothing_seconds: number;
   telemetry_speed_smoothing_seconds: number;
   telemetry_glide_ratio_smoothing_seconds: number;
+  max_map_pitch_degrees?: number;
 };
 export type MapLivePosition = {
   id: string;
@@ -63,11 +64,11 @@ export type TrackCollection = {
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
 type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
-const REPLAY_SPEEDS = [1, 2, 5, 10, 30, 60, 120, 300] as const;
+const REPLAY_SPEEDS = [1, 2, 5, 10, 15, 30, 45, 60, 120, 300] as const;
 const ALTITUDE_MULTIPLIER_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5] as const;
 const TERRAIN_SOURCE_ID = "terrain-dem";
 const TERRAIN_EXAGGERATION = 1.25;
-const MAX_MAP_PITCH = 75;
+const DEFAULT_MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
 const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
@@ -324,7 +325,7 @@ function replayTelemetryThrottleMs(replaySpeed: number) {
 }
 
 type FitTarget = {
-  kind: "task" | "turnpoints" | "fitTurnpoints" | "fallback";
+  kind: "task" | "turnpoints" | "track" | "fitTurnpoints" | "fallback";
   coordinates: [number, number][];
   signature: string;
 };
@@ -381,10 +382,24 @@ function buildTurnpointGeometrySignature(turnpoints: MapTurnpoint[]) {
   return turnpoints.map((turnpoint) => `${turnpoint.id}:${turnpoint.latitude.toFixed(6)}:${turnpoint.longitude.toFixed(6)}`).join("|");
 }
 
+function buildTrackGeometrySignature(track: TrackCollection) {
+  return track.features
+    .map((feature, featureIndex) => {
+      if (feature.geometry.type !== "LineString") {
+        return `feature:${featureIndex}:non-line`;
+      }
+      return feature.geometry.coordinates
+        .map((coordinate) => `${coordinate[0].toFixed(6)}:${coordinate[1].toFixed(6)}`)
+        .join("|");
+    })
+    .join("::");
+}
+
 function resolveFitTarget(
   taskPoints: MapTaskPoint[],
   optimizedRoute: [number, number][],
   turnpoints: MapTurnpoint[],
+  track: TrackCollection | null,
   fitTurnpoints?: MapTurnpoint[],
 ): FitTarget {
   if (taskPoints.length) {
@@ -404,6 +419,24 @@ function resolveFitTarget(
       coordinates: turnpoints.map((turnpoint) => [turnpoint.longitude, turnpoint.latitude]),
       signature: `turnpoints::${buildTurnpointGeometrySignature(turnpoints)}`,
     };
+  }
+  if (track?.features.length) {
+    const coordinates: [number, number][] = [];
+    for (const feature of track.features) {
+      if (feature.geometry.type !== "LineString") {
+        continue;
+      }
+      for (const coordinate of feature.geometry.coordinates) {
+        coordinates.push([coordinate[0], coordinate[1]]);
+      }
+    }
+    if (coordinates.length) {
+      return {
+        kind: "track",
+        coordinates,
+        signature: `track::${buildTrackGeometrySignature(track)}`,
+      };
+    }
   }
   const fallbackTurnpoints = fitTurnpoints ?? [];
   if (fallbackTurnpoints.length) {
@@ -946,6 +979,7 @@ export const TaskMap = React.memo(function TaskMap({
   onSelectTurnpoint,
   taskEditorOverlay,
   hideFullscreenDistanceOverlay = false,
+  hideDistanceSummary = false,
   highlightedTrackUploadId,
   fitKey,
   fitTurnpoints,
@@ -973,6 +1007,7 @@ export const TaskMap = React.memo(function TaskMap({
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: ReactNode;
   hideFullscreenDistanceOverlay?: boolean;
+  hideDistanceSummary?: boolean;
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
@@ -991,6 +1026,7 @@ export const TaskMap = React.memo(function TaskMap({
   const taskPointsRef = useRef(taskPoints);
   const optimizedRouteRef = useRef(optimizedRoute);
   const trackRef = useRef(track);
+  const viewStateKeyRef = useRef(viewStateKey);
   const fitGeometrySignatureRef = useRef("");
   const fitKeyRef = useRef<string>("");
   const fitTargetKindRef = useRef<FitTarget["kind"]>("fallback");
@@ -998,6 +1034,7 @@ export const TaskMap = React.memo(function TaskMap({
   const programmaticCameraMoveRef = useRef(false);
   const manualViewChangedRef = useRef(false);
   const lastCenteredHighlightRef = useRef<number | null>(null);
+  const previousHighlightedTrackUploadIdRef = useRef<number | null | undefined>(undefined);
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const animationFrameRef = useRef<number | null>(null);
@@ -1101,8 +1138,8 @@ export const TaskMap = React.memo(function TaskMap({
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
   const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(taskPoints, optimizedRoute), [optimizedRoute, taskPoints]);
   const resolvedFitTarget = useMemo(
-    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, fitTurnpoints),
-    [fitTurnpoints, optimizedRoute, taskPoints, turnpoints],
+    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints),
+    [fitTurnpoints, optimizedRoute, taskPoints, track, turnpoints],
   );
   const cylinderVolumes = useMemo<TaskCylinderVolume[]>(
     () =>
@@ -1159,6 +1196,7 @@ export const TaskMap = React.memo(function TaskMap({
     return Array.from(unique).sort((left, right) => left - right);
   }, [trackFeatureTimelines]);
   const replayTotal = replayTimeline.length;
+  const maxMapPitch = Math.max(0, Math.min(85, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
   const visibleTrackLengths = useMemo(() => {
     if (!track) {
       return [] as number[];
@@ -1483,6 +1521,7 @@ export const TaskMap = React.memo(function TaskMap({
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
+  const fitKeyValue = String(fitKey ?? "");
 
   useEffect(() => {
     turnpointsRef.current = turnpoints;
@@ -1508,6 +1547,10 @@ export const TaskMap = React.memo(function TaskMap({
     editableRef.current = editable;
     onSelectTurnpointRef.current = onSelectTurnpoint;
   }, [editable, onSelectTurnpoint]);
+
+  useEffect(() => {
+    viewStateKeyRef.current = viewStateKey;
+  }, [viewStateKey]);
 
   useEffect(() => {
     const nextReplayIndex = replayTotal > 0 ? replayTotal - 1 : 0;
@@ -1604,7 +1647,7 @@ export const TaskMap = React.memo(function TaskMap({
               pitch: persistedViewState.pitch,
             }
           : buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? 10 : 5)),
-        maxPitch: MAX_MAP_PITCH,
+        maxPitch: maxMapPitch,
         attributionControl: false,
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
@@ -1632,9 +1675,10 @@ export const TaskMap = React.memo(function TaskMap({
         if (programmaticCameraMoveRef.current) {
           programmaticCameraMoveRef.current = false;
         }
-        if (viewStateKey != null) {
+        const persistedViewStateKey = viewStateKeyRef.current;
+        if (persistedViewStateKey != null) {
           const center = map.getCenter();
-          persistedViewStateByKey.set(String(viewStateKey), {
+          persistedViewStateByKey.set(String(persistedViewStateKey), {
             center: [center.lng, center.lat],
             zoom: map.getZoom(),
             bearing: map.getBearing(),
@@ -1720,7 +1764,20 @@ export const TaskMap = React.memo(function TaskMap({
       console.error("Map failed to initialize.", error);
       return;
     }
-  }, []);
+    // Keep the base map instance stable; geometry changes are handled by the source/layer sync effects below.
+    }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    map.setMaxPitch(maxMapPitch);
+    if (map.getPitch() > maxMapPitch) {
+      programmaticCameraMoveRef.current = true;
+      map.easeTo({ pitch: maxMapPitch, duration: 200 });
+    }
+  }, [maxMapPitch]);
 
   const [styleGeneration, setStyleGeneration] = useState(0);
 
@@ -1897,14 +1954,29 @@ export const TaskMap = React.memo(function TaskMap({
       return;
     }
     const nextFitGeometrySignature = fitGeometrySignature;
-    const nextFitKey = String(fitKey ?? "");
+    const nextFitKey = fitKeyValue;
     const nextFitTargetKind = fitTargetKind;
+    const previousHighlightedTrackUploadId = previousHighlightedTrackUploadIdRef.current;
+    const highlightSelectionChanged = previousHighlightedTrackUploadId !== highlightedTrackUploadId;
+    previousHighlightedTrackUploadIdRef.current = highlightedTrackUploadId;
     const previousFitTargetKind = fitTargetKindRef.current;
     const shouldFitToTaskContext = nextFitKey !== fitKeyRef.current;
     const shouldFitToTaskAfterFallback = nextFitTargetKind === "task" && previousFitTargetKind !== "task";
     const shouldFitToWaypointGeometry =
       nextFitTargetKind !== "task" &&
       nextFitGeometrySignature !== fitGeometrySignatureRef.current;
+    const highlightOnlySelectionChange =
+      highlightSelectionChanged &&
+      nextFitKey === fitKeyRef.current &&
+      nextFitGeometrySignature === fitGeometrySignatureRef.current &&
+      nextFitTargetKind === fitTargetKindRef.current;
+
+    if (highlightOnlySelectionChange) {
+      fitGeometrySignatureRef.current = nextFitGeometrySignature;
+      fitKeyRef.current = nextFitKey;
+      fitTargetKindRef.current = nextFitTargetKind;
+      return;
+    }
 
     if (shouldFitToTaskContext || shouldFitToTaskAfterFallback || shouldFitToWaypointGeometry) {
       manualViewChangedRef.current = false;
@@ -1925,7 +1997,7 @@ export const TaskMap = React.memo(function TaskMap({
     fitGeometrySignatureRef.current = nextFitGeometrySignature;
     fitKeyRef.current = nextFitKey;
     fitTargetKindRef.current = nextFitTargetKind;
-  }, [fitGeometrySignature, fitKey, fitTargetKind, applyFitBounds]);
+  }, [applyFitBounds, fitGeometrySignature, fitKeyValue, fitTargetKind]);
 
   const replayVisible = !!track && replayTotal > 0;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
@@ -2003,13 +2075,62 @@ export const TaskMap = React.memo(function TaskMap({
     if (lastCenteredHighlightRef.current === highlightedTrackUploadId) {
       return;
     }
+    const currentZoom = map.getZoom();
+    const currentPitch = map.getPitch();
+    const currentBearing = map.getBearing();
+    manualViewChangedRef.current = true;
     programmaticCameraMoveRef.current = true;
     map.easeTo({
       center: highlightedTrackSnapshot.coordinate,
-      duration: 250,
+      zoom: currentZoom,
+      pitch: currentPitch,
+      bearing: currentBearing,
+      duration: 320,
+      easing: (value) => 1 - Math.pow(1 - value, 3),
+      essential: true,
     });
     lastCenteredHighlightRef.current = highlightedTrackUploadId;
   }, [highlightedTrackSnapshot, highlightedTrackUploadId, isPerspective3D]);
+
+  const telemetryOverlay = displayedHighlightedTrackSnapshot ? (
+    <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">
+      <strong style={{ color: displayedHighlightedTrackSnapshot.color }}>{displayedHighlightedTrackSnapshot.pilotName}</strong>
+      <div className="map-track-telemetry-grid">
+        <span>Speed</span>
+        <span>{displayedHighlightedTrackSnapshot.speedKmh != null ? formatSpeedLabel(displayedHighlightedTrackSnapshot.speedKmh, units.speed) : "--"}</span>
+        <span>Altitude</span>
+        <span>{displayedHighlightedTrackSnapshot.altitudeM != null ? formatAltitudeLabel(displayedHighlightedTrackSnapshot.altitudeM, units.altitude) : "--"}</span>
+        <span>Vertical speed</span>
+        <span>{displayedHighlightedTrackSnapshot.verticalSpeedMps != null ? formatVarioLabel(displayedHighlightedTrackSnapshot.verticalSpeedMps, units.vario) : "--"}</span>
+        <span>L/D</span>
+        <span>{displayedHighlightedTrackSnapshot.glideRatio != null ? formatGlideRatioLabel(displayedHighlightedTrackSnapshot.glideRatio) : "--"}</span>
+      </div>
+    </div>
+  ) : null;
+
+  const distanceSummaryOverlay =
+    !hideDistanceSummary && !(isFullscreen && hideFullscreenDistanceOverlay) ? (
+      <div className="map-distance-summary" aria-label="Task distance summary">
+        <div className="map-distance-summary-row">
+          <strong>Total:</strong>
+          <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
+        </div>
+        <div className="map-distance-summary-row">
+          <strong>Optimized:</strong>
+          <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
+        </div>
+      </div>
+    ) : null;
+
+  const fullscreenCompositeOverlay = isFullscreen && taskEditorOverlay ? (
+    <div className="map-fullscreen-overlay-group">
+      <div className="map-fullscreen-overlay-top">
+        <div className="map-task-editor-overlay">{taskEditorOverlay}</div>
+        {distanceSummaryOverlay}
+      </div>
+      {telemetryOverlay}
+    </div>
+  ) : null;
 
   return (
     <div
@@ -2029,34 +2150,13 @@ export const TaskMap = React.memo(function TaskMap({
         }
       />
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
-        {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
-        {displayedHighlightedTrackSnapshot ? (
-          <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">
-            <strong style={{ color: displayedHighlightedTrackSnapshot.color }}>{displayedHighlightedTrackSnapshot.pilotName}</strong>
-            <div className="map-track-telemetry-grid">
-              <span>Speed</span>
-              <span>{displayedHighlightedTrackSnapshot.speedKmh != null ? formatSpeedLabel(displayedHighlightedTrackSnapshot.speedKmh, units.speed) : "--"}</span>
-              <span>Altitude</span>
-              <span>{displayedHighlightedTrackSnapshot.altitudeM != null ? formatAltitudeLabel(displayedHighlightedTrackSnapshot.altitudeM, units.altitude) : "--"}</span>
-              <span>Vertical speed</span>
-              <span>{displayedHighlightedTrackSnapshot.verticalSpeedMps != null ? formatVarioLabel(displayedHighlightedTrackSnapshot.verticalSpeedMps, units.vario) : "--"}</span>
-              <span>L/D</span>
-              <span>{displayedHighlightedTrackSnapshot.glideRatio != null ? formatGlideRatioLabel(displayedHighlightedTrackSnapshot.glideRatio) : "--"}</span>
-            </div>
-          </div>
-        ) : null}
-        {!(isFullscreen && hideFullscreenDistanceOverlay) ? (
-          <div className="map-distance-summary" aria-label="Task distance summary">
-            <div className="map-distance-summary-row">
-              <strong>Total:</strong>
-              <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
-            </div>
-            <div className="map-distance-summary-row">
-              <strong>Optimized:</strong>
-              <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
-            </div>
-          </div>
-        ) : null}
+        {fullscreenCompositeOverlay ?? (
+          <>
+            {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
+            {telemetryOverlay}
+            {distanceSummaryOverlay}
+          </>
+        )}
       </div>
       <div className="map-control-stack">
         <button
@@ -2072,7 +2172,7 @@ export const TaskMap = React.memo(function TaskMap({
               const nextIs3D = !isPerspective3D;
               programmaticCameraMoveRef.current = true;
               map.easeTo({
-                pitch: nextIs3D ? 80 : 0,
+                pitch: nextIs3D ? maxMapPitch : 0,
                 duration: 300,
               });
               setIsPerspective3D(nextIs3D);

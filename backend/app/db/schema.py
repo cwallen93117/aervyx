@@ -18,6 +18,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_altitude_smoothing_seconds INTEGER NOT NULL DEFAULT 3,
                       telemetry_speed_smoothing_seconds INTEGER NOT NULL DEFAULT 3,
                       telemetry_glide_ratio_smoothing_seconds INTEGER NOT NULL DEFAULT 5,
+                      max_map_pitch_degrees INTEGER NOT NULL DEFAULT 75,
+                      site_match_radius_m INTEGER NOT NULL DEFAULT 1000,
                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     """
@@ -31,8 +33,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_vario_smoothing_seconds,
                       telemetry_altitude_smoothing_seconds,
                       telemetry_speed_smoothing_seconds,
-                      telemetry_glide_ratio_smoothing_seconds
-                    ) VALUES (1, 5, 3, 3, 5)
+                      telemetry_glide_ratio_smoothing_seconds,
+                      max_map_pitch_degrees,
+                      site_match_radius_m
+                    ) VALUES (1, 5, 3, 3, 5, 75, 1000)
                     """
                 )
             )
@@ -46,6 +50,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN telemetry_speed_smoothing_seconds INTEGER DEFAULT 3"))
             if "telemetry_glide_ratio_smoothing_seconds" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN telemetry_glide_ratio_smoothing_seconds INTEGER DEFAULT 5"))
+            if "max_map_pitch_degrees" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN max_map_pitch_degrees INTEGER DEFAULT 75"))
+            if "site_match_radius_m" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN site_match_radius_m INTEGER DEFAULT 1000"))
             if "updated_at" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
             connection.execute(
@@ -56,9 +64,11 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_vario_smoothing_seconds,
                       telemetry_altitude_smoothing_seconds,
                       telemetry_speed_smoothing_seconds,
-                      telemetry_glide_ratio_smoothing_seconds
+                      telemetry_glide_ratio_smoothing_seconds,
+                      max_map_pitch_degrees,
+                      site_match_radius_m
                     )
-                    SELECT 1, 5, 3, 3, 5
+                    SELECT 1, 5, 3, 3, 5, 75, 1000
                     WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE id = 1)
                     """
                 )
@@ -72,11 +82,37 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_altitude_smoothing_seconds = COALESCE(telemetry_altitude_smoothing_seconds, 3),
                       telemetry_speed_smoothing_seconds = COALESCE(telemetry_speed_smoothing_seconds, 3),
                       telemetry_glide_ratio_smoothing_seconds = COALESCE(telemetry_glide_ratio_smoothing_seconds, 5),
+                      max_map_pitch_degrees = COALESCE(max_map_pitch_degrees, 75),
+                      site_match_radius_m = COALESCE(site_match_radius_m, 1000),
                       updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
                     WHERE id = 1
                     """
                 )
             )
+
+        if "flight_sites" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE flight_sites (
+                      id INTEGER PRIMARY KEY,
+                      name VARCHAR(160) NOT NULL,
+                      city_state VARCHAR(160) NOT NULL DEFAULT '',
+                      latitude FLOAT NOT NULL,
+                      longitude FLOAT NOT NULL,
+                      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                      flight_count INTEGER NOT NULL DEFAULT 0,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_flight_sites_name ON flight_sites (name)"))
+        else:
+            flight_site_columns = {column["name"] for column in inspector.get_columns("flight_sites")}
+            if "flight_count" not in flight_site_columns:
+                connection.execute(text("ALTER TABLE flight_sites ADD COLUMN flight_count INTEGER NOT NULL DEFAULT 0"))
 
         if "task_scoring_inputs" not in table_names:
             connection.execute(
@@ -139,6 +175,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     score_penalty_columns = {column["name"] for column in inspector.get_columns("score_penalties")} if "score_penalties" in table_names else set()
     turnpoint_source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")} if "turnpoint_sources" in table_names else set()
     airspace_source_columns = {column["name"] for column in inspector.get_columns("airspace_sources")} if "airspace_sources" in table_names else set()
+    pilot_flight_columns = {column["name"] for column in inspector.get_columns("pilot_flights")} if "pilot_flights" in table_names else set()
     statements = {
         "scoring_formula": "ALTER TABLE events ADD COLUMN scoring_formula VARCHAR(40)",
         "nominal_distance_km": "ALTER TABLE events ADD COLUMN nominal_distance_km FLOAT",
@@ -277,6 +314,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_airspace_sources_sha256 ON airspace_sources (sha256)"))
         elif "enabled" not in airspace_source_columns:
             connection.execute(text("ALTER TABLE airspace_sources ADD COLUMN enabled BOOLEAN DEFAULT TRUE"))
+        if "pilot_flights" in table_names and "starred" not in pilot_flight_columns:
+            connection.execute(text("ALTER TABLE pilot_flights ADD COLUMN starred BOOLEAN DEFAULT FALSE"))
+        if "pilot_flights" in table_names and "site_id" not in pilot_flight_columns:
+            connection.execute(text("ALTER TABLE pilot_flights ADD COLUMN site_id INTEGER"))
+        if "pilot_flights" in table_names:
+            connection.execute(text("UPDATE pilot_flights SET starred = FALSE WHERE starred IS NULL"))
         if "airspace_regions" not in table_names:
             connection.execute(
                 text(

@@ -35,11 +35,35 @@ export type AdminUserRecord = {
   is_active: boolean;
   created_at: string;
 };
+export type AdminSiteRecord = {
+  id: number;
+  name: string;
+  city_state: string;
+  latitude: number;
+  longitude: number;
+  is_active: boolean;
+  flight_count: number;
+  created_at: string;
+  updated_at: string;
+};
+export type AdminSiteRescanResultRecord = {
+  scanned_count: number;
+  matched_count: number;
+  unmatched_count: number;
+};
+export type AdminSiteScanIgcResultRecord = {
+  new_sites_created: number;
+  flights_matched: number;
+  total_igc_scanned: number;
+  sites: AdminSiteRecord[];
+};
 export type SiteSettingsRecord = {
   telemetry_vario_smoothing_seconds: number;
   telemetry_altitude_smoothing_seconds: number;
   telemetry_speed_smoothing_seconds: number;
   telemetry_glide_ratio_smoothing_seconds: number;
+  max_map_pitch_degrees: number;
+  site_match_radius_m: number;
   updated_at?: string | null;
 };
 export type LogbookFlightStatsRecord = {
@@ -50,7 +74,8 @@ export type LogbookFlightStatsRecord = {
   landing_time: string | null;
   launch_altitude_m: number | null;
   landing_altitude_m: number | null;
-  fix_count: number;
+  time_in_thermals_seconds: number;
+  time_on_glide_seconds: number;
   total_track_distance_km: number;
   max_ground_speed_kmh: number | null;
 };
@@ -58,7 +83,10 @@ export type LogbookFlightSummaryRecord = {
   id: number;
   source_kind: "task_upload" | "app_upload" | "manual" | string;
   flight_date: string;
+  starred: boolean;
+  site_id?: number | null;
   site_name: string;
+  site_city_state?: string | null;
   duration_seconds: number | null;
   highest_altitude_m: number | null;
   best_climb_mps: number | null;
@@ -72,6 +100,24 @@ export type LogbookFlightSummaryRecord = {
 export type LogbookFlightDetailRecord = LogbookFlightSummaryRecord & {
   notes: string | null;
   stats: LogbookFlightStatsRecord;
+};
+export type LogbookFolderImportItemRecord = {
+  file_key: string;
+  sha256: string;
+  filename: string;
+  relative_path: string | null;
+  detected_pilot_name: string | null;
+  reason: string;
+  flight_id: number | null;
+};
+export type LogbookFolderImportResultRecord = {
+  imported: LogbookFolderImportItemRecord[];
+  skipped: LogbookFolderImportItemRecord[];
+  review_needed: LogbookFolderImportItemRecord[];
+};
+export type LogbookBulkDeleteResponseRecord = {
+  deleted_ids: number[];
+  deleted_count: number;
 };
 export type LogbookFlightFormRecord = {
   flight_date: string;

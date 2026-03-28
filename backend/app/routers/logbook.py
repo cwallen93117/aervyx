@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
@@ -9,9 +10,21 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import Event, IGCUpload, PilotFlight, PilotFlightTrackPoint, Task, TrackPoint, User
-from app.schemas import LogbookFlightCreate, LogbookFlightDetailResponse, LogbookFlightStatsResponse, LogbookFlightSummaryResponse, LogbookFlightUpdate
-from app.services.logbook import create_app_upload_flight, derive_flight_stats, get_flight_track_points
+from sqlalchemy import delete, update
+
+from app.models import Event, FlightSite, IGCUpload, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskScoringInput, TrackPoint, User
+from app.schemas import (
+    LogbookBulkDeleteRequest,
+    LogbookBulkDeleteResponse,
+    LogbookFlightCreate,
+    LogbookFlightDetailResponse,
+    LogbookFlightStatsResponse,
+    LogbookFlightSummaryResponse,
+    LogbookFlightUpdate,
+    LogbookFolderImportItemResponse,
+    LogbookFolderImportResponse,
+)
+from app.services.logbook import attach_igc_to_existing_flight, create_app_upload_flight, derive_flight_stats, get_flight_track_points, import_logbook_folder_files
 
 router = APIRouter(prefix="/api/logbook", tags=["logbook"])
 
@@ -44,6 +57,41 @@ def _trackbacked_download_path(session: Session, flight: PilotFlight) -> Path | 
     return None
 
 
+def _cleanup_stored_file(stored_path: str | None) -> None:
+    if not stored_path:
+        return
+    candidate = Path(stored_path)
+    if not candidate.exists():
+        return
+    candidate.unlink()
+    try:
+        candidate.parent.rmdir()
+    except OSError:
+        pass
+
+
+def _delete_flight_records(session: Session, user: User, flight: PilotFlight) -> list[str | None]:
+    cleanup_paths: list[str | None] = []
+    if flight.igc_upload_id is not None:
+        upload = session.get(IGCUpload, flight.igc_upload_id)
+        cleanup_paths.append(upload.stored_path if upload is not None else None)
+        session.execute(
+            update(TaskScoringInput)
+            .where(TaskScoringInput.selected_upload_id == flight.igc_upload_id)
+            .values(selected_upload_id=None, status_override=None, updated_by_user_id=user.id)
+        )
+        session.execute(delete(ScoreResult).where(ScoreResult.upload_id == flight.igc_upload_id))
+        session.execute(delete(TrackPoint).where(TrackPoint.upload_id == flight.igc_upload_id))
+        session.execute(delete(PilotFlight).where(PilotFlight.igc_upload_id == flight.igc_upload_id))
+        session.execute(delete(IGCUpload).where(IGCUpload.id == flight.igc_upload_id))
+        return cleanup_paths
+
+    cleanup_paths.append(flight.stored_path)
+    session.execute(delete(PilotFlightTrackPoint).where(PilotFlightTrackPoint.flight_id == flight.id))
+    session.execute(delete(PilotFlight).where(PilotFlight.id == flight.id))
+    return cleanup_paths
+
+
 def _build_stats_payload(flight: PilotFlight, points: list[TrackPoint | PilotFlightTrackPoint]) -> LogbookFlightStatsResponse:
     if points:
         stats = derive_flight_stats(points)
@@ -55,7 +103,8 @@ def _build_stats_payload(flight: PilotFlight, points: list[TrackPoint | PilotFli
             landing_time=stats.landing_time,
             launch_altitude_m=stats.launch_altitude_m,
             landing_altitude_m=stats.landing_altitude_m,
-            fix_count=stats.fix_count,
+            time_in_thermals_seconds=stats.time_in_thermals_seconds,
+            time_on_glide_seconds=stats.time_on_glide_seconds,
             total_track_distance_km=stats.total_track_distance_km,
             max_ground_speed_kmh=stats.max_ground_speed_kmh,
         )
@@ -68,7 +117,8 @@ def _build_stats_payload(flight: PilotFlight, points: list[TrackPoint | PilotFli
         landing_time=metadata_stats.get("landing_time"),
         launch_altitude_m=metadata_stats.get("launch_altitude_m"),
         landing_altitude_m=metadata_stats.get("landing_altitude_m"),
-        fix_count=int(metadata_stats.get("fix_count") or 0),
+        time_in_thermals_seconds=int(metadata_stats.get("time_in_thermals_seconds") or 0),
+        time_on_glide_seconds=int(metadata_stats.get("time_on_glide_seconds") or 0),
         total_track_distance_km=float(metadata_stats.get("total_track_distance_km") or 0),
         max_ground_speed_kmh=metadata_stats.get("max_ground_speed_kmh"),
     )
@@ -77,6 +127,7 @@ def _build_stats_payload(flight: PilotFlight, points: list[TrackPoint | PilotFli
 def _summary_payload(session: Session, flight: PilotFlight) -> LogbookFlightSummaryResponse:
     event = session.get(Event, flight.event_id) if flight.event_id else None
     task = session.get(Task, flight.task_id) if flight.task_id else None
+    site = session.get(FlightSite, flight.site_id) if flight.site_id else None
     points = get_flight_track_points(session, flight)
     can_replay = bool(points)
     can_download = _trackbacked_download_path(session, flight) is not None
@@ -84,7 +135,10 @@ def _summary_payload(session: Session, flight: PilotFlight) -> LogbookFlightSumm
         id=flight.id,
         source_kind=flight.source_kind,
         flight_date=flight.flight_date,
+        starred=bool(flight.starred),
+        site_id=flight.site_id,
         site_name=flight.site_name or "",
+        site_city_state=site.city_state if site else None,
         duration_seconds=flight.duration_seconds,
         highest_altitude_m=flight.highest_altitude_m,
         best_climb_mps=flight.best_climb_mps,
@@ -93,12 +147,7 @@ def _summary_payload(session: Session, flight: PilotFlight) -> LogbookFlightSumm
         filename=flight.filename,
         can_download=can_download,
         can_replay=can_replay,
-        has_statistics=bool(
-            flight.duration_seconds is not None
-            or flight.highest_altitude_m is not None
-            or flight.best_climb_mps is not None
-            or points
-        ),
+        has_statistics=True,
     )
 
 
@@ -109,6 +158,18 @@ def _detail_payload(session: Session, flight: PilotFlight) -> LogbookFlightDetai
         **summary.model_dump(),
         notes=flight.notes,
         stats=_build_stats_payload(flight, points),
+    )
+
+
+def _folder_import_item_payload(item) -> LogbookFolderImportItemResponse:
+    return LogbookFolderImportItemResponse(
+        file_key=item.file_key,
+        sha256=item.sha256,
+        filename=item.filename,
+        relative_path=item.relative_path,
+        detected_pilot_name=item.detected_pilot_name,
+        reason=item.reason,
+        flight_id=item.flight_id,
     )
 
 
@@ -175,6 +236,72 @@ async def upload_logbook_flight(
     return _detail_payload(session, flight)
 
 
+@router.post("/flights/import-folder", response_model=LogbookFolderImportResponse)
+async def import_logbook_folder(
+    files: list[UploadFile] = File(...),
+    relative_paths_json: str | None = Form(default=None),
+    file_keys_json: str | None = Form(default=None),
+    confirmed_file_keys_json: str | None = Form(default=None),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> LogbookFolderImportResponse:
+    _require_pilot_profile(user)
+    try:
+        relative_paths = json.loads(relative_paths_json) if relative_paths_json else []
+        file_keys = json.loads(file_keys_json) if file_keys_json else []
+        confirmed_file_keys = set(json.loads(confirmed_file_keys_json)) if confirmed_file_keys_json else set()
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Folder import metadata could not be parsed.") from exc
+
+    if relative_paths and len(relative_paths) != len(files):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Folder import paths do not match the uploaded files.")
+    if file_keys and len(file_keys) != len(files):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Folder import file keys do not match the uploaded files.")
+
+    payload_files: list[tuple[str, str | None, bytes]] = []
+    for index, file in enumerate(files):
+        content = await file.read()
+        relative_path = str(relative_paths[index]).strip() if relative_paths else None
+        file_key = str(file_keys[index]).strip() if file_keys else (relative_path or file.filename or f"file-{index}")
+        payload_files.append((file_key, relative_path, content))
+
+    result = await import_logbook_folder_files(
+        session,
+        user=user,
+        files=payload_files,
+        confirmed_file_keys=confirmed_file_keys,
+    )
+    session.commit()
+    return LogbookFolderImportResponse(
+        imported=[_folder_import_item_payload(item) for item in result.imported],
+        skipped=[_folder_import_item_payload(item) for item in result.skipped],
+        review_needed=[_folder_import_item_payload(item) for item in result.review_needed],
+    )
+
+
+@router.post("/flights/{flight_id}/upload", response_model=LogbookFlightDetailResponse)
+async def attach_logbook_flight_file(
+    flight_id: int,
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> LogbookFlightDetailResponse:
+    _require_pilot_profile(user)
+    flight = _flight_for_user(session, user, flight_id)
+    if flight.igc_upload_id is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task-upload-backed flights already use their existing IGC file.")
+    content = await file.read()
+    flight = await attach_igc_to_existing_flight(
+        session,
+        flight=flight,
+        filename=file.filename or "flight.igc",
+        content=content,
+    )
+    session.commit()
+    session.refresh(flight)
+    return _detail_payload(session, flight)
+
+
 @router.get("/flights/{flight_id}", response_model=LogbookFlightDetailResponse)
 def get_flight(flight_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> LogbookFlightDetailResponse:
     flight = _flight_for_user(session, user, flight_id)
@@ -195,6 +322,8 @@ def update_flight(
         flight.site_name = payload.site_name.strip()
     if payload.notes is not None:
         flight.notes = payload.notes.strip() or None
+    if payload.starred is not None:
+        flight.starred = payload.starred
     if flight.source_kind == "manual":
         if payload.duration_seconds is not None:
             flight.duration_seconds = payload.duration_seconds
@@ -249,3 +378,42 @@ def download_flight_igc(flight_id: int, user: User = Depends(get_current_user), 
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This flight does not have a downloadable IGC file.")
     filename = flight.filename or stored_path.name
     return FileResponse(path=stored_path, media_type="application/octet-stream", filename=filename)
+
+
+@router.delete("/flights", response_model=LogbookBulkDeleteResponse)
+def bulk_delete_flights(
+    payload: LogbookBulkDeleteRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> LogbookBulkDeleteResponse:
+    pilot_id = _require_pilot_profile(user)
+    requested_ids = list(dict.fromkeys(payload.flight_ids))
+    if not requested_ids:
+        return LogbookBulkDeleteResponse(deleted_ids=[], deleted_count=0)
+
+    flights = (
+        session.query(PilotFlight)
+        .filter(PilotFlight.pilot_id == pilot_id, PilotFlight.id.in_(requested_ids))
+        .all()
+    )
+    found_ids = {flight.id for flight in flights}
+    missing_ids = [flight_id for flight_id in requested_ids if flight_id not in found_ids]
+    if missing_ids:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="One or more flights were not found.")
+
+    cleanup_paths: list[str | None] = []
+    for flight in flights:
+        cleanup_paths.extend(_delete_flight_records(session, user, flight))
+    session.commit()
+    for stored_path in cleanup_paths:
+        _cleanup_stored_file(stored_path)
+    return LogbookBulkDeleteResponse(deleted_ids=requested_ids, deleted_count=len(requested_ids))
+
+
+@router.delete("/flights/{flight_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_flight(flight_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> None:
+    flight = _flight_for_user(session, user, flight_id)
+    cleanup_paths = _delete_flight_records(session, user, flight)
+    session.commit()
+    for stored_path in cleanup_paths:
+        _cleanup_stored_file(stored_path)

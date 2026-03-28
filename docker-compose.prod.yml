@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    restart: unless-stopped
+    command: postgres -c shared_buffers=256MB -c work_mem=16MB -c effective_cache_size=512MB -c random_page_cost=1.1 -c max_connections=100
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-flightcomp}
+      POSTGRES_USER: ${POSTGRES_USER:-flightcomp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    depends_on:
+      - db
+    env_file:
+      - ./backend/.env.production
+    restart: unless-stopped
+    expose:
+      - "8000"
+    volumes:
+      - backend_uploads:/app/storage/uploads
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    depends_on:
+      - backend
+    env_file:
+      - ./frontend/.env.production
+    restart: unless-stopped
+    expose:
+      - "3000"
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.3.0
+    profiles:
+      - cloudflare
+    depends_on:
+      - frontend
+      - backend
+    restart: unless-stopped
+    command: tunnel --config /etc/cloudflared/config.yml run
+    volumes:
+      - ./deploy/cloudflared/config.yml:/etc/cloudflared/config.yml:ro
+      - ./deploy/cloudflared:/etc/cloudflared:ro
+
+volumes:
+  postgres_data:
+  backend_uploads:

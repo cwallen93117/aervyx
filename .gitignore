@@ -11,8 +11,15 @@ backend/storage/uploads/
 
 # Env
 .env
+.env.production
 backend/.env
+backend/.env.production
 frontend/.env.local
+frontend/.env.production
+
+# Deployment
+deploy/cloudflared/*.json
+deploy/cloudflared/config.yml
 
 # OS
 .DS_Store
