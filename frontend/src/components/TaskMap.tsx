@@ -470,6 +470,13 @@ function buildBoundsOptions(
     } as const;
   }
 
+  if (coordinates.length === 1) {
+    return {
+      center: coordinates[0],
+      zoom: maxZoom,
+    } as const;
+  }
+
   const bounds = new maplibregl.LngLatBounds();
   for (const coordinate of coordinates) {
     bounds.extend(coordinate);
@@ -983,6 +990,7 @@ export const TaskMap = React.memo(function TaskMap({
   highlightedTrackUploadId,
   fitKey,
   fitTurnpoints,
+  fitMaxZoom = 10,
   viewStateKey,
   preserveViewStateOnRemount = false,
   mode = "replay",
@@ -1011,6 +1019,7 @@ export const TaskMap = React.memo(function TaskMap({
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
+  fitMaxZoom?: number;
   viewStateKey?: string | number | null;
   preserveViewStateOnRemount?: boolean;
   mode?: "replay" | "live";
@@ -1646,7 +1655,7 @@ export const TaskMap = React.memo(function TaskMap({
               bearing: persistedViewState.bearing,
               pitch: persistedViewState.pitch,
             }
-          : buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? 10 : 5)),
+          : buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? fitMaxZoom : 5)),
         maxPitch: maxMapPitch,
         attributionControl: false,
       });
@@ -1840,13 +1849,22 @@ export const TaskMap = React.memo(function TaskMap({
       map.fitBounds(USA_FIT_BOUNDS, { padding: 32, maxZoom: 5, duration: 0 });
       return;
     }
+    if (fitBounds.length === 1) {
+      programmaticCameraMoveRef.current = true;
+      map.easeTo({
+        center: fitBounds[0],
+        zoom: fitMaxZoom,
+        duration: 0,
+      });
+      return;
+    }
     const lngLatBounds = new maplibregl.LngLatBounds();
     for (const coordinate of fitBounds) {
       lngLatBounds.extend(coordinate);
     }
     programmaticCameraMoveRef.current = true;
-    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: 10, duration: 0 });
-  }, [fitBounds]);
+    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: fitMaxZoom, duration: 0 });
+  }, [fitBounds, fitMaxZoom]);
 
   // Sync turnpoint data to map
   useEffect(() => {

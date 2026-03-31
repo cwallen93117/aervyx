@@ -1,22 +1,25 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
-
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:geolocator/geolocator.dart';
 
-import '../models/mesh_config.dart';
 import '../config/api_config.dart';
+import '../models/meshtastic_protobufs.dart';
 import 'api_service.dart';
 
-/// Meshtastic BLE service UUID (standard Meshtastic BLE API).
-const String _meshtasticServiceUuid = '6ba1b218-15a8-461f-9fa8-5dcae273eafd';
+/// Meshtastic BLE service UUID.
+const String _meshServiceUuid = '6ba1b218-15a8-461f-9fa8-5dcae273eafd';
 
-/// Meshtastic toRadio characteristic — used to write configuration.
+/// Meshtastic toRadio characteristic — phone writes to device.
 const String _toRadioCharUuid = 'f75c76d2-129e-4dad-a1dd-7866124401e7';
 
-/// Meshtastic fromRadio characteristic — used to read responses.
+/// Meshtastic fromRadio characteristic — phone reads from device.
 const String _fromRadioCharUuid = '2c55e69e-4993-11ed-b878-0242ac120002';
+
+/// Meshtastic fromNum characteristic — notify on new data.
+const String _fromNumCharUuid = 'ed9da18c-a800-4f66-a670-aa7547e34453';
 
 /// Represents a discovered Meshtastic device.
 class MeshtasticDevice {
@@ -31,33 +34,12 @@ class MeshtasticDevice {
   });
 }
 
-/// Live mesh node info read from the connected device.
-class MeshNodeInfo {
-  final int connectedPeers;
-  final String? channelName;
-  final int? signalStrength; // RSSI dBm
-  final int? deviceBattery;  // 0-100%
-  final int? airUtilTx;      // % airtime used
-  final double? snr;          // signal-to-noise ratio
-  final String? firmwareVersion;
-  final DateTime readAt;
-
-  const MeshNodeInfo({
-    required this.connectedPeers,
-    this.channelName,
-    this.signalStrength,
-    this.deviceBattery,
-    this.airUtilTx,
-    this.snr,
-    this.firmwareVersion,
-    required this.readAt,
-  });
-}
-
-/// BLE service for scanning, pairing with, and configuring Meshtastic radios.
+/// BLE service for scanning, connecting, reading config from, and writing
+/// config to Meshtastic radios using the protobuf BLE API.
 class BleService extends ChangeNotifier {
   final ApiService _api;
 
+  // ── Scan state ──
   List<MeshtasticDevice> _discoveredDevices = [];
   MeshtasticDevice? _connectedDevice;
   bool _isScanning = false;
@@ -66,12 +48,26 @@ class BleService extends ChangeNotifier {
   String? _error;
   String? _statusMessage;
   StreamSubscription<List<ScanResult>>? _scanSubscription;
-  Timer? _nodeInfoTimer;
-  MeshNodeInfo? _nodeInfo;
 
+  // ── BLE characteristics (cached after connect) ──
+  BluetoothCharacteristic? _toRadio;
+  BluetoothCharacteristic? _fromRadio;
+  BluetoothCharacteristic? _fromNum;
+
+  // ── Device state (populated by config dump) ──
+  MeshtasticDeviceState _deviceState = MeshtasticDeviceState();
+  bool _configLoaded = false;
+
+  // ── Phone GPS sharing ──
+  StreamSubscription<Position>? _phoneGpsSubscription;
+  Timer? _phoneGpsTimer;
+  Position? _lastPhonePosition;
+
+  // ── SOS ──
   String _sosMessage = 'SOS — Pilot needs immediate assistance';
   bool _isSendingSos = false;
 
+  // ── Getters ──
   List<MeshtasticDevice> get discoveredDevices => _discoveredDevices;
   MeshtasticDevice? get connectedDevice => _connectedDevice;
   bool get isScanning => _isScanning;
@@ -79,21 +75,29 @@ class BleService extends ChangeNotifier {
   bool get isPushingConfig => _isPushingConfig;
   String? get error => _error;
   String? get statusMessage => _statusMessage;
-  MeshNodeInfo? get nodeInfo => _nodeInfo;
   bool get isConnected => _connectedDevice != null;
+  MeshtasticDeviceState get deviceState => _deviceState;
+  bool get configLoaded => _configLoaded;
   String get sosMessage => _sosMessage;
   bool get isSendingSos => _isSendingSos;
 
+  /// Display name — prefer the Meshtastic long name, fall back to BLE name.
+  String get deviceDisplayName {
+    if (_deviceState.longName.isNotEmpty) return _deviceState.longName;
+    return _connectedDevice?.name ?? '';
+  }
+
   BleService(this._api);
 
-  /// Update the SOS message text.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SOS
+  // ═══════════════════════════════════════════════════════════════════════════
+
   void setSosMessage(String message) {
     _sosMessage = message;
     notifyListeners();
   }
 
-  /// Send SOS message over mesh (BLE) and cellular (HTTP backend).
-  /// Tries both channels — succeeds if at least one works.
   Future<bool> sendSos() async {
     _isSendingSos = true;
     _error = null;
@@ -109,29 +113,18 @@ class BleService extends ChangeNotifier {
     bool cellularSent = false;
     final errors = <String>[];
 
-    // 1. Try mesh (BLE) if connected
-    if (_connectedDevice != null) {
+    // Mesh (BLE)
+    if (_toRadio != null) {
       try {
-        final services = await _connectedDevice!.device.discoverServices();
-        final meshService = services.firstWhere(
-          (s) => s.uuid.toString().toLowerCase() == _meshtasticServiceUuid,
-          orElse: () => throw Exception('Meshtastic service not found'),
-        );
-
-        final toRadio = meshService.characteristics.firstWhere(
-          (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
-          orElse: () => throw Exception('toRadio characteristic not found'),
-        );
-
         final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
-        await toRadio.write(bytes, withoutResponse: false);
+        await _toRadio!.write(bytes, withoutResponse: false);
         meshSent = true;
       } catch (e) {
         errors.add('Mesh: $e');
       }
     }
 
-    // 2. Try cellular (HTTP to backend)
+    // Cellular (HTTP)
     try {
       await _api.post(ApiConfig.sosPath, body: payload);
       cellularSent = true;
@@ -139,7 +132,6 @@ class BleService extends ChangeNotifier {
       errors.add('Cellular: $e');
     }
 
-    // Report results
     if (meshSent || cellularSent) {
       final channels = <String>[
         if (meshSent) 'mesh',
@@ -155,8 +147,12 @@ class BleService extends ChangeNotifier {
     return meshSent || cellularSent;
   }
 
-  /// Start scanning for Meshtastic BLE devices.
-  Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Scanning
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> startScan(
+      {Duration timeout = const Duration(seconds: 10)}) async {
     if (_isScanning) return;
 
     _isScanning = true;
@@ -166,7 +162,7 @@ class BleService extends ChangeNotifier {
 
     try {
       await FlutterBluePlus.startScan(
-        withServices: [Guid(_meshtasticServiceUuid)],
+        withServices: [Guid(_meshServiceUuid)],
         timeout: timeout,
       );
 
@@ -182,7 +178,6 @@ class BleService extends ChangeNotifier {
         notifyListeners();
       });
 
-      // Auto-stop after timeout
       Future.delayed(timeout, () {
         if (_isScanning) stopScan();
       });
@@ -193,7 +188,6 @@ class BleService extends ChangeNotifier {
     }
   }
 
-  /// Stop BLE scanning.
   void stopScan() {
     FlutterBluePlus.stopScan();
     _scanSubscription?.cancel();
@@ -202,154 +196,699 @@ class BleService extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Connect to a discovered Meshtastic device.
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Connect / Disconnect
+  // ═══════════════════════════════════════════════════════════════════════════
+
   Future<void> connectToDevice(MeshtasticDevice meshDevice) async {
     if (_isConnecting) return;
 
     _isConnecting = true;
     _error = null;
     _statusMessage = 'Connecting to ${meshDevice.name}...';
+    _configLoaded = false;
     notifyListeners();
 
     try {
       await meshDevice.device.connect(timeout: const Duration(seconds: 15));
       _connectedDevice = meshDevice;
+
+      // Discover BLE services and cache characteristics
+      _statusMessage = 'Discovering services...';
+      notifyListeners();
+
+      final services = await meshDevice.device.discoverServices();
+      final meshService = services.firstWhere(
+        (s) => s.uuid.toString().toLowerCase() == _meshServiceUuid,
+        orElse: () => throw Exception('Meshtastic service not found'),
+      );
+
+      _toRadio = meshService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
+        orElse: () => throw Exception('toRadio not found'),
+      );
+      _fromRadio = meshService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == _fromRadioCharUuid,
+        orElse: () => throw Exception('fromRadio not found'),
+      );
+      try {
+        _fromNum = meshService.characteristics.firstWhere(
+          (c) => c.uuid.toString().toLowerCase() == _fromNumCharUuid,
+        );
+      } catch (_) {
+        _fromNum = null; // Not all devices expose fromNum
+      }
+
+      // Read the full config dump from the device
+      _statusMessage = 'Reading device configuration...';
+      notifyListeners();
+      await _readDeviceConfig();
+
       _statusMessage = 'Connected to ${meshDevice.name}';
-      _startNodeInfoPolling();
+      _configLoaded = true;
+
+      // Start phone GPS sharing
+      _startPhoneGpsSharing();
     } catch (e) {
       _error = 'Connection failed: $e';
       _statusMessage = null;
+      _connectedDevice = null;
+      _toRadio = null;
+      _fromRadio = null;
+      _fromNum = null;
     }
+
     _isConnecting = false;
     notifyListeners();
   }
 
-  /// Disconnect from the current device.
   Future<void> disconnect() async {
-    _stopNodeInfoPolling();
+    _stopPhoneGpsSharing();
     if (_connectedDevice != null) {
-      await _connectedDevice!.device.disconnect();
+      try {
+        await _connectedDevice!.device.disconnect();
+      } catch (_) {}
       _connectedDevice = null;
-      _nodeInfo = null;
+      _toRadio = null;
+      _fromRadio = null;
+      _fromNum = null;
+      _configLoaded = false;
+      _deviceState = MeshtasticDeviceState();
       _statusMessage = null;
       notifyListeners();
     }
   }
 
-  /// Start polling the connected device for mesh node info every 10 seconds.
-  void _startNodeInfoPolling() {
-    _readNodeInfo(); // read immediately
-    _nodeInfoTimer = Timer.periodic(
-      const Duration(seconds: 10),
-      (_) => _readNodeInfo(),
-    );
-  }
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Read device config via protobuf handshake
+  // ═══════════════════════════════════════════════════════════════════════════
 
-  void _stopNodeInfoPolling() {
-    _nodeInfoTimer?.cancel();
-    _nodeInfoTimer = null;
-  }
+  Future<void> _readDeviceConfig() async {
+    if (_toRadio == null || _fromRadio == null) return;
 
-  /// Read mesh status from the connected Meshtastic device via fromRadio.
-  Future<void> _readNodeInfo() async {
-    if (_connectedDevice == null) return;
+    _deviceState = MeshtasticDeviceState();
 
-    try {
-      final services = await _connectedDevice!.device.discoverServices();
-      final meshService = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase() == _meshtasticServiceUuid,
-        orElse: () => throw Exception('Service not found'),
-      );
+    // Send want_config_id with a random nonce
+    final configId = Random().nextInt(0xFFFFFF) + 1;
+    final wantConfig = buildWantConfigMessage(configId);
+    await _toRadio!.write(wantConfig, withoutResponse: false);
 
-      final fromRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == _fromRadioCharUuid,
-        orElse: () => throw Exception('fromRadio not found'),
-      );
+    // Read all FromRadio responses until config_complete_id matches
+    int readAttempts = 0;
+    const maxAttempts = 100;
 
-      final data = await fromRadio.read();
-      if (data.isNotEmpty) {
-        // Parse the response — Meshtastic sends protobuf, but we attempt
-        // a best-effort JSON parse for our simplified config bridge.
-        // On a real device this would decode protobuf NodeInfo/DeviceMetrics.
-        try {
-          final json = jsonDecode(utf8.decode(data)) as Map<String, dynamic>;
-          _nodeInfo = MeshNodeInfo(
-            connectedPeers: json['num_online'] as int? ?? 0,
-            channelName: json['channel'] as String?,
-            signalStrength: json['rssi'] as int?,
-            deviceBattery: json['battery'] as int?,
-            airUtilTx: json['air_util_tx'] as int?,
-            snr: (json['snr'] as num?)?.toDouble(),
-            firmwareVersion: json['firmware'] as String?,
-            readAt: DateTime.now(),
-          );
-        } catch (_) {
-          // Non-JSON protobuf data — extract what we can from raw bytes
-          _nodeInfo = MeshNodeInfo(
-            connectedPeers: 0,
-            readAt: DateTime.now(),
-          );
-        }
+    while (readAttempts < maxAttempts) {
+      readAttempts++;
+
+      // Small delay to let device queue responses
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      List<int> data;
+      try {
+        data = await _fromRadio!.read();
+      } catch (_) {
+        break;
       }
-      notifyListeners();
-    } catch (_) {
-      // Device might have disconnected or service unavailable
+
+      if (data.isEmpty) {
+        // No more data — might need to wait or we're done
+        if (readAttempts > 5) break;
+        await Future.delayed(const Duration(milliseconds: 100));
+        continue;
+      }
+
+      _parseFromRadio(Uint8List.fromList(data));
+
+      // Check if we got config_complete_id
+      // (parsed in _parseFromRadio — sets _configLoaded)
+      if (_configLoaded) break;
     }
   }
 
-  /// Fetch mesh config from the backend and push it to the connected device.
-  Future<void> pushConfiguration() async {
-    if (_connectedDevice == null) {
+  void _parseFromRadio(Uint8List data) {
+    try {
+      final reader = ProtoReader(data);
+      while (reader.hasMore) {
+        final (field, wireType) = reader.readTag();
+        switch (field) {
+          case 1: // id (uint32) — FromRadio packet id
+            reader.readVarint();
+            break;
+          case 2: // packet (MeshPacket) — skip
+            reader.skip(wireType);
+            break;
+          case 3: // my_info (MyNodeInfo)
+            final sub = reader.readMessageReader();
+            _parseMyNodeInfo(sub);
+            break;
+          case 4: // node_info (NodeInfo) — parse for User long/short name
+            final sub = reader.readMessageReader();
+            _parseNodeInfo(sub);
+            break;
+          case 5: // config (Config)
+            final sub = reader.readMessageReader();
+            _parseConfig(sub);
+            break;
+          case 6: // log_record
+            reader.skip(wireType);
+            break;
+          case 7: // config_complete_id
+            reader.readVarint();
+            _configLoaded = true;
+            break;
+          case 8: // rebooted
+            reader.skip(wireType);
+            break;
+          case 9: // moduleConfig
+            final sub = reader.readMessageReader();
+            _parseModuleConfig(sub);
+            break;
+          case 10: // channel
+            final sub = reader.readMessageReader();
+            _parseChannel(sub);
+            break;
+          case 13: // metadata (DeviceMetadata)
+            final sub = reader.readMessageReader();
+            _parseDeviceMetadata(sub);
+            break;
+          default:
+            reader.skip(wireType);
+        }
+      }
+    } catch (_) {
+      // Malformed protobuf — skip
+    }
+  }
+
+  void _parseMyNodeInfo(ProtoReader reader) {
+    while (reader.hasMore) {
+      final (field, wireType) = reader.readTag();
+      switch (field) {
+        case 1: // my_node_num
+          _deviceState.myNodeNum = reader.readVarint();
+          break;
+        default:
+          reader.skip(wireType);
+      }
+    }
+  }
+
+  void _parseNodeInfo(ProtoReader reader) {
+    int? nodeNum;
+    while (reader.hasMore) {
+      final (field, wireType) = reader.readTag();
+      switch (field) {
+        case 1: // num
+          nodeNum = reader.readVarint();
+          break;
+        case 2: // user (User)
+          final userReader = reader.readMessageReader();
+          // Only parse our own node's User info
+          if (nodeNum == _deviceState.myNodeNum || _deviceState.myNodeNum == 0) {
+            _parseUser(userReader);
+          }
+          break;
+        default:
+          reader.skip(wireType);
+      }
+    }
+  }
+
+  void _parseUser(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 2: // long_name
+          _deviceState.longName = r.readString();
+          break;
+        case 3: // short_name
+          _deviceState.shortName = r.readString();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseConfig(ProtoReader reader) {
+    while (reader.hasMore) {
+      final (field, wireType) = reader.readTag();
+      switch (field) {
+        case 1: // device
+          _parseDeviceConfig(reader.readMessageReader());
+          break;
+        case 2: // position
+          _parsePositionConfig(reader.readMessageReader());
+          break;
+        case 3: // power
+          _parsePowerConfig(reader.readMessageReader());
+          break;
+        case 4: // network
+          _parseNetworkConfig(reader.readMessageReader());
+          break;
+        case 5: // display
+          _parseDisplayConfig(reader.readMessageReader());
+          break;
+        case 6: // lora
+          _parseLoraConfig(reader.readMessageReader());
+          break;
+        case 7: // bluetooth
+          _parseBluetoothConfig(reader.readMessageReader());
+          break;
+        default:
+          reader.skip(wireType);
+      }
+    }
+  }
+
+  void _parseDeviceConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.role = DeviceRole.fromValue(r.readVarint());
+          break;
+        case 6:
+          _deviceState.rebroadcastMode =
+              RebroadcastMode.fromValue(r.readVarint());
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parsePositionConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1: // position_broadcast_secs
+          _deviceState.positionBroadcastSecs = r.readVarint();
+          break;
+        case 2: // position_broadcast_smart_enabled
+          _deviceState.smartPositionEnabled = r.readBool();
+          break;
+        case 7: // position_flags
+          _deviceState.positionFlags = r.readVarint();
+          break;
+        case 10: // broadcast_smart_minimum_distance
+          _deviceState.smartMinDistance = r.readVarint();
+          break;
+        case 11: // broadcast_smart_minimum_interval_secs
+          _deviceState.smartMinInterval = r.readVarint();
+          break;
+        case 13: // gps_mode
+          _deviceState.gpsMode = GpsMode.fromValue(r.readVarint());
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parsePowerConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.isPowerSaving = r.readBool();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseNetworkConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.wifiEnabled = r.readBool();
+          break;
+        case 3:
+          _deviceState.wifiSsid = r.readString();
+          break;
+        case 4:
+          _deviceState.wifiPsk = r.readString();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseDisplayConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.screenOnSecs = r.readVarint();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseLoraConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 2: // modem_preset
+          _deviceState.modemPreset = ModemPreset.fromValue(r.readVarint());
+          break;
+        case 7: // region
+          _deviceState.region = RegionCode.fromValue(r.readVarint());
+          break;
+        case 8: // hop_limit
+          _deviceState.hopLimit = r.readVarint();
+          break;
+        case 9: // tx_enabled
+          _deviceState.txEnabled = r.readBool();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseBluetoothConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.bluetoothEnabled = r.readBool();
+          break;
+        case 2:
+          _deviceState.blePairingMode =
+              BlePairingMode.fromValue(r.readVarint());
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseModuleConfig(ProtoReader reader) {
+    while (reader.hasMore) {
+      final (field, wireType) = reader.readTag();
+      switch (field) {
+        case 1: // mqtt
+          _parseMqttConfig(reader.readMessageReader());
+          break;
+        case 4: // store_forward
+          _parseStoreForwardConfig(reader.readMessageReader());
+          break;
+        case 6: // telemetry
+          _parseTelemetryConfig(reader.readMessageReader());
+          break;
+        case 10: // neighbor_info
+          _parseNeighborInfoConfig(reader.readMessageReader());
+          break;
+        default:
+          reader.skip(wireType);
+      }
+    }
+  }
+
+  void _parseMqttConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.mqttEnabled = r.readBool();
+          break;
+        case 2:
+          _deviceState.mqttAddress = r.readString();
+          break;
+        case 3:
+          _deviceState.mqttUsername = r.readString();
+          break;
+        case 4:
+          _deviceState.mqttPassword = r.readString();
+          break;
+        case 5:
+          _deviceState.mqttEncryptionEnabled = r.readBool();
+          break;
+        case 7:
+          _deviceState.mqttTlsEnabled = r.readBool();
+          break;
+        case 8:
+          _deviceState.mqttRootTopic = r.readString();
+          break;
+        case 9:
+          _deviceState.mqttProxyToClient = r.readBool();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseTelemetryConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.telemetryDeviceInterval = r.readVarint();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseStoreForwardConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.storeForwardEnabled = r.readBool();
+          break;
+        case 5:
+          _deviceState.storeForwardIsServer = r.readBool();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseNeighborInfoConfig(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.neighborInfoEnabled = r.readBool();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  void _parseChannel(ProtoReader reader) {
+    int? index;
+    while (reader.hasMore) {
+      final (field, wireType) = reader.readTag();
+      switch (field) {
+        case 1: // index
+          index = reader.readVarint();
+          break;
+        case 2: // settings
+          if (index == 0) {
+            // Primary channel
+            final sub = reader.readMessageReader();
+            while (sub.hasMore) {
+              final (sf, swt) = sub.readTag();
+              switch (sf) {
+                case 2:
+                  _deviceState.channelName = sub.readString();
+                  break;
+                case 5:
+                  _deviceState.channelUplinkEnabled = sub.readBool();
+                  break;
+                case 6:
+                  _deviceState.channelDownlinkEnabled = sub.readBool();
+                  break;
+                default:
+                  sub.skip(swt);
+              }
+            }
+          } else {
+            reader.skip(wireType);
+          }
+          break;
+        default:
+          reader.skip(wireType);
+      }
+    }
+  }
+
+  void _parseDeviceMetadata(ProtoReader r) {
+    while (r.hasMore) {
+      final (f, wt) = r.readTag();
+      switch (f) {
+        case 1:
+          _deviceState.firmwareVersion = r.readString();
+          break;
+        default:
+          r.skip(wt);
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Write config to device
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Write a single admin message to the connected device.
+  Future<void> _writeAdmin(Uint8List adminPayload) async {
+    if (_toRadio == null) throw Exception('Not connected');
+
+    final meshPacket = buildAdminPacket(
+      to: _deviceState.myNodeNum,
+      from: _deviceState.myNodeNum,
+      adminPayload: adminPayload,
+    );
+    final toRadio = buildToRadioPacket(meshPacket);
+    await _toRadio!.write(toRadio, withoutResponse: false);
+
+    // Small delay between writes to avoid overwhelming the device
+    await Future.delayed(const Duration(milliseconds: 100));
+  }
+
+  /// Apply a full profile preset to the connected device.
+  Future<void> applyProfile(MeshtasticProfile profile) async {
+    if (_toRadio == null) {
       _error = 'No device connected';
       notifyListeners();
       return;
     }
 
+    final config = ProfileConfig.presets[profile]!;
     _isPushingConfig = true;
     _error = null;
-    _statusMessage = 'Fetching mesh configuration...';
+    _statusMessage = 'Applying ${profile.label} profile...';
     notifyListeners();
 
     try {
-      // 1. Fetch config from backend
-      final json = await _api.get(ApiConfig.meshConfigPath);
-      final config = MeshConfig.fromJson(json);
+      // Begin batch edit
+      await _writeAdmin(buildBeginEditSettings());
 
-      _statusMessage = 'Discovering services...';
+      // Device config (role + rebroadcast)
+      _statusMessage = 'Setting device role...';
       notifyListeners();
+      await _writeAdmin(buildSetDeviceConfig(
+        role: config.role,
+        rebroadcastMode: config.rebroadcastMode,
+      ));
 
-      // 2. Discover BLE services
-      final services = await _connectedDevice!.device.discoverServices();
-      final meshService = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase() == _meshtasticServiceUuid,
-        orElse: () => throw Exception('Meshtastic service not found on device'),
-      );
-
-      final toRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
-        orElse: () => throw Exception('toRadio characteristic not found'),
-      );
-
-      // 3. Build a config payload to push
-      //    This is a simplified JSON config push. A full implementation would
-      //    use Meshtastic protobuf AdminMessage framing.
-      final configPayload = {
-        'type': 'aervyx_config',
-        'mqtt_host': config.mqttHost,
-        'mqtt_port': config.mqttPort,
-        'topic_prefix': config.topicPrefix,
-        if (config.channelPsk != null) 'channel_psk': config.channelPsk,
-      };
-
-      _statusMessage = 'Pushing configuration...';
+      // Position config
+      _statusMessage = 'Setting position config...';
       notifyListeners();
+      await _writeAdmin(buildSetPositionConfig(
+        positionBroadcastSecs: config.positionBroadcastSecs,
+        smartEnabled: config.smartPositionEnabled,
+        smartMinDistance: config.smartMinDistance,
+        smartMinInterval: config.smartMinInterval,
+        gpsMode: config.gpsMode,
+        positionFlags: config.positionFlags,
+      ));
 
-      final bytes = Uint8List.fromList(utf8.encode(jsonEncode(configPayload)));
-      await toRadio.write(bytes, withoutResponse: false);
+      // LoRa config
+      _statusMessage = 'Setting LoRa radio...';
+      notifyListeners();
+      await _writeAdmin(buildSetLoraConfig(
+        modemPreset: config.modemPreset,
+        region: _deviceState.region, // Keep current region
+        hopLimit: config.hopLimit,
+      ));
 
-      _statusMessage = 'Configuration pushed successfully';
+      // Power config
+      await _writeAdmin(buildSetPowerConfig(
+        isPowerSaving: config.powerSaving,
+      ));
+
+      // Display config
+      await _writeAdmin(buildSetDisplayConfig(
+        screenOnSecs: config.displayTimeoutSecs,
+      ));
+
+      // Bluetooth config
+      _statusMessage = 'Setting Bluetooth...';
+      notifyListeners();
+      await _writeAdmin(buildSetBluetoothConfig(
+        enabled: config.bluetoothEnabled,
+      ));
+
+      // Network/Wi-Fi
+      await _writeAdmin(buildSetNetworkConfig(
+        wifiEnabled: config.wifiEnabled,
+      ));
+
+      // MQTT — always on, proxy based on whether BLE is active
+      _statusMessage = 'Setting MQTT...';
+      notifyListeners();
+      await _writeAdmin(buildSetMqttConfig(
+        address: _deviceState.mqttAddress.isNotEmpty
+            ? _deviceState.mqttAddress
+            : 'mqtt.meshtastic.org',
+        rootTopic: _deviceState.mqttRootTopic.isNotEmpty
+            ? _deviceState.mqttRootTopic
+            : 'msh',
+        encryptionEnabled: _deviceState.mqttEncryptionEnabled,
+        proxyToClientEnabled: config.bluetoothEnabled, // Proxy when BLE on
+      ));
+
+      // Telemetry
+      await _writeAdmin(buildSetTelemetryConfig(
+        deviceUpdateInterval: config.telemetryIntervalSecs,
+      ));
+
+      // Neighbor info — on for all profiles
+      await _writeAdmin(buildSetNeighborInfoConfig(enabled: true));
+
+      // Store & forward — on for repeaters as server, on for others as client
+      await _writeAdmin(buildSetStoreForwardConfig(
+        enabled: true,
+        isServer: profile == MeshtasticProfile.repeater,
+      ));
+
+      // Channel uplink — always on
+      await _writeAdmin(buildSetChannel(
+        index: 0,
+        role: 1, // PRIMARY
+        uplinkEnabled: true,
+        downlinkEnabled: true,
+      ));
+
+      // Commit batch edit (device reboots)
+      _statusMessage = 'Committing settings (device will reboot)...';
+      notifyListeners();
+      await _writeAdmin(buildCommitEditSettings());
+
+      // Update local state to match
+      _deviceState.role = config.role;
+      _deviceState.rebroadcastMode = config.rebroadcastMode;
+      _deviceState.gpsMode = config.gpsMode;
+      _deviceState.positionBroadcastSecs = config.positionBroadcastSecs;
+      _deviceState.smartPositionEnabled = config.smartPositionEnabled;
+      _deviceState.smartMinDistance = config.smartMinDistance;
+      _deviceState.smartMinInterval = config.smartMinInterval;
+      _deviceState.modemPreset = config.modemPreset;
+      _deviceState.hopLimit = config.hopLimit;
+      _deviceState.isPowerSaving = config.powerSaving;
+      _deviceState.bluetoothEnabled = config.bluetoothEnabled;
+      _deviceState.wifiEnabled = config.wifiEnabled;
+      _deviceState.positionFlags = config.positionFlags;
+      _deviceState.screenOnSecs = config.displayTimeoutSecs;
+      _deviceState.telemetryDeviceInterval = config.telemetryIntervalSecs;
+
+      _statusMessage = '${profile.label} profile applied. Device rebooting...';
     } catch (e) {
-      _error = 'Config push failed: $e';
+      _error = 'Profile apply failed: $e';
       _statusMessage = null;
     }
 
@@ -357,9 +896,204 @@ class BleService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Individual config writes
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Set device long name and short name.
+  Future<void> setDeviceName({
+    required String longName,
+    required String shortName,
+  }) async {
+    _isPushingConfig = true;
+    _statusMessage = 'Setting device name...';
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _writeAdmin(buildSetOwner(
+        longName: longName,
+        shortName: shortName,
+      ));
+      _deviceState.longName = longName;
+      _deviceState.shortName = shortName;
+      _statusMessage = 'Device name updated';
+    } catch (e) {
+      _error = 'Failed to set name: $e';
+      _statusMessage = null;
+    }
+
+    _isPushingConfig = false;
+    notifyListeners();
+  }
+
+  /// Configure Wi-Fi on the device.
+  Future<void> setWifi({
+    required bool enabled,
+    String? ssid,
+    String? password,
+  }) async {
+    _isPushingConfig = true;
+    _statusMessage = enabled ? 'Configuring Wi-Fi...' : 'Disabling Wi-Fi...';
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _writeAdmin(buildSetNetworkConfig(
+        wifiEnabled: enabled,
+        wifiSsid: ssid,
+        wifiPsk: password,
+      ));
+      _deviceState.wifiEnabled = enabled;
+      if (ssid != null) _deviceState.wifiSsid = ssid;
+      _statusMessage = enabled ? 'Wi-Fi configured' : 'Wi-Fi disabled';
+    } catch (e) {
+      _error = 'Wi-Fi config failed: $e';
+      _statusMessage = null;
+    }
+
+    _isPushingConfig = false;
+    notifyListeners();
+  }
+
+  /// Set LoRa region.
+  Future<void> setLoraRegion(RegionCode region) async {
+    _isPushingConfig = true;
+    _statusMessage = 'Setting region...';
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _writeAdmin(buildSetLoraConfig(
+        modemPreset: _deviceState.modemPreset,
+        region: region,
+        hopLimit: _deviceState.hopLimit,
+      ));
+      _deviceState.region = region;
+      _statusMessage = 'Region set to ${region.label}';
+    } catch (e) {
+      _error = 'Failed to set region: $e';
+      _statusMessage = null;
+    }
+
+    _isPushingConfig = false;
+    notifyListeners();
+  }
+
+  /// Set MQTT server configuration.
+  Future<void> setMqttConfig({
+    required String address,
+    String? username,
+    String? password,
+    required String rootTopic,
+    bool encryptionEnabled = true,
+    bool tlsEnabled = false,
+  }) async {
+    _isPushingConfig = true;
+    _statusMessage = 'Configuring MQTT...';
+    _error = null;
+    notifyListeners();
+
+    try {
+      await _writeAdmin(buildSetMqttConfig(
+        address: address,
+        username: username,
+        password: password,
+        rootTopic: rootTopic,
+        encryptionEnabled: encryptionEnabled,
+        tlsEnabled: tlsEnabled,
+        proxyToClientEnabled: _deviceState.bluetoothEnabled,
+      ));
+      _deviceState.mqttAddress = address;
+      if (username != null) _deviceState.mqttUsername = username;
+      _deviceState.mqttRootTopic = rootTopic;
+      _deviceState.mqttEncryptionEnabled = encryptionEnabled;
+      _deviceState.mqttTlsEnabled = tlsEnabled;
+      _statusMessage = 'MQTT configured';
+    } catch (e) {
+      _error = 'MQTT config failed: $e';
+      _statusMessage = null;
+    }
+
+    _isPushingConfig = false;
+    notifyListeners();
+  }
+
+  /// Reboot the device.
+  Future<void> rebootDevice({int seconds = 5}) async {
+    _statusMessage = 'Rebooting device in $seconds seconds...';
+    notifyListeners();
+    try {
+      await _writeAdmin(buildReboot(seconds: seconds));
+    } catch (_) {}
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Phone GPS sharing — always on when connected
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _startPhoneGpsSharing() {
+    _stopPhoneGpsSharing();
+
+    const settings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+
+    _phoneGpsSubscription =
+        Geolocator.getPositionStream(locationSettings: settings)
+            .listen(_onPhoneGpsUpdate);
+
+    // Also send position every 30 seconds even if stationary
+    _phoneGpsTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _sendPhonePosition(),
+    );
+  }
+
+  void _stopPhoneGpsSharing() {
+    _phoneGpsSubscription?.cancel();
+    _phoneGpsSubscription = null;
+    _phoneGpsTimer?.cancel();
+    _phoneGpsTimer = null;
+  }
+
+  void _onPhoneGpsUpdate(Position pos) {
+    _lastPhonePosition = pos;
+    _sendPhonePosition();
+  }
+
+  Future<void> _sendPhonePosition() async {
+    if (_toRadio == null || _lastPhonePosition == null) return;
+    if (_deviceState.myNodeNum == 0) return;
+
+    final pos = _lastPhonePosition!;
+    final posPacket = buildPositionPacket(
+      to: _deviceState.myNodeNum,
+      from: _deviceState.myNodeNum,
+      lat: pos.latitude,
+      lon: pos.longitude,
+      alt: pos.altitude,
+      time: pos.timestamp.millisecondsSinceEpoch ~/ 1000,
+      groundSpeed: pos.speed.round(),
+      groundTrack: pos.heading.round(),
+    );
+
+    try {
+      final toRadio = buildToRadioPacket(posPacket);
+      await _toRadio!.write(toRadio, withoutResponse: false);
+    } catch (_) {
+      // BLE write failed — device may have disconnected
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Dispose
+  // ═══════════════════════════════════════════════════════════════════════════
+
   @override
   void dispose() {
-    _stopNodeInfoPolling();
+    _stopPhoneGpsSharing();
     stopScan();
     disconnect();
     super.dispose();

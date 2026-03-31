@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../services/ble_service.dart';
+import 'meshtastic_settings_screen.dart';
 
 class BlePairingScreen extends StatelessWidget {
   const BlePairingScreen({super.key});
@@ -60,19 +61,20 @@ class BlePairingScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Connected: ${ble.connectedDevice!.name}',
+                      Text('Connected: ${ble.deviceDisplayName}',
                           style: Theme.of(context).textTheme.titleSmall),
                       const SizedBox(height: 12),
                       Row(
                         children: [
                           FilledButton.icon(
-                            onPressed: ble.isPushingConfig
-                                ? null
-                                : () => ble.pushConfiguration(),
-                            icon: const Icon(Icons.upload),
-                            label: Text(ble.isPushingConfig
-                                ? 'Pushing...'
-                                : 'Push Config'),
+                            onPressed: () => Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    const MeshtasticSettingsScreen(),
+                              ),
+                            ),
+                            icon: const Icon(Icons.settings),
+                            label: const Text('Configure'),
                           ),
                           const SizedBox(width: 12),
                           OutlinedButton(

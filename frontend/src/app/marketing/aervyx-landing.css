@@ -44,7 +44,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;align-items:cen
 .hero-pill{display:inline-flex;align-items:center;gap:.52rem;background:rgba(0,229,255,.06);border:1px solid rgba(0,229,255,.17);border-radius:999px;padding:.36rem .98rem;font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:500;letter-spacing:.06em;text-transform:uppercase;color:var(--cyan);margin-bottom:1.9rem;animation:fadeUp .7s ease both}
 .pdot{width:6px;height:6px;border-radius:50%;background:var(--cyan);box-shadow:0 0 7px var(--cyan);animation:blink 1.7s ease-in-out infinite}
 @keyframes blink{0%,100%{opacity:1}50%{opacity:.22}}
-.hero h1{font-family:'Exo 2',sans-serif;font-size:clamp(3.1rem,7.5vw,6rem);font-weight:900;line-height:.96;letter-spacing:-.025em;color:var(--white);margin-bottom:1.55rem;animation:fadeUp .7s .08s ease both}
+.hero h1{font-family:'Exo 2',sans-serif;font-size:clamp(3.1rem,7.5vw,6rem);font-weight:900;line-height:1.02;letter-spacing:-.025em;color:var(--white);margin-bottom:1.55rem;animation:fadeUp .7s .08s ease both;padding-bottom:.06em}
 .h1-accent{display:block;font-style:italic;font-weight:800;background:linear-gradient(95deg,var(--cyan) 0%,#7dd3fc 55%,var(--purple) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hero-sub{font-size:1.1rem;font-weight:300;color:var(--muted);max-width:640px;margin:0 auto 2.35rem;line-height:1.82;animation:fadeUp .7s .16s ease both}
 .hero-sub strong{color:rgba(255,255,255,.72);font-weight:500}

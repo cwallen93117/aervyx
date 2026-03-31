@@ -2510,7 +2510,7 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                {activeSection !== "logbook" ? (
+                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
                   </span>

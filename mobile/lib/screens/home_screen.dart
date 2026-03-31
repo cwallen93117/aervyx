@@ -3,11 +3,14 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../models/meshtastic_protobufs.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
 import '../services/tracking_service.dart';
+import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
 import 'flights_screen.dart';
+import 'live_view_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -31,12 +34,28 @@ class HomeScreen extends StatelessWidget {
               painter: _AppBarLogoPainter(),
             ),
             const SizedBox(width: 8),
-            Text(
-              'Aervyx',
-              style: TextStyle(
-                fontWeight: FontWeight.w700,
-                color: AervyxLogo.cyan,
-              ),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Aervyx',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 18,
+                    color: AervyxLogo.cyan,
+                  ),
+                ),
+                if (ble.isConnected)
+                  Text(
+                    ble.deviceDisplayName,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.grey.shade600,
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
@@ -57,6 +76,13 @@ class HomeScreen extends StatelessWidget {
                         ? Colors.green
                         : Colors.red,
               ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.map),
+            tooltip: 'Live View',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LiveViewScreen()),
             ),
           ),
           IconButton(
@@ -82,56 +108,34 @@ class HomeScreen extends StatelessWidget {
             children: [
               const SizedBox(height: 16),
 
-              // Big tracking button — near top of screen
-              SizedBox(
-                width: 180,
-                height: 180,
-                child: FilledButton(
-                  onPressed: () {
-                    if (tracking.isTracking) {
-                      tracking.stopTracking();
-                    } else {
-                      tracking.startTracking();
-                    }
-                  },
-                  style: FilledButton.styleFrom(
-                    shape: const CircleBorder(),
-                    backgroundColor: tracking.isTracking
-                        ? colorScheme.error
-                        : colorScheme.primary,
-                    foregroundColor: tracking.isTracking
-                        ? colorScheme.onError
-                        : colorScheme.onPrimary,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        tracking.isTracking
-                            ? Icons.stop_rounded
-                            : Icons.play_arrow_rounded,
-                        size: 56,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        tracking.isTracking ? 'Stop' : 'Start',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              // Big tracking button — 3 states
+              _TrackingButton(tracking: tracking),
 
               const SizedBox(height: 8),
 
               // Flight time — right below the button
               _FlightTimeDisplay(tracking: tracking),
 
+              // Status text (pre-flight, monitoring, landing countdown)
+              _StatusText(tracking: tracking),
+
               const SizedBox(height: 8),
+
+              // Landing countdown cancel button
+              if (tracking.landingCountdownActive)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FilledButton.icon(
+                    onPressed: () => tracking.cancelLandingCountdown(),
+                    icon: const Icon(Icons.cancel),
+                    label: Text(
+                      'Cancel — still flying (${tracking.landingCountdownRemaining}s)',
+                    ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: Colors.orange,
+                    ),
+                  ),
+                ),
 
               // SOS button
               _SosButton(ble: ble),
@@ -144,9 +148,11 @@ class HomeScreen extends StatelessWidget {
                 icon: Icons.gps_fixed,
                 label: 'GPS',
                 statusColor: tracking.isTracking ? Colors.green : Colors.grey,
-                statusLabel: tracking.isTracking ? 'Active' : 'Off',
+                statusLabel: tracking.isTracking
+                    ? _trackingStateLabel(tracking.trackingState)
+                    : 'Off',
               ),
-              _GpsStatsCard(tracking: tracking),
+              _GpsStatsCard(tracking: tracking, auth: auth),
 
               const SizedBox(height: 12),
 
@@ -162,7 +168,8 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 12),
 
               // Error message
-              if (tracking.error != null)
+              if (tracking.error != null &&
+                  !tracking.error!.startsWith('Landing detected'))
                 Card(
                   color: colorScheme.errorContainer,
                   child: Padding(
@@ -200,6 +207,163 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 8),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  static String _trackingStateLabel(TrackingState state) {
+    switch (state) {
+      case TrackingState.idle:
+        return 'Off';
+      case TrackingState.preFlight:
+        return 'Pre-flight';
+      case TrackingState.inFlight:
+        return 'Recording';
+      case TrackingState.monitoring:
+        return 'Monitoring';
+    }
+  }
+}
+
+// ── 3-State Tracking Button ──
+
+class _TrackingButton extends StatelessWidget {
+  final TrackingService tracking;
+
+  const _TrackingButton({required this.tracking});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    // Determine button appearance based on state
+    Color bgColor;
+    Color fgColor;
+    IconData icon;
+    String label;
+
+    switch (tracking.trackingState) {
+      case TrackingState.idle:
+        bgColor = colorScheme.primary;
+        fgColor = colorScheme.onPrimary;
+        icon = Icons.play_arrow_rounded;
+        label = 'Start';
+        break;
+      case TrackingState.preFlight:
+        bgColor = colorScheme.primary;
+        fgColor = colorScheme.onPrimary;
+        icon = Icons.flight_takeoff;
+        label = 'Waiting...';
+        break;
+      case TrackingState.inFlight:
+        bgColor = colorScheme.error;
+        fgColor = colorScheme.onError;
+        icon = Icons.stop_rounded;
+        label = 'Stop';
+        break;
+      case TrackingState.monitoring:
+        bgColor = Colors.amber.shade700;
+        fgColor = Colors.white;
+        icon = Icons.pause_rounded;
+        label = 'Monitoring';
+        break;
+    }
+
+    return SizedBox(
+      width: 180,
+      height: 180,
+      child: GestureDetector(
+        onLongPress: tracking.trackingState == TrackingState.preFlight
+            ? () => tracking.forceStartRecording()
+            : null,
+        child: FilledButton(
+          onPressed: () {
+            switch (tracking.trackingState) {
+              case TrackingState.idle:
+                tracking.startTracking();
+                break;
+              case TrackingState.preFlight:
+                // Short press during pre-flight → stop
+                tracking.stopTracking();
+                break;
+              case TrackingState.inFlight:
+                tracking.stopTracking();
+                break;
+              case TrackingState.monitoring:
+                tracking.stopTracking();
+                break;
+            }
+          },
+          style: FilledButton.styleFrom(
+            shape: const CircleBorder(),
+            backgroundColor: bgColor,
+            foregroundColor: fgColor,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 56),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Status Text ──
+
+class _StatusText extends StatelessWidget {
+  final TrackingService tracking;
+
+  const _StatusText({required this.tracking});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    String? text;
+    Color? color;
+
+    switch (tracking.trackingState) {
+      case TrackingState.preFlight:
+        text = 'Waiting for takeoff...\nLong-press to force start';
+        color = theme.colorScheme.primary;
+        break;
+      case TrackingState.monitoring:
+        text = 'Monitoring for re-launch...';
+        color = Colors.amber.shade700;
+        break;
+      case TrackingState.inFlight:
+        if (tracking.landingCountdownActive) {
+          text =
+              'Landing detected — stopping in ${tracking.landingCountdownRemaining}s';
+          color = Colors.orange;
+        }
+        break;
+      case TrackingState.idle:
+        break;
+    }
+
+    if (text == null) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 4),
+      child: Text(
+        text,
+        textAlign: TextAlign.center,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w500,
         ),
       ),
     );
@@ -263,8 +427,9 @@ class _SectionHeader extends StatelessWidget {
 
 class _GpsStatsCard extends StatelessWidget {
   final TrackingService tracking;
+  final AuthService auth;
 
-  const _GpsStatsCard({required this.tracking});
+  const _GpsStatsCard({required this.tracking, required this.auth});
 
   String _zoneLabel(TrackingZone zone) {
     switch (zone) {
@@ -288,6 +453,9 @@ class _GpsStatsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final pos = tracking.lastPosition;
+    final user = auth.user;
+    final altUnit = user?.altitudeUnit ?? 'ft';
+    final speedUnit = user?.speedUnit ?? 'kph';
 
     return Card(
       child: Padding(
@@ -300,9 +468,9 @@ class _GpsStatsCard extends StatelessWidget {
           children: [
             _buildRow(
               Icons.height, 'Altitude',
-              pos?.alt != null ? '${pos!.alt!.toStringAsFixed(0)} m' : '--',
+              UnitConverter.formatAltitude(pos?.alt, altUnit),
               Icons.speed, 'Speed',
-              pos?.speed != null ? '${(pos!.speed! * 3.6).toStringAsFixed(1)} km/h' : '--',
+              UnitConverter.formatSpeed(pos?.speed, speedUnit),
               context,
             ),
             _buildRow(
@@ -314,7 +482,7 @@ class _GpsStatsCard extends StatelessWidget {
             ),
             _buildRow(
               Icons.tune, 'GPS Rate',
-              tracking.isTracking ? _zoneLabel(tracking.currentZone) : '--',
+              tracking.isInFlight ? _zoneLabel(tracking.currentZone) : '--',
               Icons.flag, 'Nearest TP',
               tracking.inCompetitionMode
                   ? _nearestTpLabel(tracking.nearestTurnpointDistance)
@@ -332,7 +500,6 @@ class _GpsStatsCard extends StatelessWidget {
     IconData icon2, String label2, String value2,
     BuildContext context,
   ) {
-    final theme = Theme.of(context);
     return TableRow(
       children: [
         Padding(
@@ -382,7 +549,28 @@ class _MeshStatsCard extends StatelessWidget {
       );
     }
 
-    final info = ble.nodeInfo;
+    final ds = ble.deviceState;
+
+    // Map Meshtastic device role to Aervyx profile name
+    String profileName;
+    IconData profileIcon;
+    switch (ds.role) {
+      case DeviceRole.tracker:
+        profileName = 'Pilot';
+        profileIcon = Icons.flight; // placeholder, overridden with custom widget below
+        break;
+      case DeviceRole.router:
+        profileName = 'Repeater';
+        profileIcon = Icons.cell_tower;
+        break;
+      case DeviceRole.client:
+        profileName = ds.wifiEnabled ? 'Driver Wi-Fi' : 'Driver';
+        profileIcon = ds.wifiEnabled ? Icons.wifi : Icons.directions_car;
+        break;
+      default:
+        profileName = ds.role.label;
+        profileIcon = Icons.devices;
+    }
 
     return Card(
       child: Padding(
@@ -396,15 +584,15 @@ class _MeshStatsCard extends StatelessWidget {
                     size: 16, color: theme.colorScheme.primary),
                 const SizedBox(width: 6),
                 Text(
-                  ble.connectedDevice!.name,
+                  ble.deviceDisplayName,
                   style: theme.textTheme.labelMedium?.copyWith(
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                if (info?.firmwareVersion != null) ...[
+                if (ds.firmwareVersion != null) ...[
                   const SizedBox(width: 8),
                   Text(
-                    'v${info!.firmwareVersion}',
+                    'v${ds.firmwareVersion}',
                     style: theme.textTheme.labelSmall?.copyWith(
                       color: theme.colorScheme.onSurfaceVariant,
                     ),
@@ -425,33 +613,9 @@ class _MeshStatsCard extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       child: _StatTile(
-                        icon: Icons.people,
-                        label: 'Peers Online',
-                        value: info != null ? '${info.connectedPeers}' : '--',
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.signal_cellular_alt,
-                        label: 'Signal',
-                        value: info?.signalStrength != null
-                            ? '${info!.signalStrength} dBm'
-                            : '--',
-                      ),
-                    ),
-                  ],
-                ),
-                TableRow(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.hearing,
-                        label: 'SNR',
-                        value: info?.snr != null
-                            ? '${info!.snr!.toStringAsFixed(1)} dB'
-                            : '--',
+                        icon: profileIcon,
+                        label: 'Profile',
+                        value: profileName,
                       ),
                     ),
                     Padding(
@@ -459,7 +623,9 @@ class _MeshStatsCard extends StatelessWidget {
                       child: _StatTile(
                         icon: Icons.cell_tower,
                         label: 'Channel',
-                        value: info?.channelName ?? '--',
+                        value: ds.channelName.isNotEmpty
+                            ? ds.channelName
+                            : '--',
                       ),
                     ),
                   ],
@@ -469,21 +635,37 @@ class _MeshStatsCard extends StatelessWidget {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       child: _StatTile(
-                        icon: Icons.battery_std,
-                        label: 'Radio Battery',
-                        value: info?.deviceBattery != null
-                            ? '${info!.deviceBattery}%'
-                            : '--',
+                        icon: Icons.radio,
+                        label: 'Modem',
+                        value: ds.modemPreset.label,
                       ),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       child: _StatTile(
-                        icon: Icons.air,
-                        label: 'Air Util TX',
-                        value: info?.airUtilTx != null
-                            ? '${info!.airUtilTx}%'
-                            : '--',
+                        icon: Icons.route,
+                        label: 'Hops',
+                        value: '${ds.hopLimit}',
+                      ),
+                    ),
+                  ],
+                ),
+                TableRow(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: _StatTile(
+                        icon: Icons.gps_fixed,
+                        label: 'GPS',
+                        value: ds.gpsMode.label,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: _StatTile(
+                        icon: Icons.cloud_upload,
+                        label: 'MQTT',
+                        value: ds.mqttEnabled ? 'Connected' : 'Disconnected',
                       ),
                     ),
                   ],
@@ -515,7 +697,7 @@ class _FlightTimeDisplay extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final duration = tracking.flightDuration;
-    final isActive = tracking.isTracking;
+    final isActive = tracking.isInFlight;
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -548,24 +730,37 @@ class _SosButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     return SizedBox(
       width: double.infinity,
       height: 44,
-      child: OutlinedButton.icon(
+      child: OutlinedButton(
         onPressed: ble.isSendingSos ? null : () => _confirmSos(context),
-        icon: const SizedBox.shrink(),
-        label: Text(
-          ble.isSendingSos ? 'Sending...' : 'Send SOS',
-          style: TextStyle(
-            color: ble.isSendingSos ? null : Colors.red,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
         style: OutlinedButton.styleFrom(
           side: const BorderSide(color: Colors.red, width: 1.5),
         ),
+        child: ble.isSendingSos
+            ? const Text('Sending...',
+                style: TextStyle(fontWeight: FontWeight.bold))
+            : Text.rich(
+                TextSpan(
+                  children: [
+                    TextSpan(
+                      text: 'Send ',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
+                    const TextSpan(
+                      text: 'SOS',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.red,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
       ),
     );
   }
@@ -574,12 +769,17 @@ class _SosButton extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Row(
-          children: [
-            Icon(Icons.sos, color: Colors.red),
-            SizedBox(width: 8),
-            Text('Send SOS?'),
-          ],
+        title: Text.rich(
+          TextSpan(
+            children: [
+              const TextSpan(text: 'Send '),
+              const TextSpan(
+                text: 'SOS',
+                style: TextStyle(color: Colors.red),
+              ),
+              const TextSpan(text: '?'),
+            ],
+          ),
         ),
         content: Text(
           'This will broadcast your SOS on all available channels '

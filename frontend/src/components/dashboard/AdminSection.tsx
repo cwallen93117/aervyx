@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { type MapTurnpoint, TaskMap } from "../TaskMap";
+import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, SiteSettingsRecord, User } from "./types";
 
@@ -50,6 +50,9 @@ export default function AdminSection(props: AdminSectionProps) {
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
+  const [sitePreviewFitNonce, setSitePreviewFitNonce] = useState(0);
+  const [siteMatchRadiusInput, setSiteMatchRadiusInput] = useState(() => siteSettings.site_match_radius_m.toLocaleString());
+  const [isEditingSiteMatchRadius, setIsEditingSiteMatchRadius] = useState(false);
 
   useEffect(() => {
     if (!adminSites.length) {
@@ -60,6 +63,12 @@ export default function AdminSection(props: AdminSectionProps) {
       setSelectedSiteId(adminSites[0].id);
     }
   }, [adminSites, selectedSiteId]);
+
+  useEffect(() => {
+    if (!isEditingSiteMatchRadius) {
+      setSiteMatchRadiusInput(siteSettings.site_match_radius_m.toLocaleString());
+    }
+  }, [isEditingSiteMatchRadius, siteSettings.site_match_radius_m]);
 
   const selectedSite = useMemo(
     () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
@@ -80,6 +89,22 @@ export default function AdminSection(props: AdminSectionProps) {
         : [],
     [selectedSite],
   );
+  const previewTaskPoints = useMemo<MapTaskPoint[]>(
+    () =>
+      selectedSite
+        ? [
+            {
+              position: 1,
+              point_type: "site_match_radius",
+              radius_m: siteSettings.site_match_radius_m,
+              name: selectedSite.name || "Site",
+              latitude: selectedSite.latitude,
+              longitude: selectedSite.longitude,
+            },
+          ]
+        : [],
+    [selectedSite, siteSettings.site_match_radius_m],
+  );
 
   function addSiteDraft() {
     setAdminSites((current) => [
@@ -91,10 +116,26 @@ export default function AdminSection(props: AdminSectionProps) {
         latitude: 0,
         longitude: 0,
         is_active: true,
+        flight_count: 0,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       },
     ]);
+  }
+
+  function focusSitePreview(siteId: number) {
+    setSelectedSiteId(siteId);
+    setSitePreviewFitNonce((current) => current + 1);
+  }
+
+  function commitSiteMatchRadius(rawValue: string) {
+    const digitsOnly = rawValue.replace(/[^0-9]/g, "");
+    const nextRadius = Math.max(1, Number(digitsOnly || 1));
+    setSiteSettings((current) => ({
+      ...current,
+      site_match_radius_m: nextRadius,
+    }));
+    setSiteMatchRadiusInput(nextRadius.toLocaleString());
   }
 
   return (
@@ -228,16 +269,20 @@ export default function AdminSection(props: AdminSectionProps) {
               <label className="stack compact logbook-site-radius-control">
                 <span>Site match radius (m)</span>
                 <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={siteSettings.site_match_radius_m}
-                  onChange={(event) =>
-                    setSiteSettings((current) => ({
-                      ...current,
-                      site_match_radius_m: Math.max(1, Number(event.target.value || 1)),
-                    }))
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={siteMatchRadiusInput}
+                  onFocus={() => {
+                    setIsEditingSiteMatchRadius(true);
+                    setSiteMatchRadiusInput(String(siteSettings.site_match_radius_m));
+                  }}
+                  onChange={(event) => {
+                    setSiteMatchRadiusInput(event.target.value.replace(/[^0-9]/g, ""));
+                  }}
+                  onBlur={() => {
+                    setIsEditingSiteMatchRadius(false);
+                    commitSiteMatchRadius(siteMatchRadiusInput);
+                  }}
                 />
               </label>
             </div>
@@ -249,7 +294,6 @@ export default function AdminSection(props: AdminSectionProps) {
                       <th>Site name</th>
                       <th>City / State</th>
                       <th>Flights</th>
-                      <th>Map</th>
                       <th className="participant-table-actions">Actions</th>
                     </tr>
                   </thead>
@@ -258,8 +302,12 @@ export default function AdminSection(props: AdminSectionProps) {
                       adminSites.map((site) => {
                         const isSelected = selectedSiteId === site.id;
                         return (
-                          <tr key={site.id} className={isSelected ? "site-database-row selected" : "site-database-row"}>
-                            <td>
+                          <tr
+                            key={site.id}
+                            className={isSelected ? "site-database-row selected" : "site-database-row"}
+                            onClick={() => focusSitePreview(site.id)}
+                          >
+                            <td className="site-database-name-cell">
                               <input
                                 value={site.name}
                                 placeholder="Site name"
@@ -270,7 +318,7 @@ export default function AdminSection(props: AdminSectionProps) {
                                 }
                               />
                             </td>
-                            <td>
+                            <td className="site-database-city-cell">
                               <input
                                 value={site.city_state}
                                 placeholder="City / State"
@@ -281,38 +329,9 @@ export default function AdminSection(props: AdminSectionProps) {
                                 }
                               />
                             </td>
-                            <td className="site-database-flight-count">{site.flight_count ?? 0}</td>
-                            <td>
-                              <div className="site-database-map-cell">
-                                <button type="button" className="ghost-button" onClick={() => setSelectedSiteId(site.id)}>
-                                  View map
-                                </button>
-                                <div className="site-database-coordinates">
-                                  <input
-                                    type="number"
-                                    step="0.000001"
-                                    value={site.latitude}
-                                    onChange={(event) =>
-                                      setAdminSites((current) =>
-                                        current.map((entry) => (entry.id === site.id ? { ...entry, latitude: Number(event.target.value || 0) } : entry)),
-                                      )
-                                    }
-                                  />
-                                  <input
-                                    type="number"
-                                    step="0.000001"
-                                    value={site.longitude}
-                                    onChange={(event) =>
-                                      setAdminSites((current) =>
-                                        current.map((entry) => (entry.id === site.id ? { ...entry, longitude: Number(event.target.value || 0) } : entry)),
-                                      )
-                                    }
-                                  />
-                                </div>
-                              </div>
-                            </td>
+                            <td className="site-database-flight-count">{(site.flight_count ?? 0).toLocaleString()}</td>
                             <td className="participant-table-actions">
-                              <div className="compact-slot-actions">
+                              <div className="compact-slot-actions site-database-actions">
                                 <button type="button" className="ghost-button" onClick={() => void saveAdminSite(site)}>
                                   Save
                                 </button>
@@ -335,7 +354,7 @@ export default function AdminSection(props: AdminSectionProps) {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={5} className="participant-table-empty">No sites in the database yet.</td>
+                        <td colSpan={4} className="participant-table-empty">No sites in the database yet.</td>
                       </tr>
                     )}
                   </tbody>
@@ -351,14 +370,18 @@ export default function AdminSection(props: AdminSectionProps) {
                 <div className="logbook-site-preview-map">
                   {selectedSite ? (
                     <TaskMap
+                      key={selectedSite ? `${selectedSite.id}:${sitePreviewFitNonce}` : "site-preview-empty"}
                       turnpoints={previewTurnpoints}
-                      taskPoints={[]}
+                      taskPoints={previewTaskPoints}
                       optimizedRoute={[]}
                       legMetrics={[]}
                       totalDistanceKm={0}
                       optimizedDistanceKm={0}
                       track={null}
                       editable={false}
+                      hideDistanceSummary
+                      fitKey={selectedSite ? `${selectedSite.id}:${sitePreviewFitNonce}` : "site-preview-empty"}
+                      fitMaxZoom={11}
                     />
                   ) : (
                     <div className="logbook-site-preview-label empty">

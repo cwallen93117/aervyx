@@ -2229,20 +2229,38 @@ button[type="submit"]:hover,
   width: 100%;
 }
 
+.site-database-row td {
+  white-space: nowrap;
+}
+
+.site-database-row {
+  cursor: pointer;
+}
+
 .site-database-row.selected {
   background: rgba(37, 99, 235, 0.04);
 }
 
-.site-database-map-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+.site-database-name-cell,
+.site-database-city-cell {
+  width: 1%;
 }
 
-.site-database-coordinates {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+.site-database-name-cell input {
+  min-width: 220px;
+}
+
+.site-database-city-cell input {
+  min-width: 180px;
+}
+
+.site-database-flight-count {
+  text-align: center;
+}
+
+.site-database-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
 }
 
 .logbook-site-preview {

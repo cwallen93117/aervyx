@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
 import '../services/tracking_service.dart';
+import 'meshtastic_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -67,137 +68,60 @@ class SettingsScreen extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          // ── Meshtastic BLE Section ──
-          Text('Meshtastic BLE',
+          // ── Meshtastic ──
+          Text('Meshtastic',
               style: theme.textTheme.titleSmall?.copyWith(
                 color: theme.colorScheme.primary,
               )),
           const SizedBox(height: 8),
-
-          // Scan controls
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  onPressed: ble.isScanning ? null : () => ble.startScan(),
-                  icon: const Icon(Icons.bluetooth_searching),
-                  label: Text(
-                      ble.isScanning ? 'Scanning...' : 'Scan for Devices'),
+          Card(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const MeshtasticSettingsScreen(),
                 ),
               ),
-              if (ble.isScanning) ...[
-                const SizedBox(width: 12),
-                IconButton(
-                  onPressed: () => ble.stopScan(),
-                  icon: const Icon(Icons.stop),
-                  tooltip: 'Stop scan',
-                ),
-              ],
-            ],
-          ),
-
-          if (ble.error != null) ...[
-            const SizedBox(height: 12),
-            Text(ble.error!, style: TextStyle(color: theme.colorScheme.error)),
-          ],
-
-          if (ble.statusMessage != null) ...[
-            const SizedBox(height: 12),
-            Text(ble.statusMessage!,
-                style: const TextStyle(color: Colors.green)),
-          ],
-
-          const SizedBox(height: 12),
-
-          // Connected device card
-          if (ble.connectedDevice != null) ...[
-            Card(
-              color: theme.colorScheme.primaryContainer,
               child: Padding(
                 padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.bluetooth_connected,
-                            color: theme.colorScheme.onPrimaryContainer),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Connected: ${ble.connectedDevice!.name}',
-                            style: theme.textTheme.titleSmall?.copyWith(
-                              color: theme.colorScheme.onPrimaryContainer,
+                    Icon(
+                      ble.isConnected
+                          ? Icons.bluetooth_connected
+                          : Icons.bluetooth,
+                      color: ble.isConnected
+                          ? Colors.green
+                          : theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Meshtastic Device Settings',
+                            style: theme.textTheme.titleSmall,
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            ble.isConnected
+                                ? 'Connected: ${ble.deviceDisplayName}'
+                                : 'Scan, connect, and configure',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        FilledButton.icon(
-                          onPressed: ble.isPushingConfig
-                              ? null
-                              : () => ble.pushConfiguration(),
-                          icon: const Icon(Icons.upload),
-                          label: Text(ble.isPushingConfig
-                              ? 'Pushing...'
-                              : 'Push Config'),
-                        ),
-                        const SizedBox(width: 12),
-                        OutlinedButton(
-                          onPressed: () => ble.disconnect(),
-                          child: const Text('Disconnect'),
-                        ),
-                      ],
-                    ),
+                    Icon(Icons.chevron_right,
+                        color: theme.colorScheme.onSurfaceVariant),
                   ],
                 ),
               ),
             ),
-            const SizedBox(height: 12),
-          ],
-
-          // Discovered devices list
-          if (ble.discoveredDevices.isNotEmpty) ...[
-            Text('Discovered Devices',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                )),
-            const SizedBox(height: 4),
-            ...ble.discoveredDevices.map((device) {
-              final isConnected = ble.connectedDevice?.device.remoteId ==
-                  device.device.remoteId;
-              return ListTile(
-                leading: Icon(
-                  Icons.bluetooth,
-                  color: isConnected ? Colors.green : null,
-                ),
-                title: Text(device.name),
-                subtitle: Text('RSSI: ${device.rssi} dBm'),
-                trailing: isConnected
-                    ? const Chip(label: Text('Connected'))
-                    : OutlinedButton(
-                        onPressed: ble.isConnecting
-                            ? null
-                            : () => ble.connectToDevice(device),
-                        child: const Text('Pair'),
-                      ),
-              );
-            }),
-          ] else ...[
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'No Meshtastic devices found.\nTap Scan to search.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
-                ),
-              ),
-            ),
-          ],
+          ),
 
           const SizedBox(height: 32),
 
@@ -286,6 +210,144 @@ class SettingsScreen extends StatelessWidget {
               )),
           const SizedBox(height: 8),
           _SosMessageEditor(ble: ble),
+
+          const SizedBox(height: 32),
+
+          // ── Flight Settings ──
+          Text('Flight Settings',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.primary,
+              )),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Sport type selector
+                  Row(
+                    children: [
+                      Icon(Icons.paragliding,
+                          size: 20, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Sport type',
+                          style: theme.textTheme.bodyMedium,
+                        ),
+                      ),
+                      DropdownButton<SportType>(
+                        value: tracking.sportType,
+                        onChanged: (value) {
+                          if (value != null) tracking.setSportType(value);
+                        },
+                        items: const [
+                          DropdownMenuItem(
+                            value: SportType.paraglider,
+                            child: Text('Paraglider'),
+                          ),
+                          DropdownMenuItem(
+                            value: SportType.hangGlider,
+                            child: Text('Hang Glider'),
+                          ),
+                          DropdownMenuItem(
+                            value: SportType.glider,
+                            child: Text('Glider'),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                  const Divider(height: 24),
+                  // Multi-flight toggle
+                  Row(
+                    children: [
+                      Icon(Icons.replay,
+                          size: 20, color: theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Multi-flight tracking',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            Text(
+                              'Monitor for re-launch after landing',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: tracking.multiFlightEnabled,
+                        onChanged: (enabled) {
+                          tracking.setMultiFlightEnabled(enabled);
+                        },
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          // ── Units Section ──
+          Text('Units',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.primary,
+              )),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  _UnitRow(
+                    icon: Icons.height,
+                    label: 'Altitude',
+                    value: user?.altitudeUnit ?? 'ft',
+                    options: const {'m': 'Metres', 'ft': 'Feet'},
+                    onChanged: (v) => auth.updateUnit(altitudeUnit: v),
+                  ),
+                  const Divider(height: 20),
+                  _UnitRow(
+                    icon: Icons.speed,
+                    label: 'Speed',
+                    value: user?.speedUnit ?? 'kph',
+                    options: const {
+                      'kph': 'km/h',
+                      'mph': 'mph',
+                      'kts': 'Knots',
+                    },
+                    onChanged: (v) => auth.updateUnit(speedUnit: v),
+                  ),
+                  const Divider(height: 20),
+                  _UnitRow(
+                    icon: Icons.straighten,
+                    label: 'Distance',
+                    value: user?.distanceUnit ?? 'km',
+                    options: const {'km': 'Kilometres', 'mi': 'Miles'},
+                    onChanged: (v) => auth.updateUnit(distanceUnit: v),
+                  ),
+                  const Divider(height: 20),
+                  _UnitRow(
+                    icon: Icons.trending_up,
+                    label: 'Vario',
+                    value: user?.varioUnit ?? 'fpm',
+                    options: const {'ms': 'm/s', 'fpm': 'ft/min'},
+                    onChanged: (v) => auth.updateUnit(varioUnit: v),
+                  ),
+                ],
+              ),
+            ),
+          ),
 
           const SizedBox(height: 32),
 
@@ -419,6 +481,48 @@ class _InfoRow extends StatelessWidget {
       children: [
         Text(label, style: Theme.of(context).textTheme.bodyMedium),
         Text(value, style: Theme.of(context).textTheme.bodySmall),
+      ],
+    );
+  }
+}
+
+class _UnitRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Map<String, String> options;
+  final ValueChanged<String> onChanged;
+
+  const _UnitRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: theme.colorScheme.primary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(label, style: theme.textTheme.bodyMedium),
+        ),
+        DropdownButton<String>(
+          value: value,
+          onChanged: (v) {
+            if (v != null) onChanged(v);
+          },
+          items: options.entries
+              .map((e) => DropdownMenuItem(
+                    value: e.key,
+                    child: Text(e.value),
+                  ))
+              .toList(),
+        ),
       ],
     );
   }

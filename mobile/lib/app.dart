@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'screens/driver_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
@@ -30,9 +31,12 @@ class AervyxApp extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()),
             );
           }
-          return auth.isLoggedIn
-              ? const HomeScreen()
-              : const LoginScreen();
+          if (!auth.isLoggedIn) return const LoginScreen();
+          // Route by profile type — drivers get a dedicated screen
+          if (auth.user?.profileType == 'driver') {
+            return const DriverHomeScreen();
+          }
+          return const HomeScreen();
         },
       ),
     );

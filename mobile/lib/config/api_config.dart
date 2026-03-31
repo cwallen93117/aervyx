@@ -27,4 +27,11 @@ class ApiConfig {
 
   // SOS — sent over cellular to the backend
   static const String sosPath = '/api/sos';
+
+  // Flight detection settings — admin-configurable takeoff/landing thresholds
+  static const String flightDetectionConfigPath = '/api/config/flight-detection';
+
+  // Driver — assigned pilot list for a task
+  static String driverAssignedPilotsPath(int taskId) =>
+      '/api/driver/assigned-pilots/$taskId';
 }

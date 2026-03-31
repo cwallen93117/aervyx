@@ -7,9 +7,9 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Iterable, Literal, Sequence
+from typing import Callable, Iterable, Literal, Sequence
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -67,6 +67,45 @@ def _altitude_m(point: TrackFix | TrackPoint | PilotFlightTrackPoint) -> float |
     return None
 
 
+def _pressure_altitude_m(point: TrackFix | TrackPoint | PilotFlightTrackPoint) -> float | None:
+    pressure_altitude = getattr(point, "pressure_altitude_m", None)
+    if pressure_altitude is None:
+        return None
+    return float(pressure_altitude)
+
+
+def _gps_altitude_m(point: TrackFix | TrackPoint | PilotFlightTrackPoint) -> float | None:
+    gps_altitude = getattr(point, "gps_altitude_m", None)
+    if gps_altitude is None:
+        return None
+    return float(gps_altitude)
+
+
+def _stats_altitude_selector(
+    points: Sequence[TrackFix | TrackPoint | PilotFlightTrackPoint],
+) -> Callable[[TrackFix | TrackPoint | PilotFlightTrackPoint], float | None]:
+    if any(_pressure_altitude_m(point) is not None for point in points):
+        return _pressure_altitude_m
+    return _gps_altitude_m
+
+
+def _validated_climb_rate(
+    previous_altitude: float | None,
+    current_altitude: float | None,
+    elapsed_seconds: float,
+    *,
+    max_abs_climb_mps: float = 20.0,
+) -> float | None:
+    if previous_altitude is None or current_altitude is None or elapsed_seconds <= 0:
+        return None
+    climb_rate = (current_altitude - previous_altitude) / elapsed_seconds
+    if not math.isfinite(climb_rate):
+        return None
+    if abs(climb_rate) > max_abs_climb_mps:
+        return None
+    return climb_rate
+
+
 def _haversine_distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     radius_m = 6371000
     lat1_rad = math.radians(lat1)
@@ -109,6 +148,16 @@ def find_matching_site(session: Session, latitude: float, longitude: float) -> F
     return best_match
 
 
+def _matching_site_for_points(
+    session: Session,
+    points: Sequence[TrackFix | TrackPoint | PilotFlightTrackPoint],
+) -> FlightSite | None:
+    coordinates = _first_point_coordinates(points)
+    if coordinates is None:
+        return None
+    return find_matching_site(session, coordinates[0], coordinates[1])
+
+
 def assign_site_to_flight(
     session: Session,
     *,
@@ -116,10 +165,7 @@ def assign_site_to_flight(
     points: Sequence[TrackFix | TrackPoint | PilotFlightTrackPoint],
     fallback_site_name: str | None = None,
 ) -> bool:
-    coordinates = _first_point_coordinates(points)
-    if coordinates is None:
-        return False
-    matched_site = find_matching_site(session, coordinates[0], coordinates[1])
+    matched_site = _matching_site_for_points(session, points)
     if matched_site is not None:
         flight.site_id = matched_site.id
         flight.site_name = matched_site.name
@@ -130,6 +176,25 @@ def assign_site_to_flight(
     if not flight.site_name and fallback_site_name:
         flight.site_name = fallback_site_name.strip()
     return False
+
+
+def _recompute_site_flight_counts(session: Session) -> None:
+    sites = session.scalars(select(FlightSite).order_by(FlightSite.id.asc())).all()
+    if not sites:
+        return
+
+    session.flush()
+    counts_by_site_id = dict(
+        session.execute(
+            select(PilotFlight.site_id, func.count(PilotFlight.id))
+            .where(PilotFlight.site_id.is_not(None))
+            .group_by(PilotFlight.site_id)
+        ).all()
+    )
+
+    for site in sites:
+        site.flight_count = int(counts_by_site_id.get(site.id, 0))
+        session.add(site)
 
 
 def _normalize_identity_text(value: str | None) -> str:
@@ -202,10 +267,11 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         )
 
     ordered_points = sorted(points, key=lambda point: getattr(point, "recorded_at"))
+    stats_altitude = _stats_altitude_selector(ordered_points)
     first_point = ordered_points[0]
     last_point = ordered_points[-1]
     duration_seconds = max(0, int((last_point.recorded_at - first_point.recorded_at).total_seconds()))
-    altitudes = [_altitude_m(point) for point in ordered_points]
+    altitudes = [stats_altitude(point) for point in ordered_points]
     valid_altitudes = [altitude for altitude in altitudes if altitude is not None]
     total_track_distance_m = 0.0
     max_ground_speed_kmh = 0.0
@@ -222,10 +288,10 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         segment_distance_m = _haversine_distance_m(previous.latitude, previous.longitude, current.latitude, current.longitude)
         total_track_distance_m += segment_distance_m
         max_ground_speed_kmh = max(max_ground_speed_kmh, (segment_distance_m / elapsed_seconds) * 3.6)
-        previous_altitude = _altitude_m(previous)
-        current_altitude = _altitude_m(current)
-        if previous_altitude is not None and current_altitude is not None:
-            climb_rate = (current_altitude - previous_altitude) / elapsed_seconds
+        previous_altitude = stats_altitude(previous)
+        current_altitude = stats_altitude(current)
+        climb_rate = _validated_climb_rate(previous_altitude, current_altitude, elapsed_seconds)
+        if climb_rate is not None:
             segment_climb_rates.append(climb_rate)
             segment_durations.append(elapsed_seconds)
             if best_climb_mps is None or climb_rate > best_climb_mps:
@@ -248,13 +314,38 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         best_climb_mps=best_climb_mps,
         launch_time=first_point.recorded_at.isoformat() if first_point.recorded_at else None,
         landing_time=last_point.recorded_at.isoformat() if last_point.recorded_at else None,
-        launch_altitude_m=_altitude_m(first_point),
-        landing_altitude_m=_altitude_m(last_point),
+        launch_altitude_m=stats_altitude(first_point),
+        landing_altitude_m=stats_altitude(last_point),
         time_in_thermals_seconds=int(round(time_in_thermals_seconds)),
         time_on_glide_seconds=int(round(time_on_glide_seconds)),
         total_track_distance_km=round(total_track_distance_m / 1000, 3),
         max_ground_speed_kmh=round(max_ground_speed_kmh, 2) if max_ground_speed_kmh else None,
     )
+
+
+def _apply_derived_stats_to_flight(
+    flight: PilotFlight,
+    *,
+    stats: DerivedFlightStats,
+    metadata: dict | None = None,
+) -> None:
+    flight.duration_seconds = stats.duration_seconds
+    flight.highest_altitude_m = stats.highest_altitude_m
+    flight.best_climb_mps = stats.best_climb_mps
+    if metadata is not None:
+        metadata["stats"] = _stats_metadata(stats)
+        flight.metadata_json = metadata
+
+
+def recompute_track_backed_flight_stats(session: Session, flight: PilotFlight) -> bool:
+    points = get_flight_track_points(session, flight)
+    if not points:
+        return False
+    stats = derive_flight_stats(points)
+    metadata = dict(flight.metadata_json) if isinstance(flight.metadata_json, dict) else {}
+    _apply_derived_stats_to_flight(flight, stats=stats, metadata=metadata)
+    session.add(flight)
+    return True
 
 
 def _logbook_site_name(session: Session, event_id: int | None) -> str:
@@ -301,7 +392,6 @@ async def _create_logbook_owned_flight_from_parsed(
         await asyncio.to_thread(stored_path.write_bytes, content)
     stats = derive_flight_stats(parsed.fixes)
     metadata = dict(parsed.metadata)
-    metadata["stats"] = _stats_metadata(stats)
     flight = PilotFlight(
         pilot_id=pilot_id,
         source_kind=source_kind,
@@ -320,6 +410,7 @@ async def _create_logbook_owned_flight_from_parsed(
         stored_path=str(stored_path),
         metadata_json=metadata,
     )
+    _apply_derived_stats_to_flight(flight, stats=stats, metadata=metadata)
     session.add(flight)
     assign_site_to_flight(session, flight=flight, points=parsed.fixes, fallback_site_name=site_name)
     session.flush()
@@ -347,7 +438,6 @@ def sync_task_upload_to_logbook(
 ) -> PilotFlight:
     stats = derive_flight_stats(parsed.fixes)
     metadata = dict(parsed.metadata)
-    metadata["stats"] = _stats_metadata(stats)
     flight = session.scalar(select(PilotFlight).where(PilotFlight.igc_upload_id == upload.id))
     if flight is None:
         flight = PilotFlight(
@@ -366,13 +456,10 @@ def sync_task_upload_to_logbook(
     flight.igc_upload_id = upload.id
     flight.flight_date = date.fromisoformat(str(parsed.metadata.get("flight_date"))) if parsed.metadata.get("flight_date") else upload.uploaded_at.date()
     flight.site_name = _logbook_site_name(session, upload.event_id)
-    flight.duration_seconds = stats.duration_seconds
-    flight.highest_altitude_m = stats.highest_altitude_m
-    flight.best_climb_mps = stats.best_climb_mps
     flight.filename = upload.filename
     flight.sha256 = upload.sha256
     flight.stored_path = upload.stored_path
-    flight.metadata_json = metadata
+    _apply_derived_stats_to_flight(flight, stats=stats, metadata=metadata)
     assign_site_to_flight(session, flight=flight, points=parsed.fixes, fallback_site_name=_logbook_site_name(session, upload.event_id))
     session.add(flight)
     session.flush()
@@ -531,17 +618,12 @@ async def attach_igc_to_existing_flight(
     previous_path = flight.stored_path
     stats = derive_flight_stats(parsed.fixes)
     metadata = dict(parsed.metadata)
-    metadata["stats"] = _stats_metadata(stats)
-
     session.execute(delete(PilotFlightTrackPoint).where(PilotFlightTrackPoint.flight_id == flight.id))
     flight.source_kind = "app_upload"
-    flight.duration_seconds = stats.duration_seconds
-    flight.highest_altitude_m = stats.highest_altitude_m
-    flight.best_climb_mps = stats.best_climb_mps
     flight.filename = safe_filename
     flight.sha256 = sha256
     flight.stored_path = str(stored_path)
-    flight.metadata_json = metadata
+    _apply_derived_stats_to_flight(flight, stats=stats, metadata=metadata)
     assign_site_to_flight(session, flight=flight, points=parsed.fixes, fallback_site_name=flight.site_name)
     session.add(flight)
     session.flush()
@@ -762,7 +844,6 @@ def rescan_unmatched_flights_for_sites(session: Session) -> FlightSiteRescanStat
     flights = session.scalars(
         select(PilotFlight)
         .where(
-            PilotFlight.site_id.is_(None),
             PilotFlight.source_kind.in_(("task_upload", "app_upload")),
         )
         .order_by(PilotFlight.flight_date.desc(), PilotFlight.id.desc())
@@ -774,9 +855,16 @@ def rescan_unmatched_flights_for_sites(session: Session) -> FlightSiteRescanStat
         if not points:
             continue
         scanned_count += 1
-        if assign_site_to_flight(session, flight=flight, points=points, fallback_site_name=flight.site_name):
+
+        matched_site = _matching_site_for_points(session, points)
+        if matched_site is not None:
+            flight.site_id = matched_site.id
+            flight.site_name = matched_site.name
             session.add(flight)
             matched_count += 1
+
+    _recompute_site_flight_counts(session)
+
     unmatched_count = scanned_count - matched_count
     return FlightSiteRescanStats(
         scanned_count=scanned_count,

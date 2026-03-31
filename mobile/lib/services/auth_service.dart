@@ -103,6 +103,40 @@ class AuthService extends ChangeNotifier {
 
   bool get isBleTestMode => _user?.username == 'ble-test';
 
+  /// Update a unit preference locally and try to sync to backend.
+  void updateUnit({
+    String? altitudeUnit,
+    String? speedUnit,
+    String? distanceUnit,
+    String? varioUnit,
+  }) {
+    if (_user == null) return;
+    _user = _user!.copyWith(
+      altitudeUnit: altitudeUnit,
+      speedUnit: speedUnit,
+      distanceUnit: distanceUnit,
+      varioUnit: varioUnit,
+    );
+    notifyListeners();
+
+    // Try to sync to backend (fire-and-forget)
+    _syncUnitsToBackend();
+  }
+
+  Future<void> _syncUnitsToBackend() async {
+    if (_user == null || isBleTestMode) return;
+    try {
+      await _api.post('/api/auth/settings', body: {
+        'altitude_unit': _user!.altitudeUnit,
+        'speed_unit': _user!.speedUnit,
+        'distance_unit': _user!.distanceUnit,
+        'vario_unit': _user!.varioUnit,
+      });
+    } catch (_) {
+      // Backend unreachable — local change is kept
+    }
+  }
+
   /// Log out and clear stored credentials.
   Future<void> logout() async {
     _api.setToken(null);

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import '../config/api_config.dart';
 import '../models/position.dart' as model;
 import '../models/turnpoint.dart';
 import 'api_service.dart';
+import 'background_service.dart';
 import 'igc_service.dart';
 
 /// GPS tracking zones — determines polling rate near course points.
@@ -25,29 +27,57 @@ enum TrackingZone {
   critical,
 }
 
-/// GPS tracking service with adaptive rate near competition turnpoints.
-///
-/// - If the pilot is in an active competition task, the service fetches
-///   turnpoint locations and ramps GPS rate when near course points.
-/// - If not in a task, it uses the standard 1-second / 5m-distance filter.
+/// Tracking lifecycle state machine.
+enum TrackingState {
+  /// Not tracking — idle.
+  idle,
+
+  /// GPS running, waiting for takeoff detection.
+  preFlight,
+
+  /// Actively recording a flight.
+  inFlight,
+
+  /// Flight saved, watching for re-launch (low-power GPS).
+  monitoring,
+}
+
+/// Sport type — determines takeoff detection thresholds.
+enum SportType { paraglider, hangGlider, glider }
+
+/// Takeoff detection thresholds per sport.
+class _TakeoffThresholds {
+  final double altitudeGainMeters;
+  final double speedThresholdMs;
+
+  const _TakeoffThresholds({
+    required this.altitudeGainMeters,
+    required this.speedThresholdMs,
+  });
+}
+
+/// GPS tracking service with adaptive rate, flight detection, landing
+/// detection, and multi-flight monitoring mode.
 class TrackingService extends ChangeNotifier {
   final ApiService _api;
   final IgcService _igc;
   final Battery _battery = Battery();
 
-  // ── Tracking state ──
-  bool _isTracking = false;
+  // ── Core state ──
+  TrackingState _trackingState = TrackingState.idle;
   model.Position? _lastPosition;
   StreamSubscription<Position>? _locationSubscription;
   Timer? _batteryCheckTimer;
   Timer? _flightTimer;
-  Timer? _adaptiveTimer; // drives high-frequency polling in competition mode
+  Timer? _adaptiveTimer;
+  Timer? _flightResetTimer;
+  Timer? _monitoringTimer;
   int _positionCount = 0;
   String? _error;
   bool _backendConnected = false;
 
   // ── Battery protection ──
-  int? _batteryThreshold;
+  int? _batteryThreshold = 15;
   int? _currentBatteryLevel;
   bool _stoppedByBattery = false;
 
@@ -61,15 +91,72 @@ class TrackingService extends ChangeNotifier {
   double? _nearestTurnpointDistance;
 
   /// Speed threshold (m/s) below which we consider the pilot stationary.
-  /// ~2 km/h — walking pace or thermal drift.
   static const double _stationarySpeedThreshold = 0.6;
 
   /// Zone boundary distances in metres.
   static const double _criticalDistance = 100.0;
   static const double _approachingDistance = 500.0;
 
+  // ── Sport & flight detection settings ──
+  SportType _sportType = SportType.paraglider;
+  bool _multiFlightEnabled = true;
+
+  /// Hardcoded defaults per sport — overridable from admin API.
+  static const Map<SportType, _TakeoffThresholds> _defaultTakeoffThresholds = {
+    SportType.paraglider: _TakeoffThresholds(
+      altitudeGainMeters: 10.0, // 30 ft
+      speedThresholdMs: 2.2, // 5 mph
+    ),
+    SportType.hangGlider: _TakeoffThresholds(
+      altitudeGainMeters: 10.0, // 30 ft
+      speedThresholdMs: 3.6, // 8 mph
+    ),
+    SportType.glider: _TakeoffThresholds(
+      altitudeGainMeters: 15.0, // 50 ft
+      speedThresholdMs: 6.7, // 15 mph
+    ),
+  };
+
+  /// Current effective thresholds (may be overridden by admin).
+  _TakeoffThresholds? _adminTakeoffThresholds;
+
+  _TakeoffThresholds get _takeoffThresholds =>
+      _adminTakeoffThresholds ??
+      _defaultTakeoffThresholds[_sportType]!;
+
+  // ── Landing detection settings (overridable from admin) ──
+  double _landingSpeedMs = 4.47; // 10 mph
+  double _landingAltToleranceM = 30.5; // 100 ft
+  int _landingConfirmSeconds = 15;
+  int _landingCountdownSeconds = 15;
+
+  // ── Pre-flight buffer ──
+  final List<Position> _preFlightBuffer = [];
+  static const int _preFlightBufferMaxSeconds = 30;
+  double? _preFlightBaseAltitude;
+
+  // ── Landing detection state ──
+  DateTime? _landingDetectionStart;
+  bool _landingCountdownActive = false;
+  DateTime? _landingCountdownStart;
+  final List<double> _recentAltitudes = []; // last 2 min
+  final List<DateTime> _recentAltitudeTimes = [];
+
+  // ── Monitoring state ──
+  double? _takeoffLat;
+  double? _takeoffLon;
+  int _flightNumberToday = 0;
+
   // ── Getters ──
-  bool get isTracking => _isTracking;
+  bool get isTracking =>
+      _trackingState != TrackingState.idle;
+  bool get isInFlight =>
+      _trackingState == TrackingState.inFlight;
+  bool get isPreFlight =>
+      _trackingState == TrackingState.preFlight;
+  bool get isMonitoring =>
+      _trackingState == TrackingState.monitoring;
+  TrackingState get trackingState => _trackingState;
   model.Position? get lastPosition => _lastPosition;
   int get positionCount => _positionCount;
   String? get error => _error;
@@ -82,6 +169,14 @@ class TrackingService extends ChangeNotifier {
   TrackingZone get currentZone => _currentZone;
   double? get nearestTurnpointDistance => _nearestTurnpointDistance;
   bool get inCompetitionMode => _activeTask != null;
+  SportType get sportType => _sportType;
+  bool get multiFlightEnabled => _multiFlightEnabled;
+  bool get landingCountdownActive => _landingCountdownActive;
+  int get landingCountdownRemaining {
+    if (!_landingCountdownActive || _landingCountdownStart == null) return 0;
+    final elapsed = DateTime.now().difference(_landingCountdownStart!).inSeconds;
+    return max(0, _landingCountdownSeconds - elapsed);
+  }
 
   /// Path to the last saved IGC file (shown briefly after stop).
   String? _lastSavedIgcPath;
@@ -89,19 +184,75 @@ class TrackingService extends ChangeNotifier {
 
   TrackingService(this._api, this._igc);
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Settings
+  // ═══════════════════════════════════════════════════════════════════════════
+
   /// Set the battery threshold percentage. null to disable.
   void setBatteryThreshold(int? threshold) {
     _batteryThreshold = threshold;
     notifyListeners();
   }
 
+  /// Set the sport type for takeoff detection.
+  void setSportType(SportType sport) {
+    _sportType = sport;
+    notifyListeners();
+  }
+
+  /// Enable/disable multi-flight monitoring mode.
+  void setMultiFlightEnabled(bool enabled) {
+    _multiFlightEnabled = enabled;
+    notifyListeners();
+  }
+
+  /// Apply admin-provided flight detection settings from the backend.
+  void applyAdminSettings(Map<String, dynamic> config) {
+    // Takeoff thresholds — per sport
+    final sport = _sportType;
+    final altKey = '${sport.name}_takeoff_alt_ft';
+    final speedKey = '${sport.name}_takeoff_speed_mph';
+    if (config.containsKey(altKey) && config.containsKey(speedKey)) {
+      _adminTakeoffThresholds = _TakeoffThresholds(
+        altitudeGainMeters: (config[altKey] as num).toDouble() * 0.3048,
+        speedThresholdMs: (config[speedKey] as num).toDouble() * 0.44704,
+      );
+    }
+    // Landing thresholds
+    if (config.containsKey('landing_speed_mph')) {
+      _landingSpeedMs = (config['landing_speed_mph'] as num).toDouble() * 0.44704;
+    }
+    if (config.containsKey('landing_alt_tolerance_ft')) {
+      _landingAltToleranceM =
+          (config['landing_alt_tolerance_ft'] as num).toDouble() * 0.3048;
+    }
+    if (config.containsKey('landing_confirm_seconds')) {
+      _landingConfirmSeconds = (config['landing_confirm_seconds'] as num).toInt();
+    }
+    if (config.containsKey('landing_countdown_seconds')) {
+      _landingCountdownSeconds =
+          (config['landing_countdown_seconds'] as num).toInt();
+    }
+  }
+
+  /// Fetch flight detection settings from the backend.
+  Future<void> fetchFlightDetectionSettings() async {
+    try {
+      final config = await _api.get(ApiConfig.flightDetectionConfigPath);
+      applyAdminSettings(config);
+    } catch (_) {
+      // Backend unreachable — use hardcoded defaults
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
-  // Start / Stop
+  // Start / Stop / Force-Start
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Start GPS tracking.
+  /// Start GPS tracking — enters preFlight and waits for takeoff detection.
   Future<void> startTracking() async {
-    if (_isTracking) return;
+    if (_trackingState != TrackingState.idle &&
+        _trackingState != TrackingState.monitoring) return;
 
     // Check and request permissions
     LocationPermission permission = await Geolocator.checkPermission();
@@ -119,34 +270,80 @@ class TrackingService extends ChangeNotifier {
       return;
     }
 
-    _isTracking = true;
+    _flightResetTimer?.cancel();
+    _flightResetTimer = null;
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+
+    _trackingState = TrackingState.preFlight;
     _positionCount = 0;
     _error = null;
     _stoppedByBattery = false;
-    _trackingStartTime = DateTime.now();
     _flightDuration = Duration.zero;
+    _trackingStartTime = null;
     _currentZone = TrackingZone.stationary;
     _nearestTurnpointDistance = null;
-    _startFlightTimer();
+    _preFlightBuffer.clear();
+    _preFlightBaseAltitude = null;
+    _landingDetectionStart = null;
+    _landingCountdownActive = false;
+    _landingCountdownStart = null;
+    _recentAltitudes.clear();
+    _recentAltitudeTimes.clear();
+
+    if (_flightNumberToday == 0) {
+      _flightNumberToday = 1;
+    }
+
+    // Update notification for pre-flight state
+    BackgroundTrackingService.updateNotification(
+      title: 'Aervyx — Pre-Flight',
+      content: 'Waiting for takeoff...',
+    );
+
     notifyListeners();
 
-    // Try to fetch active task turnpoints from the backend
+    // Fetch settings from backend
     await _fetchActiveTask();
+    await fetchFlightDetectionSettings();
 
-    if (_activeTask != null) {
-      // Competition mode — use adaptive rate polling
-      _startAdaptiveTracking();
-    } else {
-      // Free-flight mode — standard 1 Hz / 5m distance filter
-      _startStandardTracking();
+    // Start GPS stream
+    _startGpsStream();
+
+    // Start background foreground service (keeps GPS alive when app is backgrounded)
+    try {
+      await BackgroundTrackingService.start();
+    } catch (_) {
+      // Background service unavailable — foreground-only mode
     }
 
     // Battery monitoring
     _startBatteryMonitor();
   }
 
-  /// Stop GPS tracking and auto-save the flight as an IGC file.
+  /// Force-start recording immediately — bypass takeoff detection.
+  Future<void> forceStartRecording() async {
+    if (_trackingState == TrackingState.idle) {
+      await startTracking();
+    }
+    if (_trackingState == TrackingState.preFlight) {
+      _transitionToInFlight();
+    }
+  }
+
+  /// Cancel the landing countdown (pilot cancels auto-stop).
+  void cancelLandingCountdown() {
+    _landingCountdownActive = false;
+    _landingCountdownStart = null;
+    _landingDetectionStart = null;
+    _error = null;
+    notifyListeners();
+  }
+
+  /// Stop GPS tracking completely and save any active flight.
   Future<void> stopTracking() async {
+    final wasInFlight = _trackingState == TrackingState.inFlight;
+
     _locationSubscription?.cancel();
     _locationSubscription = null;
     _adaptiveTimer?.cancel();
@@ -155,150 +352,125 @@ class TrackingService extends ChangeNotifier {
     _batteryCheckTimer = null;
     _flightTimer?.cancel();
     _flightTimer = null;
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+    _landingCountdownActive = false;
+    _landingCountdownStart = null;
+
     // Keep final flight duration
     if (_trackingStartTime != null) {
       _flightDuration = DateTime.now().difference(_trackingStartTime!);
     }
-    _isTracking = false;
+
+    _trackingState = TrackingState.idle;
     _backendConnected = false;
     _activeTask = null;
     _currentZone = TrackingZone.stationary;
-    notifyListeners();
+    _flightNumberToday = 0;
 
-    // Auto-save flight as IGC file
+    // Stop background foreground service
     try {
-      final trackPoints = _igc.currentTrackPointCount;
-      _lastSavedIgcPath = await _igc.saveCurrentFlight();
-      if (_lastSavedIgcPath != null) {
-        _error = 'Flight saved ($trackPoints points)';
-      } else {
-        _error = 'Flight too short to save ($trackPoints points recorded)';
-      }
-    } catch (e) {
-      _lastSavedIgcPath = null;
-      _error = 'Failed to save flight: $e';
-    }
-    notifyListeners();
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Standard (free-flight) tracking — 1 Hz, 5m distance filter
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  void _startStandardTracking() {
-    const locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5, // metres
-    );
-
-    _currentZone = TrackingZone.normalFlight;
-    _locationSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings)
-            .listen(_onLocationUpdate, onError: _onLocationError);
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Adaptive (competition) tracking
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  /// Fetch the pilot's active task + turnpoints from the backend.
-  Future<void> _fetchActiveTask() async {
-    try {
-      final json = await _api.get(ApiConfig.activeTaskPath);
-      if (json.containsKey('task_id')) {
-        _activeTask = ActiveTask.fromJson(json);
-      } else {
-        _activeTask = null;
-      }
+      await BackgroundTrackingService.stop();
     } catch (_) {
-      // No active task or backend unreachable — use standard tracking
-      _activeTask = null;
+      // Background service was not running
+    }
+
+    notifyListeners();
+
+    // Save flight if we were recording
+    if (wasInFlight) {
+      await _saveCurrentFlight();
+    } else {
+      _igc.discardCurrentTrack();
+    }
+
+    // Reset flight duration display after 3 seconds
+    _flightResetTimer?.cancel();
+    _flightResetTimer = Timer(const Duration(seconds: 3), () {
+      _flightDuration = Duration.zero;
+      _trackingStartTime = null;
+      notifyListeners();
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GPS Stream
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _startGpsStream() {
+    _locationSubscription?.cancel();
+
+    if (_activeTask != null) {
+      // Competition mode — high-accuracy, 0 distance filter
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+      );
+      _locationSubscription =
+          Geolocator.getPositionStream(locationSettings: settings)
+              .listen(_onPositionUpdate, onError: _onLocationError);
+    } else {
+      // Free-flight — high accuracy, 5m filter
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      );
+      _locationSubscription =
+          Geolocator.getPositionStream(locationSettings: settings)
+              .listen(_onPositionUpdate, onError: _onLocationError);
     }
   }
 
-  /// Start adaptive tracking that adjusts GPS rate based on proximity
-  /// to competition turnpoints.
-  void _startAdaptiveTracking() {
-    // Start with a high-accuracy stream at 0 distance filter (get every fix)
-    const locationSettings = LocationSettings(
-      accuracy: LocationAccuracy.best,
-      distanceFilter: 0,
+  /// Start a low-power GPS stream for monitoring mode.
+  void _startMonitoringGps() {
+    _locationSubscription?.cancel();
+    // Poll every ~15 seconds by using a large distance filter
+    const settings = LocationSettings(
+      accuracy: LocationAccuracy.low,
+      distanceFilter: 30,
     );
-
     _locationSubscription =
-        Geolocator.getPositionStream(locationSettings: locationSettings)
-            .listen(_onAdaptiveLocationUpdate, onError: _onLocationError);
+        Geolocator.getPositionStream(locationSettings: settings)
+            .listen(_onMonitoringPositionUpdate, onError: _onLocationError);
+
+    // Also set a periodic timer to ensure we get updates even if stationary
+    _monitoringTimer?.cancel();
+    _monitoringTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _checkMonitoringConditions(),
+    );
   }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Position Handling — unified callback
+  // ═══════════════════════════════════════════════════════════════════════════
 
   /// Track last time we sent a position — used to throttle sends per zone.
   DateTime _lastSendTime = DateTime.fromMillisecondsSinceEpoch(0);
 
-  /// Handle each GPS fix in competition mode. Determines the zone and
-  /// throttles sends accordingly.
-  Future<void> _onAdaptiveLocationUpdate(Position geoPos) async {
-    if (!_isTracking || _activeTask == null) return;
+  Future<void> _onPositionUpdate(Position geoPos) async {
+    // Update UI position regardless of state
+    _updateLastPosition(geoPos);
 
-    // Determine zone based on nearest turnpoint distance
-    final nearest = _findNearestTurnpointDistance(geoPos.latitude, geoPos.longitude);
-    _nearestTurnpointDistance = nearest;
+    switch (_trackingState) {
+      case TrackingState.idle:
+        return;
 
-    // Determine if pilot is stationary
-    final isStationary = geoPos.speed < _stationarySpeedThreshold;
+      case TrackingState.preFlight:
+        _handlePreFlight(geoPos);
+        return;
 
-    TrackingZone newZone;
-    Duration minInterval;
+      case TrackingState.inFlight:
+        await _handleInFlight(geoPos);
+        return;
 
-    if (isStationary) {
-      newZone = TrackingZone.stationary;
-      minInterval = const Duration(seconds: 5);
-    } else if (nearest != null && nearest <= _criticalDistance) {
-      newZone = TrackingZone.critical;
-      minInterval = const Duration(milliseconds: 100);
-    } else if (nearest != null && nearest <= _approachingDistance) {
-      newZone = TrackingZone.approaching;
-      minInterval = const Duration(milliseconds: 200);
-    } else {
-      newZone = TrackingZone.normalFlight;
-      minInterval = const Duration(seconds: 1);
-    }
-
-    // Update zone if changed
-    if (newZone != _currentZone) {
-      _currentZone = newZone;
-      notifyListeners();
-    }
-
-    // Throttle: only send if enough time has passed for this zone
-    final now = DateTime.now();
-    if (now.difference(_lastSendTime) >= minInterval) {
-      _lastSendTime = now;
-      await _sendPosition(geoPos);
+      case TrackingState.monitoring:
+        // Shouldn't happen — monitoring uses its own callback
+        return;
     }
   }
 
-  /// Find the distance to the nearest turnpoint, or null if no turnpoints.
-  double? _findNearestTurnpointDistance(double lat, double lon) {
-    if (_activeTask == null || _activeTask!.turnpoints.isEmpty) return null;
-
-    double? minDist;
-    for (final tp in _activeTask!.turnpoints) {
-      final d = tp.distanceTo(lat, lon);
-      if (minDist == null || d < minDist) {
-        minDist = d;
-      }
-    }
-    return minDist;
-  }
-
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Position sending (shared by both modes)
-  // ═══════════════════════════════════════════════════════════════════════════
-
-  Future<void> _sendPosition(Position geoPos) async {
-    // Record trackpoint for IGC file
-    _igc.addTrackPoint(geoPos);
-
-    // Always update local position for UI display — regardless of backend
+  void _updateLastPosition(Position geoPos) {
     _lastPosition = model.Position(
       lat: geoPos.latitude,
       lon: geoPos.longitude,
@@ -308,6 +480,389 @@ class TrackingService extends ChangeNotifier {
       accuracy: geoPos.accuracy,
       timestamp: geoPos.timestamp.toUtc(),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Pre-Flight — takeoff detection
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _handlePreFlight(Position geoPos) {
+    // Add to circular buffer (last 30 seconds)
+    _preFlightBuffer.add(geoPos);
+    _preFlightBaseAltitude ??= geoPos.altitude;
+
+    // Trim buffer to 30 seconds
+    while (_preFlightBuffer.length > 1) {
+      final age = geoPos.timestamp.difference(_preFlightBuffer.first.timestamp);
+      if (age.inSeconds > _preFlightBufferMaxSeconds) {
+        _preFlightBuffer.removeAt(0);
+      } else {
+        break;
+      }
+    }
+
+    // Update base altitude to the minimum in the buffer
+    double minAlt = geoPos.altitude;
+    for (final p in _preFlightBuffer) {
+      if (p.altitude < minAlt) minAlt = p.altitude;
+    }
+    _preFlightBaseAltitude = minAlt;
+
+    // Check takeoff conditions
+    final altGain = geoPos.altitude - _preFlightBaseAltitude!;
+    final speed = geoPos.speed;
+    final thresholds = _takeoffThresholds;
+
+    // Combined trigger: (alt gain >= threshold AND speed > threshold)
+    // OR (alt gain >= 2x threshold regardless of speed)
+    final normalTakeoff = altGain >= thresholds.altitudeGainMeters &&
+        speed > thresholds.speedThresholdMs;
+    final strongAltTakeoff = altGain >= thresholds.altitudeGainMeters * 2;
+
+    if (normalTakeoff || strongAltTakeoff) {
+      _transitionToInFlight();
+    }
+
+    notifyListeners();
+  }
+
+  void _transitionToInFlight() {
+    _trackingState = TrackingState.inFlight;
+    _trackingStartTime = DateTime.now();
+
+    // Record takeoff position for monitoring radius
+    if (_preFlightBuffer.isNotEmpty) {
+      _takeoffLat = _preFlightBuffer.first.latitude;
+      _takeoffLon = _preFlightBuffer.first.longitude;
+    } else if (_lastPosition != null) {
+      _takeoffLat = _lastPosition!.lat;
+      _takeoffLon = _lastPosition!.lon;
+    }
+
+    // Flush pre-flight buffer into IGC recording
+    for (final pos in _preFlightBuffer) {
+      _igc.addTrackPoint(pos);
+    }
+    _positionCount += _preFlightBuffer.length;
+    _preFlightBuffer.clear();
+
+    // Start flight timer
+    _startFlightTimer();
+
+    // Reset landing detection
+    _landingDetectionStart = null;
+    _landingCountdownActive = false;
+    _recentAltitudes.clear();
+    _recentAltitudeTimes.clear();
+
+    notifyListeners();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // In-Flight — recording + landing detection
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _handleInFlight(Position geoPos) async {
+    // Competition mode throttling
+    if (_activeTask != null) {
+      final nearest =
+          _findNearestTurnpointDistance(geoPos.latitude, geoPos.longitude);
+      _nearestTurnpointDistance = nearest;
+
+      final isStationary = geoPos.speed < _stationarySpeedThreshold;
+      TrackingZone newZone;
+      Duration minInterval;
+
+      if (isStationary) {
+        newZone = TrackingZone.stationary;
+        minInterval = const Duration(seconds: 5);
+      } else if (nearest != null && nearest <= _criticalDistance) {
+        newZone = TrackingZone.critical;
+        minInterval = const Duration(milliseconds: 100);
+      } else if (nearest != null && nearest <= _approachingDistance) {
+        newZone = TrackingZone.approaching;
+        minInterval = const Duration(milliseconds: 200);
+      } else {
+        newZone = TrackingZone.normalFlight;
+        minInterval = const Duration(seconds: 1);
+      }
+
+      if (newZone != _currentZone) {
+        _currentZone = newZone;
+      }
+
+      final now = DateTime.now();
+      if (now.difference(_lastSendTime) >= minInterval) {
+        _lastSendTime = now;
+        await _sendPosition(geoPos);
+      }
+    } else {
+      // Free-flight — send every position
+      _currentZone = TrackingZone.normalFlight;
+      await _sendPosition(geoPos);
+    }
+
+    // Landing detection
+    _checkLandingConditions(geoPos);
+
+    notifyListeners();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Landing Detection
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _checkLandingConditions(Position geoPos) {
+    final now = DateTime.now();
+
+    // Track recent altitudes (last 2 minutes) for relative altitude check
+    _recentAltitudes.add(geoPos.altitude);
+    _recentAltitudeTimes.add(now);
+    while (_recentAltitudeTimes.isNotEmpty &&
+        now.difference(_recentAltitudeTimes.first).inSeconds > 120) {
+      _recentAltitudes.removeAt(0);
+      _recentAltitudeTimes.removeAt(0);
+    }
+
+    // Find minimum altitude in last 2 minutes
+    double minRecentAlt = geoPos.altitude;
+    for (final alt in _recentAltitudes) {
+      if (alt < minRecentAlt) minRecentAlt = alt;
+    }
+
+    // Landing conditions:
+    // 1. Speed < 10 mph (4.47 m/s)
+    // 2. Altitude within 100 ft (30.5m) of recent minimum
+    final speedBelowThreshold = geoPos.speed < _landingSpeedMs;
+    final nearMinAltitude =
+        (geoPos.altitude - minRecentAlt).abs() < _landingAltToleranceM;
+
+    if (speedBelowThreshold && nearMinAltitude) {
+      // Conditions met — start or continue landing timer
+      _landingDetectionStart ??= now;
+
+      final detectionDuration = now.difference(_landingDetectionStart!);
+
+      if (_landingCountdownActive) {
+        // In countdown phase — check if countdown complete
+        final countdownElapsed =
+            now.difference(_landingCountdownStart!).inSeconds;
+        if (countdownElapsed >= _landingCountdownSeconds) {
+          // Landing confirmed — stop flight
+          _onLandingConfirmed();
+        }
+        // (countdown continues — UI reads landingCountdownRemaining)
+      } else if (detectionDuration.inSeconds >= _landingConfirmSeconds) {
+        // Confirm phase complete — start countdown
+        _landingCountdownActive = true;
+        _landingCountdownStart = now;
+        _error = 'Landing detected — stopping in ${_landingCountdownSeconds}s';
+        notifyListeners();
+      }
+    } else {
+      // Conditions broken — reset landing detection
+      if (_landingDetectionStart != null || _landingCountdownActive) {
+        _landingDetectionStart = null;
+        _landingCountdownActive = false;
+        _landingCountdownStart = null;
+        if (_error?.startsWith('Landing detected') == true) {
+          _error = null;
+        }
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _onLandingConfirmed() async {
+    _landingCountdownActive = false;
+    _landingCountdownStart = null;
+    _landingDetectionStart = null;
+
+    // Save flight duration before state change
+    if (_trackingStartTime != null) {
+      _flightDuration = DateTime.now().difference(_trackingStartTime!);
+    }
+
+    // Save the flight
+    _flightTimer?.cancel();
+    _flightTimer = null;
+    await _saveCurrentFlight();
+
+    // Check if we should enter monitoring mode
+    if (_multiFlightEnabled && _isMonitoringEligible()) {
+      _trackingState = TrackingState.monitoring;
+      _error = null;
+
+      // Update notification for monitoring mode
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx — Monitoring',
+        content: 'Watching for re-launch...',
+      );
+
+      // Switch to low-power GPS
+      _startMonitoringGps();
+      notifyListeners();
+    } else {
+      // Fully stop
+      _locationSubscription?.cancel();
+      _locationSubscription = null;
+      _batteryCheckTimer?.cancel();
+      _batteryCheckTimer = null;
+      _trackingState = TrackingState.idle;
+      _backendConnected = false;
+      _activeTask = null;
+      _currentZone = TrackingZone.stationary;
+      _flightNumberToday = 0;
+      notifyListeners();
+
+      // Reset flight timer display after 3 seconds
+      _flightResetTimer?.cancel();
+      _flightResetTimer = Timer(const Duration(seconds: 3), () {
+        _flightDuration = Duration.zero;
+        _trackingStartTime = null;
+        notifyListeners();
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Monitoring Mode
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  bool _isMonitoringEligible() {
+    final now = DateTime.now();
+
+    // Must be before 20:00 local time
+    if (now.hour >= 20) return false;
+
+    // Battery must be above threshold
+    if (_batteryThreshold != null &&
+        _currentBatteryLevel != null &&
+        _currentBatteryLevel! <= _batteryThreshold!) {
+      return false;
+    }
+
+    // Must be within 1km of takeoff
+    if (_takeoffLat != null &&
+        _takeoffLon != null &&
+        _lastPosition != null) {
+      final dist = _haversineDistance(
+        _takeoffLat!, _takeoffLon!,
+        _lastPosition!.lat, _lastPosition!.lon,
+      );
+      if (dist > 1000) return false;
+    }
+
+    return true;
+  }
+
+  void _onMonitoringPositionUpdate(Position geoPos) {
+    _updateLastPosition(geoPos);
+
+    // Check takeoff detection (re-launch)
+    _preFlightBuffer.add(geoPos);
+    _preFlightBaseAltitude ??= geoPos.altitude;
+
+    // Trim buffer
+    while (_preFlightBuffer.length > 1) {
+      final age = geoPos.timestamp.difference(_preFlightBuffer.first.timestamp);
+      if (age.inSeconds > _preFlightBufferMaxSeconds) {
+        _preFlightBuffer.removeAt(0);
+      } else {
+        break;
+      }
+    }
+
+    // Update base altitude
+    double minAlt = geoPos.altitude;
+    for (final p in _preFlightBuffer) {
+      if (p.altitude < minAlt) minAlt = p.altitude;
+    }
+    _preFlightBaseAltitude = minAlt;
+
+    // Check takeoff
+    final altGain = geoPos.altitude - _preFlightBaseAltitude!;
+    final speed = geoPos.speed;
+    final thresholds = _takeoffThresholds;
+
+    final normalTakeoff = altGain >= thresholds.altitudeGainMeters &&
+        speed > thresholds.speedThresholdMs;
+    final strongAltTakeoff = altGain >= thresholds.altitudeGainMeters * 2;
+
+    if (normalTakeoff || strongAltTakeoff) {
+      // Re-launch detected — start new flight
+      _flightNumberToday++;
+      _monitoringTimer?.cancel();
+      _monitoringTimer = null;
+
+      _transitionToInFlight();
+
+      // Switch back to full GPS stream
+      _startGpsStream();
+    }
+
+    notifyListeners();
+  }
+
+  void _checkMonitoringConditions() {
+    if (_trackingState != TrackingState.monitoring) return;
+
+    final now = DateTime.now();
+
+    // Auto-exit conditions (monitoring ONLY — never during inFlight)
+    bool shouldExit = false;
+
+    // Time > 20:00
+    if (now.hour >= 20) shouldExit = true;
+
+    // Battery below threshold
+    if (_batteryThreshold != null &&
+        _currentBatteryLevel != null &&
+        _currentBatteryLevel! <= _batteryThreshold!) {
+      shouldExit = true;
+    }
+
+    // Distance > 1km from takeoff
+    if (_takeoffLat != null &&
+        _takeoffLon != null &&
+        _lastPosition != null) {
+      final dist = _haversineDistance(
+        _takeoffLat!, _takeoffLon!,
+        _lastPosition!.lat, _lastPosition!.lon,
+      );
+      if (dist > 1000) shouldExit = true;
+    }
+
+    if (shouldExit) {
+      _locationSubscription?.cancel();
+      _locationSubscription = null;
+      _monitoringTimer?.cancel();
+      _monitoringTimer = null;
+      _batteryCheckTimer?.cancel();
+      _batteryCheckTimer = null;
+      _trackingState = TrackingState.idle;
+      _currentZone = TrackingZone.stationary;
+      _flightNumberToday = 0;
+      _error = 'Monitoring ended';
+      notifyListeners();
+
+      _flightResetTimer?.cancel();
+      _flightResetTimer = Timer(const Duration(seconds: 3), () {
+        _flightDuration = Duration.zero;
+        _trackingStartTime = null;
+        _error = null;
+        notifyListeners();
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Position sending
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _sendPosition(Position geoPos) async {
+    // Record trackpoint for IGC file
+    _igc.addTrackPoint(geoPos);
     _positionCount++;
 
     // Try to send to backend (non-blocking for UI)
@@ -329,33 +884,103 @@ class TrackingService extends ChangeNotifier {
       _error = null;
       _backendConnected = true;
     } catch (e) {
-      // Backend unreachable — GPS still works, data still recorded locally
       _backendConnected = false;
-      // Only show error if we haven't shown it recently (avoid spam)
       _error = 'Backend offline — recording locally';
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Flight saving
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _saveCurrentFlight() async {
+    try {
+      final trackPoints = _igc.currentTrackPointCount;
+      _lastSavedIgcPath = await _igc.saveCurrentFlight(
+        flightNumber: _flightNumberToday > 1 ? _flightNumberToday : null,
+      );
+      if (_lastSavedIgcPath != null) {
+        _error = 'Flight saved ($trackPoints points)';
+      } else {
+        _error = 'Flight too short to save ($trackPoints points recorded)';
+      }
+    } catch (e) {
+      _lastSavedIgcPath = null;
+      _error = 'Failed to save flight: $e';
     }
     notifyListeners();
   }
 
-  /// Standard mode callback — sends every position it receives.
-  Future<void> _onLocationUpdate(Position geoPos) async {
-    if (!_isTracking) return;
-    await _sendPosition(geoPos);
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Competition helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Future<void> _fetchActiveTask() async {
+    try {
+      final json = await _api.get(ApiConfig.activeTaskPath);
+      if (json.containsKey('task_id')) {
+        _activeTask = ActiveTask.fromJson(json);
+      } else {
+        _activeTask = null;
+      }
+    } catch (_) {
+      _activeTask = null;
+    }
   }
 
-  void _onLocationError(dynamic error) {
-    _error = 'Location error: $error';
-    notifyListeners();
+  double? _findNearestTurnpointDistance(double lat, double lon) {
+    if (_activeTask == null || _activeTask!.turnpoints.isEmpty) return null;
+
+    double? minDist;
+    for (final tp in _activeTask!.turnpoints) {
+      final d = tp.distanceTo(lat, lon);
+      if (minDist == null || d < minDist) {
+        minDist = d;
+      }
+    }
+    return minDist;
   }
+
+  /// Haversine distance in metres between two lat/lon points.
+  static double _haversineDistance(
+      double lat1, double lon1, double lat2, double lon2) {
+    const earthRadius = 6371000.0;
+    final dLat = _toRad(lat2 - lat1);
+    final dLon = _toRad(lon2 - lon1);
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRad(lat1)) * cos(_toRad(lat2)) *
+        sin(dLon / 2) * sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return earthRadius * c;
+  }
+
+  static double _toRad(double deg) => deg * pi / 180;
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Flight timer & battery
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _startFlightTimer() {
+    _flightTimer?.cancel();
     _flightTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (_trackingStartTime != null) {
         _flightDuration = DateTime.now().difference(_trackingStartTime!);
+
+        // Update the foreground service notification with flight stats
+        final h = _flightDuration.inHours;
+        final m = _flightDuration.inMinutes % 60;
+        final s = _flightDuration.inSeconds % 60;
+        final timeStr = h > 0
+            ? '${h}h ${m}m ${s}s'
+            : '${m}m ${s}s';
+        final altStr = _lastPosition?.alt != null
+            ? '${_lastPosition!.alt!.toStringAsFixed(0)} m'
+            : '--';
+        BackgroundTrackingService.updateNotification(
+          title: 'Aervyx — In Flight',
+          content: '$timeStr  ·  Alt: $altStr  ·  $_positionCount pts',
+        );
+
         notifyListeners();
       }
     });
@@ -363,6 +988,7 @@ class TrackingService extends ChangeNotifier {
 
   void _startBatteryMonitor() {
     _checkBattery();
+    _batteryCheckTimer?.cancel();
     _batteryCheckTimer = Timer.periodic(
       const Duration(seconds: 30),
       (_) => _checkBattery(),
@@ -375,16 +1001,29 @@ class TrackingService extends ChangeNotifier {
       if (_batteryThreshold != null &&
           _currentBatteryLevel != null &&
           _currentBatteryLevel! <= _batteryThreshold! &&
-          _isTracking) {
-        _stoppedByBattery = true;
+          _trackingState == TrackingState.inFlight) {
+        // Battery low during flight — DON'T auto-stop flight.
+        // Only warn. Flight can only end via landing detection or manual Stop.
         _error =
-            'Tracking stopped — battery at $_currentBatteryLevel% (threshold: $_batteryThreshold%)';
-        stopTracking();
+            'Low battery: $_currentBatteryLevel% (threshold: $_batteryThreshold%)';
       }
       notifyListeners();
     } catch (_) {
       // Battery level unavailable
     }
+  }
+
+  void _onLocationError(dynamic error) {
+    _error = 'Location error: $error';
+
+    // GPS signal lost — freeze landing detection timer
+    if (_landingDetectionStart != null) {
+      _landingDetectionStart = null;
+      _landingCountdownActive = false;
+      _landingCountdownStart = null;
+    }
+
+    notifyListeners();
   }
 
   @override
@@ -393,6 +1032,8 @@ class TrackingService extends ChangeNotifier {
     _batteryCheckTimer?.cancel();
     _flightTimer?.cancel();
     _adaptiveTimer?.cancel();
+    _flightResetTimer?.cancel();
+    _monitoringTimer?.cancel();
     super.dispose();
   }
 }

@@ -94,11 +94,12 @@ export function AppSidebar({
   compact: boolean;
   onToggleCompact: () => void;
 }) {
+  const showEventContext = !compact && activeItem !== "admin" && activeItem !== "settings" && activeItem !== "logbook";
   return (
     <aside className={compact ? "panel nav-sidebar compact-mode" : "panel nav-sidebar"}>
       <div className="sidebar-brand">
         <div className="sidebar-brand-row">
-          {!compact ? (
+          {showEventContext ? (
             <div>
               <span className="context-label">Selected event</span>
               <p className="eyebrow">{eventName ?? "No event selected"}</p>

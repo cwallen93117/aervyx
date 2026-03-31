@@ -77,7 +77,11 @@ class IgcService extends ChangeNotifier {
 
   /// Save the current flight as an IGC file. Called when tracking stops.
   /// Returns the file path, or null if there were too few points.
-  Future<String?> saveCurrentFlight({String? pilotName}) async {
+  /// [flightNumber] appends a suffix for multi-flight days (e.g., -2, -3).
+  Future<String?> saveCurrentFlight({
+    String? pilotName,
+    int? flightNumber,
+  }) async {
     if (_currentTrack.length < 2) {
       // Need at least 2 points for a valid track
       _currentTrack.clear();
@@ -88,11 +92,13 @@ class IgcService extends ChangeNotifier {
     final dir = await _flightsDirectory();
     final startTime = _currentTrack.first.time;
     final dateFmt = DateFormat('MM-dd-yyyy');
-    // Filename: FirstName_LastName-MM-DD-YYYY.igc
+    // Filename: FirstName_LastName-MM-DD-YYYY[-N].igc
     final safeName = (pilotName ?? 'Aervyx_Pilot')
         .replaceAll(' ', '_')
         .replaceAll(RegExp(r'[^\w\-]'), '');
-    final filename = '$safeName-${dateFmt.format(startTime)}.igc';
+    final flightSuffix =
+        (flightNumber != null && flightNumber > 1) ? '-$flightNumber' : '';
+    final filename = '$safeName-${dateFmt.format(startTime)}$flightSuffix.igc';
     final file = File('${dir.path}/$filename');
 
     final igcContent = _buildIgcContent(
@@ -128,6 +134,82 @@ class IgcService extends ChangeNotifier {
     notifyListeners();
 
     return file.path;
+  }
+
+  /// Parse all B-records from an IGC file on disk into TrackPoint objects.
+  /// Used for displaying flight tracks on the map.
+  static Future<List<TrackPoint>> parseFullTrack(String filePath) async {
+    final file = File(filePath);
+    if (!await file.exists()) return [];
+
+    final lines = await file.readAsLines();
+    DateTime? flightDate;
+    final points = <TrackPoint>[];
+
+    for (final line in lines) {
+      // Parse date from H-record
+      if (line.startsWith('HFDTE') && flightDate == null) {
+        final dateStr = line.substring(5).replaceAll('DATE:', '');
+        if (dateStr.length >= 6) {
+          final dd = int.tryParse(dateStr.substring(0, 2)) ?? 1;
+          final mm = int.tryParse(dateStr.substring(2, 4)) ?? 1;
+          final yy = int.tryParse(dateStr.substring(4, 6)) ?? 0;
+          final yyyy = yy > 80 ? 1900 + yy : 2000 + yy;
+          flightDate = DateTime(yyyy, mm, dd);
+        }
+      }
+
+      // Parse B-records: BHHMMSS DDMMmmmN DDDMMmmmE V PPPPP GGGGG
+      if (line.startsWith('B') && line.length >= 35) {
+        final hh = int.tryParse(line.substring(1, 3)) ?? 0;
+        final mm = int.tryParse(line.substring(3, 5)) ?? 0;
+        final ss = int.tryParse(line.substring(5, 7)) ?? 0;
+
+        final lat = _parseIgcLat(line.substring(7, 15));
+        final lon = _parseIgcLon(line.substring(15, 24));
+        final gpsAlt = double.tryParse(line.substring(30, 35)) ?? 0;
+        final pressAlt = double.tryParse(line.substring(25, 30));
+
+        final time = DateTime(
+          flightDate?.year ?? 2000,
+          flightDate?.month ?? 1,
+          flightDate?.day ?? 1,
+          hh, mm, ss,
+        );
+
+        points.add(TrackPoint(
+          time: time,
+          lat: lat,
+          lon: lon,
+          gpsAlt: gpsAlt,
+          pressureAlt: pressAlt,
+        ));
+      }
+    }
+
+    return points;
+  }
+
+  /// Parse IGC latitude format: DDMMmmmN/S → decimal degrees
+  static double _parseIgcLat(String s) {
+    if (s.length < 8) return 0;
+    final deg = int.tryParse(s.substring(0, 2)) ?? 0;
+    final min = int.tryParse(s.substring(2, 4)) ?? 0;
+    final minFrac = int.tryParse(s.substring(4, 7)) ?? 0;
+    final ns = s[7];
+    final decimal = deg + (min + minFrac / 1000.0) / 60.0;
+    return ns == 'S' ? -decimal : decimal;
+  }
+
+  /// Parse IGC longitude format: DDDMMmmmE/W → decimal degrees
+  static double _parseIgcLon(String s) {
+    if (s.length < 9) return 0;
+    final deg = int.tryParse(s.substring(0, 3)) ?? 0;
+    final min = int.tryParse(s.substring(3, 5)) ?? 0;
+    final minFrac = int.tryParse(s.substring(5, 8)) ?? 0;
+    final ew = s[8];
+    final decimal = deg + (min + minFrac / 1000.0) / 60.0;
+    return ew == 'W' ? -decimal : decimal;
   }
 
   /// Discard the current track without saving.

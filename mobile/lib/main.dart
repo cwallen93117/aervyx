@@ -4,12 +4,21 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'services/api_service.dart';
 import 'services/auth_service.dart';
+import 'services/background_service.dart';
 import 'services/ble_service.dart';
 import 'services/igc_service.dart';
+import 'services/driver_service.dart';
 import 'services/tracking_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize background service (notification channel, service config)
+  try {
+    await BackgroundTrackingService.initialize();
+  } catch (_) {
+    // Background service init failed — app still works in foreground-only mode
+  }
 
   final apiService = ApiService();
   final authService = AuthService(apiService);
@@ -33,6 +42,9 @@ void main() async {
         ),
         ChangeNotifierProvider<BleService>(
           create: (_) => BleService(apiService),
+        ),
+        ChangeNotifierProvider<DriverService>(
+          create: (_) => DriverService(apiService),
         ),
       ],
       child: const AervyxApp(),

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/igc_service.dart';
+import 'flight_detail_screen.dart';
 
 class FlightsScreen extends StatefulWidget {
   const FlightsScreen({super.key});
@@ -418,82 +419,14 @@ class _FlightCard extends StatelessWidget {
   }
 
   void _showFlightDetails(BuildContext context) {
-    final theme = Theme.of(context);
-
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                flight.filename,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                flight.filePath,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  igc.shareFlight(flight);
-                },
-                icon: const Icon(Icons.share),
-                label: const Text('Share IGC File'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(ctx);
-                  _confirmDelete(context);
-                },
-                icon: const Icon(Icons.delete_outline, color: Colors.red),
-                label: const Text('Delete Flight',
-                    style: TextStyle(color: Colors.red)),
-                style: OutlinedButton.styleFrom(
-                  side: const BorderSide(color: Colors.red),
-                ),
-              ),
-            ],
-          ),
-        ),
+    // Navigate to the flight detail map screen
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => FlightDetailScreen(flight: flight),
       ),
     );
   }
 
-  void _confirmDelete(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Flight?'),
-        content: Text('This will permanently delete ${flight.filename}'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              igc.deleteFlight(flight);
-            },
-            style: FilledButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
