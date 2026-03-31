@@ -162,9 +162,11 @@ sudo systemctl enable --now aervyx-staging-webhook.service
 
 Listener details:
 
-- bind: `127.0.0.1:9100`
+- bind: `0.0.0.0:9100`
 - health: `http://127.0.0.1:9100/health`
 - webhook path: `/github/deploy-staging`
+
+If you keep `ufw` enabled, allow the Docker bridge subnet to reach port `9100` on the VM so the `cloudflared` container can reach the host-side listener through `host.docker.internal`.
 
 GitHub webhook settings:
 
