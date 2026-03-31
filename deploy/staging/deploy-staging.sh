@@ -19,7 +19,7 @@ wait_for_command() {
   shift
   local attempt
   for attempt in $(seq 1 30); do
-    if "$@"; then
+    if "$@" >/dev/null 2>&1; then
       echo "${name} health check passed on attempt ${attempt}."
       return 0
     fi
