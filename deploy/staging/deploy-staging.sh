@@ -14,6 +14,21 @@ LOCK_FILE="${LOCK_FILE:-${STATE_DIR}/deploy.lock}"
 
 mkdir -p "${LOG_DIR}" "${STATE_DIR}"
 
+wait_for_command() {
+  local name="$1"
+  shift
+  local attempt
+  for attempt in $(seq 1 30); do
+    if "$@"; then
+      echo "${name} health check passed on attempt ${attempt}."
+      return 0
+    fi
+    sleep 2
+  done
+  echo "${name} health check failed after 30 attempts."
+  return 1
+}
+
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 log_file="${LOG_DIR}/deploy-${timestamp}.log"
 
@@ -65,8 +80,12 @@ else
 fi
 
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" exec -T backend curl -fsS http://localhost:8000/health >/dev/null
-docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" exec -T frontend wget -qO- http://localhost:3000/login >/dev/null
+wait_for_command "backend" \
+  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" exec -T backend \
+  python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()"
+wait_for_command "frontend" \
+  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" exec -T frontend \
+  wget -qO- http://127.0.0.1:3000/login >/dev/null
 
 deployed_sha="$(git rev-parse HEAD)"
 printf '%s %s\n' "${timestamp}" "${deployed_sha}" >"${STATE_DIR}/last-deployed.txt"
