@@ -2,6 +2,9 @@
 
 This document prepares Aervyx for a future public launch without turning anything on yet.
 
+If you are setting up the Proxmox-hosted staging VM first, use
+`docs/deployment-staging-proxmox.md` as the primary runbook.
+
 ## Public URL Plan
 
 - `https://aervyx.net` serves the marketing site, login, and dashboard

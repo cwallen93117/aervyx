@@ -1,0 +1,11 @@
+tunnel: YOUR-STAGING-TUNNEL-ID
+credentials-file: /etc/cloudflared/YOUR-STAGING-TUNNEL-ID.json
+
+ingress:
+  - hostname: staging.aervyx.net
+    service: http://frontend:3000
+  - hostname: api-staging.aervyx.net
+    service: http://backend:8000
+  - hostname: deploy-staging.aervyx.net
+    service: http://host.docker.internal:9100
+  - service: http_status:404

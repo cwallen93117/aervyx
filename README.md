@@ -95,6 +95,7 @@ A draft production deployment path is included for future use with `aervyx.net` 
 
 - production compose stack: `docker-compose.prod.yml`
 - production runbook: `docs/deployment-cloudflare-tunnel.md`
+- staging Proxmox/Ubuntu runbook: `docs/deployment-staging-proxmox.md`
 - Cloudflare tunnel template: `deploy/cloudflared/config.example.yml`
 
 These files are intentionally off by default. They do not enable the tunnel, switch DNS, or expose the app publicly until you create the real credentials and start the production profile yourself.
