@@ -26,3 +26,13 @@ deploy/cloudflared/config.yml
 Thumbs.db
 **/__pycache__/
 backend/flightcomp_api.egg-info/
+
+# Local worktrees / scratch
+.claude/
+.codex_tmp/
+
+# Local app data / build artifacts
+backend/flightcomp.db
+mobile/.metadata
+mobile/releases/
+show_emulator.ps1
