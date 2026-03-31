@@ -5,9 +5,9 @@ This document explains what has been built so far, how the major customizations 
 ## Source Of Truth
 
 - The tracked code on `main` is the current truth.
-- The former `codex/logbook-v1` work is now included on `main`.
+- The former `codex/logbook-v1` work is now included on `main`, and that branch was removed during cleanup.
 - The old `claude/flamboyant-perlman` worktree was historical; it is not the current implementation source.
-- `codex/safe-working-state-2026-03-23` was audited as an older fallback snapshot, not the preferred state to merge forward.
+- The old safe fallback branch was removed during cleanup and preserved only as tag `archive/safe-working-state-2026-03-23`.
 - Untracked local artifacts are not part of the product baseline.
 
 If code and docs disagree, trust the code and then update the docs.
@@ -76,7 +76,28 @@ If code and docs disagree, trust the code and then update the docs.
 - AirScore concepts are the domain anchor for scoring and workflow naming.
 - GUI-heavy frontend changes historically used a Claude advisory lane:
   - see `docs/frontend-gui-review-workflow.md`
-- Production deployment exists as a draft path, not as a live committed infrastructure state.
+- Public deployment now exists as a live VM + Cloudflare setup and should not be treated as draft-only anymore.
+
+## Live Deployment
+
+Status: `Live`
+
+Detailed live deployment handoff:
+- `docs/live-deployment-handoff.md`
+
+Current live shape:
+- public site:
+  - `https://aervyx.net`
+- public API:
+  - `https://api.aervyx.net`
+- public deploy listener:
+  - `https://deploy.aervyx.net`
+- live branch:
+  - `main`
+
+Important caveat:
+- the live server still uses internal `staging` names for directories, services, scripts, and container names
+- follow `docs/live-deployment-handoff.md` before renaming or “cleaning up” those internals
 
 ## Dashboard Surfaces
 
@@ -350,13 +371,19 @@ High-signal files:
 - `docs/architecture.md`
 - `docs/request-tracker.md`
 - `docs/frontend-gui-review-workflow.md`
-- `docs/deployment-cloudflare-tunnel.md`
+- `docs/live-deployment-handoff.md`
 
 ### Use With Caution
 
 - `docs/phase2-codex-handoff.md`
   - useful for tracking API shapes
   - partially stale on frontend status because live-tracking UI now exists
+- `docs/deployment-staging-proxmox.md`
+  - useful for how the VM was originally bootstrapped
+  - stale on current hostnames and branch flow
+- `docs/deployment-cloudflare-tunnel.md`
+  - useful for historical tunnel draft context
+  - stale on the current token-managed live connector
 - `mobile/README.md`
   - useful for older intent
   - stale on current screen structure and feature breadth

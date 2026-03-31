@@ -17,14 +17,15 @@ Aervyx is a hang gliding / paragliding competition platform with:
 Read these first:
 
 1. `README.md`
-2. `backend/app/main.py`
-3. `frontend/src/app/dashboard/page.tsx`
-4. `frontend/src/components/TaskMap.tsx`
-5. `backend/app/services/logbook.py`
-6. `mobile/lib/main.dart`
-7. `mobile/lib/app.dart`
-8. `mobile/lib/services/tracking_service.dart`
-9. `mobile/lib/services/ble_service.dart`
+2. `docs/live-deployment-handoff.md`
+3. `backend/app/main.py`
+4. `frontend/src/app/dashboard/page.tsx`
+5. `frontend/src/components/TaskMap.tsx`
+6. `backend/app/services/logbook.py`
+7. `mobile/lib/main.dart`
+8. `mobile/lib/app.dart`
+9. `mobile/lib/services/tracking_service.dart`
+10. `mobile/lib/services/ble_service.dart`
 
 ## Current Product Surfaces
 
@@ -36,10 +37,12 @@ Read these first:
 - `Settings`: live
 - `Admin`: live
 - `Mobile app`: substantial implementation exists, but end-to-end validation is still incomplete
-- `Production Cloudflare deploy path`: draft only
+- `Public deployment`: live on `aervyx.net` / `api.aervyx.net`
 
 ## High-Value Repo Facts
 
+- The repo is now consolidated around `main`; the old working branches were cleaned up.
+- The old safe fallback branch is preserved only as tag `archive/safe-working-state-2026-03-23`.
 - The dashboard is orchestrated from `frontend/src/app/dashboard/page.tsx`.
 - `TaskMap.tsx` is the central shared map component for tasks, replay, logbook replay, admin site preview, and live tracking.
 - The backend router families live in `backend/app/routers/`.
@@ -50,6 +53,19 @@ Read these first:
   - replay-track loading
   - bulk rescan behavior
 - The mobile app has moved beyond the older task-list/task-map scaffold. The current source of truth is the code under `mobile/lib/screens/` and `mobile/lib/services/`.
+
+## Live Deployment
+
+- Public site:
+  - `https://aervyx.net`
+- Public API:
+  - `https://api.aervyx.net`
+- Public deploy listener health:
+  - `https://deploy.aervyx.net/health`
+- The live VM is still internally named `aervyx-staging`, and its paths/services still use that naming.
+- The live server now deploys from `main`, not from `staging`.
+- The current live deployment handoff is:
+  - `docs/live-deployment-handoff.md`
 
 ## Repo Conventions
 
@@ -68,6 +84,7 @@ Read these first:
 ## Important Current Behaviors
 
 - `main` already includes the former `codex/logbook-v1` branch work.
+- The public GitHub webhook now drives deployments from `main`.
 - Logbook climb / altitude stats now prefer pressure altitude when present and fall back to GPS altitude otherwise.
 - Logbook climb spikes are filtered through a reusable climb-rate validator.
 - Admin site rescan now reevaluates all track-backed flights and recomputes site `flight_count` values.
@@ -80,7 +97,7 @@ Read these first:
 - `docs/architecture.md`
 - `docs/request-tracker.md`
 - `docs/frontend-gui-review-workflow.md`
-- `docs/deployment-cloudflare-tunnel.md`
+- `docs/live-deployment-handoff.md`
 - `docs/claude-handoff-manual.md`
 
 ## Docs To Treat As Historical Or Partial
@@ -116,4 +133,4 @@ flutter analyze
 
 - Mobile + Meshtastic end-to-end behavior still needs real-device validation.
 - Some historical docs describe earlier scaffolds rather than the current implementation.
-- The production deploy path is intentionally draft-only and should not be treated as live infrastructure.
+- Some deployment docs still say `staging` or describe draft paths even though the live public deployment now exists.

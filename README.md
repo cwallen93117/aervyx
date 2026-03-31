@@ -89,13 +89,21 @@ After setup completes, local URLs are:
 - Login uses the same visual theme as the landing page
 - Dashboard bootstraps against the backend API and no longer contains its own fallback login page
 
-## Production Draft
+## Live Deployment
 
-A draft production deployment path is included for future use with `aervyx.net` and Cloudflare Tunnel.
+The app now has a live Cloudflare-backed deployment on:
 
-- production compose stack: `docker-compose.prod.yml`
-- production runbook: `docs/deployment-cloudflare-tunnel.md`
-- staging Proxmox/Ubuntu runbook: `docs/deployment-staging-proxmox.md`
-- Cloudflare tunnel template: `deploy/cloudflared/config.example.yml`
+- `https://aervyx.net`
+- `https://api.aervyx.net`
 
-These files are intentionally off by default. They do not enable the tunnel, switch DNS, or expose the app publicly until you create the real credentials and start the production profile yourself.
+The current live deployment handoff is:
+
+- `docs/live-deployment-handoff.md`
+
+Historical/draft deployment docs still exist for reference:
+
+- `docs/deployment-cloudflare-tunnel.md`
+- `docs/deployment-staging-proxmox.md`
+- `deploy/cloudflared/config.example.yml`
+
+Do not assume those older draft docs exactly match the current live server without cross-checking the live handoff doc first.
