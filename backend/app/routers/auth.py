@@ -6,7 +6,7 @@ from google.oauth2 import id_token as google_id_token
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
+from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin
@@ -90,7 +90,7 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)) -> Tok
 @router.get("/google-client-id")
 def google_client_id() -> dict[str, str | None]:
     """Return the Google Client ID so the frontend can initialize the Sign-In button."""
-    settings = get_settings()
+    settings = get_app_settings()
     if not settings.google_client_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Google sign-in not configured")
     return {"client_id": settings.google_client_id}
@@ -99,7 +99,7 @@ def google_client_id() -> dict[str, str | None]:
 @router.post("/google", response_model=TokenResponse)
 def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_session)) -> TokenResponse:
     """Authenticate via Google ID token. Links to existing account if email matches, otherwise creates a new account."""
-    settings = get_settings()
+    settings = get_app_settings()
     if not settings.google_client_id:
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Google sign-in is not configured")
 
