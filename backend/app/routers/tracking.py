@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import Event, EventPilot, SosAlert, Task, TaskPoint, User
+from app.models import Event, EventPilot, IGCUpload, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_live_positions,
     get_live_positions_for_pilots,
@@ -199,7 +199,8 @@ async def live_positions_sse(
             while True:
                 try:
                     message = await asyncio.wait_for(queue.get(), timeout=30.0)
-                    yield f"event: position\ndata: {json.dumps(message)}\n\n"
+                    event_type = message.pop("event", "position") if isinstance(message, dict) else "position"
+                    yield f"event: {event_type}\ndata: {json.dumps(message)}\n\n"
                 except asyncio.TimeoutError:
                     # Send keep-alive comment to prevent connection timeout
                     yield ": keepalive\n\n"
@@ -285,6 +286,74 @@ def get_positions_for_pilots(
         raise HTTPException(status_code=422, detail="At least one pilot ID is required")
     rows = get_position_history_for_pilots(session, pilot_ids, since=since, limit=limit)
     return [PositionResponse(**row) for row in rows]
+
+
+@router.get("/api/track/igc/{task_id}/{pilot_id}")
+def get_igc_track(
+    task_id: int,
+    pilot_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Return IGC track as GeoJSON for a task/pilot if an upload exists."""
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    # Prefer selected upload from scoring inputs
+    scoring_input = session.scalar(
+        select(TaskScoringInput).where(
+            TaskScoringInput.task_id == task_id,
+            TaskScoringInput.pilot_id == pilot_id,
+        )
+    )
+    upload_id = scoring_input.selected_upload_id if scoring_input and scoring_input.selected_upload_id else None
+
+    if upload_id:
+        upload = session.get(IGCUpload, upload_id)
+    else:
+        upload = session.scalar(
+            select(IGCUpload).where(
+                IGCUpload.task_id == task_id,
+                IGCUpload.pilot_id == pilot_id,
+            ).order_by(IGCUpload.uploaded_at.desc()).limit(1)
+        )
+
+    if not upload:
+        raise HTTPException(status_code=404, detail="No IGC upload found")
+
+    points = session.scalars(
+        select(TrackPoint).where(TrackPoint.upload_id == upload.id).order_by(TrackPoint.sequence.asc())
+    ).all()
+
+    if not points:
+        raise HTTPException(status_code=404, detail="No track points in upload")
+
+    coordinates = []
+    timestamps = []
+    for point in points:
+        alt = point.pressure_altitude_m if point.pressure_altitude_m is not None else (point.gps_altitude_m or 0)
+        coordinates.append([point.longitude, point.latitude, alt])
+        timestamps.append(point.recorded_at.isoformat() if point.recorded_at else "")
+
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "pilot_id": pilot_id,
+                    "upload_id": upload.id,
+                    "filename": upload.filename,
+                    "timestamps": timestamps,
+                },
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": coordinates,
+                },
+            }
+        ],
+    }
 
 
 @router.get("/api/config/mesh", response_model=MeshConfigResponse)
