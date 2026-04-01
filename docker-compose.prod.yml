@@ -10,14 +10,26 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile.prod
     depends_on:
       - db
+      - mosquitto
     env_file:
       - ./backend/.env.production
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
     restart: unless-stopped
     expose:
       - "8000"
@@ -54,3 +66,5 @@ services:
 volumes:
   postgres_data:
   backend_uploads:
+  mosquitto_data:
+  mosquitto_log:

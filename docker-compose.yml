@@ -14,13 +14,28 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+
   backend:
     build:
       context: ./backend
     depends_on:
       - db
+      - mosquitto
     env_file:
       - ./backend/.env
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -47,3 +62,5 @@ services:
 volumes:
   postgres_data:
   backend_uploads:
+  mosquitto_data:
+  mosquitto_log:
