@@ -5,6 +5,10 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class GoogleAuthRequest(BaseModel):
+    credential: str
+
+
 class LoginRequest(BaseModel):
     username: str
     password: str

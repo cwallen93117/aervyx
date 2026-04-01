@@ -1,30 +1,59 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// Smoke tests that verify the test runner works and key enums/utilities
+// are available. We intentionally avoid instantiating AervyxApp here because
+// it requires MultiProvider with live services, BLE, GPS, etc.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:aervyx_mobile/main.dart';
+import 'package:aervyx_mobile/services/tracking_service.dart';
+import 'package:aervyx_mobile/utils/unit_converter.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  group('TrackingState enum', () {
+    test('has all expected values', () {
+      expect(TrackingState.values.length, 4);
+      expect(TrackingState.values, contains(TrackingState.idle));
+      expect(TrackingState.values, contains(TrackingState.preFlight));
+      expect(TrackingState.values, contains(TrackingState.inFlight));
+      expect(TrackingState.values, contains(TrackingState.monitoring));
+    });
+  });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+  group('TrackingZone enum', () {
+    test('has all expected values', () {
+      expect(TrackingZone.values.length, 4);
+      expect(TrackingZone.values, contains(TrackingZone.stationary));
+      expect(TrackingZone.values, contains(TrackingZone.normalFlight));
+      expect(TrackingZone.values, contains(TrackingZone.approaching));
+      expect(TrackingZone.values, contains(TrackingZone.critical));
+    });
+  });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+  group('SportType enum', () {
+    test('has all expected values', () {
+      expect(SportType.values.length, 3);
+      expect(SportType.values, contains(SportType.paraglider));
+      expect(SportType.values, contains(SportType.hangGlider));
+      expect(SportType.values, contains(SportType.glider));
+    });
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  group('UnitConverter basic sanity', () {
+    test('formatAltitude returns non-empty string for valid input', () {
+      final result = UnitConverter.formatAltitude(1000.0, 'm');
+      expect(result, isNotEmpty);
+      expect(result, contains('m'));
+    });
+
+    test('formatSpeed returns non-empty string for valid input', () {
+      final result = UnitConverter.formatSpeed(10.0, 'kph');
+      expect(result, isNotEmpty);
+      expect(result, contains('km/h'));
+    });
+
+    test('formatVario returns non-empty string for valid input', () {
+      final result = UnitConverter.formatVario(2.5, 'ms');
+      expect(result, isNotEmpty);
+      expect(result, contains('m/s'));
+    });
   });
 }

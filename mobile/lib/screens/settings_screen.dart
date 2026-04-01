@@ -291,6 +291,44 @@ class SettingsScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const Divider(height: 24),
+                  // Debug mode toggle
+                  Row(
+                    children: [
+                      Icon(Icons.bug_report,
+                          size: 20,
+                          color: tracking.debugMode
+                              ? Colors.orange
+                              : theme.colorScheme.primary),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Debug mode',
+                              style: theme.textTheme.bodyMedium,
+                            ),
+                            Text(
+                              'Skip flight detection — send every position to server',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: tracking.debugMode
+                                    ? Colors.orange
+                                    : theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Switch(
+                        value: tracking.debugMode,
+                        activeColor: Colors.orange,
+                        onChanged: (enabled) {
+                          tracking.setDebugMode(enabled);
+                        },
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

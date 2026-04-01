@@ -27,6 +27,8 @@ class Settings(BaseSettings):
             "api.aervyx.net",
         ]
     )
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
     mesh_channel_psk: str | None = None
     mqtt_host: str | None = None
     mqtt_port: int = 1883

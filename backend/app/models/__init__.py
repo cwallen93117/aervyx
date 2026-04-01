@@ -23,7 +23,9 @@ class User(Base):
     distance_unit: Mapped[str] = mapped_column(String(10), default="km")
     vario_unit: Mapped[str] = mapped_column(String(10), default="fpm")
     aircraft_icon: Mapped[str] = mapped_column(String(20), default="hang_glider")
-    password_hash: Mapped[str] = mapped_column(String(255))
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    oauth_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -410,7 +412,7 @@ class LivePosition(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
     lat: Mapped[float] = mapped_column(Double, nullable=False)
     lon: Mapped[float] = mapped_column(Double, nullable=False)
     alt: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -429,8 +431,21 @@ class TrackingSession(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True, index=True)
-    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=False, index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     position_count: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class SosAlert(Base):
+    __tablename__ = "sos_alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True, index=True)
+    lat: Mapped[float] = mapped_column(Double, nullable=False)
+    lon: Mapped[float] = mapped_column(Double, nullable=False)
+    alt: Mapped[float | None] = mapped_column(Float, nullable=True)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
