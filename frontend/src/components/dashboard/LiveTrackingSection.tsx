@@ -186,6 +186,7 @@ export default function LiveTrackingSection({
   loadTask,
 }: LiveTrackingSectionProps) {
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
+  const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
   const [liveError, setLiveError] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -253,6 +254,43 @@ export default function LiveTrackingSection({
     }
   }, [tasks, token, loadTask]);
 
+  // Fetch IGC track and replace live positions for a pilot
+  const fetchIgcTrack = useCallback(async (taskId: number, pilotId: number) => {
+    try {
+      const response = await fetch(`${resolveApiBase()}/api/track/igc/${taskId}/${pilotId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const geojson = await response.json();
+      const feature = geojson?.features?.[0];
+      if (!feature?.geometry?.coordinates?.length) return;
+      const coords = feature.geometry.coordinates as [number, number, number][];
+      const timestamps = (feature.properties?.timestamps ?? []) as string[];
+      const igcPositions: LivePositionRecord[] = coords.map((coord, i) => ({
+        id: `igc-${pilotId}-${i}`,
+        pilot_id: pilotId,
+        task_id: taskId,
+        lat: coord[1],
+        lon: coord[0],
+        alt: coord[2] ?? null,
+        speed: null,
+        heading: null,
+        accuracy: null,
+        timestamp: timestamps[i] ?? "",
+        source: "igc",
+        device_id: null,
+        battery_level: null,
+        aircraft_icon: "hang_glider",
+      }));
+      setIgcTracksByPilot((current) => {
+        const next = new Map(current);
+        next.set(pilotId, igcPositions);
+        return next;
+      });
+    } catch { /* silent */ }
+  }, [token]);
+
   // Derive dropdown value
   const sourceDropdownValue = useMemo(() => {
     if (!trackingSource) return "";
@@ -293,6 +331,7 @@ export default function LiveTrackingSection({
     if (!trackingSource || !token) {
       setPositionsByPilot(new Map());
       setLivePositionsByPilot(new Map());
+      setIgcTracksByPilot(new Map());
       setLiveError("");
       return;
     }
@@ -303,6 +342,7 @@ export default function LiveTrackingSection({
     setLiveError("");
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
+    setIgcTracksByPilot(new Map());
 
     const handleSnapshot = (positions: LivePositionRecord[]) => {
       if (!active) return;
@@ -402,6 +442,11 @@ export default function LiveTrackingSection({
                 handleSnapshot(payload as LivePositionRecord[]);
               } else if (eventName === "position" && payload && typeof payload === "object") {
                 handlePosition(payload as LivePositionRecord);
+              } else if (eventName === "igc_available" && payload && typeof payload === "object") {
+                const { task_id: igcTaskId, pilot_id: igcPilotId } = payload as { task_id: number; pilot_id: number };
+                if (igcTaskId && igcPilotId) {
+                  fetchIgcTrack(igcTaskId, igcPilotId);
+                }
               }
             } catch {
               // Ignore malformed event payloads without breaking the stream.
@@ -421,7 +466,7 @@ export default function LiveTrackingSection({
       active = false;
       controller.abort();
     };
-  }, [trackingSource, token, buddyPilotIds]);
+  }, [trackingSource, token, buddyPilotIds, fetchIgcTrack]);
 
   const taskPoints = useMemo<TaskPointRecord[]>(() => selectedTask?.points ?? [], [selectedTask]);
   const taskTurnpoints = useMemo<MapTurnpoint[]>(() => {
@@ -439,7 +484,17 @@ export default function LiveTrackingSection({
     return Array.from(unique.values());
   }, [taskPoints, turnpoints]);
 
-  const liveTrack = useMemo(() => buildTrackCollection(positionsByPilot, activePilotNameById), [activePilotNameById, positionsByPilot]);
+  // Merge IGC tracks over live tracks when available
+  const effectivePositionsByPilot = useMemo(() => {
+    if (igcTracksByPilot.size === 0) return positionsByPilot;
+    const merged = new Map(positionsByPilot);
+    for (const [pilotId, igcPositions] of igcTracksByPilot) {
+      merged.set(pilotId, igcPositions);
+    }
+    return merged;
+  }, [positionsByPilot, igcTracksByPilot]);
+
+  const liveTrack = useMemo(() => buildTrackCollection(effectivePositionsByPilot, activePilotNameById), [activePilotNameById, effectivePositionsByPilot]);
   const livePositions = useMemo<MapLivePosition[]>(() => {
     const liveValues = Array.from(livePositionsByPilot.values());
     const pilotIds = liveValues.map((position) => position.pilot_id ?? 0).sort((a, b) => a - b);
@@ -574,6 +629,7 @@ export default function LiveTrackingSection({
                           </small>
                         </span>
                         <span className="live-tracking-pilot-meta">
+                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span> : null}
                           <span>{formatRelativeTime(pilot.timestamp)}</span>
                           {pilot.batteryLevel != null ? <span>{pilot.batteryLevel}%</span> : null}
                         </span>

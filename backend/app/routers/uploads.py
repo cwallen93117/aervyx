@@ -21,6 +21,7 @@ from app.schemas import BulkUploadItemResponse, UploadResponse
 from app.services.audit import log_action
 from app.services.igc import parse_igc
 from app.services.logbook import sync_task_upload_to_logbook
+from app.services.tracking import _publish
 router = APIRouter(tags=["uploads"])
 
 
@@ -223,6 +224,13 @@ async def _store_upload(
         details={"task_id": task.id, "pilot_id": pilot_id, "sha256": sha256, "fix_count": parsed.metadata.get("fix_count"), "upload_source": upload_source},
     )
     sync_task_upload_to_logbook(session, upload=upload, parsed=parsed)
+    # Notify live tracking SSE subscribers that an IGC file is available
+    _publish(task.id, {
+        "event": "igc_available",
+        "task_id": task.id,
+        "pilot_id": pilot_id,
+        "upload_id": upload.id,
+    })
     return _serialize_upload(upload)
 
 
