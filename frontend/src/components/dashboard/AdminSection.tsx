@@ -568,7 +568,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
     );
   }
 
-  const { mqtt_connected, mqtt_last_message_at, sse_subscriber_count, active_sessions, recent_sos_alerts, position_stats } = debugStatus;
+  const { sse_subscriber_count, active_sessions, recent_sos_alerts, position_stats } = debugStatus;
   const meshRatio = position_stats.last_hour_total > 0 ? Math.round((position_stats.last_hour_mesh / position_stats.last_hour_total) * 100) : 0;
 
   return (
@@ -577,26 +577,11 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
         {/* Status cards row */}
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>API</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e" }} />
-              <strong>Online</strong>
-            </div>
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>MQTT Broker</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: mqtt_connected ? "#22c55e" : "#ef4444" }} />
-              <strong>{mqtt_connected ? "Connected" : "Disconnected"}</strong>
-            </div>
-            {mqtt_last_message_at ? <div className="hint" style={{ marginTop: "2px" }}>Last msg: {relativeTime(mqtt_last_message_at)}</div> : null}
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>SSE Listeners</div>
+            <div className="hint" style={{ marginBottom: "4px" }}>Live Viewers</div>
             <strong style={{ fontSize: "1.25rem" }}>{sse_subscriber_count}</strong>
           </div>
           <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>Active Sessions</div>
+            <div className="hint" style={{ marginBottom: "4px" }}>Connected Devices</div>
             <strong style={{ fontSize: "1.25rem" }}>{active_sessions.length}</strong>
           </div>
         </div>

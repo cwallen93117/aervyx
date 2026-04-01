@@ -416,7 +416,21 @@ export default function HomePage() {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
-  const [eventTab, setEventTab] = useState<EventTab>("details");
+  const [eventTab, setEventTabRaw] = useState<EventTab>(() => {
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem("aervyx-event-tab");
+      if (saved && ["details", "turnpoints", "airspace", "participants", "scoring"].includes(saved)) {
+        return saved as EventTab;
+      }
+    }
+    return "details";
+  });
+  const setEventTab = (tab: EventTab) => {
+    setEventTabRaw(tab);
+    window.localStorage.setItem("aervyx-event-tab", tab);
+    setMessage("");
+    setError("");
+  };
   const [pilots, setPilots] = useState<PilotRecord[]>([]);
   const [pilotDirectory, setPilotDirectory] = useState<PilotRecord[]>([]);
   const [turnpoints, setTurnpoints] = useState<TurnpointRecord[]>([]);
@@ -434,8 +448,24 @@ export default function HomePage() {
   const [highlightedResultUploadId, setHighlightedResultUploadId] = useState<number | null>(null);
   const [pilotSummaryEventId, setPilotSummaryEventId] = useState<number | null>(null);
   const [scoringDataTaskId, setScoringDataTaskId] = useState<number | null>(null);
-  const [message, setMessage] = useState(DEFAULT_MESSAGE);
-  const [error, setError] = useState("");
+  const [message, setMessageRaw] = useState(DEFAULT_MESSAGE);
+  const [error, setErrorRaw] = useState("");
+  const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setMessage = useCallback((text: string) => {
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+    setMessageRaw(text);
+    if (text && text !== DEFAULT_MESSAGE) {
+      messageTimer.current = setTimeout(() => setMessageRaw(""), 4000);
+    }
+  }, []);
+  const setError = useCallback((text: string) => {
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    setErrorRaw(text);
+    if (text) {
+      errorTimer.current = setTimeout(() => setErrorRaw(""), 6000);
+    }
+  }, []);
   const [authChecking, setAuthChecking] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [eventForm, setEventForm] = useState(blankEventForm());
@@ -2516,7 +2546,7 @@ export default function HomePage() {
           <AppSidebar
             items={sidebarItems}
             activeItem={activeSection}
-            onSelect={(id) => setActiveSection(id as SidebarSection)}
+            onSelect={(id) => { setActiveSection(id as SidebarSection); setMessage(""); setError(""); }}
             eventName={selectedEvent?.name ?? null}
             compact={sidebarCompact}
             onToggleCompact={() => setSidebarCompact((current) => !current)}
@@ -2537,16 +2567,6 @@ export default function HomePage() {
                 <button className="signout" onClick={signOut}>Sign out</button>
               </div>
             </section>
-            {error ? (
-              <div className="status-row">
-                <div className="status-chip error">{error}</div>
-              </div>
-            ) : null}
-            {message && message !== DEFAULT_MESSAGE ? (
-              <div className="status-row">
-                <div className="status-chip success">{message}</div>
-              </div>
-            ) : null}
             {workspaceLoading ? (
               <div className="status-row">
                 <div className="status-chip pending">Loading event workspace...</div>
@@ -2555,6 +2575,16 @@ export default function HomePage() {
             {renderActiveSection()}
           </section>
         </div>
+        {error ? (
+          <div className="toast-container">
+            <div className="toast-chip error" onClick={() => setError("")}>{error}</div>
+          </div>
+        ) : null}
+        {message && message !== DEFAULT_MESSAGE ? (
+          <div className="toast-container">
+            <div className="toast-chip success" onClick={() => setMessage("")}>{message}</div>
+          </div>
+        ) : null}
     </main>
   );
 }

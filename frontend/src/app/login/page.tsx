@@ -41,7 +41,7 @@ const TOKEN_KEY = "flightcomp-platform-token";
 const SESSION_COOKIE = "flightcomp_session";
 
 function setSessionCookie() {
-  document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
+  document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax`;
 }
 
 async function readApiError(response: Response, fallback: string) {

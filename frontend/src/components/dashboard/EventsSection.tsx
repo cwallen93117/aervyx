@@ -629,7 +629,7 @@ export default function EventsSection(props: EventsSectionProps) {
           </button>
         ))}
       </div>
-      <div className={eventTab === "details" ? "event-workspace-grid event-three-up" : "event-workspace-grid event-workspace-stack"}>
+      <div className="event-workspace-grid event-workspace-stack">
         {eventTab === "details" ? (
         <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Keep the active event compact and quick to edit.">
           <form className="stack form-block compact-event-form compact-clusters" onSubmit={saveEvent}>
@@ -1118,9 +1118,8 @@ export default function EventsSection(props: EventsSectionProps) {
           )}
         </SectionCard>
         ) : null}
-      </div>
       {eventTab === "airspace" ? (
-        <div className="section-stack">
+        <>
           <SectionCard title="Overlay settings" description="Choose which overlays appear on the task map for this event.">
             {eventEditorId ? (
               <div className="stack form-block">
@@ -1260,9 +1259,10 @@ export default function EventsSection(props: EventsSectionProps) {
               </div>
             </div>
           </SectionCard>
-        </div>
+        </>
       ) : null}
       {eventTab === "participants" ? renderParticipantCards() : null}
+      </div>
     </div>
   );
 }
