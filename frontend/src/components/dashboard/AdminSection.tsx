@@ -590,7 +590,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                 <th>Mesh</th>
                 <th>Task</th>
                 <th>Positions</th>
-                <th>Rate</th>
+                <th>Interval</th>
                 <th>Last Fix</th>
               </tr>
             </thead>
@@ -599,7 +599,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                 active_sessions.map((session) => {
                   const color = lastSeenColor(session.last_seen_at);
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
-                  const rate = (session.positions_last_60s / 60).toFixed(1);
+                  const interval = session.positions_last_60s > 0 ? Math.round(60 / session.positions_last_60s) : null;
                   const sourceLabel = session.source === "app" ? "App (cellular)" : session.source === "mqtt_gateway" ? "Mesh (MQTT)" : session.source ?? "\u2014";
                   const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
                   return (
@@ -628,7 +628,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                       </td>
                       <td>{session.task_name ?? "Free flight"}</td>
                       <td>{session.position_count.toLocaleString()}</td>
-                      <td>{rate}/s</td>
+                      <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
                       <td style={{ color: lastFixColor }}>{relativeTime(session.last_seen_at)}</td>
                     </tr>
                   );
