@@ -56,14 +56,28 @@ Read these first:
 
 ## Live Deployment
 
-- Public site:
-  - `https://aervyx.net`
-- Public API:
-  - `https://api.aervyx.net`
-- Public deploy listener health:
-  - `https://deploy.aervyx.net/health`
-- The live VM is still internally named `aervyx-staging`, and its paths/services still use that naming.
-- The live server now deploys from `main`, not from `staging`.
+Two environments run side-by-side on the same VM (192.168.87.94):
+
+| | Production | Staging |
+|---|---|---|
+| **Site** | `https://aervyx.net` | `https://staging.aervyx.net` |
+| **API** | `https://api.aervyx.net` | `https://api-staging.aervyx.net` |
+| **Branch** | `main` | `staging` |
+| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/staging-repo` |
+| **Compose project** | `aervyx-prod` | `aervyx-staging` |
+| **Deploy trigger** | push to `main` | push to `staging` |
+| **Database** | separate volume | separate volume |
+
+- Deploy listener health: `https://deploy.aervyx.net/health`
+- The VM is internally named `aervyx-staging` and paths still use that naming.
+- Webhook config: `/etc/default/aervyx-staging-webhook` with `BRANCH_MAP`
+- Deploy scripts: `deploy/staging/deploy-prod.sh` and `deploy/staging/deploy-staging.sh` (both call `deploy-common.sh`)
+
+### Development workflow
+1. Push to `staging` → auto-deploys to `staging.aervyx.net`
+2. Test at `staging.aervyx.net`
+3. Merge `staging` → `main` → auto-deploys to `aervyx.net`
+
 - The current live deployment handoff is:
   - `docs/live-deployment-handoff.md`
 
@@ -71,7 +85,7 @@ Read these first:
 
 - Never ask the user to run commands. Execute everything directly — including SSH, WSL, Docker, deploy scripts, and server management.
 - If a command fails, debug and retry. Only involve the user for credentials or physical actions (plugging in a device, opening a browser).
-- Always use feature branches. Create PRs and leave them open for review — never merge without user approval.
+- Always use feature branches. Create PRs targeting `staging` (not `main`) and leave them open for review — never merge without user approval.
 - When deploying to production, use the Proxmox API (guest agent file-write + exec via stdin) since direct SSH is firewalled.
 
 ## Repo Conventions
