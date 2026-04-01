@@ -1,7 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.security import create_access_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin
@@ -12,12 +17,15 @@ from app.schemas import (
     AccountSettingsResponse,
     AccountSettingsUpdate,
     AccountSettingsUpdateResponse,
+    GoogleAuthRequest,
     LoginRequest,
     PasswordChangeRequest,
     RegisterRequest,
     TokenResponse,
     UserSummary,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 VALID_ACCOUNT_ROLES = {"pilot", "organizer"}
@@ -74,8 +82,86 @@ def login(payload: LoginRequest, session: Session = Depends(get_session)) -> Tok
     user = session.scalar(select(User).where(User.username == submitted_username, User.is_active.is_(True)))
     if user is None:
         user = session.scalar(select(User).where(User.username == payload.username.strip(), User.is_active.is_(True)))
-    if user is None or not verify_password(payload.password, user.password_hash):
+    if user is None or not user.password_hash or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
+
+
+@router.get("/google-client-id")
+def google_client_id() -> dict[str, str | None]:
+    """Return the Google Client ID so the frontend can initialize the Sign-In button."""
+    settings = get_settings()
+    if not settings.google_client_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Google sign-in not configured")
+    return {"client_id": settings.google_client_id}
+
+
+@router.post("/google", response_model=TokenResponse)
+def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_session)) -> TokenResponse:
+    """Authenticate via Google ID token. Links to existing account if email matches, otherwise creates a new account."""
+    settings = get_settings()
+    if not settings.google_client_id:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Google sign-in is not configured")
+
+    try:
+        idinfo = google_id_token.verify_oauth2_token(
+            payload.credential,
+            google_requests.Request(),
+            settings.google_client_id,
+        )
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Google credential")
+
+    google_id = idinfo["sub"]
+    email = idinfo.get("email", "").strip().lower()
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google account has no email")
+
+    # 1. Check if we already have a user linked to this Google ID
+    user = session.scalar(select(User).where(User.oauth_provider == "google", User.oauth_id == google_id, User.is_active.is_(True)))
+
+    if user is None:
+        # 2. Check if there's an existing account with the same email — link it
+        user = session.scalar(select(User).where(User.username == email, User.is_active.is_(True)))
+        if user is not None:
+            user.oauth_provider = "google"
+            user.oauth_id = google_id
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            logger.info("Linked Google account %s to existing user %s", google_id, user.username)
+
+    if user is None:
+        # 3. Create a new account
+        given_name = idinfo.get("given_name", "")
+        family_name = idinfo.get("family_name", "")
+        full_name = f"{given_name} {family_name}".strip() or email
+
+        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
+        if pilot is None:
+            pilot = Pilot(
+                first_name=given_name or email.split("@")[0],
+                last_name=family_name or "",
+                email=email,
+            )
+            session.add(pilot)
+            session.flush()
+
+        user = User(
+            username=email,
+            full_name=full_name,
+            role="pilot",
+            profile_type="pilot",
+            pilot_id=pilot.id,
+            password_hash=None,
+            oauth_provider="google",
+            oauth_id=google_id,
+        )
+        session.add(user)
+        session.commit()
+        session.refresh(user)
+        logger.info("Created new user %s via Google sign-in", user.username)
+
     return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
 
 
@@ -215,7 +301,7 @@ def change_password(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> dict[str, str]:
-    if not verify_password(payload.current_password, user.password_hash):
+    if user.password_hash and not verify_password(payload.current_password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
     if len(payload.new_password) < 8:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="New password must be at least 8 characters")

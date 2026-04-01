@@ -87,6 +87,18 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Log in with a Google ID token (obtained from google_sign_in package).
+  Future<void> loginWithGoogle(String idToken) async {
+    final json = await _api.post(ApiConfig.googleAuthPath, body: {
+      'credential': idToken,
+    });
+    final auth = AuthToken.fromJson(json);
+    _api.setToken(auth.accessToken);
+    await _storage.write(key: 'access_token', value: auth.accessToken);
+    _user = auth.user;
+    notifyListeners();
+  }
+
   /// Enter BLE test mode — bypasses login with a local-only user.
   /// Tracking/backend features won't work, but BLE pairing will.
   void enterBleTestMode() {

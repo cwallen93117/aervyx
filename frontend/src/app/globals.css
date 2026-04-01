@@ -4078,6 +4078,28 @@ button[type="submit"]:hover,
   filter: brightness(1.03);
 }
 
+.aervyx-auth-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 8px 0;
+  color: #7dd3fc80;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.aervyx-auth-divider::before,
+.aervyx-auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: #7dd3fc20;
+}
+.aervyx-auth-google-btn {
+  display: flex;
+  justify-content: center;
+}
+
 .aervyx-auth-secondary-link {
   margin-top: 6px;
   font-size: 0.84rem;
