@@ -2487,6 +2487,7 @@ export default function HomePage() {
         case "settings":
           return (
             <SettingsSection
+              token={token}
               settingsForm={settingsForm}
               setSettingsForm={setSettingsForm}
               settingsPasswordForm={settingsPasswordForm}
@@ -2523,6 +2524,7 @@ export default function HomePage() {
             />
           ) : (
             <SettingsSection
+              token={token}
               settingsForm={settingsForm}
               setSettingsForm={setSettingsForm}
               settingsPasswordForm={settingsPasswordForm}

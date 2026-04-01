@@ -4198,6 +4198,115 @@ button[type="submit"]:hover,
   font-size: 0.8125rem;
 }
 
+/* --- Buddy Groups --- */
+.buddy-create-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.buddy-create-input {
+  flex: 1;
+  min-width: 0;
+}
+.buddy-groups-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.buddy-group-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--surface);
+}
+.buddy-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.buddy-group-name {
+  font-size: 0.875rem;
+}
+.buddy-group-count {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.buddy-group-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+}
+.buddy-rename-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: 1;
+}
+.buddy-rename-row input {
+  flex: 1;
+  min-width: 0;
+}
+.buddy-member-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.buddy-member-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+}
+.buddy-member-row:hover {
+  background: var(--surface-hover);
+}
+.buddy-member-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.buddy-remove-btn {
+  flex-shrink: 0;
+  font-size: 0.75rem;
+}
+.buddy-add-btn {
+  margin-top: 8px;
+  font-size: 0.8125rem;
+}
+.buddy-search-area {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.buddy-search-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.buddy-search-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid var(--border);
+}
+.buddy-search-row:last-child {
+  border-bottom: none;
+}
+
 @media (max-width: 1200px) {
   .fieldset-grid.two-up {
     grid-template-columns: 1fr;
