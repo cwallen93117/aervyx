@@ -7,8 +7,9 @@ declare global {
     google?: {
       accounts: {
         id: {
-          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void; auto_select?: boolean }) => void;
-          renderButton: (parent: HTMLElement, options: { theme?: string; size?: string; width?: number; text?: string; shape?: string; logo_alignment?: string }) => void;
+          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void; auto_select?: boolean; itp_support?: boolean }) => void;
+          renderButton: (parent: HTMLElement, options: { theme?: string; size?: string; width?: number; text?: string; shape?: string; logo_alignment?: string; type?: string }) => void;
+          prompt: () => void;
         };
       };
     };
@@ -136,6 +137,8 @@ export default function LoginPage() {
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: handleGoogleResponse,
+      auto_select: false,
+      itp_support: true,
     });
     window.google.accounts.id.renderButton(googleButtonRef.current, {
       theme: "outline",
@@ -144,6 +147,7 @@ export default function LoginPage() {
       text: "signin_with",
       shape: "rectangular",
       logo_alignment: "left",
+      type: "standard",
     });
   }, [googleClientId, handleGoogleResponse]);
 
