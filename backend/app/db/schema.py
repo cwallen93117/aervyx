@@ -362,6 +362,42 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_airspace_regions_source_id ON airspace_regions (source_id)"))
             connection.execute(text("CREATE INDEX ix_airspace_regions_display_category ON airspace_regions (display_category)"))
 
+        if "buddy_groups" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE buddy_groups (
+                      id INTEGER PRIMARY KEY,
+                      user_id INTEGER NOT NULL,
+                      name VARCHAR(160) NOT NULL,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+                      UNIQUE(user_id, name)
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_buddy_groups_user_id ON buddy_groups (user_id)"))
+
+        if "buddy_group_members" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE buddy_group_members (
+                      id INTEGER PRIMARY KEY,
+                      group_id INTEGER NOT NULL,
+                      pilot_id INTEGER NOT NULL,
+                      added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(group_id) REFERENCES buddy_groups (id) ON DELETE CASCADE,
+                      FOREIGN KEY(pilot_id) REFERENCES pilots (id) ON DELETE CASCADE,
+                      UNIQUE(group_id, pilot_id)
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_buddy_group_members_group_id ON buddy_group_members (group_id)"))
+            connection.execute(text("CREATE INDEX ix_buddy_group_members_pilot_id ON buddy_group_members (pilot_id)"))
+
         # Make live_positions.task_id nullable for free-flight recording
         if "live_positions" in table_names and dialect_name != "sqlite":
             lp_columns = {col["name"]: col for col in inspector.get_columns("live_positions")}

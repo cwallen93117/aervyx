@@ -16,6 +16,11 @@ except ImportError:
     tracking = None
 
 try:
+    from app.routers import buddies
+except ImportError:
+    buddies = None
+
+try:
     from app.routers import admin_debug
 except ImportError:
     admin_debug = None
@@ -74,6 +79,8 @@ app.include_router(results.router)
 app.include_router(logbook.router)
 if tracking is not None:
     app.include_router(tracking.router)
+if buddies is not None:
+    app.include_router(buddies.router)
 if admin_debug is not None:
     app.include_router(admin_debug.router)
 
