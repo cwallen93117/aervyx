@@ -2,9 +2,11 @@
 
 import type { FormEvent } from "react";
 import { SectionCard } from "../SectionCard";
+import BuddyGroupsManager from "./BuddyGroupsManager";
 import type { AccountSettingsRecord } from "./types";
 
 export interface SettingsSectionProps {
+  token: string;
   settingsForm: AccountSettingsRecord;
   setSettingsForm: (form: AccountSettingsRecord | ((current: AccountSettingsRecord) => AccountSettingsRecord)) => void;
   settingsPasswordForm: { current_password: string; new_password: string; confirm_password: string };
@@ -21,6 +23,7 @@ export interface SettingsSectionProps {
 
 export default function SettingsSection(props: SettingsSectionProps) {
   const {
+    token,
     settingsForm,
     setSettingsForm,
     settingsPasswordForm,
@@ -185,6 +188,9 @@ export default function SettingsSection(props: SettingsSectionProps) {
           </div>
           {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
         </form>
+      </SectionCard>
+      <SectionCard title="Pilot buddies" description="Create groups of pilots you want to track together on the live tracking page.">
+        <BuddyGroupsManager token={token} />
       </SectionCard>
     </div>
   );
