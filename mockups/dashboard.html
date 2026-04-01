@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aervyx — Dashboard (Dark Mode)</title>
+<link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@300;400;500;600;700;800;900&family=Barlow:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ── Exact current CSS from globals.css ── */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0;min-height:100%}
+body{
+  font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-size:.875rem;line-height:1.5;color:var(--ink);background:var(--body-bg);
+  -webkit-font-smoothing:antialiased;
+}
+h1,h2,h3,p{margin:0}
+a{color:inherit;text-decoration:none}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit}
+
+:root{
+  --accent:#3b82f6;--accent-hover:#2563eb;
+  --accent-soft:rgba(59,130,246,.15);--accent-softer:rgba(59,130,246,.08);
+  --danger:#ef4444;--danger-soft:rgba(239,68,68,.15);
+  --success:#22c55e;--success-soft:rgba(34,197,94,.15);
+  --warning:#f59e0b;--warning-soft:rgba(245,158,11,.15);
+  --ink:rgba(255,255,255,.88);--ink-secondary:rgba(255,255,255,.6);--ink-muted:rgba(255,255,255,.38);
+  --line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.12);
+  --muted:rgba(255,255,255,.42);
+  --panel:#111827;--wash:#0f172a;--wash-alt:#1e293b;
+  --header-grad:linear-gradient(180deg,#131c2e,#111827);
+  --r-xs:3px;--r-sm:4px;--r-md:6px;--r-lg:8px;--r-xl:12px;
+  --shadow-sm:0 1px 2px rgba(0,0,0,.2);
+  --shadow-md:0 1px 3px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2);
+  --shadow-lg:0 4px 6px -1px rgba(0,0,0,.3),0 2px 4px -2px rgba(0,0,0,.2);
+  --sb-bg:#0a0f1a;--sb-ink:#e2e8f0;--sb-muted:rgba(255,255,255,.42);
+  --sb-active-bg:rgba(59,130,246,.15);--sb-active-bd:#3b82f6;
+  --sb-glyph-bg:rgba(255,255,255,.06);--sb-hover-bg:rgba(255,255,255,.05);
+  --sb-line:rgba(255,255,255,.06);
+  /* theme-dependent tokens */
+  --body-bg:#0b1120;
+  --card-shadow:0 1px 3px rgba(0,0,0,.3),0 1px 2px rgba(0,0,0,.2);
+  --stat-bg:rgba(255,255,255,.04);
+  --tab-hover:rgba(255,255,255,.06);
+  --tab-active-bg:rgba(59,130,246,.12);--tab-active-bd:rgba(59,130,246,.25);--tab-active-ink:#fff;--tab-active-shadow:0 1px 3px rgba(0,0,0,.3);
+  --btn-glow:0 1px 2px rgba(59,130,246,.3);--btn-glow-hover:0 2px 4px rgba(59,130,246,.4);
+  --focus-ring:0 0 0 3px rgba(59,130,246,.2);
+  --marker-event-bg:rgba(59,130,246,.15);--marker-event-ink:#60a5fa;
+  --marker-task-bg:rgba(245,158,11,.15);--marker-task-ink:#fbbf24;
+  --marker-score-bg:rgba(34,197,94,.15);--marker-score-ink:#4ade80;
+  --marker-track-bg:rgba(168,85,247,.15);--marker-track-ink:#c084fc;
+  --marker-admin-bg:rgba(239,68,68,.15);--marker-admin-ink:#f87171;
+}
+html[data-theme="light"]{
+  --accent:#1d4ed8;--accent-hover:#1e40af;
+  --accent-soft:#dbeafe;--accent-softer:#eff6ff;
+  --danger:#dc2626;--danger-soft:#fee2e2;
+  --success:#16a34a;--success-soft:#dcfce7;
+  --warning:#d97706;--warning-soft:#fef3c7;
+  --ink:#0f172a;--ink-secondary:#475569;--ink-muted:#94a3b8;
+  --line:#e2e8f0;--line-strong:#cbd5e1;
+  --muted:#64748b;
+  --panel:#ffffff;--wash:#f8fafc;--wash-alt:#f1f5f9;
+  --header-grad:linear-gradient(180deg,#f8fafc,#f1f5f9);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.05);
+  --shadow-md:0 1px 3px rgba(0,0,0,.1),0 1px 2px rgba(0,0,0,.06);
+  --shadow-lg:0 4px 6px -1px rgba(0,0,0,.1),0 2px 4px -2px rgba(0,0,0,.1);
+  --sb-bg:#0f172a;--sb-muted:#64748b;
+  --sb-line:rgba(255,255,255,.08);
+  --body-bg:#f8fafc;
+  --card-shadow:0 1px 3px rgba(15,23,42,.06),0 1px 2px rgba(15,23,42,.04);
+  --stat-bg:rgba(255,255,255,.88);
+  --tab-hover:rgba(255,255,255,.7);
+  --tab-active-bg:#ffffff;--tab-active-bd:rgba(29,78,216,.14);--tab-active-ink:var(--ink);--tab-active-shadow:0 1px 3px rgba(15,23,42,.08);
+  --btn-glow:0 1px 2px rgba(29,78,216,.24);--btn-glow-hover:0 2px 4px rgba(29,78,216,.3);
+  --focus-ring:0 0 0 3px rgba(29,78,216,.1);
+  --marker-event-bg:rgba(37,99,235,.08);--marker-event-ink:#2563eb;
+  --marker-task-bg:rgba(217,119,6,.08);--marker-task-ink:#d97706;
+  --marker-score-bg:rgba(22,163,74,.08);--marker-score-ink:#16a34a;
+  --marker-track-bg:rgba(168,85,247,.08);--marker-track-ink:#a855f7;
+  --marker-admin-bg:rgba(239,68,68,.08);--marker-admin-ink:#ef4444;
+}
+
+/* ── Layout ── */
+.workspace-shell{display:flex;width:100%;min-height:100vh;gap:0}
+.nav-sidebar{width:198px;min-height:100vh;background:var(--sb-bg);display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;flex-shrink:0;z-index:100;border-right:1px solid var(--sb-line)}
+.sidebar-brand{padding:18px 18px;border-bottom:1px solid var(--sb-line)}
+.sidebar-brand .eyebrow{font-size:1.25rem;font-weight:700;color:#fff;letter-spacing:-.01em;text-transform:none}
+.sidebar-context{padding:12px 18px;border-bottom:1px solid var(--sb-line)}
+.context-label{font-size:.8125rem;font-weight:600;color:var(--sb-muted);text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:4px}
+.sidebar-context strong{font-size:1rem;font-weight:600;color:var(--sb-ink);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-nav{flex:1;padding:12px 8px;display:flex;flex-direction:column;gap:2px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 10px;border-radius:var(--r-md);transition:background 150ms ease;position:relative;border:none;background:none;width:100%;text-align:left;color:var(--sb-ink);cursor:pointer}
+.nav-item:hover{background:var(--sb-hover-bg)}
+.nav-item.active{background:var(--sb-active-bg)}
+.nav-item.active::before{content:'';position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 2px 2px 0;background:var(--sb-active-bd)}
+.nav-item-glyph{width:34px;height:34px;border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;background:var(--sb-glyph-bg);flex-shrink:0;font-size:1.1rem}
+.nav-item-glyph svg{width:20px;height:20px}
+.nav-item-label{font-size:.8125rem;font-weight:600;color:var(--sb-ink)}
+.nav-item.active .nav-item-label{font-weight:800;color:#fff}
+
+/* Theme glyph colors — exact current values */
+.theme-events .nav-item-glyph{background:rgba(37,99,235,.16);color:#93c5fd}
+.theme-tasks .nav-item-glyph{background:rgba(217,119,6,.16);color:#fcd34d}
+.theme-scoring .nav-item-glyph{background:rgba(22,163,74,.16);color:#86efac}
+.theme-live-tracking .nav-item-glyph{background:rgba(168,85,247,.16);color:#d8b4fe}
+.theme-drivers .nav-item-glyph{background:rgba(14,165,233,.16);color:#7dd3fc}
+.theme-logbook .nav-item-glyph{background:rgba(34,197,94,.16);color:#bbf7d0}
+.theme-settings .nav-item-glyph{background:rgba(148,163,184,.16);color:#e2e8f0}
+.theme-admin .nav-item-glyph{background:rgba(239,68,68,.16);color:#fca5a5}
+.nav-item.active.theme-events .nav-item-glyph{background:rgba(37,99,235,.26);color:#dbeafe}
+.nav-item.active.theme-tasks .nav-item-glyph{background:rgba(217,119,6,.24);color:#fef3c7}
+.nav-item.active.theme-scoring .nav-item-glyph{background:rgba(22,163,74,.24);color:#dcfce7}
+.nav-item.active.theme-live-tracking .nav-item-glyph{background:rgba(168,85,247,.24);color:#f3e8ff}
+.nav-item.active.theme-drivers .nav-item-glyph{background:rgba(14,165,233,.24);color:#e0f2fe}
+.nav-item.active.theme-logbook .nav-item-glyph{background:rgba(34,197,94,.24);color:#f0fdf4}
+.nav-item.active.theme-settings .nav-item-glyph{background:rgba(148,163,184,.24);color:#ffffff}
+.nav-item.active.theme-admin .nav-item-glyph{background:rgba(239,68,68,.24);color:#fee2e2}
+
+/* ── Content Shell ── */
+.content-shell{flex:1;display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}
+.content-hero{background:var(--panel);border-bottom:1px solid var(--line);padding:10px 32px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:50;gap:16px}
+.hero-title-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:10px;min-width:0}
+.content-hero h1{font-size:1.25rem;font-weight:700;color:var(--ink);letter-spacing:-.01em;line-height:1.1}
+.hero-event-context{font-size:.8125rem;color:var(--muted);line-height:1.2;padding-left:10px;border-left:1px solid var(--line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hero-actions{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.role-pill{font-size:.6875rem;font-weight:600;padding:3px 10px;border-radius:999px;background:var(--accent-soft);color:var(--accent);text-transform:uppercase;letter-spacing:.04em}
+.signout{font-size:.8125rem;font-weight:500;padding:6px 14px;border-radius:var(--r-md);background:var(--panel);color:var(--ink-secondary);border:1px solid var(--line-strong);transition:all 150ms ease}
+.signout:hover{background:var(--wash-alt);color:var(--ink);border-color:var(--ink-muted)}
+
+/* ── Section Stack & Card — exact current values ── */
+.section-stack{width:100%;padding:28px 32px;display:flex;flex-direction:column;gap:24px;max-width:1400px}
+.section-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--r-lg);padding:0;overflow:hidden;box-shadow:var(--card-shadow)}
+.section-card-header{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:16px;align-items:flex-start;background:var(--header-grad)}
+.section-card-header h3{font-size:1.02rem;font-weight:700;color:var(--ink);letter-spacing:-.01em;margin-bottom:2px}
+.section-card-header .hint,.section-card-header p{font-size:.8125rem;color:var(--muted);margin-top:2px;max-width:72ch}
+.section-card-actions{display:flex;gap:8px;align-items:center}
+.section-card > .stack,.section-card > .form-block{padding:16px 18px}
+
+/* ── Event selector ── */
+.event-selector-bar{display:flex;align-items:flex-end;gap:16px;padding:18px 22px;flex-wrap:wrap}
+.event-selector-actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+
+/* ── Event summary strip — exact current ── */
+.event-summary-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:14px 22px 18px;background:var(--header-grad);border-top:1px solid var(--line)}
+.compact-stat{display:flex;flex-direction:column;gap:2px;padding:14px 18px;background:var(--stat-bg);border:1px solid var(--line);border-radius:var(--r-md)}
+.compact-stat strong{font-size:1.25rem;font-weight:700;color:var(--ink);line-height:1.2}
+.compact-stat span{font-size:.6875rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.record-card{display:flex;flex-direction:column;gap:4px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);border-radius:var(--r-md)}
+.record-card strong{font-size:.875rem;font-weight:600;color:var(--ink)}
+.record-card span{font-size:.8125rem;color:var(--ink-secondary)}
+
+/* ── Stack / Form ── */
+.stack{display:flex;flex-direction:column;gap:12px}
+.stack.compact{display:flex;flex-direction:column;gap:4px}
+.stack.compact > span,.form-block label > span,label.stack > span{font-size:.8125rem;font-weight:500;color:var(--ink-secondary)}
+.inline-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+
+/* ── Inputs — exact current values ── */
+input:not([type]),input[type="text"],input[type="search"],input[type="number"],input[type="time"],input[type="date"],input[type="email"],input[type="password"],select,textarea{width:100%;padding:6px 12px;border:1px solid var(--line-strong);border-radius:var(--r-md);font-size:.875rem;color:var(--ink);background:var(--panel);outline:none;min-height:34px;transition:border-color 150ms ease,box-shadow 150ms ease}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:var(--focus-ring)}
+input::placeholder{color:var(--ink-muted)}
+select{appearance:none;cursor:pointer;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:36px}
+
+/* ── Fieldset cluster — exact current ── */
+.fieldset-cluster{margin:0;min-width:0;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--wash);padding:12px 14px 14px}
+.fieldset-cluster > legend{padding:0 6px;color:var(--ink-secondary);font-size:.75rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.cluster-stack{display:flex;flex-direction:column;gap:8px}
+.fieldset-cluster .stack.compact{display:grid;grid-template-columns:minmax(132px,168px) minmax(0,1fr);align-items:center;gap:8px}
+.fieldset-cluster .stack.compact > span{margin:0;font-size:.8125rem;font-weight:600;color:var(--ink-secondary)}
+.fieldset-cluster .stack.compact input,.fieldset-cluster .stack.compact select{width:100%;min-height:30px;padding:4px 10px;font-size:.8125rem}
+.fieldset-grid{display:grid;gap:14px}
+.fieldset-grid.two-up{grid-template-columns:repeat(2,minmax(0,1fr))}
+.fieldset-grid.events-scoring-grid{grid-template-columns:1fr 1fr 1.15fr;align-items:start}
+.compact-event-form .fieldset-cluster .stack.compact{grid-template-columns:minmax(96px,124px) minmax(0,1fr)}
+.compact-event-form .fieldset-cluster .stack.compact input,.compact-event-form .fieldset-cluster .stack.compact select{max-width:none}
+.event-schedule-row{grid-template-columns:minmax(78px,92px) minmax(0,1fr) !important}
+
+/* ── Buttons — exact current ── */
+.button-row{display:flex;align-items:center;gap:10px;padding-top:8px;flex-wrap:wrap}
+.primary-button,button[type="submit"]{display:inline-flex;align-items:center;justify-content:center;padding:6px 20px;border-radius:var(--r-md);font-size:.8125rem;font-weight:600;background:var(--accent);color:#fff;border:1px solid var(--accent);height:34px;box-shadow:var(--btn-glow);transition:background 150ms ease,box-shadow 150ms ease}
+.primary-button:hover,button[type="submit"]:hover{background:var(--accent-hover);box-shadow:var(--btn-glow-hover)}
+.secondary{display:inline-flex;align-items:center;justify-content:center;padding:6px 16px;border-radius:var(--r-md);font-size:.8125rem;font-weight:500;background:var(--panel);color:var(--ink-secondary);border:1px solid var(--line-strong);height:34px;transition:all 150ms ease}
+.secondary:hover{background:var(--wash-alt);border-color:var(--ink-muted);color:var(--ink)}
+.ghost-button{display:inline-flex;align-items:center;justify-content:center;padding:6px 16px;border-radius:var(--r-md);font-size:.8125rem;font-weight:500;background:var(--panel);color:var(--ink-secondary);border:1px solid var(--line-strong);height:34px;transition:all 150ms ease}
+.ghost-button:hover{background:var(--wash-alt);border-color:var(--ink-muted);color:var(--ink)}
+.ghost-button.danger-button{color:var(--danger);border-color:var(--danger);background:var(--panel)}
+.ghost-button.danger-button:hover{background:var(--danger-soft)}
+
+/* ── Tab row — exact current values ── */
+.tab-row{display:inline-flex;background:var(--wash-alt);border:1px solid var(--line);border-radius:18px;padding:6px;gap:8px;margin-bottom:16px}
+.tab-button{min-height:42px;padding:11px 16px;border-radius:13px;font-size:.8125rem;font-weight:600;letter-spacing:-.01em;color:var(--muted);background:transparent;border:1px solid transparent;transition:all 150ms ease}
+.tab-button:hover{color:var(--ink);background:var(--tab-hover)}
+.tab-button.active{border-color:var(--tab-active-bd);background:var(--tab-active-bg);color:var(--tab-active-ink);box-shadow:var(--tab-active-shadow);font-weight:700}
+
+.hint{font-size:.8125rem;color:var(--muted);line-height:1.5}
+
+/* ── Participant table — exact current ── */
+.participant-table{width:100%;border-collapse:collapse}
+.participant-table th{text-align:left;font-size:.75rem;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;padding:10px 14px;border-bottom:1px solid var(--line)}
+.participant-table td{padding:10px 14px;font-size:.8125rem;color:var(--ink);border-bottom:1px solid var(--line)}
+.participant-table tr:hover td{background:var(--accent-softer)}
+.participant-table-empty{color:var(--ink-muted);font-style:italic}
+
+/* ── File input / upload row ── */
+.participant-intake-row{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:12px}
+.file-input{display:inline-flex;align-items:center;justify-content:center;padding:6px 16px;border-radius:var(--r-md);font-size:.8125rem;font-weight:500;background:var(--panel);color:var(--ink-secondary);border:1px solid var(--line-strong);height:34px;cursor:pointer;transition:all 150ms ease}
+.file-input:hover{background:var(--wash-alt);border-color:var(--ink-muted);color:var(--ink)}
+.file-input input{display:none}
+
+/* ── Airspace settings ── */
+.event-airspace-class-row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.task-advanced-toggle{display:flex;align-items:center;gap:6px;font-size:.8125rem;font-weight:500;color:var(--ink-secondary);cursor:pointer}
+.task-advanced-toggle input[type="checkbox"]{accent-color:var(--accent);width:16px;height:16px;min-height:auto;margin:0}
+
+/* ── Scoring import strip ── */
+.scoring-import-strip{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r-lg);background:var(--wash);margin-bottom:8px}
+.scoring-import-copy{flex:1}
+.scoring-import-copy strong{font-size:.86rem;display:block;margin-bottom:2px}
+.scoring-import-copy span{font-size:.78rem;color:var(--muted)}
+.scoring-import-controls{display:flex;gap:8px;align-items:center}
+
+/* ── Scoring ops panel — exact current gray palette ── */
+.scoring-ops-panel{border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden;background:var(--panel)}
+.scoring-ops-header{padding:12px 16px;background:var(--header-grad);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.scoring-ops-header h4{font-size:.92rem;font-weight:700;color:var(--ink);margin:0}
+.scoring-ops-body{padding:14px 16px}
+.scoring-ops-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border-bottom:1px solid var(--line)}
+.scoring-ops-row:last-child{border-bottom:none}
+.scoring-ops-label{font-size:.8125rem;color:var(--ink-secondary);flex:1}
+.scoring-ops-value{font-size:.8125rem;font-weight:600;color:var(--ink)}
+.scoring-ops-btn{padding:4px 14px;border:1px solid var(--line-strong);border-radius:var(--r-md);background:var(--panel);color:var(--ink-secondary);font-size:.78rem;font-weight:500;height:30px;transition:all 150ms ease}
+.scoring-ops-btn:hover{border-color:var(--ink-muted);color:var(--ink)}
+.scoring-ops-footer{display:flex;gap:8px;padding:12px 16px;border-top:1px solid var(--line);background:var(--header-grad)}
+.scoring-ops-footer-btn{padding:6px 16px;border:none;border-radius:var(--r-md);font-size:.82rem;font-weight:600;height:34px;transition:all 150ms ease}
+.scoring-ops-footer-btn.primary{background:var(--accent);color:#fff;box-shadow:var(--btn-glow)}
+.scoring-ops-footer-btn.primary:hover{background:var(--accent-hover)}
+.scoring-ops-footer-btn.secondary-ops{background:var(--wash-alt);color:var(--ink-secondary);border:1px solid var(--line-strong)}
+
+/* ── Map placeholder ── */
+.map-placeholder{width:100%;min-height:400px;border-radius:var(--r-lg);background:linear-gradient(135deg,#0a1510,#0d200e,#0a1510);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.3);font-family:'JetBrains Mono',monospace;font-size:.82rem;position:relative;overflow:hidden}
+.map-placeholder::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.03) 1px,transparent 1px);background-size:40px 40px}
+
+/* ── Status markers ── */
+.section-marker{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.section-marker.events{background:var(--marker-event-bg);color:var(--marker-event-ink)}
+.section-marker.tasks{background:var(--marker-task-bg);color:var(--marker-task-ink)}
+.section-marker.scoring{background:var(--marker-score-bg);color:var(--marker-score-ink)}
+.section-marker.tracking{background:var(--marker-track-bg);color:var(--marker-track-ink)}
+.section-marker.admin{background:var(--marker-admin-bg);color:var(--marker-admin-ink)}
+
+/* ── Theme toggle ── */
+.theme-toggle{width:34px;height:34px;border-radius:var(--r-md);border:1px solid var(--line-strong);background:var(--panel);display:flex;align-items:center;justify-content:center;transition:all 150ms ease;color:var(--ink-secondary);padding:0}
+.theme-toggle:hover{background:var(--wash-alt);border-color:var(--ink-muted);color:var(--ink)}
+.theme-toggle svg{width:18px;height:18px}
+.theme-toggle .icon-sun{display:block}
+.theme-toggle .icon-moon{display:none}
+html[data-theme="light"] .theme-toggle .icon-sun{display:none}
+html[data-theme="light"] .theme-toggle .icon-moon{display:block}
+</style>
+</head>
+<body>
+
+<div class="workspace-shell">
+  <!-- SIDEBAR — exact current layout -->
+  <nav class="nav-sidebar">
+    <div class="sidebar-brand"><span class="eyebrow">Aervyx</span></div>
+    <div class="sidebar-context">
+      <span class="context-label">Event</span>
+      <strong>Spring Ridge Open 2026</strong>
+    </div>
+    <div class="sidebar-nav">
+      <button class="nav-item active theme-events" onclick="showSection('events',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></div>
+        <span class="nav-item-label">Events</span>
+      </button>
+      <button class="nav-item theme-tasks" onclick="showSection('tasks',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+        <span class="nav-item-label">Tasks</span>
+      </button>
+      <button class="nav-item theme-scoring" onclick="showSection('scoring',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89L17 22l-5-3-5 3 1.523-9.11"/></svg></div>
+        <span class="nav-item-label">Scoring</span>
+      </button>
+      <button class="nav-item theme-live-tracking" onclick="showSection('tracking',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5.636 18.364a9 9 0 010-12.728"/><path d="M18.364 5.636a9 9 0 010 12.728"/><circle cx="12" cy="12" r="1"/></svg></div>
+        <span class="nav-item-label">Live Tracking</span>
+      </button>
+      <button class="nav-item theme-drivers" onclick="showSection('drivers',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="6" width="15" height="12" rx="2"/><path d="M16 10h4l3 3v5h-3"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg></div>
+        <span class="nav-item-label">Drivers</span>
+      </button>
+      <button class="nav-item theme-logbook" onclick="showSection('logbook',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg></div>
+        <span class="nav-item-label">Logbook</span>
+      </button>
+      <button class="nav-item theme-settings" onclick="showSection('settings',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+        <span class="nav-item-label">Settings</span>
+      </button>
+      <button class="nav-item theme-admin" onclick="showSection('admin',this)">
+        <div class="nav-item-glyph"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+        <span class="nav-item-label">Admin</span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="content-shell">
+    <!-- Hero bar — exact current -->
+    <div class="content-hero">
+      <div class="hero-title-row">
+        <h1>Events</h1>
+        <span class="hero-event-context">Spring Ridge Open 2026 &middot; Chalk Bluffs, CO &middot; Paragliding</span>
+      </div>
+      <div class="hero-actions">
+        <span class="role-pill">Admin</span>
+        <button class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+          <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+        </button>
+        <button class="signout">Sign out</button>
+      </div>
+    </div>
+
+    <!-- ═══ EVENTS ═══ -->
+    <div class="section-stack" id="section-events">
+      <!-- Event selector card -->
+      <div class="section-card">
+        <div class="event-selector-bar">
+          <label class="stack compact" style="flex:1;max-width:420px">
+            <span>Active event</span>
+            <select>
+              <option selected>Spring Ridge Open 2026 - Chalk Bluffs, CO</option>
+              <option>Pine Creek Classic 2026 - Pine Creek, MT</option>
+            </select>
+          </label>
+          <div class="event-selector-actions">
+            <button class="ghost-button" type="button">Create a New Event</button>
+            <button class="primary-button" type="button">Save event</button>
+            <button class="ghost-button" type="button">Duplicate event</button>
+            <button class="ghost-button danger-button" type="button">Delete event</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab row — exact current styling -->
+      <div class="tab-row">
+        <button class="tab-button active" onclick="showEventTab('evt-details',this)">Event Details</button>
+        <button class="tab-button" onclick="showEventTab('evt-turnpoints',this)">Turnpoint Files</button>
+        <button class="tab-button" onclick="showEventTab('evt-airspace',this)">Airspace / Restricted Fields</button>
+        <button class="tab-button" onclick="showEventTab('evt-participants',this)">Participants</button>
+        <button class="tab-button" onclick="showEventTab('evt-scoring',this)">Scoring Parameters</button>
+      </div>
+
+      <!-- Event Details -->
+      <div id="evt-details" class="evt-sub" style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <div class="section-card">
+          <div class="section-card-header"><div><h3>Event details</h3><p class="hint">Keep the active event compact and quick to edit.</p></div></div>
+          <form class="stack" style="padding:16px 18px">
+            <div class="fieldset-grid two-up">
+              <fieldset class="fieldset-cluster">
+                <legend>Basics</legend>
+                <div class="cluster-stack">
+                  <label class="stack compact"><span>Event name</span><input type="text" value="Spring Ridge Open 2026"/></label>
+                  <label class="stack compact"><span>Location</span><input type="text" value="Chalk Bluffs, CO"/></label>
+                  <label class="stack compact"><span>Timezone</span><input type="text" value="America/Denver"/></label>
+                </div>
+              </fieldset>
+              <fieldset class="fieldset-cluster">
+                <legend>Schedule</legend>
+                <div class="cluster-stack">
+                  <label class="stack compact"><span>Starts on</span><input type="text" value="June 15, 2026"/></label>
+                  <label class="stack compact"><span>Ends on</span><input type="text" value="June 21, 2026"/></label>
+                </div>
+              </fieldset>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Turnpoint Files -->
+      <div id="evt-turnpoints" class="evt-sub" style="display:none">
+        <div class="section-card">
+          <div class="section-card-header"><div><h3>Turnpoint files</h3><p class="hint">Upload as many waypoint files as you need for the event, then control which ones are visible on the map.</p></div></div>
+          <div class="stack" style="padding:16px 18px">
+            <div class="participant-intake-row">
+              <div class="stack compact" style="gap:2px"><span>Upload turnpoint file</span><p class="hint">CSV, GeoJSON, or GPX. Each upload is stored separately.</p></div>
+              <label class="file-input">Upload turnpoints<input type="file"/></label>
+            </div>
+            <table class="participant-table">
+              <thead><tr><th>File name</th><th>Format</th><th>Turnpoints</th><th>Visible</th><th>Uploaded</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr><td><strong>chalk-bluffs-2026.csv</strong></td><td>CSV</td><td>24</td><td><label class="task-advanced-toggle"><input type="checkbox" checked/><span>Visible</span></label></td><td>Mar 28, 2026 10:14 AM</td><td><button class="ghost-button danger-button" style="height:30px;font-size:.75rem;padding:4px 10px">Delete</button></td></tr>
+                <tr><td><strong>regional-waypoints.gpx</strong></td><td>GPX</td><td>86</td><td><label class="task-advanced-toggle"><input type="checkbox" checked/><span>Visible</span></label></td><td>Mar 15, 2026 3:42 PM</td><td><button class="ghost-button danger-button" style="height:30px;font-size:.75rem;padding:4px 10px">Delete</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Airspace / Restricted Fields -->
+      <div id="evt-airspace" class="evt-sub" style="display:none">
+        <div class="section-card">
+          <div class="section-card-header"><div><h3>Overlay settings</h3><p class="hint">Choose which overlays appear on the task map for this event.</p></div></div>
+          <div class="stack" style="padding:16px 18px">
+            <div class="event-airspace-class-row">
+              <label class="task-advanced-toggle"><input type="checkbox" checked/><span>Class B</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox" checked/><span>Class C</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox"/><span>Class D</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox"/><span>Prohibited</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox"/><span>Danger</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox" checked/><span>Restricted</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox"/><span>TFR</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox"/><span>Other / advisory</span></label>
+              <label class="task-advanced-toggle"><input type="checkbox" checked/><span>Restricted fields</span></label>
+            </div>
+            <div class="record-card" style="margin-top:8px"><strong>5 visible overlays</strong><span>3 airspace regions and 2 restricted fields stored for this event.</span></div>
+          </div>
+        </div>
+        <div class="section-card" style="margin-top:24px">
+          <div class="section-card-header"><div><h3>Overlay files</h3><p class="hint">Upload OpenAir or GeoJSON overlay files, then control which ones are visible on the map.</p></div></div>
+          <div class="stack" style="padding:16px 18px">
+            <div class="participant-intake-row">
+              <div class="stack compact" style="gap:2px"><span>Upload overlay file</span><p class="hint">OpenAir or GeoJSON. Hold Ctrl to select multiple files.</p></div>
+              <label class="file-input">Upload overlays<input type="file"/></label>
+            </div>
+            <table class="participant-table">
+              <thead><tr><th>File name</th><th>Label</th><th>Format</th><th>Visible</th><th>Uploaded</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr><td><strong>colorado-airspace.txt</strong></td><td><select style="min-height:30px;padding:4px 8px;font-size:.78rem"><option selected>Airspace</option><option>Restricted fields</option></select></td><td>OPENAIR</td><td><label class="task-advanced-toggle"><input type="checkbox" checked/><span>Visible</span></label></td><td>Mar 20, 2026</td><td><button class="ghost-button danger-button" style="height:30px;font-size:.75rem;padding:4px 10px">Delete</button></td></tr>
+                <tr><td><strong>local-fields.geojson</strong></td><td><select style="min-height:30px;padding:4px 8px;font-size:.78rem"><option>Airspace</option><option selected>Restricted fields</option></select></td><td>GEOJSON</td><td><label class="task-advanced-toggle"><input type="checkbox" checked/><span>Visible</span></label></td><td>Mar 20, 2026</td><td><button class="ghost-button danger-button" style="height:30px;font-size:.75rem;padding:4px 10px">Delete</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Participants -->
+      <div id="evt-participants" class="evt-sub" style="display:none">
+        <div class="section-card">
+          <div class="section-card-header">
+            <div><h3>Participants</h3><p class="hint">Enrolled pilots for this event.</p></div>
+            <div class="section-card-actions"><button class="secondary">Import CSV</button><button class="primary-button">Add pilot</button></div>
+          </div>
+          <div style="padding:0">
+            <table class="participant-table">
+              <thead><tr><th>#</th><th>Name</th><th>Nation</th><th>Glider</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody>
+                <tr><td>23</td><td>M. Kovacevic</td><td>CRO</td><td>Enzo 3</td><td><span class="section-marker events">Active</span></td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+                <tr><td>07</td><td>S. Beaumont</td><td>FRA</td><td>Boomerang 12</td><td><span class="section-marker events">Active</span></td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+                <tr><td>41</td><td>T. Nakamura</td><td>JPN</td><td>Enzo 3</td><td><span class="section-marker events">Active</span></td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+                <tr><td>12</td><td>A. Christiansen</td><td>NOR</td><td>Peak 5</td><td><span class="section-marker events">Active</span></td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+                <tr><td>18</td><td>L. van der Berg</td><td>NED</td><td>Zeno 2</td><td><span class="section-marker events">Active</span></td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+                <tr><td>05</td><td>R. Osei</td><td>GHA</td><td>Mentor 7</td><td><span class="section-marker events">Active</span></td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Scoring Parameters -->
+      <div id="evt-scoring" class="evt-sub" style="display:none">
+        <div class="section-card">
+          <div class="section-card-header"><div><h3>Scoring parameters</h3><p class="hint">Event-level GAP defaults.</p></div></div>
+          <form class="stack" style="padding:16px 18px">
+            <div class="scoring-import-strip">
+              <div class="scoring-import-copy"><strong>Load scoring parameters</strong><span>Import scoring fields and penalty presets from a saved meet.</span></div>
+              <div class="scoring-import-controls">
+                <select style="max-width:280px;min-height:34px;font-size:.8125rem"><option>Choose saved scoring parameters</option></select>
+                <button type="button" class="secondary">Load scoring parameters</button>
+              </div>
+            </div>
+            <div class="fieldset-grid events-scoring-grid">
+              <fieldset class="fieldset-cluster">
+                <legend>Formula and points</legend>
+                <div class="cluster-stack">
+                  <label class="stack compact"><span>Scoring formula</span><select><option selected>GAP 2021</option><option>GAP 2020</option></select></label>
+                  <label class="stack compact"><span>Distance points</span><select><option selected>On</option><option>Off</option></select></label>
+                  <label class="stack compact"><span>Time points</span><select><option selected>On</option><option>Off</option></select></label>
+                  <label class="stack compact"><span>Leading points</span><select><option selected>On</option><option>Off</option></select></label>
+                </div>
+              </fieldset>
+              <fieldset class="fieldset-cluster">
+                <legend>Nominal values</legend>
+                <div class="cluster-stack">
+                  <label class="stack compact"><span>Nominal distance</span><input type="number" value="40"/></label>
+                  <label class="stack compact"><span>Nominal time</span><input type="number" value="1.5" step="0.1"/></label>
+                  <label class="stack compact"><span>Nominal launch</span><input type="number" value="0.96" step="0.01"/></label>
+                  <label class="stack compact"><span>Min distance</span><input type="number" value="5"/></label>
+                  <label class="stack compact"><span>Nominal goal %</span><input type="number" value="0.20" step="0.01"/></label>
+                </div>
+              </fieldset>
+              <fieldset class="fieldset-cluster">
+                <legend>Advanced</legend>
+                <div class="cluster-stack">
+                  <label class="stack compact"><span>Score-back time</span><input type="number" value="5"/></label>
+                  <label class="stack compact"><span>Goal / SS penalty</span><input type="number" value="1.0" step="0.1"/></label>
+                  <label class="stack compact"><span>Scoring altitude</span><select><option selected>GPS altitude</option><option>Pressure altitude</option></select></label>
+                  <label class="stack compact"><span>Final glide dec.</span><select><option selected>None</option><option>Default</option></select></label>
+                </div>
+              </fieldset>
+            </div>
+            <div class="button-row"><button class="primary-button" type="button">Save scoring parameters</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ TASKS ═══ -->
+    <div class="section-stack" id="section-tasks" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header">
+          <div><h3>Task Builder</h3><p class="hint">Create and manage competition tasks with interactive map.</p></div>
+          <div class="section-card-actions"><button class="secondary">Import task</button><button class="primary-button">New task</button></div>
+        </div>
+        <div style="padding:16px 18px">
+          <div class="tab-row">
+            <button class="tab-button active">Task 1</button>
+            <button class="tab-button">Task 2</button>
+            <button class="tab-button">Task 3</button>
+          </div>
+          <div class="map-placeholder"><span style="position:relative;z-index:1">MapLibre GL + Deck.gl &middot; Task route visualization</span></div>
+          <div style="margin-top:16px">
+            <fieldset class="fieldset-cluster">
+              <legend>Task points</legend>
+              <div class="cluster-stack">
+                <label class="stack compact"><span>Start (SSS)</span><input type="text" value="Chalk Bluffs Launch" readonly/></label>
+                <label class="stack compact"><span>TP1</span><input type="text" value="Ridge Point A &middot; R=400m"/></label>
+                <label class="stack compact"><span>TP2</span><input type="text" value="Valley Turn &middot; R=400m"/></label>
+                <label class="stack compact"><span>Goal (ESS)</span><input type="text" value="Landing Field &middot; R=200m"/></label>
+              </div>
+            </fieldset>
+          </div>
+          <div class="button-row">
+            <button class="primary-button">Publish task</button>
+            <button class="secondary">Save draft</button>
+            <button class="ghost-button danger-button">Delete task</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SCORING ═══ -->
+    <div class="section-stack" id="section-scoring" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header"><div><h3>Scoring Operations</h3><p class="hint">Upload IGC files, run scoring, and manage results.</p></div></div>
+        <div style="padding:16px 18px">
+          <div class="tab-row">
+            <button class="tab-button active">Task 3 Results</button>
+            <button class="tab-button">Overall</button>
+          </div>
+          <div class="scoring-ops-panel">
+            <div class="scoring-ops-header">
+              <h4>Task 3 &mdash; Race to Goal</h4>
+              <span style="font-family:'JetBrains Mono',monospace;font-size:.72rem;padding:4px 10px;border-radius:6px;background:var(--success-soft);color:var(--success)">Scored</span>
+            </div>
+            <div class="scoring-ops-body">
+              <div class="scoring-ops-row"><span class="scoring-ops-label">Formula</span><span class="scoring-ops-value">GAP2021</span></div>
+              <div class="scoring-ops-row"><span class="scoring-ops-label">Distance</span><span class="scoring-ops-value">78.4 km</span></div>
+              <div class="scoring-ops-row"><span class="scoring-ops-label">Tracks uploaded</span><span class="scoring-ops-value">14 / 14</span><button class="scoring-ops-btn">Upload IGC</button></div>
+              <div class="scoring-ops-row"><span class="scoring-ops-label">Status</span><span class="scoring-ops-value" style="color:var(--success)">Official</span></div>
+            </div>
+            <div class="scoring-ops-footer">
+              <button class="scoring-ops-footer-btn primary">Re-score task</button>
+              <button class="scoring-ops-footer-btn secondary-ops">Export results</button>
+              <button class="scoring-ops-footer-btn secondary-ops">Audit log</button>
+            </div>
+          </div>
+          <table class="participant-table" style="margin-top:16px">
+            <thead><tr><th>Rank</th><th>Pilot</th><th>Distance</th><th>Time</th><th>Score</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>M. Kovacevic</td><td>78.4 km</td><td>3:12:44</td><td><strong>987</strong></td></tr>
+              <tr><td>2</td><td>S. Beaumont</td><td>71.2 km</td><td>3:28:10</td><td><strong>921</strong></td></tr>
+              <tr><td>3</td><td>T. Nakamura</td><td>68.9 km</td><td>3:41:55</td><td><strong>864</strong></td></tr>
+              <tr><td>4</td><td>A. Christiansen</td><td>63.1 km</td><td>3:52:08</td><td><strong>798</strong></td></tr>
+              <tr><td>5</td><td>L. van der Berg</td><td>58.7 km</td><td>&mdash;</td><td><strong>731</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ LIVE TRACKING ═══ -->
+    <div class="section-stack" id="section-tracking" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header">
+          <div><h3>Live Tracking</h3><p class="hint">Real-time pilot positions via cellular and Meshtastic mesh.</p></div>
+          <div class="section-card-actions"><span class="section-marker tracking">14 / 14 online</span><button class="secondary">Share public link</button></div>
+        </div>
+        <div style="padding:0"><div class="map-placeholder" style="min-height:500px;border-radius:0"><span style="position:relative;z-index:1">Live tracking map &middot; Deck.gl ScatterplotLayer + IconLayer</span></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ DRIVERS ═══ -->
+    <div class="section-stack" id="section-drivers" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header"><div><h3>Driver Routing</h3><p class="hint">Optimised retrieve routes based on live pilot positions.</p></div></div>
+        <div style="padding:16px 18px"><div class="map-placeholder" style="min-height:350px"><span style="position:relative;z-index:1">Driver routing map</span></div></div>
+      </div>
+    </div>
+
+    <!-- ═══ LOGBOOK ═══ -->
+    <div class="section-stack" id="section-logbook" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header">
+          <div><h3>Flight Logbook</h3><p class="hint">Your personal flight history and statistics.</p></div>
+          <div class="section-card-actions"><button class="secondary">Import folder</button><button class="primary-button">Add flight</button></div>
+        </div>
+        <div style="padding:16px 18px">
+          <table class="participant-table">
+            <thead><tr><th>Date</th><th>Site</th><th>Duration</th><th>Max alt</th><th>XC dist</th></tr></thead>
+            <tbody>
+              <tr><td>2026-03-28</td><td>Chalk Bluffs</td><td>3h 14m</td><td>3,820 m</td><td>78.4 km</td></tr>
+              <tr><td>2026-03-22</td><td>Pine Creek</td><td>2h 45m</td><td>2,960 m</td><td>42.1 km</td></tr>
+              <tr><td>2026-03-15</td><td>Chalk Bluffs</td><td>1h 52m</td><td>2,440 m</td><td>28.7 km</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ SETTINGS ═══ -->
+    <div class="section-stack" id="section-settings" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header"><div><h3>Account Settings</h3><p class="hint">Manage your profile and preferences.</p></div></div>
+        <div class="stack" style="padding:16px 18px">
+          <fieldset class="fieldset-cluster">
+            <legend>Profile</legend>
+            <div class="cluster-stack">
+              <label class="stack compact"><span>Full name</span><input type="text" value="Charles Allen"/></label>
+              <label class="stack compact"><span>Email</span><input type="email" value="admin@aervyx.net"/></label>
+            </div>
+          </fieldset>
+          <fieldset class="fieldset-cluster">
+            <legend>Password</legend>
+            <div class="cluster-stack">
+              <label class="stack compact"><span>Current password</span><input type="password"/></label>
+              <label class="stack compact"><span>New password</span><input type="password"/></label>
+            </div>
+          </fieldset>
+          <div class="button-row"><button class="primary-button">Save settings</button></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ADMIN ═══ -->
+    <div class="section-stack" id="section-admin" style="display:none">
+      <div class="section-card">
+        <div class="section-card-header"><div><h3>Admin Panel</h3><p class="hint">User and site management.</p></div></div>
+        <div style="padding:0">
+          <table class="participant-table">
+            <thead><tr><th>User</th><th>Email</th><th>Role</th><th>Created</th><th>Actions</th></tr></thead>
+            <tbody>
+              <tr><td>Charles Allen</td><td>admin@aervyx.net</td><td><span class="section-marker admin">Admin</span></td><td>2026-01-15</td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+              <tr><td>Demo Pilot</td><td>pilot@demo.com</td><td><span class="section-marker events">Pilot</span></td><td>2026-02-01</td><td><button class="ghost-button" style="height:30px;font-size:.75rem;padding:4px 10px">Edit</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ── Theme toggle ── */
+(function initTheme(){
+  const saved=localStorage.getItem('aervyx-theme');
+  if(saved){document.documentElement.dataset.theme=saved;return}
+  if(window.matchMedia('(prefers-color-scheme:light)').matches) document.documentElement.dataset.theme='light';
+})();
+function toggleTheme(){
+  const isLight=document.documentElement.dataset.theme==='light';
+  const next=isLight?'dark':'light';
+  document.documentElement.dataset.theme=next;
+  localStorage.setItem('aervyx-theme',next);
+}
+
+const sectionMap={events:'section-events',tasks:'section-tasks',scoring:'section-scoring',tracking:'section-tracking',drivers:'section-drivers',logbook:'section-logbook',settings:'section-settings',admin:'section-admin'};
+const titles={events:'Events',tasks:'Tasks',scoring:'Scoring',tracking:'Live Tracking',drivers:'Drivers',logbook:'Logbook',settings:'Settings',admin:'Admin'};
+function showSection(name,btn){
+  Object.values(sectionMap).forEach(id=>{document.getElementById(id).style.display='none'});
+  document.getElementById(sectionMap[name]).style.display='flex';
+  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelector('.content-hero h1').textContent=titles[name];
+}
+function showEventTab(id,btn){
+  document.querySelectorAll('.evt-sub').forEach(el=>el.style.display='none');
+  const t=document.getElementById(id);
+  if(t) t.style.display=id==='evt-details'?'grid':'block';
+  btn.closest('.tab-row').querySelectorAll('.tab-button').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>

@@ -15,6 +15,7 @@ import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
+import { ThemeToggle } from "../../components/ThemeToggle";
 import {
   type SidebarSection,
   type EventTab,
@@ -2518,6 +2519,7 @@ export default function HomePage() {
               </div>
               <div className="hero-actions">
                 <div className="role-pill">{user.role}</div>
+                <ThemeToggle />
                 <button className="signout" onClick={signOut}>Sign out</button>
               </div>
             </section>
