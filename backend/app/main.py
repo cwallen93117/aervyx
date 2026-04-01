@@ -16,6 +16,11 @@ except ImportError:
     tracking = None
 
 try:
+    from app.routers import admin_debug
+except ImportError:
+    admin_debug = None
+
+try:
     from app.services.mqtt_subscriber import start_mqtt_subscriber
 except ImportError:
     start_mqtt_subscriber = None
@@ -69,6 +74,8 @@ app.include_router(results.router)
 app.include_router(logbook.router)
 if tracking is not None:
     app.include_router(tracking.router)
+if admin_debug is not None:
+    app.include_router(admin_debug.router)
 
 
 @app.get('/health')

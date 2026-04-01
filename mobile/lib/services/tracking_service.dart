@@ -76,6 +76,10 @@ class TrackingService extends ChangeNotifier {
   String? _error;
   bool _backendConnected = false;
 
+  // ── Offline position buffer ──
+  final List<Map<String, dynamic>> _positionBuffer = [];
+  static const int _maxBufferSize = 5000;
+
   // ── Battery protection ──
   int? _batteryThreshold = 15;
   int? _currentBatteryLevel;
@@ -171,6 +175,7 @@ class TrackingService extends ChangeNotifier {
   bool get inCompetitionMode => _activeTask != null;
   SportType get sportType => _sportType;
   bool get multiFlightEnabled => _multiFlightEnabled;
+  int get bufferedPositionCount => _positionBuffer.length;
   bool get landingCountdownActive => _landingCountdownActive;
   int get landingCountdownRemaining {
     if (!_landingCountdownActive || _landingCountdownStart == null) return 0;
@@ -382,6 +387,11 @@ class TrackingService extends ChangeNotifier {
       await _saveCurrentFlight();
     } else {
       _igc.discardCurrentTrack();
+    }
+
+    // Final drain attempt for any buffered positions
+    if (_positionBuffer.isNotEmpty) {
+      await _drainPositionBuffer(limit: _positionBuffer.length);
     }
 
     // Reset flight duration display after 3 seconds
@@ -883,9 +893,47 @@ class TrackingService extends ChangeNotifier {
       await _api.post(ApiConfig.trackPositionPath, body: payload);
       _error = null;
       _backendConnected = true;
+
+      // Drain buffered positions (up to 20 per successful send)
+      await _drainPositionBuffer();
+    } on ApiException catch (e) {
+      // Server IS reachable but rejected the request (4xx/5xx)
+      _backendConnected = true;
+      if (_positionBuffer.length < _maxBufferSize) {
+        _positionBuffer.add(payload);
+      }
+      if (e.statusCode == 422) {
+        _error = 'Position rejected (422) — backend update needed';
+      } else if (e.statusCode == 401) {
+        _error = 'Session expired — please log in again';
+      } else {
+        _error = 'Server error (${e.statusCode})';
+      }
     } catch (e) {
+      // Network-level failure — server unreachable
       _backendConnected = false;
-      _error = 'Backend offline — recording locally';
+      if (_positionBuffer.length < _maxBufferSize) {
+        _positionBuffer.add(payload);
+      }
+      _error = 'Backend offline — recording locally'
+          '${_positionBuffer.isNotEmpty ? ' (${_positionBuffer.length} buffered)' : ''}';
+    }
+  }
+
+  /// Drain up to [limit] buffered positions to the backend.
+  /// Stops on the first failure so we don't reorder or lose positions.
+  Future<void> _drainPositionBuffer({int limit = 20}) async {
+    var sent = 0;
+    while (_positionBuffer.isNotEmpty && sent < limit) {
+      final buffered = _positionBuffer.first;
+      try {
+        await _api.post(ApiConfig.trackPositionPath, body: buffered);
+        _positionBuffer.removeAt(0);
+        sent++;
+      } catch (_) {
+        // Backend went offline again — stop draining
+        break;
+      }
     }
   }
 

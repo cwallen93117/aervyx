@@ -6,6 +6,7 @@ import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/aervyx_logo.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -93,6 +94,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.black,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -102,16 +104,24 @@ class _LoginScreenState extends State<LoginScreen> {
               children: [
                 const AervyxLogo(size: 80),
                 const SizedBox(height: 8),
-                const Text(
+                Text(
                   'Pilot Companion',
-                  style: TextStyle(fontSize: 14, color: Colors.grey),
+                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
                 ),
                 const SizedBox(height: 40),
                 TextField(
                   controller: _emailCtl,
-                  decoration: const InputDecoration(
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
                     labelText: 'Email',
-                    border: OutlineInputBorder(),
+                    labelStyle: TextStyle(color: Colors.grey[400]),
+                    border: const OutlineInputBorder(),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.grey[700]!),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: AervyxLogo.cyan),
+                    ),
                   ),
                   keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
@@ -119,9 +129,17 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 16),
                 TextField(
                   controller: _passwordCtl,
-                  decoration: const InputDecoration(
+                  style: const TextStyle(color: Colors.white),
+                  decoration: InputDecoration(
                     labelText: 'Password',
-                    border: OutlineInputBorder(),
+                    labelStyle: TextStyle(color: Colors.grey[400]),
+                    border: const OutlineInputBorder(),
+                    enabledBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.grey[700]!),
+                    ),
+                    focusedBorder: const OutlineInputBorder(
+                      borderSide: BorderSide(color: AervyxLogo.cyan),
+                    ),
                   ),
                   obscureText: true,
                   textInputAction: TextInputAction.done,
@@ -129,20 +147,28 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: Colors.red)),
+                  Text(_error!, style: const TextStyle(color: Colors.redAccent)),
                 ],
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton(
                     onPressed: _busy ? null : _handleLogin,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AervyxLogo.cyan,
+                      foregroundColor: Colors.black,
+                    ),
                     child: _busy
                         ? const SizedBox(
                             height: 20,
                             width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2),
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.black,
+                            ),
                           )
-                        : const Text('Log In'),
+                        : const Text('Log In',
+                            style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
                 ),
                 if (_googleClientId != null) ...[
@@ -172,30 +198,21 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ],
-                const SizedBox(height: 32),
-                const Divider(),
                 const SizedBox(height: 12),
-                Text(
-                  'Or test without a server',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey[600],
+                TextButton(
+                  onPressed: _busy
+                      ? null
+                      : () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const RegisterScreen(),
+                            ),
+                          ),
+                  child: Text(
+                    'Create Account',
+                    style: TextStyle(color: Colors.grey[500]),
                   ),
                 ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      context.read<AuthService>().enterBleTestMode();
-                    },
-                    icon: const Icon(Icons.bluetooth),
-                    label: const Text('BLE Test Mode'),
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.blueGrey),
-                    ),
-                  ),
-                ),
+                const SizedBox(height: 16),
               ],
             ),
           ),

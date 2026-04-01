@@ -45,6 +45,18 @@ class ApiService {
     return jsonDecode(response.body) as Map<String, dynamic>;
   }
 
+  Future<Map<String, dynamic>> patch(String path,
+      {Map<String, dynamic>? body}) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl$path'),
+      headers: _headers,
+      body: body != null ? jsonEncode(body) : null,
+    );
+    _assertOk(response);
+    if (response.body.isEmpty) return {};
+    return jsonDecode(response.body) as Map<String, dynamic>;
+  }
+
   /// Open an SSE stream and yield raw lines.
   Stream<String> sseStream(String path) async* {
     final request =

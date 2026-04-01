@@ -142,28 +142,41 @@ class HomeScreen extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // ── Stats ──
-              // GPS stats card
-              _SectionHeader(
+              // ── Connection Status (compact LED rows) ──
+              _StatusRow(
                 icon: Icons.gps_fixed,
                 label: 'GPS',
-                statusColor: tracking.isTracking ? Colors.green : Colors.grey,
-                statusLabel: tracking.isTracking
+                statusText: tracking.isTracking
                     ? _trackingStateLabel(tracking.trackingState)
                     : 'Off',
+                ledColor: tracking.isTracking ? Colors.green : Colors.grey,
+                expandedContent:
+                    _GpsDetails(tracking: tracking, auth: auth),
               ),
-              _GpsStatsCard(tracking: tracking, auth: auth),
-
-              const SizedBox(height: 12),
-
-              // Mesh / BLE stats card
-              _SectionHeader(
+              const SizedBox(height: 4),
+              _StatusRow(
+                icon: Icons.cloud,
+                label: 'Server',
+                statusText: tracking.backendConnected
+                    ? 'Connected'
+                    : tracking.isTracking
+                        ? 'Disconnected'
+                        : 'Idle',
+                ledColor: tracking.backendConnected
+                    ? Colors.green
+                    : tracking.isTracking
+                        ? Colors.red
+                        : Colors.grey,
+                expandedContent: _ServerDetails(tracking: tracking),
+              ),
+              const SizedBox(height: 4),
+              _StatusRow(
                 icon: Icons.bluetooth,
                 label: 'Mesh Radio',
-                statusColor: ble.isConnected ? Colors.green : Colors.grey,
-                statusLabel: ble.isConnected ? 'Connected' : 'Not Paired',
+                statusText: ble.isConnected ? 'Paired' : 'Not Paired',
+                ledColor: ble.isConnected ? Colors.green : Colors.grey,
+                expandedContent: _MeshDetails(ble: ble),
               ),
-              _MeshStatsCard(ble: ble),
 
               const SizedBox(height: 12),
 
@@ -251,8 +264,8 @@ class _TrackingButton extends StatelessWidget {
         label = 'Start';
         break;
       case TrackingState.preFlight:
-        bgColor = colorScheme.primary;
-        fgColor = colorScheme.onPrimary;
+        bgColor = Colors.teal;
+        fgColor = Colors.white;
         icon = Icons.flight_takeoff;
         label = 'Waiting...';
         break;
@@ -370,51 +383,101 @@ class _StatusText extends StatelessWidget {
   }
 }
 
-// ── Section Header ──
+// ── Compact Status Row with LED Indicator ──
 
-class _SectionHeader extends StatelessWidget {
+class _StatusRow extends StatefulWidget {
   final IconData icon;
   final String label;
-  final Color statusColor;
-  final String statusLabel;
+  final String statusText;
+  final Color ledColor;
+  final Widget expandedContent;
 
-  const _SectionHeader({
+  const _StatusRow({
     required this.icon,
     required this.label,
-    required this.statusColor,
-    required this.statusLabel,
+    required this.statusText,
+    required this.ledColor,
+    required this.expandedContent,
   });
+
+  @override
+  State<_StatusRow> createState() => _StatusRowState();
+}
+
+class _StatusRowState extends State<_StatusRow> {
+  bool _expanded = false;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
+    final hasGlow = widget.ledColor != Colors.grey;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 16, color: theme.colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(label,
-              style: theme.textTheme.labelLarge?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
-          const Spacer(),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: statusColor.withAlpha(30),
-              borderRadius: BorderRadius.circular(12),
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Icon(widget.icon,
+                      size: 20, color: theme.colorScheme.primary),
+                  const SizedBox(width: 12),
+                  Text(
+                    widget.label,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      widget.statusText,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // LED dot with glow
+                  Container(
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: widget.ledColor,
+                      boxShadow: hasGlow
+                          ? [
+                              BoxShadow(
+                                color: widget.ledColor.withAlpha(128),
+                                blurRadius: 6,
+                                spreadRadius: 1,
+                              ),
+                            ]
+                          : null,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.circle, size: 8, color: statusColor),
-                const SizedBox(width: 4),
-                Text(statusLabel,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: statusColor,
-                    )),
-              ],
+          ),
+          ClipRect(
+            child: AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeInOut,
+              alignment: Alignment.topCenter,
+              child: _expanded
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      child: widget.expandedContent,
+                    )
+                  : const SizedBox(width: double.infinity, height: 0),
             ),
           ),
         ],
@@ -423,13 +486,13 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ── GPS Stats Card ──
+// ── GPS Details (expanded content) ──
 
-class _GpsStatsCard extends StatelessWidget {
+class _GpsDetails extends StatelessWidget {
   final TrackingService tracking;
   final AuthService auth;
 
-  const _GpsStatsCard({required this.tracking, required this.auth});
+  const _GpsDetails({required this.tracking, required this.auth});
 
   String _zoneLabel(TrackingZone zone) {
     switch (zone) {
@@ -457,47 +520,56 @@ class _GpsStatsCard extends StatelessWidget {
     final altUnit = user?.altitudeUnit ?? 'ft';
     final speedUnit = user?.speedUnit ?? 'kph';
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Table(
-          columnWidths: const {
-            0: FlexColumnWidth(1),
-            1: FlexColumnWidth(1),
-          },
-          children: [
-            _buildRow(
-              Icons.height, 'Altitude',
-              UnitConverter.formatAltitude(pos?.alt, altUnit),
-              Icons.speed, 'Speed',
-              UnitConverter.formatSpeed(pos?.speed, speedUnit),
-              context,
-            ),
-            _buildRow(
-              Icons.cloud_upload, 'Points Sent',
-              '${tracking.positionCount}',
-              Icons.gps_fixed, 'Accuracy',
-              pos?.accuracy != null ? '${pos!.accuracy!.toStringAsFixed(1)} m' : '--',
-              context,
-            ),
-            _buildRow(
-              Icons.tune, 'GPS Rate',
-              tracking.isInFlight ? _zoneLabel(tracking.currentZone) : '--',
-              Icons.flag, 'Nearest TP',
-              tracking.inCompetitionMode
-                  ? _nearestTpLabel(tracking.nearestTurnpointDistance)
-                  : 'Free flight',
-              context,
-            ),
-          ],
+    return Table(
+      columnWidths: const {
+        0: FlexColumnWidth(1),
+        1: FlexColumnWidth(1),
+      },
+      children: [
+        _buildRow(
+          Icons.height,
+          'Altitude',
+          UnitConverter.formatAltitude(pos?.alt, altUnit),
+          Icons.speed,
+          'Speed',
+          UnitConverter.formatSpeed(pos?.speed, speedUnit),
+          context,
         ),
-      ),
+        _buildRow(
+          Icons.explore,
+          'Heading',
+          pos?.heading != null
+              ? '${pos!.heading!.toStringAsFixed(0)}\u00B0'
+              : '--',
+          Icons.gps_fixed,
+          'Accuracy',
+          pos?.accuracy != null
+              ? '${pos!.accuracy!.toStringAsFixed(1)} m'
+              : '--',
+          context,
+        ),
+        _buildRow(
+          Icons.tune,
+          'GPS Rate',
+          tracking.isInFlight ? _zoneLabel(tracking.currentZone) : '--',
+          Icons.flag,
+          'Nearest TP',
+          tracking.inCompetitionMode
+              ? _nearestTpLabel(tracking.nearestTurnpointDistance)
+              : 'Free flight',
+          context,
+        ),
+      ],
     );
   }
 
   TableRow _buildRow(
-    IconData icon1, String label1, String value1,
-    IconData icon2, String label2, String value2,
+    IconData icon1,
+    String label1,
+    String value1,
+    IconData icon2,
+    String label2,
+    String value2,
     BuildContext context,
   ) {
     return TableRow(
@@ -515,37 +587,121 @@ class _GpsStatsCard extends StatelessWidget {
   }
 }
 
-// ── Mesh Stats Card ──
+// ── Server Details (expanded content) ──
 
-class _MeshStatsCard extends StatelessWidget {
+class _ServerDetails extends StatelessWidget {
+  final TrackingService tracking;
+
+  const _ServerDetails({required this.tracking});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    if (!tracking.isTracking) {
+      return Row(
+        children: [
+          Icon(Icons.cloud_off,
+              color: theme.colorScheme.onSurfaceVariant, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Start tracking to connect to the Aervyx server.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
+
+    final buffered = tracking.bufferedPositionCount;
+
+    return Table(
+      columnWidths: const {
+        0: FlexColumnWidth(1),
+        1: FlexColumnWidth(1),
+      },
+      children: [
+        TableRow(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _StatTile(
+                icon: tracking.backendConnected
+                    ? Icons.cloud_done
+                    : Icons.cloud_off,
+                label: 'Status',
+                value:
+                    tracking.backendConnected ? 'Connected' : 'Disconnected',
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _StatTile(
+                icon: Icons.cloud_upload,
+                label: 'Points Sent',
+                value: '${tracking.positionCount}',
+              ),
+            ),
+          ],
+        ),
+        TableRow(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _StatTile(
+                icon: Icons.schedule,
+                label: 'Buffered',
+                value: buffered > 0 ? '$buffered pending' : 'None',
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: _StatTile(
+                icon: tracking.inCompetitionMode
+                    ? Icons.emoji_events
+                    : Icons.paragliding,
+                label: 'Mode',
+                value: tracking.inCompetitionMode
+                    ? 'Competition'
+                    : 'Free Flight',
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+// ── Mesh Details (expanded content) ──
+
+class _MeshDetails extends StatelessWidget {
   final BleService ble;
 
-  const _MeshStatsCard({required this.ble});
+  const _MeshDetails({required this.ble});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     if (!ble.isConnected) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Icon(Icons.bluetooth_disabled,
-                  color: theme.colorScheme.onSurfaceVariant, size: 20),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  'No Meshtastic device paired.\nGo to Settings to connect.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+      return Row(
+        children: [
+          Icon(Icons.bluetooth_disabled,
+              color: theme.colorScheme.onSurfaceVariant, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'No Meshtastic device paired.\nGo to Settings to connect.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
               ),
-            ],
+            ),
           ),
-        ),
+        ],
       );
     }
 
@@ -557,7 +713,7 @@ class _MeshStatsCard extends StatelessWidget {
     switch (ds.role) {
       case DeviceRole.tracker:
         profileName = 'Pilot';
-        profileIcon = Icons.flight; // placeholder, overridden with custom widget below
+        profileIcon = Icons.flight;
         break;
       case DeviceRole.router:
         profileName = 'Repeater';
@@ -572,109 +728,96 @@ class _MeshStatsCard extends StatelessWidget {
         profileIcon = Icons.devices;
     }
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
+    return Column(
+      children: [
+        // Device name row
+        Row(
           children: [
-            // Device name row
-            Row(
+            Icon(Icons.bluetooth_connected,
+                size: 16, color: theme.colorScheme.primary),
+            const SizedBox(width: 6),
+            Text(
+              ble.deviceDisplayName,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (ds.firmwareVersion != null) ...[
+              const SizedBox(width: 8),
+              Text(
+                'v${ds.firmwareVersion}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+        const Divider(height: 16),
+        // Mesh stats grid (Aervyx/MQTT row removed — covered by Server status)
+        Table(
+          columnWidths: const {
+            0: FlexColumnWidth(1),
+            1: FlexColumnWidth(1),
+          },
+          children: [
+            TableRow(
               children: [
-                Icon(Icons.bluetooth_connected,
-                    size: 16, color: theme.colorScheme.primary),
-                const SizedBox(width: 6),
-                Text(
-                  ble.deviceDisplayName,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: _StatTile(
+                    icon: profileIcon,
+                    label: 'Profile',
+                    value: profileName,
                   ),
                 ),
-                if (ds.firmwareVersion != null) ...[
-                  const SizedBox(width: 8),
-                  Text(
-                    'v${ds.firmwareVersion}',
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: _StatTile(
+                    icon: Icons.cell_tower,
+                    label: 'Channel',
+                    value:
+                        ds.channelName.isNotEmpty ? ds.channelName : '--',
                   ),
-                ],
+                ),
               ],
             ),
-            const Divider(height: 16),
-            // Mesh stats grid
-            Table(
-              columnWidths: const {
-                0: FlexColumnWidth(1),
-                1: FlexColumnWidth(1),
-              },
+            TableRow(
               children: [
-                TableRow(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: profileIcon,
-                        label: 'Profile',
-                        value: profileName,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.cell_tower,
-                        label: 'Channel',
-                        value: ds.channelName.isNotEmpty
-                            ? ds.channelName
-                            : '--',
-                      ),
-                    ),
-                  ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: _StatTile(
+                    icon: Icons.radio,
+                    label: 'Modem',
+                    value: ds.modemPreset.label,
+                  ),
                 ),
-                TableRow(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.radio,
-                        label: 'Modem',
-                        value: ds.modemPreset.label,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.route,
-                        label: 'Hops',
-                        value: '${ds.hopLimit}',
-                      ),
-                    ),
-                  ],
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: _StatTile(
+                    icon: Icons.route,
+                    label: 'Hops',
+                    value: '${ds.hopLimit}',
+                  ),
                 ),
-                TableRow(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.gps_fixed,
-                        label: 'GPS',
-                        value: ds.gpsMode.label,
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 6),
-                      child: _StatTile(
-                        icon: Icons.cloud_upload,
-                        label: 'MQTT',
-                        value: ds.mqttEnabled ? 'Connected' : 'Disconnected',
-                      ),
-                    ),
-                  ],
+              ],
+            ),
+            TableRow(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: _StatTile(
+                    icon: Icons.gps_fixed,
+                    label: 'GPS',
+                    value: ds.gpsMode.label,
+                  ),
                 ),
+                const SizedBox.shrink(),
               ],
             ),
           ],
         ),
-      ),
+      ],
     );
   }
 }
@@ -705,7 +848,9 @@ class _FlightTimeDisplay extends StatelessWidget {
         Icon(
           Icons.timer,
           size: 18,
-          color: isActive ? theme.colorScheme.primary : theme.colorScheme.onSurfaceVariant,
+          color: isActive
+              ? theme.colorScheme.primary
+              : theme.colorScheme.onSurfaceVariant,
         ),
         const SizedBox(width: 6),
         Text(
@@ -713,7 +858,9 @@ class _FlightTimeDisplay extends StatelessWidget {
           style: theme.textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.w600,
             fontFeatures: const [FontFeature.tabularFigures()],
-            color: isActive ? theme.colorScheme.onSurface : theme.colorScheme.onSurfaceVariant,
+            color: isActive
+                ? theme.colorScheme.onSurface
+                : theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ],

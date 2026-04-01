@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 
 import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
-import type { AdminSiteRecord, AdminUserRecord, SiteSettingsRecord, User } from "./types";
+import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, SiteSettingsRecord, User } from "./types";
 
-type AdminTab = "platform_users" | "site_settings" | "sites_database";
+type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging";
 
 export interface AdminSectionProps {
   user: User | null;
@@ -26,6 +26,8 @@ export interface AdminSectionProps {
   setSiteSettings: (settings: SiteSettingsRecord | ((current: SiteSettingsRecord) => SiteSettingsRecord)) => void;
   siteSettingsFeedback: { type: "success" | "error"; text: string } | null;
   saveSiteSettings: () => void;
+  debugStatus: DebugStatusResponse | null;
+  refreshDebugStatus: () => void;
 }
 
 export default function AdminSection(props: AdminSectionProps) {
@@ -47,6 +49,8 @@ export default function AdminSection(props: AdminSectionProps) {
     setSiteSettings,
     siteSettingsFeedback,
     saveSiteSettings,
+    debugStatus,
+    refreshDebugStatus,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
@@ -69,6 +73,15 @@ export default function AdminSection(props: AdminSectionProps) {
       setSiteMatchRadiusInput(siteSettings.site_match_radius_m.toLocaleString());
     }
   }, [isEditingSiteMatchRadius, siteSettings.site_match_radius_m]);
+
+  useEffect(() => {
+    if (activeTab !== "debugging") return;
+    refreshDebugStatus();
+    const interval = setInterval(() => {
+      refreshDebugStatus();
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [activeTab, refreshDebugStatus]);
 
   const selectedSite = useMemo(
     () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
@@ -161,6 +174,13 @@ export default function AdminSection(props: AdminSectionProps) {
           onClick={() => setActiveTab("sites_database")}
         >
           Sites database
+        </button>
+        <button
+          type="button"
+          className={activeTab === "debugging" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("debugging")}
+        >
+          Debugging
         </button>
       </div>
       {activeTab === "platform_users" ? (
@@ -394,6 +414,8 @@ export default function AdminSection(props: AdminSectionProps) {
             </div>
           </div>
         </SectionCard>
+      ) : activeTab === "debugging" ? (
+        <DebugTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} />
       ) : (
         <SectionCard title="Site settings" description="These admin-only settings control replay smoothing and map behavior across the dashboard.">
           <div className="stack form-block compact-clusters">
@@ -505,5 +527,193 @@ export default function AdminSection(props: AdminSectionProps) {
         </SectionCard>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Debugging tab helpers + sub-component                             */
+/* ------------------------------------------------------------------ */
+
+function relativeTime(isoOrNull: string | null | undefined): string {
+  if (!isoOrNull) return "\u2014";
+  const diffMs = Date.now() - new Date(isoOrNull).getTime();
+  if (diffMs < 0) return "just now";
+  const seconds = Math.floor(diffMs / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ago`;
+}
+
+function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange" | "red" {
+  if (!isoOrNull) return "red";
+  const diffMs = Date.now() - new Date(isoOrNull).getTime();
+  if (diffMs <= 30_000) return "green";
+  if (diffMs <= 120_000) return "orange";
+  return "red";
+}
+
+function batteryColor(level: number | null): string {
+  if (level == null) return "inherit";
+  if (level > 50) return "#22c55e";
+  if (level >= 20) return "#f59e0b";
+  return "#ef4444";
+}
+
+function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./types").DebugStatusResponse | null; refreshDebugStatus: () => void }) {
+  if (!debugStatus) {
+    return (
+      <SectionCard title="Debugging" description="Live tracking system diagnostics and connected device status.">
+        <div className="stack form-block">
+          <div className="status-chip pending">Loading debug status...</div>
+        </div>
+      </SectionCard>
+    );
+  }
+
+  const { mqtt_connected, mqtt_last_message_at, sse_subscriber_count, active_sessions, recent_sos_alerts, position_stats } = debugStatus;
+  const meshRatio = position_stats.last_hour_total > 0 ? Math.round((position_stats.last_hour_mesh / position_stats.last_hour_total) * 100) : 0;
+
+  return (
+    <SectionCard title="Debugging" description="Live tracking system diagnostics and connected device status.">
+      <div className="stack form-block">
+        {/* Status cards row */}
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
+            <div className="hint" style={{ marginBottom: "4px" }}>API</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e" }} />
+              <strong>Online</strong>
+            </div>
+          </div>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
+            <div className="hint" style={{ marginBottom: "4px" }}>MQTT Broker</div>
+            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: mqtt_connected ? "#22c55e" : "#ef4444" }} />
+              <strong>{mqtt_connected ? "Connected" : "Disconnected"}</strong>
+            </div>
+            {mqtt_last_message_at ? <div className="hint" style={{ marginTop: "2px" }}>Last msg: {relativeTime(mqtt_last_message_at)}</div> : null}
+          </div>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
+            <div className="hint" style={{ marginBottom: "4px" }}>SSE Listeners</div>
+            <strong style={{ fontSize: "1.25rem" }}>{sse_subscriber_count}</strong>
+          </div>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
+            <div className="hint" style={{ marginBottom: "4px" }}>Active Sessions</div>
+            <strong style={{ fontSize: "1.25rem" }}>{active_sessions.length}</strong>
+          </div>
+        </div>
+
+        {/* Connected Devices table */}
+        <div className="participant-table-wrap">
+          <table className="participant-table">
+            <thead>
+              <tr>
+                <th>Pilot</th>
+                <th>Device ID</th>
+                <th>Source</th>
+                <th>Task</th>
+                <th>Battery</th>
+                <th>Positions</th>
+                <th>Rate</th>
+                <th>Last Fix</th>
+                <th>Latency</th>
+              </tr>
+            </thead>
+            <tbody>
+              {active_sessions.length ? (
+                active_sessions.map((session) => {
+                  const color = lastSeenColor(session.last_seen_at);
+                  const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
+                  const rate = (session.positions_last_60s / 60).toFixed(1);
+                  const sourceLabel = session.source === "app" ? "App (cellular)" : session.source === "mqtt_gateway" ? "Mesh (MQTT)" : session.source ?? "\u2014";
+                  const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
+                  return (
+                    <tr key={session.pilot_id} style={{ borderLeft: `3px solid ${borderColor}` }}>
+                      <td><strong>{session.pilot_name}</strong></td>
+                      <td>{session.device_id ?? "\u2014"}</td>
+                      <td>{sourceLabel}</td>
+                      <td>{session.task_name ?? "Free flight"}</td>
+                      <td style={{ color: batteryColor(session.battery_level) }}>
+                        {session.battery_level != null ? `${session.battery_level}%` : "\u2014"}
+                      </td>
+                      <td>{session.position_count.toLocaleString()}</td>
+                      <td>{rate}/s</td>
+                      <td style={{ color: lastFixColor }}>{relativeTime(session.last_seen_at)}</td>
+                      <td>{"\u2014"}</td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={9} className="participant-table-empty">No active tracking sessions.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Bottom row: SOS Alerts + Position Sources */}
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <div
+            className="section-card"
+            style={{
+              flex: "1 1 0",
+              minWidth: "280px",
+              padding: "12px 16px",
+              borderLeft: recent_sos_alerts.length ? "3px solid #ef4444" : undefined,
+            }}
+          >
+            <div style={{ marginBottom: "8px" }}>
+              <strong>SOS Alerts</strong>
+            </div>
+            {recent_sos_alerts.length ? (
+              <div className="stack" style={{ gap: "6px" }}>
+                {recent_sos_alerts.map((alert, idx) => (
+                  <div key={`${alert.pilot_id}-${alert.timestamp}-${idx}`} style={{ display: "flex", gap: "8px", alignItems: "baseline", fontSize: "0.875rem" }}>
+                    <strong style={{ color: "#ef4444" }}>{alert.pilot_name}</strong>
+                    <span className="hint">{relativeTime(alert.timestamp)}</span>
+                    <span>{alert.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="hint">No active alerts</div>
+            )}
+          </div>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "280px", padding: "12px 16px" }}>
+            <div style={{ marginBottom: "8px" }}>
+              <strong>Position Sources</strong>
+              <span className="hint" style={{ marginLeft: "8px" }}>(last hour)</span>
+            </div>
+            <div style={{ display: "flex", gap: "16px", fontSize: "0.875rem" }}>
+              <div>
+                <div className="hint">Total</div>
+                <strong>{position_stats.last_hour_total.toLocaleString()}</strong>
+              </div>
+              <div>
+                <div className="hint">Cellular</div>
+                <strong>{position_stats.last_hour_cellular.toLocaleString()}</strong>
+              </div>
+              <div>
+                <div className="hint">Mesh</div>
+                <strong>{position_stats.last_hour_mesh.toLocaleString()}</strong>
+              </div>
+              <div>
+                <div className="hint">Mesh ratio</div>
+                <strong>{meshRatio}%</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="button-row">
+          <button type="button" className="ghost-button" onClick={refreshDebugStatus}>
+            Refresh now
+          </button>
+        </div>
+      </div>
+    </SectionCard>
   );
 }

@@ -38,6 +38,20 @@ class User {
         varioUnit: json['vario_unit'] as String? ?? 'fpm',
       );
 
+  /// Serialize to JSON for local caching.
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'username': username,
+        'full_name': fullName,
+        'role': role,
+        'profile_type': profileType,
+        if (pilotId != null) 'pilot_id': pilotId,
+        'altitude_unit': altitudeUnit,
+        'speed_unit': speedUnit,
+        'distance_unit': distanceUnit,
+        'vario_unit': varioUnit,
+      };
+
   /// Create a copy with updated unit preferences.
   User copyWith({
     String? altitudeUnit,

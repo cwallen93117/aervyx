@@ -63,6 +63,14 @@ class BleService extends ChangeNotifier {
   Timer? _phoneGpsTimer;
   Position? _lastPhonePosition;
 
+  // ── Auto-reconnect ──
+  bool _userDisconnected = false;
+  bool _isReconnecting = false;
+  int _reconnectAttempts = 0;
+  static const int _maxReconnectAttempts = 10;
+  Timer? _reconnectTimer;
+  StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
+
   // ── SOS ──
   String _sosMessage = 'SOS — Pilot needs immediate assistance';
   bool _isSendingSos = false;
@@ -80,6 +88,7 @@ class BleService extends ChangeNotifier {
   bool get configLoaded => _configLoaded;
   String get sosMessage => _sosMessage;
   bool get isSendingSos => _isSendingSos;
+  bool get reconnecting => _isReconnecting;
 
   /// Display name — prefer the Meshtastic long name, fall back to BLE name.
   String get deviceDisplayName {
@@ -161,6 +170,31 @@ class BleService extends ChangeNotifier {
     notifyListeners();
 
     try {
+      // Ensure Bluetooth is on
+      if (await FlutterBluePlus.adapterState.first !=
+          BluetoothAdapterState.on) {
+        await FlutterBluePlus.turnOn();
+      }
+
+      // Request location permission (required for BLE scanning on Android)
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          _error = 'Location permission required for Bluetooth scanning';
+          _isScanning = false;
+          notifyListeners();
+          return;
+        }
+      }
+      if (permission == LocationPermission.deniedForever) {
+        _error =
+            'Location permission permanently denied. Enable in Settings.';
+        _isScanning = false;
+        notifyListeners();
+        return;
+      }
+
       await FlutterBluePlus.startScan(
         withServices: [Guid(_meshServiceUuid)],
         timeout: timeout,
@@ -204,6 +238,11 @@ class BleService extends ChangeNotifier {
     if (_isConnecting) return;
 
     _isConnecting = true;
+    _userDisconnected = false;
+    _reconnectAttempts = 0;
+    _isReconnecting = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _error = null;
     _statusMessage = 'Connecting to ${meshDevice.name}...';
     _configLoaded = false;
@@ -212,6 +251,16 @@ class BleService extends ChangeNotifier {
     try {
       await meshDevice.device.connect(timeout: const Duration(seconds: 15));
       _connectedDevice = meshDevice;
+
+      // Listen for unexpected disconnects
+      _connectionStateSubscription?.cancel();
+      _connectionStateSubscription = meshDevice.device.connectionState.listen(
+        (state) {
+          if (state == BluetoothConnectionState.disconnected) {
+            _onUnexpectedDisconnect();
+          }
+        },
+      );
 
       // Discover BLE services and cache characteristics
       _statusMessage = 'Discovering services...';
@@ -256,6 +305,8 @@ class BleService extends ChangeNotifier {
       _toRadio = null;
       _fromRadio = null;
       _fromNum = null;
+      _connectionStateSubscription?.cancel();
+      _connectionStateSubscription = null;
     }
 
     _isConnecting = false;
@@ -263,6 +314,12 @@ class BleService extends ChangeNotifier {
   }
 
   Future<void> disconnect() async {
+    _userDisconnected = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _isReconnecting = false;
+    _connectionStateSubscription?.cancel();
+    _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
     if (_connectedDevice != null) {
       try {
@@ -280,6 +337,121 @@ class BleService extends ChangeNotifier {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Auto-reconnect on unexpected disconnect
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _onUnexpectedDisconnect() {
+    // Clean up connection state
+    _stopPhoneGpsSharing();
+    _toRadio = null;
+    _fromRadio = null;
+    _fromNum = null;
+    _configLoaded = false;
+    _deviceState = MeshtasticDeviceState();
+
+    if (_userDisconnected || _isConnecting) return;
+
+    final device = _connectedDevice;
+    _connectedDevice = null;
+
+    if (device != null &&
+        _reconnectAttempts < _maxReconnectAttempts) {
+      _isReconnecting = true;
+      _statusMessage = 'Connection lost. Reconnecting...';
+      notifyListeners();
+      _scheduleReconnect(device);
+    } else {
+      _isReconnecting = false;
+      _error = _reconnectAttempts >= _maxReconnectAttempts
+          ? 'Reconnection failed after $_maxReconnectAttempts attempts'
+          : 'Device disconnected';
+      _statusMessage = null;
+      notifyListeners();
+    }
+  }
+
+  void _scheduleReconnect(MeshtasticDevice device) {
+    final delaySecs = min(30, 2 * pow(2, _reconnectAttempts)).toInt();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(Duration(seconds: delaySecs), () {
+      _attemptReconnect(device);
+    });
+  }
+
+  Future<void> _attemptReconnect(MeshtasticDevice device) async {
+    if (_userDisconnected) {
+      _isReconnecting = false;
+      notifyListeners();
+      return;
+    }
+
+    _reconnectAttempts++;
+    _statusMessage =
+        'Reconnecting (attempt $_reconnectAttempts/$_maxReconnectAttempts)...';
+    notifyListeners();
+
+    try {
+      await device.device.connect(timeout: const Duration(seconds: 15));
+      _connectedDevice = device;
+
+      // Re-subscribe to disconnect events
+      _connectionStateSubscription?.cancel();
+      _connectionStateSubscription = device.device.connectionState.listen(
+        (state) {
+          if (state == BluetoothConnectionState.disconnected) {
+            _onUnexpectedDisconnect();
+          }
+        },
+      );
+
+      // Rediscover services
+      final services = await device.device.discoverServices();
+      final meshService = services.firstWhere(
+        (s) => s.uuid.toString().toLowerCase() == _meshServiceUuid,
+        orElse: () => throw Exception('Meshtastic service not found'),
+      );
+
+      _toRadio = meshService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
+        orElse: () => throw Exception('toRadio not found'),
+      );
+      _fromRadio = meshService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == _fromRadioCharUuid,
+        orElse: () => throw Exception('fromRadio not found'),
+      );
+      try {
+        _fromNum = meshService.characteristics.firstWhere(
+          (c) => c.uuid.toString().toLowerCase() == _fromNumCharUuid,
+        );
+      } catch (_) {
+        _fromNum = null;
+      }
+
+      // Re-read config
+      await _readDeviceConfig();
+      _configLoaded = true;
+
+      // Restart GPS sharing
+      _startPhoneGpsSharing();
+
+      _isReconnecting = false;
+      _reconnectAttempts = 0;
+      _statusMessage = 'Reconnected to ${device.name}';
+      notifyListeners();
+    } catch (e) {
+      _connectedDevice = null;
+      if (_reconnectAttempts < _maxReconnectAttempts && !_userDisconnected) {
+        _scheduleReconnect(device);
+      } else {
+        _isReconnecting = false;
+        _error = 'Reconnection failed after $_reconnectAttempts attempts';
+        _statusMessage = null;
+        notifyListeners();
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Read device config via protobuf handshake
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -293,15 +465,14 @@ class BleService extends ChangeNotifier {
     final wantConfig = buildWantConfigMessage(configId);
     await _toRadio!.write(wantConfig, withoutResponse: false);
 
-    // Read all FromRadio responses until config_complete_id matches
-    int readAttempts = 0;
-    const maxAttempts = 100;
+    // Read all FromRadio responses until config_complete_id matches.
+    // Use a total timeout rather than a fixed empty-read count so that
+    // slower devices still have time to deliver the full config dump.
+    final deadline = DateTime.now().add(const Duration(seconds: 10));
 
-    while (readAttempts < maxAttempts) {
-      readAttempts++;
-
-      // Small delay to let device queue responses
-      await Future.delayed(const Duration(milliseconds: 50));
+    while (DateTime.now().isBefore(deadline)) {
+      // Delay between reads to give the device time to queue responses
+      await Future.delayed(const Duration(milliseconds: 100));
 
       List<int> data;
       try {
@@ -311,9 +482,7 @@ class BleService extends ChangeNotifier {
       }
 
       if (data.isEmpty) {
-        // No more data — might need to wait or we're done
-        if (readAttempts > 5) break;
-        await Future.delayed(const Duration(milliseconds: 100));
+        // No data yet — keep polling until the deadline
         continue;
       }
 
@@ -666,7 +835,7 @@ class BleService extends ChangeNotifier {
         case 1:
           _deviceState.storeForwardEnabled = r.readBool();
           break;
-        case 5:
+        case 6: // is_server (StoreForwardConfig field 6)
           _deviceState.storeForwardIsServer = r.readBool();
           break;
         default:
@@ -703,13 +872,13 @@ class BleService extends ChangeNotifier {
             while (sub.hasMore) {
               final (sf, swt) = sub.readTag();
               switch (sf) {
-                case 2:
+                case 3: // name (ChannelSettings field 3)
                   _deviceState.channelName = sub.readString();
                   break;
-                case 5:
+                case 5: // uplink_enabled
                   _deviceState.channelUplinkEnabled = sub.readBool();
                   break;
-                case 6:
+                case 6: // downlink_enabled
                   _deviceState.channelDownlinkEnabled = sub.readBool();
                   break;
                 default:
@@ -1093,6 +1262,10 @@ class BleService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _connectionStateSubscription?.cancel();
+    _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
     stopScan();
     disconnect();
