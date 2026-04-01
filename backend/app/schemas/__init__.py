@@ -58,6 +58,7 @@ class AccountSettingsResponse(BaseModel):
     nation: str | None = None
     competition_number: str | None = None
     civl_id: str | None = None
+    has_password: bool = False
 
 
 class AccountSettingsUpdateResponse(AccountSettingsResponse):
