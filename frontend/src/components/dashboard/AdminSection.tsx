@@ -188,14 +188,12 @@ export default function AdminSection(props: AdminSectionProps) {
           <div className="stack form-block">
             {adminFeedback ? <div className={`status-chip ${adminFeedback.type}`}>{adminFeedback.text}</div> : null}
             <div className="participant-table-wrap">
-              <table className="participant-table">
+              <table className="participant-table admin-users-table">
                 <thead>
                   <tr>
                     <th>Name</th>
                     <th>Username</th>
                     <th>Role</th>
-                    <th>Email</th>
-                    <th>Linked pilot</th>
                     <th>Status</th>
                     <th className="participant-table-actions">Actions</th>
                   </tr>
@@ -217,8 +215,6 @@ export default function AdminSection(props: AdminSectionProps) {
                             <option value="pilot">Pilot</option>
                           </select>
                         </td>
-                        <td>{account.email ?? "-"}</td>
-                        <td>{account.pilot_name ?? "-"}</td>
                         <td>
                           <label className="task-advanced-toggle">
                             <input
@@ -240,7 +236,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={7} className="participant-table-empty">No platform users found.</td>
+                      <td colSpan={5} className="participant-table-empty">No platform users found.</td>
                     </tr>
                   )}
                 </tbody>

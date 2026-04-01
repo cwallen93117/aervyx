@@ -1318,6 +1318,28 @@ button[type="submit"]:hover,
   justify-content: flex-end;
 }
 
+.admin-users-table .compact-slot-actions {
+  flex-wrap: nowrap;
+}
+
+.admin-users-table thead th,
+.admin-users-table tbody td {
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.admin-users-table select {
+  min-height: 30px;
+  padding: 4px 28px 4px 8px;
+  font-size: 0.8125rem;
+}
+
+.admin-users-table .ghost-button {
+  height: 28px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+}
+
 .compact-file-input,
 .file-input {
   position: relative;
