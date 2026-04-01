@@ -159,14 +159,10 @@ class HomeScreen extends StatelessWidget {
                 label: 'Server',
                 statusText: tracking.backendConnected
                     ? 'Connected'
-                    : tracking.isTracking
-                        ? 'Disconnected'
-                        : 'Idle',
+                    : 'Disconnected',
                 ledColor: tracking.backendConnected
                     ? Colors.green
-                    : tracking.isTracking
-                        ? Colors.red
-                        : Colors.grey,
+                    : Colors.red,
                 expandedContent: _ServerDetails(tracking: tracking),
               ),
               const SizedBox(height: 4),
@@ -270,10 +266,17 @@ class _TrackingButton extends StatelessWidget {
         label = 'Waiting...';
         break;
       case TrackingState.inFlight:
-        bgColor = colorScheme.error;
-        fgColor = colorScheme.onError;
-        icon = Icons.stop_rounded;
-        label = 'Stop';
+        if (tracking.landingDetected) {
+          bgColor = Colors.orange;
+          fgColor = Colors.white;
+          icon = Icons.flight_land;
+          label = 'Landing...';
+        } else {
+          bgColor = colorScheme.error;
+          fgColor = colorScheme.onError;
+          icon = Icons.stop_rounded;
+          label = 'Stop';
+        }
         break;
       case TrackingState.monitoring:
         bgColor = Colors.amber.shade700;
@@ -360,6 +363,9 @@ class _StatusText extends StatelessWidget {
         if (tracking.landingCountdownActive) {
           text =
               'Landing detected — stopping in ${tracking.landingCountdownRemaining}s';
+          color = Colors.orange;
+        } else if (tracking.landingDetected) {
+          text = 'Landing detected — confirming...';
           color = Colors.orange;
         }
         break;

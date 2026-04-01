@@ -75,6 +75,7 @@ class TrackingService extends ChangeNotifier {
   int _positionCount = 0;
   String? _error;
   bool _backendConnected = false;
+  Timer? _heartbeatTimer;
 
   // ── Offline position buffer ──
   final List<Map<String, dynamic>> _positionBuffer = [];
@@ -177,6 +178,10 @@ class TrackingService extends ChangeNotifier {
   bool get multiFlightEnabled => _multiFlightEnabled;
   int get bufferedPositionCount => _positionBuffer.length;
   bool get landingCountdownActive => _landingCountdownActive;
+  /// True when landing conditions are detected but not yet confirmed.
+  bool get landingDetected =>
+      _landingDetectionStart != null &&
+      _trackingState == TrackingState.inFlight;
   int get landingCountdownRemaining {
     if (!_landingCountdownActive || _landingCountdownStart == null) return 0;
     final elapsed = DateTime.now().difference(_landingCountdownStart!).inSeconds;
@@ -187,7 +192,42 @@ class TrackingService extends ChangeNotifier {
   String? _lastSavedIgcPath;
   String? get lastSavedIgcPath => _lastSavedIgcPath;
 
-  TrackingService(this._api, this._igc);
+  TrackingService(this._api, this._igc) {
+    // Start server heartbeat immediately so the LED shows status on app open
+    _startHeartbeat();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Server heartbeat — checks connectivity even when not tracking
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Ping the server periodically to keep the connection status LED accurate.
+  void _startHeartbeat() {
+    // Check immediately on startup
+    _checkServerHealth();
+    // Then every 30 seconds
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkServerHealth(),
+    );
+  }
+
+  Future<void> _checkServerHealth() async {
+    // Skip if actively tracking — position uploads already report connectivity
+    if (_trackingState == TrackingState.inFlight) return;
+    try {
+      await _api.get(ApiConfig.mePath);
+      _backendConnected = true;
+    } on ApiException {
+      // Server reachable but returned an error (e.g. 401) — still "connected"
+      _backendConnected = true;
+    } catch (_) {
+      // Network error — server unreachable
+      _backendConnected = false;
+    }
+    notifyListeners();
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Settings
@@ -1011,7 +1051,8 @@ class TrackingService extends ChangeNotifier {
   void _startFlightTimer() {
     _flightTimer?.cancel();
     _flightTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_trackingStartTime != null) {
+      if (_trackingStartTime != null &&
+          _landingDetectionStart == null) {
         _flightDuration = DateTime.now().difference(_trackingStartTime!);
 
         // Update the foreground service notification with flight stats
@@ -1077,6 +1118,7 @@ class TrackingService extends ChangeNotifier {
   @override
   void dispose() {
     stopTracking();
+    _heartbeatTimer?.cancel();
     _batteryCheckTimer?.cancel();
     _flightTimer?.cancel();
     _adaptiveTimer?.cancel();
