@@ -190,6 +190,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     nation: "",
     competition_number: "",
     civl_id: "",
+    has_password: false,
   };
 }
 

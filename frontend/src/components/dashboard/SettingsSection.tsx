@@ -97,8 +97,8 @@ export default function SettingsSection(props: SettingsSectionProps) {
           </div>
           <div className="button-row">
             <button type="submit">Save account settings</button>
+            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
           </div>
-          {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
         </form>
       </SectionCard>
       <SectionCard title="Units" description="Choose how the scoring map and flight telemetry are displayed for your account.">
@@ -149,8 +149,8 @@ export default function SettingsSection(props: SettingsSectionProps) {
           </div>
           <div className="button-row">
             <button type="submit">Save unit preferences</button>
+            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
           </div>
-          {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
         </form>
       </SectionCard>
       <SectionCard
@@ -189,8 +189,8 @@ export default function SettingsSection(props: SettingsSectionProps) {
           </div>
           <div className="button-row">
             <button type="submit">{settingsForm.has_password ? "Update password" : "Set password"}</button>
+            {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
           </div>
-          {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
         </form>
       </SectionCard>
     </div>
