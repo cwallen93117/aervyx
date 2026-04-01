@@ -67,6 +67,13 @@ Read these first:
 - The current live deployment handoff is:
   - `docs/live-deployment-handoff.md`
 
+## Working Style
+
+- Never ask the user to run commands. Execute everything directly — including SSH, WSL, Docker, deploy scripts, and server management.
+- If a command fails, debug and retry. Only involve the user for credentials or physical actions (plugging in a device, opening a browser).
+- Always use feature branches. Create PRs and leave them open for review — never merge without user approval.
+- When deploying to production, use the Proxmox API (guest agent file-write + exec via stdin) since direct SSH is firewalled.
+
 ## Repo Conventions
 
 - AirScore concepts and terminology are the primary domain reference.
