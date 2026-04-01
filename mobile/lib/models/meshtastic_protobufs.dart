@@ -210,9 +210,9 @@ enum ModuleConfigType {
 
 enum LocationSource {
   unset(0),
-  locInternal(1),
-  locExternal(2), // Phone GPS
-  locManual(3);
+  locManual(1),
+  locInternal(2),
+  locExternal(3); // Phone GPS
 
   final int value;
   const LocationSource(this.value);
@@ -381,6 +381,11 @@ class ProtoWriter {
     _buf.add(Uint8List(4)..buffer.asByteData().setUint32(0, value, Endian.little));
   }
 
+  void writeSfixed32(int fieldNumber, int value) {
+    _writeTag(fieldNumber, 5); // wire type 5 = 32-bit
+    _buf.add(Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.little));
+  }
+
   void writeFloat(int fieldNumber, double value) {
     _writeTag(fieldNumber, 5);
     final bd = ByteData(4);
@@ -447,6 +452,13 @@ class ProtoReader {
   int readFixed32() {
     final v = ByteData.sublistView(_data, _pos, _pos + 4)
         .getUint32(0, Endian.little);
+    _pos += 4;
+    return v;
+  }
+
+  int readSfixed32() {
+    final v = ByteData.sublistView(_data, _pos, _pos + 4)
+        .getInt32(0, Endian.little);
     _pos += 4;
     return v;
   }
@@ -529,10 +541,10 @@ Uint8List buildAdminPacket({
 
   // Build MeshPacket
   final pkt = ProtoWriter();
-  pkt.writeVarint(1, from); // from
-  pkt.writeVarint(2, to); // to
-  pkt.writeMessage(3, data); // decoded (Data)
-  if (wantAck) pkt.writeBool(6, true); // want_ack
+  pkt.writeFixed32(1, from); // from (fixed32)
+  pkt.writeFixed32(2, to); // to (fixed32)
+  pkt.writeMessage(4, data); // decoded (Data, field 4)
+  if (wantAck) pkt.writeBool(10, true); // want_ack (field 10)
 
   return pkt.toBytes();
 }
@@ -550,13 +562,13 @@ Uint8List buildPositionPacket({
 }) {
   // Build Position sub-message
   final pos = ProtoWriter();
-  pos.writeVarint(1, (lat * 1e7).round()); // latitude_i
-  pos.writeVarint(2, (lon * 1e7).round()); // longitude_i
-  pos.writeVarint(3, alt.round()); // altitude
-  pos.writeVarint(4, time); // time
-  pos.writeVarint(10, LocationSource.locExternal.value); // location_source
-  if (groundSpeed != null) pos.writeVarint(8, groundSpeed); // ground_speed
-  if (groundTrack != null) pos.writeVarint(9, groundTrack); // ground_track
+  pos.writeSfixed32(1, (lat * 1e7).round()); // latitude_i (sfixed32)
+  pos.writeSfixed32(2, (lon * 1e7).round()); // longitude_i (sfixed32)
+  pos.writeVarint(3, alt.round()); // altitude (int32)
+  pos.writeFixed32(4, time); // time (fixed32)
+  pos.writeVarint(5, LocationSource.locExternal.value); // location_source
+  if (groundSpeed != null) pos.writeVarint(15, groundSpeed); // ground_speed
+  if (groundTrack != null) pos.writeVarint(16, groundTrack); // ground_track
 
   // Build Data sub-message
   final data = ProtoWriter();
@@ -565,9 +577,9 @@ Uint8List buildPositionPacket({
 
   // Build MeshPacket
   final pkt = ProtoWriter();
-  pkt.writeVarint(1, from); // from
-  pkt.writeVarint(2, to); // to
-  pkt.writeMessage(3, data); // decoded
+  pkt.writeFixed32(1, from); // from (fixed32)
+  pkt.writeFixed32(2, to); // to (fixed32)
+  pkt.writeMessage(4, data); // decoded (Data, field 4)
 
   return pkt.toBytes();
 }
@@ -597,11 +609,11 @@ Uint8List buildSetOwner({required String longName, required String shortName}) {
   user.writeString(3, shortName); // short_name
 
   final admin = ProtoWriter();
-  admin.writeMessage(3, user); // set_owner
+  admin.writeMessage(32, user); // set_owner (AdminMessage field 32)
   return admin.toBytes();
 }
 
-/// AdminMessage: set_config (field 2) with DeviceConfig (Config field 1).
+/// AdminMessage: set_config (field 34) with DeviceConfig (Config field 1).
 Uint8List buildSetDeviceConfig({
   required DeviceRole role,
   required RebroadcastMode rebroadcastMode,
@@ -614,7 +626,7 @@ Uint8List buildSetDeviceConfig({
   config.writeMessage(1, device); // device (Config field 1)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config); // set_config
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -639,7 +651,7 @@ Uint8List buildSetPositionConfig({
   config.writeMessage(2, pos); // position (Config field 2)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config);
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -652,7 +664,7 @@ Uint8List buildSetPowerConfig({required bool isPowerSaving}) {
   config.writeMessage(3, power); // power (Config field 3)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config);
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -671,7 +683,7 @@ Uint8List buildSetNetworkConfig({
   config.writeMessage(4, net); // network (Config field 4)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config);
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -684,7 +696,7 @@ Uint8List buildSetDisplayConfig({required int screenOnSecs}) {
   config.writeMessage(5, display); // display (Config field 5)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config);
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -706,7 +718,7 @@ Uint8List buildSetLoraConfig({
   config.writeMessage(6, lora); // lora (Config field 6)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config);
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -723,7 +735,7 @@ Uint8List buildSetBluetoothConfig({
   config.writeMessage(7, bt); // bluetooth (Config field 7)
 
   final admin = ProtoWriter();
-  admin.writeMessage(2, config);
+  admin.writeMessage(34, config); // set_config (AdminMessage field 34)
   return admin.toBytes();
 }
 
@@ -752,7 +764,7 @@ Uint8List buildSetMqttConfig({
   module.writeMessage(1, mqtt); // mqtt (ModuleConfig field 1)
 
   final admin = ProtoWriter();
-  admin.writeMessage(6, module); // set_module_config (AdminMessage field 6)
+  admin.writeMessage(35, module); // set_module_config (AdminMessage field 35)
   return admin.toBytes();
 }
 
@@ -765,7 +777,7 @@ Uint8List buildSetTelemetryConfig({required int deviceUpdateInterval}) {
   module.writeMessage(6, tel); // telemetry (ModuleConfig field 6)
 
   final admin = ProtoWriter();
-  admin.writeMessage(6, module);
+  admin.writeMessage(35, module); // set_module_config (AdminMessage field 35)
   return admin.toBytes();
 }
 
@@ -773,13 +785,13 @@ Uint8List buildSetTelemetryConfig({required int deviceUpdateInterval}) {
 Uint8List buildSetStoreForwardConfig({required bool enabled, bool isServer = false}) {
   final sf = ProtoWriter();
   sf.writeBool(1, enabled); // enabled
-  if (isServer) sf.writeBool(5, true); // is_server
+  if (isServer) sf.writeBool(6, true); // is_server (field 6)
 
   final module = ProtoWriter();
   module.writeMessage(4, sf); // store_forward (ModuleConfig field 4)
 
   final admin = ProtoWriter();
-  admin.writeMessage(6, module);
+  admin.writeMessage(35, module); // set_module_config (AdminMessage field 35)
   return admin.toBytes();
 }
 
@@ -792,11 +804,11 @@ Uint8List buildSetNeighborInfoConfig({required bool enabled}) {
   module.writeMessage(10, ni); // neighbor_info (ModuleConfig field 10)
 
   final admin = ProtoWriter();
-  admin.writeMessage(6, module);
+  admin.writeMessage(35, module); // set_module_config (AdminMessage field 35)
   return admin.toBytes();
 }
 
-/// AdminMessage: set_channel (field 1).
+/// AdminMessage: set_channel (field 33).
 Uint8List buildSetChannel({
   required int index,
   required int role, // 0=DISABLED, 1=PRIMARY, 2=SECONDARY
@@ -806,8 +818,8 @@ Uint8List buildSetChannel({
   bool? downlinkEnabled,
 }) {
   final settings = ProtoWriter();
-  if (name != null) settings.writeString(2, name); // name
-  if (psk != null) settings.writeBytes(1, psk); // psk
+  if (psk != null) settings.writeBytes(2, psk); // psk (ChannelSettings field 2)
+  if (name != null) settings.writeString(3, name); // name (ChannelSettings field 3)
   if (uplinkEnabled != null) settings.writeBool(5, uplinkEnabled);
   if (downlinkEnabled != null) settings.writeBool(6, downlinkEnabled);
 
@@ -817,28 +829,28 @@ Uint8List buildSetChannel({
   channel.writeVarint(3, role); // role
 
   final admin = ProtoWriter();
-  admin.writeMessage(1, channel); // set_channel (AdminMessage field 1)
+  admin.writeMessage(33, channel); // set_channel (AdminMessage field 33)
   return admin.toBytes();
 }
 
-/// AdminMessage: get_config_request (field 4).
+/// AdminMessage: get_config_request (field 5).
 Uint8List buildGetConfigRequest(ConfigType type) {
   final w = ProtoWriter();
-  w.writeVarint(4, type.value);
+  w.writeVarint(5, type.value); // get_config_request (AdminMessage field 5)
   return w.toBytes();
 }
 
-/// AdminMessage: get_module_config_request (field 5).
+/// AdminMessage: get_module_config_request (field 7).
 Uint8List buildGetModuleConfigRequest(ModuleConfigType type) {
   final w = ProtoWriter();
-  w.writeVarint(5, type.value);
+  w.writeVarint(7, type.value); // get_module_config_request (AdminMessage field 7)
   return w.toBytes();
 }
 
-/// AdminMessage: reboot_seconds (field 33).
+/// AdminMessage: reboot_seconds (field 97).
 Uint8List buildReboot({int seconds = 5}) {
   final w = ProtoWriter();
-  w.writeVarint(33, seconds);
+  w.writeVarint(97, seconds); // reboot_seconds (AdminMessage field 97)
   return w.toBytes();
 }
 

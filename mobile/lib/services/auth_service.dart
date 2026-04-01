@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
@@ -22,6 +24,8 @@ class AuthService extends ChangeNotifier {
 
   /// Try to restore a saved session on app start.
   /// Uses a short timeout so the app never hangs on a white screen.
+  /// When offline, restores from the cached user profile so the pilot
+  /// can start tracking immediately without waiting for connectivity.
   Future<void> tryRestoreSession() async {
     _loading = true;
     notifyListeners();
@@ -35,10 +39,21 @@ class AuthService extends ChangeNotifier {
               .get(ApiConfig.mePath)
               .timeout(const Duration(seconds: 3));
           _user = User.fromJson(json);
+          // Cache the fresh profile for offline use
+          await _storage.write(
+              key: 'cached_user', value: jsonEncode(_user!.toJson()));
         } catch (_) {
-          // Token expired, invalid, or backend unreachable — clear it.
-          await _storage.delete(key: 'access_token');
-          _api.setToken(null);
+          // Backend unreachable — try cached profile instead of clearing token.
+          // The pilot may be at launch with no cell service.
+          final cachedJson = await _storage.read(key: 'cached_user');
+          if (cachedJson != null) {
+            _user = User.fromJson(
+                jsonDecode(cachedJson) as Map<String, dynamic>);
+          } else {
+            // No cached profile and no backend — clear token, force login
+            await _storage.delete(key: 'access_token');
+            _api.setToken(null);
+          }
         }
       }
     } catch (_) {
@@ -58,6 +73,9 @@ class AuthService extends ChangeNotifier {
     final auth = AuthToken.fromJson(json);
     _api.setToken(auth.accessToken);
     await _storage.write(key: 'access_token', value: auth.accessToken);
+    // Cache profile for offline restarts
+    await _storage.write(
+        key: 'cached_user', value: jsonEncode(auth.user.toJson()));
     _user = auth.user;
     notifyListeners();
   }
@@ -126,7 +144,7 @@ class AuthService extends ChangeNotifier {
   Future<void> _syncUnitsToBackend() async {
     if (_user == null || isBleTestMode) return;
     try {
-      await _api.post('/api/auth/settings', body: {
+      await _api.patch('/api/auth/settings', body: {
         'altitude_unit': _user!.altitudeUnit,
         'speed_unit': _user!.speedUnit,
         'distance_unit': _user!.distanceUnit,
@@ -142,6 +160,7 @@ class AuthService extends ChangeNotifier {
     _api.setToken(null);
     _user = null;
     await _storage.delete(key: 'access_token');
+    await _storage.delete(key: 'cached_user');
     notifyListeners();
   }
 }

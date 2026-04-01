@@ -80,7 +80,7 @@ def _publish(task_id: int, message: dict[str, Any]) -> None:
 def store_position(
     session: Session,
     *,
-    task_id: int,
+    task_id: int | None,
     lat: float,
     lon: float,
     alt: float | None = None,
@@ -112,50 +112,52 @@ def store_position(
     )
     session.add(pos)
 
-    # Upsert tracking session --------------------------------------------------
-    tracking = session.scalar(
-        select(TrackingSession).where(
-            TrackingSession.task_id == task_id,
-            TrackingSession.pilot_id == pilot_id,
-            TrackingSession.is_active.is_(True),
-        )
-    ) if pilot_id is not None else None
+    # Upsert tracking session (only for task-scoped positions) ------------------
+    if task_id is not None:
+        tracking = session.scalar(
+            select(TrackingSession).where(
+                TrackingSession.task_id == task_id,
+                TrackingSession.pilot_id == pilot_id,
+                TrackingSession.is_active.is_(True),
+            )
+        ) if pilot_id is not None else None
 
-    if tracking is not None:
-        tracking.last_seen_at = ts
-        tracking.position_count = (tracking.position_count or 0) + 1
-    elif pilot_id is not None:
-        tracking = TrackingSession(
-            id=uuid.uuid4(),
-            pilot_id=pilot_id,
-            task_id=task_id,
-            started_at=ts,
-            last_seen_at=ts,
-            is_active=True,
-            position_count=1,
-        )
-        session.add(tracking)
+        if tracking is not None:
+            tracking.last_seen_at = ts
+            tracking.position_count = (tracking.position_count or 0) + 1
+        elif pilot_id is not None:
+            tracking = TrackingSession(
+                id=uuid.uuid4(),
+                pilot_id=pilot_id,
+                task_id=task_id,
+                started_at=ts,
+                last_seen_at=ts,
+                is_active=True,
+                position_count=1,
+            )
+            session.add(tracking)
 
     session.flush()
 
-    # Fan out to SSE subscribers ------------------------------------------------
-    message = {
-        "id": str(pos.id),
-        "pilot_id": pos.pilot_id,
-        "task_id": pos.task_id,
-        "lat": pos.lat,
-        "lon": pos.lon,
-        "alt": pos.alt,
-        "speed": pos.speed,
-        "heading": pos.heading,
-        "accuracy": pos.accuracy,
-        "timestamp": ts.isoformat(),
-        "source": pos.source,
-        "device_id": pos.device_id,
-        "battery_level": pos.battery_level,
-        "aircraft_icon": _aircraft_icons_by_pilot(session, [pilot_id]).get(pilot_id, "hang_glider") if pilot_id is not None else "hang_glider",
-    }
-    _publish(task_id, message)
+    # Fan out to SSE subscribers (only for task-scoped positions) ---------------
+    if task_id is not None:
+        message = {
+            "id": str(pos.id),
+            "pilot_id": pos.pilot_id,
+            "task_id": pos.task_id,
+            "lat": pos.lat,
+            "lon": pos.lon,
+            "alt": pos.alt,
+            "speed": pos.speed,
+            "heading": pos.heading,
+            "accuracy": pos.accuracy,
+            "timestamp": ts.isoformat(),
+            "source": pos.source,
+            "device_id": pos.device_id,
+            "battery_level": pos.battery_level,
+            "aircraft_icon": _aircraft_icons_by_pilot(session, [pilot_id]).get(pilot_id, "hang_glider") if pilot_id is not None else "hang_glider",
+        }
+        _publish(task_id, message)
 
     return pos
 
