@@ -15,6 +15,7 @@
   <ul class="nav-links">
     <li><a href="#features">Features</a></li>
     <li><a href="#tracking">Tracking</a></li>
+    <li><a href="#meshtastic">Meshtastic</a></li>
     <li><a href="#scoring">Scoring</a></li>
     <li><a href="#opensource">Open Source</a></li>
   </ul>
@@ -176,15 +177,18 @@
     <h2 class="section-title">One platform.<br/>Every discipline.</h2>
     <p class="section-body">From the first task briefing to the final podium — live tracking, auto-scoring, and driver routing in one place.</p>
     <div class="cap-grid reveal">
-      <div class="cap" style="--cg:rgba(0,230,118,.06)"><div class="cap-n">01</div><span class="cap-ico">📡</span><h3>Live Tracking</h3><p>Pilot positions updated every few seconds via 4G/LTE cellular or Meshtastic LoRa mesh nodes. No dead zones.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.06)"><div class="cap-n">01</div><span class="cap-ico">📡</span><h3>Live Tracking</h3><p>Pilot positions updated every few seconds via 4G/LTE cellular or Meshtastic LoRa mesh. Track competition tasks or free-flight buddy groups — one unified view.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.06)"><div class="cap-n">02</div><span class="cap-ico">🏅</span><h3>Auto Scoring</h3><p>GAP-aligned scoring runs automatically as pilots land. Live provisional rankings update in real time throughout the task.</p><span class="cap-badge cb-auto">Automatic</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.06)"><div class="cap-n">03</div><span class="cap-ico">🚗</span><h3>Driver Routing</h3><p>Optimal retrieve routes calculated from live pilot positions — adapts every 30 seconds as pilots move toward their LZ.</p><span class="cap-badge cb-smart">Smart</span></div>
       <div class="cap" style="--cg:rgba(167,139,250,.06)"><div class="cap-n">04</div><span class="cap-ico">🗺️</span><h3>Task Builder</h3><p>Draw tasks on an interactive map. Upload turnpoint libraries in CUP, DAT, or GeoJSON. Set cylinder radii and publish.</p><span class="cap-badge cb-core">Core</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.05)"><div class="cap-n">05</div><span class="cap-ico">📁</span><h3>IGC Evidence</h3><p>Every IGC file is SHA-256 fingerprinted on upload and stored immutably. Full audit trail for all scoring actions.</p><span class="cap-badge cb-auto">Tamper-proof</span></div>
       <div class="cap" style="--cg:rgba(0,230,118,.05)"><div class="cap-n">06</div><span class="cap-ico">🌐</span><h3>Spectator View</h3><p>Public live-tracking links for spectators and media. No account needed — share a URL and watch the task.</p><span class="cap-badge cb-live">Public</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.05)"><div class="cap-n">07</div><span class="cap-ico">👥</span><h3>Event & Pilot Management</h3><p>Multi-day events, CIVL pilot rosters with comp numbers, and auto-generated portal credentials.</p><span class="cap-badge cb-core">Core</span></div>
-      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. Upload IGC, see your live track, check rankings, and get task briefings.</p><span class="cap-badge cb-soon">Coming soon</span></div>
-      <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">🔄</span><h3>Flight Replay</h3><p>Replay any task — scrub through the full flight with altitude, speed, and scoring overlays.</p><span class="cap-badge cb-soon">Coming soon</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. In-flight telemetry, automatic flight detection, driver mode with retrieve routing, and live position streaming.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">🔄</span><h3>3D Flight Replay</h3><p>Replay any flight over 3D terrain with turnpoint cylinders, altitude profiles, speed overlays, and full scrub control.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">📓</span><h3>Pilot Logbook</h3><p>Personal flight logbook with bulk IGC upload, automatic site matching, thermal analysis, climb stats, and flight duration tracking.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(255,107,53,.04)"><div class="cap-n">11</div><span class="cap-ico">👥</span><h3>Buddy Groups</h3><p>Create groups of pilots to follow in real time — free-flight tracking without a competition context. See friends on the map wherever they fly.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.04)"><div class="cap-n">12</div><span class="cap-ico">📊</span><h3>In-Flight Statistics</h3><p>Real-time altitude, ground speed, climb rate, glide ratio, and thermal classification computed live during flight.</p><span class="cap-badge cb-auto">Automatic</span></div>
     </div>
   </div>
 </section>
@@ -220,6 +224,51 @@
           <li><span class="sp spp"></span>Ideal for remote ridge and alpine sites</li>
         </ul>
       </div>
+    </div>
+  </div>
+</section>
+
+<!-- MESHTASTIC DEEP DIVE -->
+<section class="section dark-section" id="meshtastic">
+  <div class="inner">
+    <div class="eyebrow ey-green">Meshtastic mesh tracking</div>
+    <h2 class="section-title">Off-grid coverage for<br/>every flying site.</h2>
+    <p class="section-body">Meshtastic LoRa devices form a self-healing radio mesh that works where cell towers don't. Affordable, solar-powered, and purpose-built for remote terrain.</p>
+    <div class="mesh-grid reveal">
+      <div class="mesh-card">
+        <span class="mesh-ico">🏆</span>
+        <h3>Competition Safety</h3>
+        <p>Real-time pilot positions for safety directors and retrieve teams. SOS alerts relay instantly through the mesh — even in valleys with zero cell signal. Every pilot visible, every second.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">🪂</span>
+        <h3>Free Flight Clubs</h3>
+        <p>Install a solar-powered node at your club's launch and LZ. Every member with a Meshtastic device is automatically tracked — no subscriptions, no cell plans, no recurring costs.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">⛰️</span>
+        <h3>Remote Sites</h3>
+        <p>Mountain launches, desert thermals, coastal ridges with no coverage — LoRa reaches 10-50 km per hop in open terrain. The mesh fills gaps that cellular simply can't.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">💲</span>
+        <h3>Affordable Hardware</h3>
+        <p>Complete Meshtastic nodes cost $20-40. Solar-powered and weatherproof options exist for permanent outdoor installation. No monthly fees, no SIM cards, no data plans.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">🚗</span>
+        <h3>Retrieve Vehicles</h3>
+        <p>Mount a node on each retrieve vehicle. Drivers stay visible on the tracking map and relay positions for pilots overhead — turning every car into a mobile mesh repeater.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">📍</span>
+        <h3>Landing Zone Routers</h3>
+        <p>Leave a fixed node at the LZ before you launch. It acts as a relay point for your flight — capturing your positions and forwarding them through the mesh to the cloud.</p>
+      </div>
+    </div>
+    <div class="mesh-how reveal">
+      <div class="eyebrow" style="margin-bottom:.5rem">How it works</div>
+      <p class="section-body" style="max-width:52rem">Each pilot carries a small LoRa radio that broadcasts GPS positions. Nearby nodes relay the signal hop-by-hop until it reaches any internet-connected node, which bridges positions to the Aervyx cloud via MQTT. The mesh is self-healing — add or remove nodes and coverage adapts automatically.</p>
     </div>
   </div>
 </section>

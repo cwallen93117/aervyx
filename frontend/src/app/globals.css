@@ -4005,6 +4005,11 @@ button[type="submit"]:hover,
   color: #fff;
 }
 
+.aervyx-auth-form select option {
+  background: #1a1a2e;
+  color: #fff;
+}
+
 .aervyx-auth-form textarea {
   min-height: 96px;
 }

@@ -465,10 +465,36 @@ export default function LogbookSection(props: LogbookSectionProps) {
                 {!loading
                   ? groupedFlights.map((group) => {
                       const isCollapsed = collapsedYears[group.year] ?? false;
+                      const yearFlightIds = group.flights.map((f) => f.id);
+                      const yearSelectedCount = yearFlightIds.filter((id) => selectedFlightIds[id]).length;
+                      const yearAllSelected = yearFlightIds.length > 0 && yearSelectedCount === yearFlightIds.length;
+                      const yearSomeSelected = yearSelectedCount > 0 && !yearAllSelected;
                       return (
                         <tbody key={group.year}>
                           <tr className="logbook-year-row">
-                            <td colSpan={9}>
+                            <td className="logbook-select-column">
+                              <input
+                                type="checkbox"
+                                aria-label={yearAllSelected ? `Deselect all ${group.year} flights` : `Select all ${group.year} flights`}
+                                checked={yearAllSelected}
+                                ref={(el) => { if (el) el.indeterminate = yearSomeSelected; }}
+                                onChange={() => {
+                                  if (yearAllSelected) {
+                                    setSelectedFlightIds((current) => {
+                                      const next = { ...current };
+                                      for (const id of yearFlightIds) delete next[id];
+                                      return next;
+                                    });
+                                  } else {
+                                    setSelectedFlightIds((current) => ({
+                                      ...current,
+                                      ...Object.fromEntries(yearFlightIds.map((id) => [id, true])),
+                                    }));
+                                  }
+                                }}
+                              />
+                            </td>
+                            <td colSpan={8}>
                               <button
                                 type="button"
                                 className="logbook-year-toggle"

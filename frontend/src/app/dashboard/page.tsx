@@ -1343,6 +1343,7 @@ export default function HomePage() {
           username: normalizeIdentityEmail(settingsForm.username),
           full_name: settingsForm.full_name,
           profile_type: settingsForm.profile_type,
+          role: settingsForm.role === "admin" ? undefined : settingsForm.role,
           altitude_unit: settingsForm.altitude_unit,
           speed_unit: settingsForm.speed_unit,
           distance_unit: settingsForm.distance_unit,
@@ -1378,7 +1379,7 @@ export default function HomePage() {
         document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
         setToken(payload.access_token);
       }
-      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, profile_type: payload.profile_type } : current));
+      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, role: payload.role, profile_type: payload.profile_type } : current));
       setSettingsFeedback((current) => ({ ...current, profile: { type: "success", text: "Account settings saved." } }));
     } catch (caught) {
       setSettingsFeedback((current) => ({
