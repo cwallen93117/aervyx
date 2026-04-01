@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     api_public_url: str = "http://localhost:8000"
     database_url: str = f"sqlite:///{(Path(__file__).resolve().parents[2] / 'flightcomp.db').as_posix()}"
     upload_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "uploads")
-    access_token_expire_minutes: int = 720
+    access_token_expire_minutes: int = 525600  # 365 days
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://10.0.2.2:8000"])
     allowed_hosts: list[str] = Field(
         default_factory=lambda: [
