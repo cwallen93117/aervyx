@@ -550,13 +550,6 @@ function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange"
   return "red";
 }
 
-function batteryColor(level: number | null): string {
-  if (level == null) return "inherit";
-  if (level > 50) return "#22c55e";
-  if (level >= 20) return "#f59e0b";
-  return "#ef4444";
-}
-
 function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./types").DebugStatusResponse | null; refreshDebugStatus: () => void }) {
   if (!debugStatus) {
     return (
@@ -596,7 +589,6 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                 <th>Source</th>
                 <th>Mesh</th>
                 <th>Task</th>
-                <th>Battery</th>
                 <th>Positions</th>
                 <th>Rate</th>
                 <th>Last Fix</th>
@@ -635,9 +627,6 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                         }} title={session.has_mesh ? "Meshtastic active" : "No mesh"} />
                       </td>
                       <td>{session.task_name ?? "Free flight"}</td>
-                      <td style={{ color: batteryColor(session.battery_level) }}>
-                        {session.battery_level != null ? `${session.battery_level}%` : "\u2014"}
-                      </td>
                       <td>{session.position_count.toLocaleString()}</td>
                       <td>{rate}/s</td>
                       <td style={{ color: lastFixColor }}>{relativeTime(session.last_seen_at)}</td>
@@ -646,7 +635,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="participant-table-empty">No active tracking sessions. Enable Debug Mode in the mobile app to test.</td>
+                  <td colSpan={8} className="participant-table-empty">No active tracking sessions. Enable Debug Mode in the mobile app to test.</td>
                 </tr>
               )}
             </tbody>
