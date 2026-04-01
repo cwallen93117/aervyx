@@ -236,6 +236,17 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "scored_at": "ALTER TABLE score_results ADD COLUMN scored_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
     }
     with engine.begin() as connection:
+        if "users" in table_names and "oauth_provider" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(40)"))
+        if "users" in table_names and "oauth_id" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN oauth_id VARCHAR(255)"))
+        if "users" in table_names:
+            # Make password_hash nullable for OAuth-only users
+            if dialect_name != "sqlite":
+                try:
+                    connection.execute(text("ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL"))
+                except Exception:
+                    pass
         if "users" in table_names and "profile_type" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN profile_type VARCHAR(20) DEFAULT 'pilot'"))
             connection.execute(text("UPDATE users SET profile_type = 'pilot' WHERE profile_type IS NULL"))

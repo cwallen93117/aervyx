@@ -1,6 +1,20 @@
 "use client";
 
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void; auto_select?: boolean; itp_support?: boolean }) => void;
+          renderButton: (parent: HTMLElement, options: { theme?: string; size?: string; width?: number; text?: string; shape?: string; logo_alignment?: string; type?: string }) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -71,12 +85,71 @@ export default function LoginPage() {
     account_role: "pilot",
   });
 
+  const googleButtonRef = useRef<HTMLDivElement>(null);
+  const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+
   useEffect(() => {
     const next = new URLSearchParams(window.location.search).get("next");
     if (next) {
       setDestination(next);
     }
   }, []);
+
+  const handleGoogleResponse = useCallback(async (response: { credential: string }) => {
+    setMessage("");
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${resolveApiBase()}/api/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: response.credential }),
+      });
+      if (!res.ok) {
+        throw new Error(await readApiError(res, "Google sign-in failed. Please try again."));
+      }
+      const payload = (await res.json()) as { access_token: string; user: { full_name: string } };
+      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+      setSessionCookie();
+      setMessage(`Signed in as ${payload.user.full_name}. Opening your dashboard...`);
+      window.location.replace(destination);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Google sign-in failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }, [destination]);
+
+  // Fetch Google Client ID from backend and initialize Google Sign-In
+  useEffect(() => {
+    fetch(`${resolveApiBase()}/api/auth/google-client-id`)
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (data?.client_id) {
+          setGoogleClientId(data.client_id);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!googleClientId || !window.google || !googleButtonRef.current) return;
+    window.google.accounts.id.initialize({
+      client_id: googleClientId,
+      callback: handleGoogleResponse,
+      auto_select: false,
+      itp_support: true,
+    });
+    window.google.accounts.id.renderButton(googleButtonRef.current, {
+      theme: "outline",
+      size: "large",
+      width: 320,
+      text: "signin_with",
+      shape: "rectangular",
+      logo_alignment: "left",
+      type: "standard",
+    });
+  }, [googleClientId, handleGoogleResponse]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -250,6 +323,12 @@ export default function LoginPage() {
                 <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
                   {isSubmitting ? "Signing in..." : "Sign in"}
                 </button>
+                {googleClientId ? (
+                  <>
+                    <div className="aervyx-auth-divider"><span>or</span></div>
+                    <div ref={googleButtonRef} className="aervyx-auth-google-btn" />
+                  </>
+                ) : null}
                 <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
               </form>
             ) : (
