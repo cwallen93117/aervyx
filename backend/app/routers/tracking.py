@@ -18,10 +18,14 @@ from app.deps import get_current_user
 from app.models import Event, EventPilot, SosAlert, Task, TaskPoint, User
 from app.services.tracking import (
     get_live_positions,
+    get_live_positions_for_pilots,
     get_position_history,
+    get_position_history_for_pilots,
     store_position,
     subscribe,
+    subscribe_pilots,
     unsubscribe,
+    unsubscribe_pilots,
 )
 
 router = APIRouter(tags=["tracking"])
@@ -227,6 +231,59 @@ def get_positions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     rows = get_position_history(session, task_id, pilot_id=pilot_id, since=since, limit=limit)
+    return [PositionResponse(**row) for row in rows]
+
+
+@router.get("/api/track/live/pilots")
+async def live_positions_pilots_sse(
+    ids: str = Query(..., description="Comma-separated pilot IDs"),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """SSE stream for a set of pilot IDs (buddy group tracking)."""
+    pilot_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    if not pilot_ids:
+        raise HTTPException(status_code=422, detail="At least one pilot ID is required")
+
+    queue = subscribe_pilots(pilot_ids)
+
+    async def event_stream():
+        try:
+            snapshot = get_live_positions_for_pilots(session, pilot_ids)
+            yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    yield f"event: position\ndata: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            unsubscribe_pilots(pilot_ids, queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/api/track/positions/pilots", response_model=list[PositionResponse])
+def get_positions_for_pilots(
+    ids: str = Query(..., description="Comma-separated pilot IDs"),
+    since: datetime | None = Query(default=None),
+    limit: int = Query(default=10000, le=50000),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[PositionResponse]:
+    """Position history for a set of pilots (all tasks + free-flight)."""
+    pilot_ids = [int(x) for x in ids.split(",") if x.strip().isdigit()]
+    if not pilot_ids:
+        raise HTTPException(status_code=422, detail="At least one pilot ID is required")
+    rows = get_position_history_for_pilots(session, pilot_ids, since=since, limit=limit)
     return [PositionResponse(**row) for row in rows]
 
 

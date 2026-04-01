@@ -398,6 +398,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_buddy_group_members_group_id ON buddy_group_members (group_id)"))
             connection.execute(text("CREATE INDEX ix_buddy_group_members_pilot_id ON buddy_group_members (pilot_id)"))
 
+        # Index for pilot-scoped queries (buddy group tracking)
+        if "live_positions" in table_names:
+            existing_indexes = {idx["name"] for idx in inspector.get_indexes("live_positions")}
+            if "ix_live_positions_pilot_ts" not in existing_indexes:
+                connection.execute(text("CREATE INDEX ix_live_positions_pilot_ts ON live_positions (pilot_id, timestamp)"))
+
         # Make live_positions.task_id nullable for free-flight recording
         if "live_positions" in table_names and dialect_name != "sqlite":
             lp_columns = {col["name"]: col for col in inspector.get_columns("live_positions")}

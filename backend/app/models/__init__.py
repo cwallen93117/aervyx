@@ -428,6 +428,7 @@ class LivePosition(Base):
     __table_args__ = (
         Index("ix_live_positions_task_ts", "task_id", "timestamp"),
         Index("ix_live_positions_task_pilot_ts", "task_id", "pilot_id", "timestamp"),
+        Index("ix_live_positions_pilot_ts", "pilot_id", "timestamp"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
