@@ -112,20 +112,29 @@ def store_position(
     )
     session.add(pos)
 
-    # Upsert tracking session (only for task-scoped positions) ------------------
-    if task_id is not None:
-        tracking = session.scalar(
-            select(TrackingSession).where(
-                TrackingSession.task_id == task_id,
-                TrackingSession.pilot_id == pilot_id,
-                TrackingSession.is_active.is_(True),
+    # Upsert tracking session (for all positions, including free-flight) --------
+    if pilot_id is not None:
+        if task_id is not None:
+            tracking = session.scalar(
+                select(TrackingSession).where(
+                    TrackingSession.task_id == task_id,
+                    TrackingSession.pilot_id == pilot_id,
+                    TrackingSession.is_active.is_(True),
+                )
             )
-        ) if pilot_id is not None else None
+        else:
+            tracking = session.scalar(
+                select(TrackingSession).where(
+                    TrackingSession.task_id.is_(None),
+                    TrackingSession.pilot_id == pilot_id,
+                    TrackingSession.is_active.is_(True),
+                )
+            )
 
         if tracking is not None:
             tracking.last_seen_at = ts
             tracking.position_count = (tracking.position_count or 0) + 1
-        elif pilot_id is not None:
+        else:
             tracking = TrackingSession(
                 id=uuid.uuid4(),
                 pilot_id=pilot_id,

@@ -335,6 +335,8 @@ export type DebugActiveSession = {
   started_at: string;
   last_seen_at: string;
   last_position: { lat: number; lon: number; alt: number | null; speed: number | null } | null;
+  is_online: boolean;
+  has_mesh: boolean;
 };
 
 export type DebugSosAlert = {

@@ -105,6 +105,7 @@ class TrackingService extends ChangeNotifier {
   // ── Sport & flight detection settings ──
   SportType _sportType = SportType.paraglider;
   bool _multiFlightEnabled = true;
+  bool _debugMode = false;
 
   /// Hardcoded defaults per sport — overridable from admin API.
   static const Map<SportType, _TakeoffThresholds> _defaultTakeoffThresholds = {
@@ -176,6 +177,7 @@ class TrackingService extends ChangeNotifier {
   bool get inCompetitionMode => _activeTask != null;
   SportType get sportType => _sportType;
   bool get multiFlightEnabled => _multiFlightEnabled;
+  bool get debugMode => _debugMode;
   int get bufferedPositionCount => _positionBuffer.length;
   bool get landingCountdownActive => _landingCountdownActive;
   /// True when landing conditions are detected but not yet confirmed.
@@ -242,6 +244,12 @@ class TrackingService extends ChangeNotifier {
   /// Set the sport type for takeoff detection.
   void setSportType(SportType sport) {
     _sportType = sport;
+    notifyListeners();
+  }
+
+  /// Enable/disable debug mode — skips flight detection, sends every position.
+  void setDebugMode(bool enabled) {
+    _debugMode = enabled;
     notifyListeners();
   }
 
@@ -320,7 +328,6 @@ class TrackingService extends ChangeNotifier {
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
 
-    _trackingState = TrackingState.preFlight;
     _positionCount = 0;
     _error = null;
     _stoppedByBattery = false;
@@ -340,11 +347,23 @@ class TrackingService extends ChangeNotifier {
       _flightNumberToday = 1;
     }
 
-    // Update notification for pre-flight state
-    BackgroundTrackingService.updateNotification(
-      title: 'Aervyx — Pre-Flight',
-      content: 'Waiting for takeoff...',
-    );
+    if (_debugMode) {
+      // Debug mode — skip pre-flight, go straight to recording + sending
+      _trackingState = TrackingState.inFlight;
+      _trackingStartTime = DateTime.now();
+      _startFlightTimer();
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx — Debug Mode',
+        content: 'Sending all positions to server...',
+      );
+    } else {
+      _trackingState = TrackingState.preFlight;
+      // Update notification for pre-flight state
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx — Pre-Flight',
+        content: 'Waiting for takeoff...',
+      );
+    }
 
     notifyListeners();
 
@@ -613,6 +632,14 @@ class TrackingService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _handleInFlight(Position geoPos) async {
+    // Debug mode — send every position at 1Hz, skip landing detection
+    if (_debugMode) {
+      _currentZone = TrackingZone.normalFlight;
+      await _sendPosition(geoPos);
+      notifyListeners();
+      return;
+    }
+
     // Competition mode throttling
     if (_activeTask != null) {
       final nearest =
