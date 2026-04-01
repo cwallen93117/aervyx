@@ -108,6 +108,35 @@ class HomeScreen extends StatelessWidget {
             children: [
               const SizedBox(height: 16),
 
+              // Debug mode banner
+              if (tracking.debugMode)
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.orange.withAlpha(30),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.orange.withAlpha(80)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.bug_report,
+                          size: 16, color: Colors.orange),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Debug Mode — all positions sent to server',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          color: Colors.orange,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // Big tracking button — 3 states
               _TrackingButton(tracking: tracking),
 

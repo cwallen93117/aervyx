@@ -368,3 +368,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
             task_id_col = lp_columns.get("task_id")
             if task_id_col and task_id_col.get("nullable") is False:
                 connection.execute(text("ALTER TABLE live_positions ALTER COLUMN task_id DROP NOT NULL"))
+
+        # Make tracking_sessions.task_id nullable for free-flight sessions
+        if "tracking_sessions" in table_names and dialect_name != "sqlite":
+            ts_columns = {col["name"]: col for col in inspector.get_columns("tracking_sessions")}
+            ts_task_id_col = ts_columns.get("task_id")
+            if ts_task_id_col and ts_task_id_col.get("nullable") is False:
+                connection.execute(text("ALTER TABLE tracking_sessions ALTER COLUMN task_id DROP NOT NULL"))

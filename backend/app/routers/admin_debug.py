@@ -61,13 +61,16 @@ def admin_debug_status(
     for ts, first_name, last_name, task_name in active_sessions_rows:
         pilot_name = f"{first_name or ''} {last_name or ''}".strip() or "Unknown"
 
-        # Latest position for this session's pilot + task
+        # Latest position for this session's pilot (any task including free-flight)
+        pos_filter = [LivePosition.pilot_id == ts.pilot_id]
+        if ts.task_id is not None:
+            pos_filter.append(LivePosition.task_id == ts.task_id)
+        else:
+            pos_filter.append(LivePosition.task_id.is_(None))
+
         latest_pos = session.scalar(
             select(LivePosition)
-            .where(
-                LivePosition.pilot_id == ts.pilot_id,
-                LivePosition.task_id == ts.task_id,
-            )
+            .where(*pos_filter)
             .order_by(LivePosition.timestamp.desc())
             .limit(1)
         )
@@ -77,9 +80,18 @@ def admin_debug_status(
             select(func.count())
             .select_from(LivePosition)
             .where(
-                LivePosition.pilot_id == ts.pilot_id,
-                LivePosition.task_id == ts.task_id,
+                *pos_filter,
                 LivePosition.timestamp >= sixty_seconds_ago,
+            )
+        ) or 0
+
+        # Check for any mesh-sourced positions from this pilot (ever)
+        has_mesh = session.scalar(
+            select(func.count())
+            .select_from(LivePosition)
+            .where(
+                LivePosition.pilot_id == ts.pilot_id,
+                LivePosition.source == "mqtt_gateway",
             )
         ) or 0
 
@@ -98,11 +110,14 @@ def admin_debug_status(
             source = latest_pos.source
             battery_level = latest_pos.battery_level
 
+        # Online = received a position in the last 60 seconds
+        is_online = ts.last_seen_at is not None and (now - ts.last_seen_at).total_seconds() < 60
+
         active_sessions.append({
             "pilot_id": ts.pilot_id,
             "pilot_name": pilot_name,
             "task_id": ts.task_id,
-            "task_name": task_name,
+            "task_name": task_name or ("Free Flight" if ts.task_id is None else None),
             "device_id": device_id,
             "source": source,
             "battery_level": battery_level,
@@ -111,6 +126,8 @@ def admin_debug_status(
             "started_at": ts.started_at.isoformat() if ts.started_at else None,
             "last_seen_at": ts.last_seen_at.isoformat() if ts.last_seen_at else None,
             "last_position": last_position,
+            "is_online": is_online,
+            "has_mesh": has_mesh > 0,
         })
 
     # ---- Recent SOS alerts --------------------------------------------------

@@ -610,15 +610,15 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
           <table className="participant-table">
             <thead>
               <tr>
+                <th>Status</th>
                 <th>Pilot</th>
-                <th>Device ID</th>
                 <th>Source</th>
+                <th>Mesh</th>
                 <th>Task</th>
                 <th>Battery</th>
                 <th>Positions</th>
                 <th>Rate</th>
                 <th>Last Fix</th>
-                <th>Latency</th>
               </tr>
             </thead>
             <tbody>
@@ -631,9 +631,28 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                   const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
                   return (
                     <tr key={session.pilot_id} style={{ borderLeft: `3px solid ${borderColor}` }}>
+                      <td>
+                        <span style={{
+                          display: "inline-block",
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          backgroundColor: session.is_online ? "#22c55e" : "#6b7280",
+                          boxShadow: session.is_online ? "0 0 6px #22c55e80" : undefined,
+                        }} title={session.is_online ? "Online" : "Offline"} />
+                      </td>
                       <td><strong>{session.pilot_name}</strong></td>
-                      <td>{session.device_id ?? "\u2014"}</td>
                       <td>{sourceLabel}</td>
+                      <td>
+                        <span style={{
+                          display: "inline-block",
+                          width: 10,
+                          height: 10,
+                          borderRadius: "50%",
+                          backgroundColor: session.has_mesh ? "#22c55e" : "#6b7280",
+                          boxShadow: session.has_mesh ? "0 0 6px #22c55e80" : undefined,
+                        }} title={session.has_mesh ? "Meshtastic active" : "No mesh"} />
+                      </td>
                       <td>{session.task_name ?? "Free flight"}</td>
                       <td style={{ color: batteryColor(session.battery_level) }}>
                         {session.battery_level != null ? `${session.battery_level}%` : "\u2014"}
@@ -641,13 +660,12 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                       <td>{session.position_count.toLocaleString()}</td>
                       <td>{rate}/s</td>
                       <td style={{ color: lastFixColor }}>{relativeTime(session.last_seen_at)}</td>
-                      <td>{"\u2014"}</td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="participant-table-empty">No active tracking sessions.</td>
+                  <td colSpan={9} className="participant-table-empty">No active tracking sessions. Enable Debug Mode in the mobile app to test.</td>
                 </tr>
               )}
             </tbody>
