@@ -322,4 +322,45 @@ export function blankEventForm() {
   };
 }
 
+export type DebugActiveSession = {
+  pilot_id: number;
+  pilot_name: string;
+  task_id: number | null;
+  task_name: string | null;
+  device_id: string | null;
+  source: string | null;
+  battery_level: number | null;
+  position_count: number;
+  positions_last_60s: number;
+  started_at: string;
+  last_seen_at: string;
+  last_position: { lat: number; lon: number; alt: number | null; speed: number | null } | null;
+  is_online: boolean;
+  has_mesh: boolean;
+};
+
+export type DebugSosAlert = {
+  pilot_id: number;
+  pilot_name: string;
+  lat: number;
+  lon: number;
+  alt: number | null;
+  message: string;
+  timestamp: string;
+};
+
+export type DebugStatusResponse = {
+  mqtt_connected: boolean;
+  mqtt_last_message_at: string | null;
+  sse_subscriber_count: number;
+  sse_subscribers_by_task: Record<string, number>;
+  active_sessions: DebugActiveSession[];
+  recent_sos_alerts: DebugSosAlert[];
+  position_stats: {
+    last_hour_total: number;
+    last_hour_cellular: number;
+    last_hour_mesh: number;
+  };
+};
+
 export { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection };

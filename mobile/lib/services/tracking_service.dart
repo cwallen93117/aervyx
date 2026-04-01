@@ -75,6 +75,11 @@ class TrackingService extends ChangeNotifier {
   int _positionCount = 0;
   String? _error;
   bool _backendConnected = false;
+  Timer? _heartbeatTimer;
+
+  // ── Offline position buffer ──
+  final List<Map<String, dynamic>> _positionBuffer = [];
+  static const int _maxBufferSize = 5000;
 
   // ── Battery protection ──
   int? _batteryThreshold = 15;
@@ -100,6 +105,7 @@ class TrackingService extends ChangeNotifier {
   // ── Sport & flight detection settings ──
   SportType _sportType = SportType.paraglider;
   bool _multiFlightEnabled = true;
+  bool _debugMode = false;
 
   /// Hardcoded defaults per sport — overridable from admin API.
   static const Map<SportType, _TakeoffThresholds> _defaultTakeoffThresholds = {
@@ -171,7 +177,13 @@ class TrackingService extends ChangeNotifier {
   bool get inCompetitionMode => _activeTask != null;
   SportType get sportType => _sportType;
   bool get multiFlightEnabled => _multiFlightEnabled;
+  bool get debugMode => _debugMode;
+  int get bufferedPositionCount => _positionBuffer.length;
   bool get landingCountdownActive => _landingCountdownActive;
+  /// True when landing conditions are detected but not yet confirmed.
+  bool get landingDetected =>
+      _landingDetectionStart != null &&
+      _trackingState == TrackingState.inFlight;
   int get landingCountdownRemaining {
     if (!_landingCountdownActive || _landingCountdownStart == null) return 0;
     final elapsed = DateTime.now().difference(_landingCountdownStart!).inSeconds;
@@ -182,7 +194,42 @@ class TrackingService extends ChangeNotifier {
   String? _lastSavedIgcPath;
   String? get lastSavedIgcPath => _lastSavedIgcPath;
 
-  TrackingService(this._api, this._igc);
+  TrackingService(this._api, this._igc) {
+    // Start server heartbeat immediately so the LED shows status on app open
+    _startHeartbeat();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Server heartbeat — checks connectivity even when not tracking
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Ping the server periodically to keep the connection status LED accurate.
+  void _startHeartbeat() {
+    // Check immediately on startup
+    _checkServerHealth();
+    // Then every 30 seconds
+    _heartbeatTimer?.cancel();
+    _heartbeatTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkServerHealth(),
+    );
+  }
+
+  Future<void> _checkServerHealth() async {
+    // Skip if actively tracking — position uploads already report connectivity
+    if (_trackingState == TrackingState.inFlight) return;
+    try {
+      await _api.get(ApiConfig.mePath);
+      _backendConnected = true;
+    } on ApiException {
+      // Server reachable but returned an error (e.g. 401) — still "connected"
+      _backendConnected = true;
+    } catch (_) {
+      // Network error — server unreachable
+      _backendConnected = false;
+    }
+    notifyListeners();
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Settings
@@ -197,6 +244,12 @@ class TrackingService extends ChangeNotifier {
   /// Set the sport type for takeoff detection.
   void setSportType(SportType sport) {
     _sportType = sport;
+    notifyListeners();
+  }
+
+  /// Enable/disable debug mode — skips flight detection, sends every position.
+  void setDebugMode(bool enabled) {
+    _debugMode = enabled;
     notifyListeners();
   }
 
@@ -275,7 +328,6 @@ class TrackingService extends ChangeNotifier {
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
 
-    _trackingState = TrackingState.preFlight;
     _positionCount = 0;
     _error = null;
     _stoppedByBattery = false;
@@ -295,11 +347,23 @@ class TrackingService extends ChangeNotifier {
       _flightNumberToday = 1;
     }
 
-    // Update notification for pre-flight state
-    BackgroundTrackingService.updateNotification(
-      title: 'Aervyx — Pre-Flight',
-      content: 'Waiting for takeoff...',
-    );
+    if (_debugMode) {
+      // Debug mode — skip pre-flight, go straight to recording + sending
+      _trackingState = TrackingState.inFlight;
+      _trackingStartTime = DateTime.now();
+      _startFlightTimer();
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx — Debug Mode',
+        content: 'Sending all positions to server...',
+      );
+    } else {
+      _trackingState = TrackingState.preFlight;
+      // Update notification for pre-flight state
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx — Pre-Flight',
+        content: 'Waiting for takeoff...',
+      );
+    }
 
     notifyListeners();
 
@@ -382,6 +446,11 @@ class TrackingService extends ChangeNotifier {
       await _saveCurrentFlight();
     } else {
       _igc.discardCurrentTrack();
+    }
+
+    // Final drain attempt for any buffered positions
+    if (_positionBuffer.isNotEmpty) {
+      await _drainPositionBuffer(limit: _positionBuffer.length);
     }
 
     // Reset flight duration display after 3 seconds
@@ -563,6 +632,14 @@ class TrackingService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _handleInFlight(Position geoPos) async {
+    // Debug mode — send every position at 1Hz, skip landing detection
+    if (_debugMode) {
+      _currentZone = TrackingZone.normalFlight;
+      await _sendPosition(geoPos);
+      notifyListeners();
+      return;
+    }
+
     // Competition mode throttling
     if (_activeTask != null) {
       final nearest =
@@ -883,9 +960,47 @@ class TrackingService extends ChangeNotifier {
       await _api.post(ApiConfig.trackPositionPath, body: payload);
       _error = null;
       _backendConnected = true;
+
+      // Drain buffered positions (up to 20 per successful send)
+      await _drainPositionBuffer();
+    } on ApiException catch (e) {
+      // Server IS reachable but rejected the request (4xx/5xx)
+      _backendConnected = true;
+      if (_positionBuffer.length < _maxBufferSize) {
+        _positionBuffer.add(payload);
+      }
+      if (e.statusCode == 422) {
+        _error = 'Position rejected (422) — backend update needed';
+      } else if (e.statusCode == 401) {
+        _error = 'Session expired — please log in again';
+      } else {
+        _error = 'Server error (${e.statusCode})';
+      }
     } catch (e) {
+      // Network-level failure — server unreachable
       _backendConnected = false;
-      _error = 'Backend offline — recording locally';
+      if (_positionBuffer.length < _maxBufferSize) {
+        _positionBuffer.add(payload);
+      }
+      _error = 'Backend offline — recording locally'
+          '${_positionBuffer.isNotEmpty ? ' (${_positionBuffer.length} buffered)' : ''}';
+    }
+  }
+
+  /// Drain up to [limit] buffered positions to the backend.
+  /// Stops on the first failure so we don't reorder or lose positions.
+  Future<void> _drainPositionBuffer({int limit = 20}) async {
+    var sent = 0;
+    while (_positionBuffer.isNotEmpty && sent < limit) {
+      final buffered = _positionBuffer.first;
+      try {
+        await _api.post(ApiConfig.trackPositionPath, body: buffered);
+        _positionBuffer.removeAt(0);
+        sent++;
+      } catch (_) {
+        // Backend went offline again — stop draining
+        break;
+      }
     }
   }
 
@@ -963,7 +1078,8 @@ class TrackingService extends ChangeNotifier {
   void _startFlightTimer() {
     _flightTimer?.cancel();
     _flightTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_trackingStartTime != null) {
+      if (_trackingStartTime != null &&
+          _landingDetectionStart == null) {
         _flightDuration = DateTime.now().difference(_trackingStartTime!);
 
         // Update the foreground service notification with flight stats
@@ -1029,6 +1145,7 @@ class TrackingService extends ChangeNotifier {
   @override
   void dispose() {
     stopTracking();
+    _heartbeatTimer?.cancel();
     _batteryCheckTimer?.cancel();
     _flightTimer?.cancel();
     _adaptiveTimer?.cancel();

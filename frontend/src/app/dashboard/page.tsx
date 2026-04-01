@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type KeyboardEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import { type FormEvent, type KeyboardEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppSidebar } from "../../components/AppSidebar";
 import { SectionCard } from "../../components/SectionCard";
@@ -50,6 +50,7 @@ import {
   type ScoringTab,
   type AirspaceCategoryOption,
   type TaskPointMode,
+  type DebugStatusResponse,
   blankEventForm,
 } from "../../components/dashboard/types";
 
@@ -475,6 +476,7 @@ export default function HomePage() {
   const [adminSitesFeedback, setAdminSitesFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettingsRecord>(blankSiteSettingsForm());
   const [siteSettingsFeedback, setSiteSettingsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [debugStatus, setDebugStatus] = useState<DebugStatusResponse | null>(null);
   const [logbookFlights, setLogbookFlights] = useState<LogbookFlightSummaryRecord[]>([]);
   const [logbookLoading, setLogbookLoading] = useState(false);
   const [logbookFeedback, setLogbookFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
@@ -1509,6 +1511,16 @@ export default function HomePage() {
     }
   }
 
+  const refreshDebugStatus = useCallback(async () => {
+    if (!token) return;
+    try {
+      const data = await apiFetch<DebugStatusResponse>("/api/admin/debug/status", token);
+      setDebugStatus(data);
+    } catch {
+      // silently ignore - the tab will show stale data or loading state
+    }
+  }, [token]);
+
   async function deleteAdminUser(userRecord: AdminUserRecord) {
     if (!token) return;
     setAdminFeedback(null);
@@ -2473,6 +2485,8 @@ export default function HomePage() {
               setSiteSettings={setSiteSettings}
               siteSettingsFeedback={siteSettingsFeedback}
               saveSiteSettings={saveSiteSettings}
+              debugStatus={debugStatus}
+              refreshDebugStatus={refreshDebugStatus}
             />
           ) : (
             <SettingsSection
