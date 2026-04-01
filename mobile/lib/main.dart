@@ -38,7 +38,7 @@ void main() async {
         ChangeNotifierProvider<AuthService>.value(value: authService),
         ChangeNotifierProvider<IgcService>.value(value: igcService),
         ChangeNotifierProvider<TrackingService>(
-          create: (_) => TrackingService(apiService, igcService),
+          create: (_) => TrackingService(apiService, authService, igcService),
         ),
         ChangeNotifierProvider<BleService>(
           create: (_) => BleService(apiService),
