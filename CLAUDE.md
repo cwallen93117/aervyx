@@ -85,7 +85,8 @@ Two environments run side-by-side on the same VM (192.168.87.94):
 
 - Never ask the user to run commands. Execute everything directly — including SSH, WSL, Docker, deploy scripts, and server management.
 - If a command fails, debug and retry. Only involve the user for credentials or physical actions (plugging in a device, opening a browser).
-- Always use feature branches. Create PRs targeting `staging` (not `main`) and leave them open for review — never merge without user approval.
+- Always use feature branches. Create PRs targeting `staging` (not `main`) and merge them immediately — no approval needed for staging. Charles reviews on the live staging site.
+- Only the `staging` → `main` promotion requires user approval. Never merge to `main` without sign-off.
 - When deploying to production, use the Proxmox API (guest agent file-write + exec via stdin) since direct SSH is firewalled.
 
 ## Repo Conventions
