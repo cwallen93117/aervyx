@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:provider/provider.dart';
 
+import '../config/api_config.dart';
+import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/aervyx_logo.dart';
 
@@ -16,6 +19,25 @@ class _LoginScreenState extends State<LoginScreen> {
   final _passwordCtl = TextEditingController();
   bool _busy = false;
   String? _error;
+  String? _googleClientId;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchGoogleClientId();
+  }
+
+  Future<void> _fetchGoogleClientId() async {
+    try {
+      final api = context.read<ApiService>();
+      final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 3));
+      if (mounted && json['client_id'] != null) {
+        setState(() => _googleClientId = json['client_id'] as String);
+      }
+    } catch (_) {
+      // Google sign-in not configured — button stays hidden
+    }
+  }
 
   Future<void> _handleLogin() async {
     setState(() {
@@ -30,6 +52,32 @@ class _LoginScreenState extends State<LoginScreen> {
           );
     } catch (e) {
       setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _handleGoogleSignIn() async {
+    if (_googleClientId == null) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final googleSignIn = GoogleSignIn(serverClientId: _googleClientId);
+      final account = await googleSignIn.signIn();
+      if (account == null) {
+        if (mounted) setState(() => _busy = false);
+        return; // User cancelled
+      }
+      final auth = await account.authentication;
+      final idToken = auth.idToken;
+      if (idToken == null) {
+        throw Exception('Failed to get Google ID token');
+      }
+      await context.read<AuthService>().loginWithGoogle(idToken);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -97,6 +145,33 @@ class _LoginScreenState extends State<LoginScreen> {
                         : const Text('Log In'),
                   ),
                 ),
+                if (_googleClientId != null) ...[
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      const Expanded(child: Divider()),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('or', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                      ),
+                      const Expanded(child: Divider()),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : _handleGoogleSignIn,
+                      icon: Image.network(
+                        'https://developers.google.com/identity/images/g-logo.png',
+                        height: 18,
+                        width: 18,
+                        errorBuilder: (_, __, ___) => const Icon(Icons.login, size: 18),
+                      ),
+                      label: const Text('Sign in with Google'),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 32),
                 const Divider(),
                 const SizedBox(height: 12),
