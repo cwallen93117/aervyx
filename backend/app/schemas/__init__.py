@@ -350,6 +350,7 @@ class TaskPointInput(BaseModel):
 
 class TaskInput(BaseModel):
     name: str
+    task_date: date | None = None
     status: str = "draft"
     task_type: str = "race_to_goal"
     task_start_time: str | None = None
@@ -374,6 +375,7 @@ class TaskResponse(BaseModel):
     id: int
     event_id: int
     name: str
+    task_date: date | None = None
     status: str
     task_type: str
     task_start_time: str | None

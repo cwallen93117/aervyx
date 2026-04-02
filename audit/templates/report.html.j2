@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aervyx Scoring Audit Report</title>
+<style>
+  :root {
+    --green: #d4edda; --green-text: #155724;
+    --yellow: #fff3cd; --yellow-text: #856404;
+    --red: #f8d7da; --red-text: #721c24;
+    --blue: #cce5ff; --blue-text: #004085;
+    --gray: #e9ecef;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 14px; color: #333; background: #f5f5f5; padding: 20px; }
+  .container { max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 24px; margin-bottom: 8px; }
+  h2 { font-size: 20px; margin: 24px 0 12px; border-bottom: 2px solid #dee2e6; padding-bottom: 6px; }
+  h3 { font-size: 16px; margin: 16px 0 8px; }
+  .meta { color: #666; font-size: 12px; margin-bottom: 20px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .summary-card { background: white; border-radius: 8px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); text-align: center; }
+  .summary-card .value { font-size: 28px; font-weight: 700; }
+  .summary-card .label { font-size: 12px; color: #666; margin-top: 4px; }
+  .known-gap { background: var(--yellow); border-left: 4px solid #ffc107; padding: 12px 16px; margin-bottom: 20px; border-radius: 4px; }
+  .known-gap strong { color: var(--yellow-text); }
+  .comp-section { background: white; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+  .comp-header { padding: 16px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; }
+  .comp-header:hover { background: #fafafa; }
+  .comp-header .comp-name { font-weight: 600; font-size: 16px; }
+  .comp-header .comp-stats { font-size: 12px; color: #666; }
+  .comp-body { padding: 16px; display: none; }
+  .comp-body.open { display: block; }
+  .toggle { font-size: 18px; transition: transform 0.2s; }
+  .toggle.open { transform: rotate(90deg); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  th { background: #f8f9fa; font-weight: 600; text-align: left; padding: 8px 10px; border-bottom: 2px solid #dee2e6; white-space: nowrap; }
+  td { padding: 6px 10px; border-bottom: 1px solid #eee; }
+  tr:hover td { background: #f8f9fa; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .exact { background: var(--green); color: var(--green-text); }
+  .close { background: var(--yellow); color: var(--yellow-text); }
+  .mismatch { background: var(--red); color: var(--red-text); }
+  .missing { background: var(--gray); color: #666; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .task-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 8px; margin-bottom: 12px; font-size: 13px; }
+  .task-meta dt { font-weight: 600; color: #666; }
+  .task-meta dd { margin-left: 0; }
+  .stats-row { display: flex; gap: 24px; flex-wrap: wrap; font-size: 13px; margin-bottom: 12px; padding: 8px 12px; background: #f8f9fa; border-radius: 6px; }
+  .stats-row .stat { display: flex; gap: 4px; }
+  .stats-row .stat-label { color: #666; }
+  .stats-row .stat-value { font-weight: 600; }
+  .error-list { list-style: none; padding: 0; }
+  .error-list li { padding: 4px 0; color: var(--red-text); font-size: 12px; }
+  .error-list li::before { content: "!"; display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; background: var(--red); border-radius: 50%; margin-right: 6px; font-size: 10px; font-weight: 700; }
+  .skipped { color: #666; font-style: italic; padding: 12px; }
+  @media print { body { background: white; padding: 0; } .comp-body { display: block !important; } .toggle { display: none; } }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>Aervyx Scoring Audit Report</h1>
+<p class="meta">Generated {{ generated_at }} | Highland Challenge Competitions</p>
+
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="value">{{ total_comps }}</div>
+    <div class="label">Competitions</div>
+  </div>
+  <div class="summary-card">
+    <div class="value">{{ total_tasks }}</div>
+    <div class="label">Tasks Scored</div>
+  </div>
+  <div class="summary-card">
+    <div class="value">{{ total_comparisons }}</div>
+    <div class="label">Pilot-Task Comparisons</div>
+  </div>
+  <div class="summary-card">
+    <div class="value" style="color: var(--green-text);">{{ total_exact }}</div>
+    <div class="label">Exact Matches (&le;0.1 pts)</div>
+  </div>
+  <div class="summary-card">
+    <div class="value" style="color: var(--yellow-text);">{{ total_close }}</div>
+    <div class="label">Close (&le;2 pts)</div>
+  </div>
+  <div class="summary-card">
+    <div class="value" style="color: var(--red-text);">{{ total_mismatch }}</div>
+    <div class="label">Mismatches (&gt;2 pts)</div>
+  </div>
+  <div class="summary-card">
+    <div class="value">{{ match_rate }}%</div>
+    <div class="label">Exact Match Rate</div>
+  </div>
+</div>
+
+<div class="known-gap">
+  <strong>Known Gap:</strong> Aervyx does not yet implement <strong>leading points</strong>. The "Adj. Diff" column shows the comparison after subtracting FSDB leading points from the FSDB total, giving an apples-to-apples comparison on the scoring components Aervyx does calculate.
+</div>
+
+{% for comp in comparisons %}
+<div class="comp-section">
+  <div class="comp-header" onclick="this.querySelector('.toggle').classList.toggle('open'); this.nextElementSibling.classList.toggle('open');">
+    <div>
+      <span class="comp-name">{{ comp.name }}</span>
+      <span class="comp-stats">
+        &mdash; {{ comp.tasks|length }} tasks, {{ comp.total_pilots }} pilots
+        {% if comp.skipped %} (skipped: {{ comp.skip_reason }}){% endif %}
+      </span>
+    </div>
+    <span class="toggle">&#9654;</span>
+  </div>
+  <div class="comp-body">
+    {% if comp.skipped and not comp.tasks %}
+      <p class="skipped">{{ comp.skip_reason }}</p>
+    {% endif %}
+
+    {% if comp.errors %}
+    <h3>Errors</h3>
+    <ul class="error-list">
+      {% for err in comp.errors %}
+      <li>{{ err }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    {% for tc in comp.tasks %}
+    <h3>{{ tc.task_name }}</h3>
+
+    <div class="stats-row">
+      <div class="stat">
+        <span class="stat-label">FSDB Day Quality:</span>
+        <span class="stat-value">{{ tc.fsdb_day_quality|fmt('.4f') }}</span>
+      </div>
+      {% if tc.aervyx_day_quality is not none %}
+      <div class="stat">
+        <span class="stat-label">Aervyx Day Quality:</span>
+        <span class="stat-value">{{ tc.aervyx_day_quality|fmt('.4f') }}</span>
+      </div>
+      {% endif %}
+      <div class="stat">
+        <span class="stat-label">FSDB Avail Dist/Time/Lead:</span>
+        <span class="stat-value">{{ tc.fsdb_avail_distance|fmt }} / {{ tc.fsdb_avail_time|fmt }} / {{ tc.fsdb_avail_leading|fmt }}</span>
+      </div>
+      {% if tc.aervyx_avail_distance is not none %}
+      <div class="stat">
+        <span class="stat-label">Aervyx Avail Dist/Time:</span>
+        <span class="stat-value">{{ tc.aervyx_avail_distance|fmt }} / {{ tc.aervyx_avail_time|fmt }}</span>
+      </div>
+      {% endif %}
+      <div class="stat">
+        <span class="stat-label">MAE (adj):</span>
+        <span class="stat-value">{{ tc.mean_abs_error_adj|fmt }}</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Max Error (adj):</span>
+        <span class="stat-value">{{ tc.max_error_adj|fmt }}</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Rank Swaps:</span>
+        <span class="stat-value">{{ tc.rank_swaps }}</span>
+      </div>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Pilot</th>
+          <th class="num">FS Rank</th>
+          <th class="num">AV Rank</th>
+          <th class="num">FS Total</th>
+          <th class="num">FS Lead</th>
+          <th class="num">FS Adj</th>
+          <th class="num">AV Total</th>
+          <th class="num">Diff</th>
+          <th class="num">Adj. Diff</th>
+          <th class="num">FS Dist Pts</th>
+          <th class="num">AV Dist Pts</th>
+          <th class="num">FS Time Pts</th>
+          <th class="num">AV Time Pts</th>
+          <th class="num">FS Dist km</th>
+          <th class="num">AV Dist km</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pc in tc.pilots %}
+        <tr>
+          <td>{{ pc.pilot_name }}</td>
+          <td class="num">{{ pc.fsdb_rank if pc.fsdb_rank is not none else '-' }}</td>
+          <td class="num">{{ pc.aervyx_rank if pc.aervyx_rank is not none else '-' }}</td>
+          <td class="num">{{ pc.fsdb_total|fmt }}</td>
+          <td class="num">{{ pc.fsdb_leading_pts|fmt }}</td>
+          <td class="num">{{ pc.fsdb_total_adj|fmt }}</td>
+          <td class="num">{{ pc.aervyx_total|fmt }}</td>
+          <td class="num">{{ pc.total_diff|sign }}</td>
+          <td class="num">{{ pc.total_diff_adj|sign }}</td>
+          <td class="num">{{ pc.fsdb_distance_pts|fmt }}</td>
+          <td class="num">{{ pc.aervyx_distance_pts|fmt }}</td>
+          <td class="num">{{ pc.fsdb_time_pts|fmt }}</td>
+          <td class="num">{{ pc.aervyx_time_pts|fmt }}</td>
+          <td class="num">{{ pc.fsdb_distance_km|fmt }}</td>
+          <td class="num">{{ pc.aervyx_distance_km|fmt }}</td>
+          <td><span class="badge {{ pc.match_status }}">{{ pc.match_status }}</span></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endfor %}
+
+    {% if comp.tasks %}
+    <h3>Competition Summary</h3>
+    <div class="stats-row">
+      <div class="stat">
+        <span class="stat-label">Overall MAE:</span>
+        <span class="stat-value">{{ comp.overall_mean_abs_error|fmt }} pts</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Overall MAE (adj):</span>
+        <span class="stat-value">{{ comp.overall_mean_abs_error_adj|fmt }} pts</span>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endfor %}
+
+</div>
+
+<script>
+// Auto-expand the first competition
+document.addEventListener('DOMContentLoaded', function() {
+  var first = document.querySelector('.comp-body');
+  if (first) { first.classList.add('open'); first.previousElementSibling.querySelector('.toggle').classList.add('open'); }
+});
+</script>
+</body>
+</html>

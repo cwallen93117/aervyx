@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_staff
-from app.models import AuditLog, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskScoringInput, User
+from app.models import AuditLog, Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskScoringInput, User
 from app.schemas import (
     PenaltyAuditEntry,
     PilotSummaryResponse,
@@ -502,18 +502,52 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
 
     agg_by_pilot: dict[int, tuple] = {row[0]: row[1:] for row in agg_rows}
 
+    # FTV (Fixed Total Validity): when use_best_score_for_ftv_validity is enabled
+    # on the event, the overall ranking uses each task's best actual score as the
+    # validity ceiling rather than the theoretical 1000 * day_quality.  This means
+    # each pilot's per-task score is divided by the task's best actual score to
+    # produce a normalised contribution, and the total is capped at the number of
+    # tasks (each task can contribute at most 1.0).  The effect is that weaker-day
+    # tasks count proportionally less.
+    event = session.get(Event, event_id)
+    use_ftv = bool(event.use_best_score_for_ftv_validity) if event and event.use_best_score_for_ftv_validity is not None else False
+
+    # Pre-compute per-task best score for FTV normalisation
+    task_best_score: dict[int, float] = {}
+    if use_ftv:
+        for _pid, tid, pts, _state in score_rows:
+            tid_int = int(tid)
+            pts_val = float(pts or 0)
+            if pts_val > task_best_score.get(tid_int, 0):
+                task_best_score[tid_int] = pts_val
+
     summaries: list[PilotSummaryResponse] = []
     for pilot_id in pilot_ids:
         pilot = pilots_by_id.get(pilot_id)
         agg = agg_by_pilot.get(pilot_id, (0, 0, 0))
+        pilot_task_scores = task_scores_by_pilot.get(pilot_id, {})
+
+        if use_ftv and task_best_score:
+            # FTV total: sum of (pilot_score / best_score_for_task) for each task,
+            # then multiply by the average best-score to get back into point-space.
+            ftv_sum = 0.0
+            for tid_str, pts in pilot_task_scores.items():
+                best = task_best_score.get(int(tid_str), 0)
+                if best > 0:
+                    ftv_sum += float(pts) / best
+            avg_best = sum(task_best_score.values()) / max(len(task_best_score), 1)
+            total_score = round(ftv_sum * avg_best, 2)
+        else:
+            total_score = float(agg[0] or 0)
+
         summaries.append(PilotSummaryResponse(
             pilot_id=pilot_id,
             pilot_name=f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
             competition_number=pilot.competition_number if pilot else None,
-            total_score_points=float(agg[0] or 0),
+            total_score_points=total_score,
             tasks_scored=int(agg[1] or 0),
             best_distance_km=float(agg[2] or 0),
-            task_scores=task_scores_by_pilot.get(pilot_id, {}),
+            task_scores=pilot_task_scores,
             task_result_states=task_states_by_pilot.get(pilot_id, {}),
         ))
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))
