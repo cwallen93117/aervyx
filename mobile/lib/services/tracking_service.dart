@@ -9,6 +9,7 @@ import '../config/api_config.dart';
 import '../models/position.dart' as model;
 import '../models/turnpoint.dart';
 import 'api_service.dart';
+import 'auth_service.dart';
 import 'background_service.dart';
 import 'igc_service.dart';
 
@@ -60,6 +61,7 @@ class _TakeoffThresholds {
 /// detection, and multi-flight monitoring mode.
 class TrackingService extends ChangeNotifier {
   final ApiService _api;
+  final AuthService _auth;
   final IgcService _igc;
   final Battery _battery = Battery();
 
@@ -194,7 +196,7 @@ class TrackingService extends ChangeNotifier {
   String? _lastSavedIgcPath;
   String? get lastSavedIgcPath => _lastSavedIgcPath;
 
-  TrackingService(this._api, this._igc) {
+  TrackingService(this._api, this._auth, this._igc) {
     // Start server heartbeat immediately so the LED shows status on app open
     _startHeartbeat();
   }
@@ -1012,7 +1014,8 @@ class TrackingService extends ChangeNotifier {
     try {
       final trackPoints = _igc.currentTrackPointCount;
       _lastSavedIgcPath = await _igc.saveCurrentFlight(
-        flightNumber: _flightNumberToday > 1 ? _flightNumberToday : null,
+        pilotName: _auth.user?.fullName,
+        flightNumber: _flightNumberToday > 0 ? _flightNumberToday : null,
       );
       if (_lastSavedIgcPath != null) {
         _error = 'Flight saved ($trackPoints points)';

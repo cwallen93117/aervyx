@@ -72,6 +72,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         nation=pilot.nation if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
         civl_id=pilot.civl_id if pilot else None,
+        has_password=bool(user.password_hash),
         access_token=access_token,
     )
 

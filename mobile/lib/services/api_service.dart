@@ -21,7 +21,9 @@ class ApiService {
         .replace(queryParameters: query);
     final response = await http.get(uri, headers: _headers);
     _assertOk(response);
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    if (response.body.isEmpty) return {};
+    final decoded = jsonDecode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : {};
   }
 
   Future<List<dynamic>> getList(String path,
@@ -42,7 +44,8 @@ class ApiService {
     );
     _assertOk(response);
     if (response.body.isEmpty) return {};
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    final decoded = jsonDecode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : {};
   }
 
   Future<Map<String, dynamic>> patch(String path,
@@ -54,7 +57,8 @@ class ApiService {
     );
     _assertOk(response);
     if (response.body.isEmpty) return {};
-    return jsonDecode(response.body) as Map<String, dynamic>;
+    final decoded = jsonDecode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : {};
   }
 
   /// Open an SSE stream and yield raw lines.

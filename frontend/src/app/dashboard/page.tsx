@@ -190,6 +190,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     nation: "",
     competition_number: "",
     civl_id: "",
+    has_password: false,
   };
 }
 
@@ -1409,8 +1410,10 @@ export default function HomePage() {
           new_password: settingsPasswordForm.new_password,
         }),
       });
+      const wasFirstPassword = !settingsForm.has_password;
       setSettingsPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
-      setSettingsFeedback((current) => ({ ...current, password: { type: "success", text: "Password updated successfully." } }));
+      if (wasFirstPassword) setSettingsForm((current) => ({ ...current, has_password: true }));
+      setSettingsFeedback((current) => ({ ...current, password: { type: "success", text: wasFirstPassword ? "Password set successfully. You can now log in from the mobile app." : "Password updated successfully." } }));
     } catch (caught) {
       setSettingsFeedback((current) => ({
         ...current,

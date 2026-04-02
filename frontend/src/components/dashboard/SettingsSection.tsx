@@ -190,22 +190,29 @@ export default function SettingsSection(props: SettingsSectionProps) {
 
       {activeTab === "password" && (
         <div className="settings-tab-panel">
+          {!settingsForm.has_password && (
+            <p className="settings-description">Your account was created via Google Sign-In and has no password yet. Set one here to enable mobile app login.</p>
+          )}
           <form className="stack form-block" onSubmit={savePasswordSettings}>
-            <label className="stack compact">
-              <span>Current password</span>
-              <input
-                type={showCurrentSettingsPassword ? "text" : "password"}
-                value={settingsPasswordForm.current_password}
-                onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
-                autoComplete="current-password"
-                required
-              />
-            </label>
-            <div className="button-row">
-              <button type="button" className="ghost-button" onClick={() => setShowCurrentSettingsPassword((current: boolean) => !current)}>
-                {showCurrentSettingsPassword ? "Hide" : "Show"}
-              </button>
-            </div>
+            {settingsForm.has_password ? (
+              <>
+                <label className="stack compact">
+                  <span>Current password</span>
+                  <input
+                    type={showCurrentSettingsPassword ? "text" : "password"}
+                    value={settingsPasswordForm.current_password}
+                    onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
+                    autoComplete="current-password"
+                    required
+                  />
+                </label>
+                <div className="button-row">
+                  <button type="button" className="ghost-button" onClick={() => setShowCurrentSettingsPassword((current: boolean) => !current)}>
+                    {showCurrentSettingsPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </>
+            ) : null}
             <div className="inline-grid">
               <label className="stack compact">
                 <span>New password</span>
@@ -217,7 +224,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
               </label>
             </div>
             <div className="button-row">
-              <button type="submit">Update password</button>
+              <button type="submit">{settingsForm.has_password ? "Update password" : "Set password"}</button>
             </div>
             {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
           </form>

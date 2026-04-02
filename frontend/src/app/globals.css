@@ -4179,6 +4179,12 @@ button[type="submit"]:hover,
   text-transform: capitalize;
 }
 
+.settings-description {
+  color: var(--ink-secondary);
+  font-size: 0.875rem;
+  margin: 0 0 4px;
+}
+
 .settings-type-control {
   display: inline-flex;
   align-items: center;

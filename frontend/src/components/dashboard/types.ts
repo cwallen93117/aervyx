@@ -20,6 +20,7 @@ export type AccountSettingsRecord = {
   nation: string | null;
   competition_number: string | null;
   civl_id: string | null;
+  has_password?: boolean;
   access_token?: string | null;
 };
 export type AdminUserRecord = {
