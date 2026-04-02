@@ -194,6 +194,7 @@ export type TaskRecord = {
   name: string;
   status: string;
   task_type: string;
+  task_date: string | null;
   task_start_time: string | null;
   task_finish_time: string | null;
   start_open_time: string | null;
@@ -251,6 +252,7 @@ export type TaskDraftState = {
   id: number | null;
   name: string;
   task_type: string;
+  task_date: string;
   task_start_time: string;
   task_finish_time: string;
   start_open_time: string;

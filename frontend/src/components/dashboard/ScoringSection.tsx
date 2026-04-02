@@ -124,11 +124,12 @@ function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arr
 
 function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactNode {
   const stateClassName = resultState === "provisional" ? "provisional" : resultState === "official" ? "official" : "";
-  const stateLabel = resultState === "provisional" ? "Unofficial" : resultState === "official" ? "Official" : "";
+  const stateLabel = resultState === "provisional" ? "Provisional" : resultState === "official" ? "Official" : "";
+  const dateLabel = formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at);
   return (
     <span className="results-header-stack">
       <span>{task.name}</span>
-      <span>{formatDateLabel(task.published_at)}</span>
+      <span>{dateLabel}</span>
       {stateLabel ? <span className={`result-state-badge ${stateClassName}`}>{stateLabel}</span> : null}
     </span>
   );
@@ -339,7 +340,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
               {taskDefinitionRows.length ? (
                 <div className="results-sheet task-definition-sheet">
                   <div className="results-sheet-header">
-                    <h3>Task definition</h3>
+                    <h3>Task definition {formatDateLabel(selectedTask?.task_date) !== "-" ? <span className="results-header-date">{formatDateLabel(selectedTask?.task_date)}</span> : null}</h3>
                     <p>{selectedTask?.name ?? taskDraft.name} {taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type) ? `- ${taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)}` : ""}</p>
                   </div>
                   <div className="results-table-wrap">
@@ -569,7 +570,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         {scoredTasks.map((task) => (
                           <tr key={task.id}>
                             <td><strong>{task.name}</strong></td>
-                            <td>{formatDateLabel(task.published_at)}</td>
+                            <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                             <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
                             <td>{selectedTaskId === task.id ? taskDayQuality(results) : "-"}</td>
                             <td>{taskTypeLabel(task.task_type)}</td>

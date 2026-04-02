@@ -229,6 +229,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "start_close_time": "ALTER TABLE tasks ADD COLUMN start_close_time VARCHAR(8)",
         "start_gate_count": "ALTER TABLE tasks ADD COLUMN start_gate_count INTEGER DEFAULT 1",
         "start_gate_interval_seconds": "ALTER TABLE tasks ADD COLUMN start_gate_interval_seconds INTEGER",
+        "task_date": "ALTER TABLE tasks ADD COLUMN task_date VARCHAR(10)",
     }
     score_result_statements = {
         "raw_score_points": "ALTER TABLE score_results ADD COLUMN raw_score_points FLOAT DEFAULT 0",
