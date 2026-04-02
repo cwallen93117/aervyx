@@ -25,6 +25,192 @@ const scoringFormulaOptions = [
   { value: "OzGAP2005", label: "OzGAP 2005" },
   { value: "PWC2016", label: "PWC 2016" },
 ] as const;
+
+/* ---------- Formula preset defaults per GAP version ---------- */
+
+type FormulaPreset = Partial<EventFormState>;
+
+const formulaPresetBase: FormulaPreset = {
+  nominal_goal_percent: 0.2,
+  nominal_distance_km: 60,
+  nominal_time_hours: 1.5,
+  nominal_launch: 0.95,
+  minimum_distance_km: 5,
+  score_back_time_minutes: 15,
+  goal_ss_penalty: 1.0,
+  stopped_glide_bonus: 0,
+  jump_the_gun_factor: 0,
+  jump_the_gun_max_seconds: 0,
+  time_points_if_not_in_goal: 0,
+  leading_weight_factor: 1.0,
+  turnpoint_radius_tolerance: 0.005,
+  turnpoint_radius_minimum_absolute_tolerance_m: 5,
+  number_of_decimals_task_results: 1,
+  number_of_decimals_competition_results: 0,
+  scoring_altitude: "GPS",
+  final_glide_decelerator: "none",
+  use_distance_points: true,
+  use_time_points: true,
+  use_leading_points: false,
+  use_arrival_position_points: false,
+  use_arrival_time_points: false,
+  use_departure_points: false,
+  use_1000_points_for_max_day_quality: false,
+  normalize_1000_before_day_quality: false,
+  use_difficulty_for_distance_points: true,
+  use_distance_squared_for_lc: false,
+  use_semi_circle_control_zone_for_goal_line: false,
+  use_proportional_leading_weight_if_nobody_in_goal: false,
+  redistribute_removed_time_points_as_distance_points: false,
+  use_best_score_for_ftv_validity: false,
+  use_constant_leading_weight: false,
+  use_pwca2019_for_lc: false,
+  use_flat_decline_of_timepoints: false,
+  day_quality_override: 0,
+  min_time_span_for_valid_task_minutes: 0,
+};
+
+const formulaPresets: Record<string, FormulaPreset> = {
+  GAP2021: {
+    ...formulaPresetBase,
+    use_flat_decline_of_timepoints: true,
+    redistribute_removed_time_points_as_distance_points: true,
+    use_distance_squared_for_lc: true,
+    use_semi_circle_control_zone_for_goal_line: true,
+    use_difficulty_for_distance_points: true,
+    time_points_if_not_in_goal: 0.8,
+    score_back_time_minutes: 15,
+    stopped_glide_bonus: 5,
+    jump_the_gun_factor: 2,
+    jump_the_gun_max_seconds: 300,
+    min_time_span_for_valid_task_minutes: 45,
+  },
+  GAP2020: {
+    ...formulaPresetBase,
+    use_flat_decline_of_timepoints: true,
+    redistribute_removed_time_points_as_distance_points: true,
+    use_distance_squared_for_lc: true,
+    use_semi_circle_control_zone_for_goal_line: true,
+    use_difficulty_for_distance_points: true,
+    time_points_if_not_in_goal: 0.8,
+    score_back_time_minutes: 15,
+    stopped_glide_bonus: 5,
+    jump_the_gun_factor: 2,
+    jump_the_gun_max_seconds: 300,
+    min_time_span_for_valid_task_minutes: 45,
+  },
+  GAP2018: {
+    ...formulaPresetBase,
+    use_difficulty_for_distance_points: true,
+    use_distance_squared_for_lc: true,
+    use_semi_circle_control_zone_for_goal_line: true,
+    time_points_if_not_in_goal: 0,
+    score_back_time_minutes: 15,
+    stopped_glide_bonus: 4,
+    jump_the_gun_factor: 2,
+    jump_the_gun_max_seconds: 300,
+    min_time_span_for_valid_task_minutes: 45,
+  },
+  GAP2016: {
+    ...formulaPresetBase,
+    use_difficulty_for_distance_points: true,
+    use_arrival_position_points: true,
+    time_points_if_not_in_goal: 0,
+    score_back_time_minutes: 15,
+    stopped_glide_bonus: 4,
+    jump_the_gun_factor: 2,
+    jump_the_gun_max_seconds: 300,
+    min_time_span_for_valid_task_minutes: 45,
+  },
+  GAP2008: {
+    ...formulaPresetBase,
+    use_difficulty_for_distance_points: true,
+    use_arrival_position_points: true,
+    use_departure_points: true,
+    time_points_if_not_in_goal: 0,
+    score_back_time_minutes: 15,
+    stopped_glide_bonus: 0,
+  },
+  OzGAP2005: {
+    ...formulaPresetBase,
+    use_difficulty_for_distance_points: true,
+    use_arrival_time_points: true,
+    use_departure_points: true,
+    time_points_if_not_in_goal: 0,
+    score_back_time_minutes: 15,
+    stopped_glide_bonus: 0,
+  },
+  PWC2016: {
+    ...formulaPresetBase,
+    use_leading_points: true,
+    use_distance_squared_for_lc: true,
+    use_pwca2019_for_lc: false,
+    use_difficulty_for_distance_points: true,
+    time_points_if_not_in_goal: 0,
+    score_back_time_minutes: 5,
+    stopped_glide_bonus: 0,
+  },
+};
+
+/* ---------- Formula description / info per version ---------- */
+
+const formulaDescriptions: Record<string, { summary: string; details: string }> = {
+  GAP2021: {
+    summary: "Current FAI/CIVL standard (2021+)",
+    details:
+      "GAP 2021 is the current scoring formula defined by the FAI/CIVL Plenary. Key features compared to earlier versions: " +
+      "time validity uses fastest pilot time (not 2nd fastest), flat decline of time points for a more gradual speed score taper, " +
+      "removed time points are redistributed as distance points, distance-squared leading coefficient, " +
+      "semi-circle goal line control zone, and time_points_if_not_in_goal defaults to 0.8 (pilots not in goal keep 80% of time points). " +
+      "This is the recommended formula for CIVL-sanctioned competitions from 2021 onward.",
+  },
+  GAP2020: {
+    summary: "Transitional version between GAP 2018 and 2021",
+    details:
+      "GAP 2020 introduced several features later adopted in GAP 2021: flat decline of time points, " +
+      "redistribution of removed time points as distance points, and distance-squared leading coefficient. " +
+      "It is functionally very similar to GAP 2021. Used during the 2020 season before the formal GAP 2021 adoption.",
+  },
+  GAP2018: {
+    summary: "Removed arrival points, added distance-squared LC",
+    details:
+      "GAP 2018 removed arrival position points from the standard formula (arrival weight goes to speed). " +
+      "It introduced the distance-squared leading coefficient and semi-circle goal line control zone. " +
+      "Time validity still uses 2nd-fastest pilot time. Time points if not in goal is 0 (only goal pilots get time points). " +
+      "Glide bonus is 4. Used for CIVL-sanctioned competitions 2018\u20132019.",
+  },
+  GAP2016: {
+    summary: "Last version with arrival position points by default",
+    details:
+      "GAP 2016 includes arrival position points in the default weight allocation. " +
+      "Uses difficulty-weighted distance points and the standard (non-squared) leading coefficient. " +
+      "Time validity uses 2nd-fastest pilot time. Glide bonus is 4. " +
+      "Used for CIVL-sanctioned competitions 2016\u20132017.",
+  },
+  GAP2008: {
+    summary: "Classic GAP with arrival + departure points",
+    details:
+      "GAP 2008 is the classic formula with all four optional point categories active by default: " +
+      "distance, time, arrival (position), and departure/start points. " +
+      "Uses difficulty-weighted distance. No leading coefficient, no flat decline, no time points redistribution. " +
+      "Widely used for hang gliding and paragliding competitions from 2008 through 2015.",
+  },
+  OzGAP2005: {
+    summary: "Australian variant with timed arrival",
+    details:
+      "OzGAP 2005 is an Australian variant that uses arrival time points (instead of position) " +
+      "and departure points. It follows the same core GAP validity and distance difficulty formulas. " +
+      "Primarily used in Australian and Oceania competitions.",
+  },
+  PWC2016: {
+    summary: "Paragliding World Cup formula",
+    details:
+      "PWC 2016 is the Paragliding World Cup scoring formula. It enables leading points with distance-squared LC, " +
+      "but does not use arrival or departure points (their weight goes to speed). " +
+      "Score-back time defaults to 5 minutes (vs 15 for standard GAP). No glide bonus. " +
+      "Used by the PWCA circuit. When combined with use_pwca2019_for_lc, applies the 2019 leading coefficient method.",
+  },
+};
 const scoringAltitudeOptions = [
   { value: "GPS", label: "GPS altitude" },
   { value: "QNH", label: "QNH altitude" },
@@ -59,7 +245,7 @@ type ScoringHelpCopy = { title: string; body: string };
 const scoringFieldHelp = {
   scoring_formula: {
     title: "Scoring formula",
-    body: "Chooses the GAP ruleset/version used to calculate validity, weights, and pilot points for the event.",
+    body: "Chooses the GAP ruleset/version. Changing this will update the parameter checkboxes and numeric defaults below to match that version\u2019s standard settings. You can still override individual parameters after selecting a formula.",
   },
   nominal_goal_percent: {
     title: "Nominal goal",
@@ -457,6 +643,7 @@ export default function EventsSection(props: EventsSectionProps) {
   const [scoringPresets, setScoringPresets] = useState<ScoringPresetRecord[]>([]);
   const [presetFeedback, setPresetFeedback] = useState<PresetFeedback>(null);
   const [activeHelpId, setActiveHelpId] = useState<ScoringHelpId | null>(null);
+  const [formulaInfoOpen, setFormulaInfoOpen] = useState(false);
   const [scoringTemplateEventId, setScoringTemplateEventId] = useState("");
   const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
@@ -748,10 +935,32 @@ export default function EventsSection(props: EventsSectionProps) {
                 <div className="cluster-stack">
               <label className="stack compact">
                 <LabelWithHelp label="Scoring formula" helpId="scoring_formula" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
-                <select value={eventForm.scoring_formula} onChange={(event) => setEventForm({ ...eventForm, scoring_formula: event.target.value })}>
+                <select value={eventForm.scoring_formula} onChange={(event) => {
+                  const newFormula = event.target.value;
+                  const preset = formulaPresets[newFormula];
+                  setFormulaInfoOpen(false);
+                  if (preset) {
+                    setEventForm({ ...eventForm, ...preset, scoring_formula: newFormula });
+                  } else {
+                    setEventForm({ ...eventForm, scoring_formula: newFormula });
+                  }
+                }}>
                   {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
+              {formulaDescriptions[eventForm.scoring_formula] ? (
+                <div className="formula-info-block">
+                  <button type="button" className="formula-info-toggle" onClick={() => setFormulaInfoOpen(!formulaInfoOpen)}>
+                    {formulaInfoOpen ? "Hide" : "About"} {scoringFormulaOptions.find((o) => o.value === eventForm.scoring_formula)?.label ?? eventForm.scoring_formula}
+                  </button>
+                  {formulaInfoOpen ? (
+                    <div className="formula-info-panel">
+                      <strong>{formulaDescriptions[eventForm.scoring_formula].summary}</strong>
+                      <p>{formulaDescriptions[eventForm.scoring_formula].details}</p>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="inline-grid">
                 <label className="stack compact">
                   <LabelWithHelp label="Nominal goal (%)" helpId="nominal_goal_percent" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
