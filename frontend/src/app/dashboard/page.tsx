@@ -1348,7 +1348,6 @@ export default function HomePage() {
           username: normalizeIdentityEmail(settingsForm.username),
           full_name: settingsForm.full_name,
           profile_type: settingsForm.profile_type,
-          role: settingsForm.role === "admin" ? undefined : settingsForm.role,
           altitude_unit: settingsForm.altitude_unit,
           speed_unit: settingsForm.speed_unit,
           distance_unit: settingsForm.distance_unit,
