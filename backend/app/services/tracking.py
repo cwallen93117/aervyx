@@ -229,6 +229,72 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
     ]
 
 
+def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[str, Any]]:
+    """Return latest position for every pilot with recent activity (any task or free-flight)."""
+    from datetime import timedelta
+    from sqlalchemy import func as sa_func
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+
+    active_sessions = session.scalars(
+        select(TrackingSession).where(
+            TrackingSession.is_active.is_(True),
+            TrackingSession.last_seen_at >= cutoff,
+        )
+    ).all()
+
+    if not active_sessions:
+        return []
+
+    pilot_ids = [s.pilot_id for s in active_sessions if s.pilot_id is not None]
+    if not pilot_ids:
+        return []
+
+    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+
+    # Pilot names via User table
+    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all()
+    pilot_names: dict[int, str] = {}
+    for u in users:
+        if u.pilot_id is not None and u.pilot_id not in pilot_names:
+            pilot_names[u.pilot_id] = u.full_name
+
+    # Latest position per pilot
+    row_num = sa_func.row_number().over(
+        partition_by=LivePosition.pilot_id,
+        order_by=LivePosition.timestamp.desc(),
+    ).label("rn")
+
+    subq = (
+        select(LivePosition, row_num)
+        .where(
+            LivePosition.pilot_id.in_(pilot_ids),
+            LivePosition.timestamp >= cutoff,
+        )
+        .subquery()
+    )
+
+    rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
+
+    return [
+        {
+            "pilot_id": row.pilot_id,
+            "pilot_name": pilot_names.get(row.pilot_id, f"Pilot {row.pilot_id}"),
+            "lat": row.lat,
+            "lon": row.lon,
+            "alt": row.alt,
+            "speed": row.speed,
+            "heading": row.heading,
+            "accuracy": row.accuracy,
+            "timestamp": row.timestamp.isoformat(),
+            "source": row.source,
+            "battery_level": row.battery_level,
+            "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
+        }
+        for row in rows
+    ]
+
+
 def get_position_history(
     session: Session,
     task_id: int,

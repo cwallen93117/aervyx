@@ -17,6 +17,7 @@ from app.db import get_session
 from app.deps import get_current_user
 from app.models import Event, EventPilot, SosAlert, Task, TaskPoint, User
 from app.services.tracking import (
+    get_all_active_positions,
     get_live_positions,
     get_position_history,
     store_position,
@@ -68,6 +69,21 @@ class MeshConfigResponse(BaseModel):
     mqtt_host: str | None = None
     mqtt_port: int = 1883
     topic_prefix: str = "aervyx"
+
+
+class ActivePilotResponse(BaseModel):
+    pilot_id: int
+    pilot_name: str
+    lat: float
+    lon: float
+    alt: float | None = None
+    speed: float | None = None
+    heading: float | None = None
+    accuracy: float | None = None
+    timestamp: str
+    source: str | None = None
+    battery_level: int | None = None
+    aircraft_icon: str = "hang_glider"
 
 
 class SosPayload(BaseModel):
@@ -228,6 +244,16 @@ def get_positions(
 
     rows = get_position_history(session, task_id, pilot_id=pilot_id, since=since, limit=limit)
     return [PositionResponse(**row) for row in rows]
+
+
+@router.get("/api/track/active-pilots", response_model=list[ActivePilotResponse])
+def get_active_pilots_endpoint(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[ActivePilotResponse]:
+    """Return latest position for all pilots with recent activity (any task or free-flight)."""
+    rows = get_all_active_positions(session)
+    return [ActivePilotResponse(**row) for row in rows]
 
 
 @router.get("/api/config/mesh", response_model=MeshConfigResponse)

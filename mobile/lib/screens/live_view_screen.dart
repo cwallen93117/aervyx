@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
@@ -10,9 +11,10 @@ import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../services/tracking_service.dart';
 
-/// A pilot position received from the live SSE stream.
+/// A pilot position received from the backend.
 class _LivePilot {
   final int pilotId;
+  final String name;
   final double lat;
   final double lon;
   final double? alt;
@@ -23,6 +25,7 @@ class _LivePilot {
 
   _LivePilot({
     required this.pilotId,
+    required this.name,
     required this.lat,
     required this.lon,
     this.alt,
@@ -33,8 +36,8 @@ class _LivePilot {
   }) : lastSeen = lastSeen ?? DateTime.now();
 }
 
-/// Real-time map showing all pilots' positions for an active task.
-/// Disabled during active flight recording to save battery.
+/// Real-time map showing all active pilots.
+/// Falls back to the user's GPS position when no other pilots are flying.
 class LiveViewScreen extends StatefulWidget {
   const LiveViewScreen({super.key});
 
@@ -44,101 +47,145 @@ class LiveViewScreen extends StatefulWidget {
 
 class _LiveViewScreenState extends State<LiveViewScreen> {
   final Map<int, _LivePilot> _pilots = {};
+  final MapController _mapController = MapController();
   StreamSubscription<String>? _sseSubscription;
+  Timer? _pollTimer;
   String? _taskName;
-  String? _error;
-  bool _connected = false;
+  bool _sseConnected = false;
+  bool _hasActiveTask = false;
+  bool _initialCenterDone = false;
+  LatLng? _userPosition;
 
   @override
   void initState() {
     super.initState();
-    _connectToLiveStream();
+    _getUserPosition();
+    _connectAndPoll();
   }
 
   @override
   void dispose() {
     _sseSubscription?.cancel();
+    _pollTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _connectToLiveStream() async {
+  /// Get the user's current GPS position for map centering.
+  Future<void> _getUserPosition() async {
+    try {
+      final pos = await Geolocator.getLastKnownPosition();
+      if (pos != null && mounted) {
+        setState(() => _userPosition = LatLng(pos.latitude, pos.longitude));
+        if (!_initialCenterDone) {
+          _initialCenterDone = true;
+          _mapController.move(_userPosition!, 13);
+        }
+      }
+    } catch (_) {
+      // GPS unavailable — use default center
+    }
+  }
+
+  /// Try to connect to a task SSE stream, and always start polling for active pilots.
+  Future<void> _connectAndPoll() async {
     final api = context.read<ApiService>();
 
+    // 1. Check for active task → SSE stream for real-time updates
     try {
-      // First, get the active task
       final taskJson = await api.get(ApiConfig.activeTaskPath);
-      if (!taskJson.containsKey('task_id')) {
-        setState(() {
-          _error = 'No active task found';
-        });
-        return;
+      if (taskJson.containsKey('task_id')) {
+        final taskId = taskJson['task_id'];
+        if (mounted) {
+          setState(() {
+            _taskName = taskJson['task_name'] as String? ?? 'Task';
+            _hasActiveTask = true;
+          });
+        }
+        _connectSse(api, taskId);
       }
-
-      final taskId = taskJson['task_id'];
-      setState(() {
-        _taskName = taskJson['task_name'] as String? ?? 'Task';
-      });
-
-      // Connect to SSE stream
-      String? currentEvent;
-      String dataBuffer = '';
-
-      _sseSubscription = api.sseStream('/api/track/live/$taskId').listen(
-        (line) {
-          // Parse SSE format
-          if (line.startsWith('event: ')) {
-            currentEvent = line.substring(7).trim();
-            dataBuffer = '';
-          } else if (line.startsWith('data: ')) {
-            dataBuffer += line.substring(6);
-          } else if (line.startsWith(':')) {
-            // Keepalive comment — ignore
-            return;
-          } else if (line.isEmpty && dataBuffer.isNotEmpty) {
-            // End of message — process
-            _processEvent(currentEvent, dataBuffer);
-            currentEvent = null;
-            dataBuffer = '';
-          }
-
-          // Also handle single-line data after event
-          if (currentEvent != null && dataBuffer.isNotEmpty) {
-            _processEvent(currentEvent, dataBuffer);
-            currentEvent = null;
-            dataBuffer = '';
-          }
-        },
-        onError: (e) {
-          if (!mounted) return;
-          setState(() {
-            _error = 'Connection lost: $e';
-            _connected = false;
-          });
-          // Try to reconnect after 5 seconds
-          Future.delayed(const Duration(seconds: 5), () {
-            if (mounted) _connectToLiveStream();
-          });
-        },
-        onDone: () {
-          if (!mounted) return;
-          setState(() {
-            _connected = false;
-          });
-        },
-      );
-
-      if (!mounted) return;
-      setState(() {
-        _connected = true;
-        _error = null;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = 'Failed to connect: $e';
-        _connected = false;
-      });
+    } catch (_) {
+      // No active task or network error — that's fine
     }
+
+    // 2. Poll for all active pilots every 10 seconds (works with or without a task)
+    await _pollActivePilots();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _pollActivePilots(),
+    );
+  }
+
+  /// Fetch all active pilots from the backend.
+  Future<void> _pollActivePilots() async {
+    if (!mounted) return;
+    final api = context.read<ApiService>();
+    try {
+      final list = await api.getList(ApiConfig.activePilotsPath);
+      if (!mounted) return;
+      setState(() {
+        for (final item in list) {
+          final json = item as Map<String, dynamic>;
+          final pilotId = json['pilot_id'] as int;
+          _pilots[pilotId] = _LivePilot(
+            pilotId: pilotId,
+            name: json['pilot_name'] as String? ?? 'Pilot $pilotId',
+            lat: (json['lat'] as num).toDouble(),
+            lon: (json['lon'] as num).toDouble(),
+            alt: (json['alt'] as num?)?.toDouble(),
+            speed: (json['speed'] as num?)?.toDouble(),
+            aircraftIcon: json['aircraft_icon'] as String?,
+            batteryLevel: json['battery_level'] as int?,
+          );
+        }
+      });
+
+      // Center map on first data if we haven't centered yet
+      if (!_initialCenterDone && _pilots.isNotEmpty) {
+        _initialCenterDone = true;
+        final first = _pilots.values.first;
+        _mapController.move(LatLng(first.lat, first.lon), 13);
+      }
+    } catch (_) {
+      // Network error — keep showing what we have
+    }
+  }
+
+  /// Connect to the task-specific SSE stream for real-time position updates.
+  void _connectSse(ApiService api, int taskId) {
+    String? currentEvent;
+    String dataBuffer = '';
+
+    _sseSubscription = api.sseStream('/api/track/live/$taskId').listen(
+      (line) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.substring(7).trim();
+          dataBuffer = '';
+        } else if (line.startsWith('data: ')) {
+          dataBuffer += line.substring(6);
+        } else if (line.startsWith(':')) {
+          return; // keepalive
+        } else if (line.isEmpty && dataBuffer.isNotEmpty) {
+          _processEvent(currentEvent, dataBuffer);
+          currentEvent = null;
+          dataBuffer = '';
+        }
+
+        if (currentEvent != null && dataBuffer.isNotEmpty) {
+          _processEvent(currentEvent, dataBuffer);
+          currentEvent = null;
+          dataBuffer = '';
+        }
+      },
+      onError: (_) {
+        if (mounted) setState(() => _sseConnected = false);
+        // SSE will reconnect on next poll cycle — polling keeps working
+      },
+      onDone: () {
+        if (mounted) setState(() => _sseConnected = false);
+      },
+    );
+
+    if (mounted) setState(() => _sseConnected = true);
   }
 
   void _processEvent(String? event, String data) {
@@ -147,27 +194,29 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       if (event == 'snapshot') {
         final list = jsonDecode(data) as List<dynamic>;
         setState(() {
-          _pilots.clear();
           for (final item in list) {
-            final pilot = _parsePilot(item as Map<String, dynamic>);
+            final json = item as Map<String, dynamic>;
+            final pilot = _parseSsePilot(json);
             _pilots[pilot.pilotId] = pilot;
           }
         });
       } else if (event == 'position') {
         final json = jsonDecode(data) as Map<String, dynamic>;
-        final pilot = _parsePilot(json);
-        setState(() {
-          _pilots[pilot.pilotId] = pilot;
-        });
+        final pilot = _parseSsePilot(json);
+        setState(() => _pilots[pilot.pilotId] = pilot);
       }
     } catch (_) {
       // Malformed SSE data — skip
     }
   }
 
-  _LivePilot _parsePilot(Map<String, dynamic> json) {
+  _LivePilot _parseSsePilot(Map<String, dynamic> json) {
+    final pilotId = json['pilot_id'] as int;
+    // Preserve name from polling data if SSE doesn't include it
+    final existing = _pilots[pilotId];
     return _LivePilot(
-      pilotId: json['pilot_id'] as int,
+      pilotId: pilotId,
+      name: json['pilot_name'] as String? ?? existing?.name ?? 'Pilot $pilotId',
       lat: (json['lat'] as num).toDouble(),
       lon: (json['lon'] as num).toDouble(),
       alt: (json['alt'] as num?)?.toDouble(),
@@ -182,138 +231,148 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     final tracking = context.watch<TrackingService>();
     final theme = Theme.of(context);
 
-    // Block if actively recording
-    if (tracking.isInFlight) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Live View')),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.battery_saver,
-                    size: 48, color: theme.colorScheme.error),
-                const SizedBox(height: 16),
-                Text(
-                  'Live view disabled during recording',
-                  style: theme.textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Stop recording to view live pilot positions.\nThis saves battery during your flight.',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
-    }
+    // Use tracking position if available, otherwise our own GPS fix
+    final trackPos = tracking.lastPosition;
+    final center = trackPos != null
+        ? LatLng(trackPos.lat, trackPos.lon)
+        : _userPosition ?? const LatLng(32.7, -117.2); // San Diego default
 
     return Scaffold(
       appBar: AppBar(
         title: Text(_taskName ?? 'Live View'),
         actions: [
-          // Connection indicator
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Icon(
-              Icons.circle,
-              size: 12,
-              color: _connected ? Colors.green : Colors.red,
+          if (_hasActiveTask)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Icon(
+                Icons.circle,
+                size: 12,
+                color: _sseConnected ? Colors.green : Colors.red,
+              ),
+            ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          FlutterMap(
+            mapController: _mapController,
+            options: MapOptions(
+              initialCenter: center,
+              initialZoom: 13,
+            ),
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.aervyx.aervyx_mobile',
+              ),
+              MarkerLayer(
+                markers: [
+                  // Other pilots
+                  ..._pilots.values.map((pilot) => Marker(
+                        point: LatLng(pilot.lat, pilot.lon),
+                        width: 60,
+                        height: 50,
+                        child: _PilotMarker(pilot: pilot),
+                      )),
+                  // User's own position (blue dot)
+                  if (trackPos != null)
+                    Marker(
+                      point: LatLng(trackPos.lat, trackPos.lon),
+                      width: 24,
+                      height: 24,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.blue,
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 3),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withAlpha(60),
+                              blurRadius: 4,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+
+          // Info chips
+          Positioned(
+            top: 12,
+            left: 12,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _InfoChip(
+                  icon: Icons.people,
+                  text: '${_pilots.length} pilot${_pilots.length == 1 ? '' : 's'} flying',
+                ),
+                if (!_hasActiveTask)
+                  const _InfoChip(
+                    icon: Icons.flight_takeoff,
+                    text: 'Free flight',
+                  ),
+              ],
+            ),
+          ),
+
+          // Re-center button
+          Positioned(
+            bottom: 16,
+            right: 16,
+            child: FloatingActionButton.small(
+              onPressed: () {
+                if (trackPos != null) {
+                  _mapController.move(
+                    LatLng(trackPos.lat, trackPos.lon),
+                    _mapController.camera.zoom,
+                  );
+                } else if (_userPosition != null) {
+                  _mapController.move(
+                    _userPosition!,
+                    _mapController.camera.zoom,
+                  );
+                }
+              },
+              child: const Icon(Icons.my_location),
             ),
           ),
         ],
       ),
-      body: _error != null && _pilots.isEmpty
-          ? Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.cloud_off,
-                        size: 48, color: theme.colorScheme.error),
-                    const SizedBox(height: 16),
-                    Text(_error!,
-                        style: theme.textTheme.bodyMedium,
-                        textAlign: TextAlign.center),
-                    const SizedBox(height: 16),
-                    FilledButton(
-                      onPressed: _connectToLiveStream,
-                      child: const Text('Retry'),
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : Stack(
-              children: [
-                FlutterMap(
-                  options: MapOptions(
-                    initialCenter: _pilots.isNotEmpty
-                        ? LatLng(
-                            _pilots.values.first.lat,
-                            _pilots.values.first.lon,
-                          )
-                        : const LatLng(46.0, 11.0), // Default: Alps
-                    initialZoom: 12,
-                  ),
-                  children: [
-                    TileLayer(
-                      urlTemplate:
-                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                      userAgentPackageName: 'com.aervyx.aervyx_mobile',
-                    ),
-                    // Pilot markers
-                    MarkerLayer(
-                      markers: _pilots.values.map((pilot) {
-                        return Marker(
-                          point: LatLng(pilot.lat, pilot.lon),
-                          width: 40,
-                          height: 40,
-                          child: _PilotMarker(pilot: pilot),
-                        );
-                      }).toList(),
-                    ),
-                  ],
-                ),
-                // Pilot count chip
-                Positioned(
-                  top: 12,
-                  left: 12,
-                  child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.surface.withAlpha(230),
-                      borderRadius: BorderRadius.circular(20),
-                      boxShadow: [
-                        BoxShadow(
-                            color: Colors.black.withAlpha(30), blurRadius: 4),
-                      ],
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.people, size: 16,
-                            color: theme.colorScheme.primary),
-                        const SizedBox(width: 6),
-                        Text(
-                          '${_pilots.length} pilot${_pilots.length == 1 ? '' : 's'}',
-                          style: theme.textTheme.labelMedium,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _InfoChip({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withAlpha(230),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(30), blurRadius: 4),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: theme.colorScheme.primary),
+          const SizedBox(width: 5),
+          Text(text, style: theme.textTheme.labelSmall),
+        ],
+      ),
     );
   }
 }
@@ -356,12 +415,20 @@ class _PilotMarker extends StatelessWidget {
             color: Colors.blue,
           ),
         ),
-        Text(
-          '#${pilot.pilotId}',
-          style: const TextStyle(
-            fontSize: 9,
-            fontWeight: FontWeight.bold,
-            color: Colors.black87,
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+          decoration: BoxDecoration(
+            color: Colors.white.withAlpha(210),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          child: Text(
+            pilot.name.split(' ').first,
+            style: const TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.bold,
+              color: Colors.black87,
+            ),
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ],
