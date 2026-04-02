@@ -15,9 +15,8 @@
   <ul class="nav-links">
     <li><a href="#features">Features</a></li>
     <li><a href="#logbook">Logbook</a></li>
-    <li><a href="#tracking">Tracking</a></li>
-    <li><a href="#meshtastic">Meshtastic</a></li>
-    <li><a href="#scoring">Scoring</a></li>
+    <li><a href="#tracking">Intelligent Tracking</a></li>
+    <li><a href="#scoring">Task Planning &amp; Scoring</a></li>
     <li><a href="#opensource">Open Source</a></li>
   </ul>
   <div class="nav-right">
@@ -185,11 +184,11 @@
       <div class="cap" style="--cg:rgba(0,229,255,.05)"><div class="cap-n">05</div><span class="cap-ico">📁</span><h3>IGC Evidence</h3><p>Every IGC file is SHA-256 fingerprinted on upload and stored immutably. Full audit trail for all scoring actions.</p><span class="cap-badge cb-auto">Tamper-proof</span></div>
       <div class="cap" style="--cg:rgba(0,230,118,.05)"><div class="cap-n">06</div><span class="cap-ico">🌐</span><h3>Spectator View</h3><p>Public live-tracking links for spectators and media. No account needed — share a URL and watch the task.</p><span class="cap-badge cb-live">Public</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.05)"><div class="cap-n">07</div><span class="cap-ico">👥</span><h3>Event & Pilot Management</h3><p>Multi-day events, CIVL pilot rosters with comp numbers, and auto-generated portal credentials.</p><span class="cap-badge cb-core">Core</span></div>
-      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. In-flight telemetry, automatic flight detection, driver mode with retrieve routing, and live position streaming.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. Live position streaming, driver mode with retrieve routing, and Meshtastic device configuration over Bluetooth.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">🔄</span><h3>3D Flight Replay</h3><p>Replay any flight over 3D terrain with turnpoint cylinders, altitude profiles, speed overlays, and full scrub control.</p><span class="cap-badge cb-live">Live</span></div>
-      <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">📓</span><h3>Pilot Logbook</h3><p>Personal flight logbook with bulk IGC upload, automatic site matching, thermal analysis, climb stats, and flight duration tracking.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">📓</span><h3>Pilot Logbook</h3><p>Personal flight logbook with bulk IGC upload, automatic site matching, climb stats, flight duration, and 3D replay for every track.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.04)"><div class="cap-n">11</div><span class="cap-ico">👥</span><h3>Buddy Groups</h3><p>Create groups of pilots to follow in real time — free-flight tracking without a competition context. See friends on the map wherever they fly.</p><span class="cap-badge cb-live">Live</span></div>
-      <div class="cap" style="--cg:rgba(167,139,250,.04)"><div class="cap-n">12</div><span class="cap-ico">📊</span><h3>In-Flight Statistics</h3><p>Real-time altitude, ground speed, climb rate, glide ratio, and thermal classification computed live during flight.</p><span class="cap-badge cb-auto">Automatic</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.04)"><div class="cap-n">12</div><span class="cap-ico">📊</span><h3>Flight Statistics</h3><p>Altitude, ground speed, best climb rate, total distance, and time-in-thermals vs glide breakdown — derived automatically from every IGC track.</p><span class="cap-badge cb-auto">Automatic</span></div>
     </div>
   </div>
 </section>
@@ -199,7 +198,7 @@
   <div class="inner">
     <div class="eyebrow ey-cyan">Pilot logbook</div>
     <h2 class="section-title">Every flight.<br/>Automatically analysed.</h2>
-    <p class="section-body">Upload an IGC file and Aervyx does the rest — flight statistics, thermal detection, site matching, and 3D replay. Drag a folder to bulk-import an entire season.</p>
+    <p class="section-body">Upload an IGC file and Aervyx does the rest — flight statistics, site matching, and 3D replay. Drag a folder to bulk-import an entire season.</p>
     <div class="logbook-wrap reveal">
       <div class="logbook-showcase">
         <div class="logbook-table-demo">
@@ -249,8 +248,8 @@
         </div>
         <div class="lf-card">
           <span class="lf-ico">🌀</span>
-          <h3>Thermal Analysis</h3>
-          <p>Every flight is classified into thermal and glide segments using smoothed climb rate analysis. See time-in-thermals, best climb, and glide performance at a glance.</p>
+          <h3>Climb &amp; Glide Breakdown</h3>
+          <p>Each flight's time is split into climbing and gliding segments. See your best climb rate, time spent gaining altitude vs cruising, and highest altitude reached.</p>
         </div>
         <div class="lf-card">
           <span class="lf-ico">🔄</span>
@@ -260,7 +259,7 @@
         <div class="lf-card">
           <span class="lf-ico">📊</span>
           <h3>Flight Statistics</h3>
-          <p>Duration, highest altitude, best climb rate, max ground speed, total distance, and thermal-vs-glide time breakdown — computed automatically from every track.</p>
+          <p>Duration, highest altitude, best climb rate, max ground speed, total distance, and climb-vs-glide time split — computed automatically from every IGC track.</p>
         </div>
         <div class="lf-card">
           <span class="lf-ico">⭐</span>
@@ -451,7 +450,7 @@
     <div class="oss-grid reveal">
       <div class="oss-card"><span class="oss-card-ico">🔓</span><h3>Apache 2.0 Licence</h3><p>Free to use commercially, modify, and distribute — with or without source. No copyleft obligations. No "open core" bait-and-switch. Everything is in the repo.</p></div>
       <div class="oss-card"><span class="oss-card-ico">🏠</span><h3>Self-Host for Free</h3><p>Deploy the full Aervyx stack on your own infrastructure using Docker Compose. Perfect for federations wanting complete data sovereignty — no subscription required.</p></div>
-      <div class="oss-card"><span class="oss-card-ico">🤝</span><h3>Built by a Pilot</h3><p>Created by Charles Allen, President of USHPA, for the free-flight community. Features like SOS alerting, multi-flight auto logging, and mesh safety are built from real flying experience. Contributions welcome — scoring formulas, hardware integrations, and bug fixes.</p></div>
+      <div class="oss-card"><span class="oss-card-ico">🤝</span><h3>Built by a Pilot</h3><p>Created by Charles Allen, President of USHPA, for the free-flight community. Features like SOS alerting, bulk IGC import, and mesh safety are built from real flying experience. Contributions welcome — scoring formulas, hardware integrations, and bug fixes.</p></div>
     </div>
     <div class="oss-links reveal">
       <a href="https://github.com/cwallen93117/aervyx" class="oss-link">⭐ GitHub — cwallen93117/aervyx</a>
@@ -555,7 +554,7 @@
           <div class="su-check"><span class="su-ck">✓</span>Auto GAP scoring from first IGC upload</div>
           <div class="su-check"><span class="su-ck">✓</span>Personal logbook with bulk upload &amp; 3D replay</div>
           <div class="su-check"><span class="su-ck">✓</span>SOS alerting through the mesh network</div>
-          <div class="su-check"><span class="su-ck">✓</span>Multi-flight auto logging &amp; thermal analysis</div>
+          <div class="su-check"><span class="su-ck">✓</span>Bulk IGC upload with automatic flight stats</div>
           <div class="su-check"><span class="su-ck">✓</span>Open source — Apache 2.0 licence</div>
         </div>
       </div>
