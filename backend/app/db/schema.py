@@ -223,6 +223,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
+        "task_date": "ALTER TABLE tasks ADD COLUMN task_date DATE",
         "task_start_time": "ALTER TABLE tasks ADD COLUMN task_start_time VARCHAR(8)",
         "task_finish_time": "ALTER TABLE tasks ADD COLUMN task_finish_time VARCHAR(8)",
         "start_open_time": "ALTER TABLE tasks ADD COLUMN start_open_time VARCHAR(8)",
