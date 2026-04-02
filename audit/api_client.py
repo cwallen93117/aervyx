@@ -136,6 +136,19 @@ class AervyxClient:
             raise ApiError(resp.status_code, resp.text, f"/api/tasks/{task_id}/uploads/bulk")
         return resp.json()
 
+    def upload_single_igc(self, task_id: int, file_path: Path, pilot_id: int) -> dict:
+        """Upload a single IGC file for a specific pilot."""
+        resp = self._request(
+            "POST",
+            f"/api/tasks/{task_id}/uploads",
+            files=[("file", (file_path.name, file_path.read_bytes(), "application/octet-stream"))],
+            data={"pilot_id": str(pilot_id)},
+            timeout=60,
+        )
+        if resp.status_code not in (200, 201):
+            raise ApiError(resp.status_code, resp.text, f"/api/tasks/{task_id}/uploads")
+        return resp.json()
+
     def list_uploads(self, task_id: int) -> list[dict]:
         return self._get(f"/api/tasks/{task_id}/uploads")
 

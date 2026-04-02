@@ -202,10 +202,16 @@ def _build_task_payload(task: FsdbTask, comp_formula: FsdbFormula) -> dict:
 # IGC file discovery
 # ---------------------------------------------------------------------------
 
-def _find_igc_folder(task: FsdbTask, comp_folder: Path, task_index: int) -> Path | None:
+def _find_igc_folder(
+    task: FsdbTask,
+    comp_folder: Path,
+    task_index: int,
+    comp_name: str = "",
+) -> Path | None:
     """Find the folder containing IGC files for a given task.
 
     Searches common naming patterns in the competition's tracklogs folder.
+    For 2012-style comps, IGC files are in Task N/Open or Task N/Sport.
     """
     tracklogs_base = None
     for candidate in [
@@ -232,6 +238,18 @@ def _find_igc_folder(task: FsdbTask, comp_folder: Path, task_index: int) -> Path
     for sub_name in candidates:
         folder = tracklogs_base / sub_name
         if folder.is_dir():
+            # Check for Open/Sport subdirectories (2012-style)
+            sub_folder = _check_class_subfolder(folder, comp_name, task.name)
+            if sub_folder:
+                return sub_folder
+            # Check if this folder has IGC files directly
+            has_igc = any(folder.glob("*.igc")) or any(folder.glob("*.IGC"))
+            if has_igc:
+                return folder
+            # If no IGC files but has subdirs, check them
+            sub_folder = _check_class_subfolder(folder, comp_name, task.name)
+            if sub_folder:
+                return sub_folder
             return folder
 
     # Try partial match on any subfolder
@@ -239,11 +257,35 @@ def _find_igc_folder(task: FsdbTask, comp_folder: Path, task_index: int) -> Path
         if sub.is_dir():
             name_lower = sub.name.lower()
             if f"t{task_num}" in name_lower or f"task {task_num}" in name_lower or f"task{task_num}" in name_lower:
-                return sub
+                sub_folder = _check_class_subfolder(sub, comp_name, task.name)
+                return sub_folder or sub
             # Also try matching by day number in folder name
             m = re.search(r"(\d+)", sub.name)
             if m and int(m.group(1)) == task_num:
-                return sub
+                sub_folder = _check_class_subfolder(sub, comp_name, task.name)
+                return sub_folder or sub
+
+    return None
+
+
+def _check_class_subfolder(task_folder: Path, comp_name: str, task_name: str) -> Path | None:
+    """Check for class-specific subdirectories (Open, Sport) within a task folder."""
+    name_lower = (comp_name + " " + task_name).lower()
+    # Determine which class to look for
+    class_name = None
+    if "open" in name_lower:
+        class_name = "Open"
+    elif "sport" in name_lower:
+        class_name = "Sport"
+
+    if class_name:
+        sub = task_folder / class_name
+        if sub.is_dir():
+            return sub
+        # Try case-insensitive
+        for child in task_folder.iterdir():
+            if child.is_dir() and child.name.lower() == class_name.lower():
+                return child
 
     return None
 
@@ -285,10 +327,121 @@ def _find_igc_folder_2012(task: FsdbTask, comp_folder: Path) -> Path | None:
 
 
 def _collect_igc_files(folder: Path) -> list[Path]:
-    """Collect all .igc files from a folder (non-recursive)."""
+    """Collect all .igc/.IGC files from a folder (non-recursive)."""
     if not folder or not folder.is_dir():
         return []
-    return sorted(folder.glob("*.igc"))
+    # Case-insensitive: collect both .igc and .IGC
+    files = list(folder.glob("*.igc")) + list(folder.glob("*.IGC"))
+    # Deduplicate (on case-insensitive FS, glob may return same file twice)
+    seen: set[str] = set()
+    unique: list[Path] = []
+    for f in sorted(files, key=lambda p: p.name.lower()):
+        key = str(f).lower()
+        if key not in seen:
+            seen.add(key)
+            unique.append(f)
+    return unique
+
+
+def _build_filename_pilot_map(
+    task: FsdbTask,
+    pilot_map: dict[int, int],
+) -> dict[str, int]:
+    """Build a mapping from FSDB tracklog filename → Aervyx pilot_id."""
+    result: dict[str, int] = {}
+    for pr in task.participant_results:
+        if not pr.tracklog_filename:
+            continue
+        aervyx_id = pilot_map.get(pr.fsdb_pilot_id)
+        if aervyx_id is None:
+            continue
+        # Store both full filename and normalized version
+        result[pr.tracklog_filename.lower()] = aervyx_id
+        # Also store just the base name part (without path)
+        base = Path(pr.tracklog_filename).name.lower()
+        result[base] = aervyx_id
+    return result
+
+
+def _normalize_name(name: str) -> str:
+    """Normalize a name for fuzzy matching."""
+    return re.sub(r"[^a-z]+", " ", name.lower()).strip()
+
+
+def _match_igc_to_pilot(
+    igc_file: Path,
+    filename_map: dict[str, int],
+    pilot_map: dict[int, int],
+    comp: FsdbCompetition,
+) -> int | None:
+    """Match an IGC file to an Aervyx pilot_id.
+
+    Strategy:
+    1. Exact match on FSDB tracklog filename
+    2. Name-based match from IGC filename tokens
+    """
+    fname = igc_file.name.lower()
+
+    # 1. Exact match on FSDB tracklog filename
+    if fname in filename_map:
+        return filename_map[fname]
+
+    # 2. Match by pilot name in filename
+    # IGC filenames often follow: FirstName_LastName.date.CIVLID.id.igc
+    # or: FirstName_LastName.igc, or FirstName LastName date.igc
+    fname_norm = _normalize_name(igc_file.stem)
+
+    best_score = 0
+    best_pilot_id = None
+    fname_tokens = fname_norm.split()
+    fname_joined = fname_norm.replace(" ", "")
+
+    for p in comp.participants:
+        aervyx_id = pilot_map.get(p.fsdb_id)
+        if aervyx_id is None:
+            continue
+        parts = p.name.split()
+        first = parts[0].lower() if parts else ""
+        last = parts[-1].lower() if len(parts) > 1 else ""
+
+        score = 0
+        # Exact first name in filename
+        if first and first in fname_norm:
+            score += 30
+        elif first and len(first) >= 3 and any(tok.startswith(first[:3]) for tok in fname_tokens):
+            score += 15
+        # Exact last name in filename
+        if last and last in fname_norm:
+            score += 40
+        elif last and len(last) >= 4:
+            # Fuzzy last name: check if any token in filename is close
+            for tok in fname_tokens:
+                if len(tok) >= 3:
+                    # Check if they share a common prefix of length >= 3
+                    common = 0
+                    for a, b in zip(last, tok):
+                        if a == b:
+                            common += 1
+                        else:
+                            break
+                    if common >= 3 and common >= len(min(last, tok, key=len)) - 1:
+                        score += 30  # Close match (e.g. "weil"/"weill", "tatem"/"tatom")
+                        break
+        # Full name match
+        full = _normalize_name(p.name)
+        if full and all(tok in fname_norm for tok in full.split()):
+            score += 50
+        # Abbreviated forms: first initial + last name (e.g. "JMaldoon")
+        if last and len(last) >= 4:
+            abbrev = first[0] + last if first else last
+            if abbrev in fname_joined:
+                score += 60
+
+        if score > best_score:
+            best_score = score
+            best_pilot_id = aervyx_id
+
+    return best_pilot_id if best_score >= 30 else None
 
 
 # ---------------------------------------------------------------------------
@@ -306,17 +459,22 @@ def import_competition(
     result = ImportResult(competition_name=comp.name)
 
     # Check for existing event with same name
+    existing_event = None
     try:
         existing_events = client.list_events()
         for ev in existing_events:
             if ev["name"] == comp.name:
-                result.skipped = True
-                result.skip_reason = f"Event '{comp.name}' already exists (id={ev['id']})"
-                result.event_id = ev["id"]
-                log.warning(result.skip_reason)
-                return result
+                existing_event = ev
+                break
     except Exception as exc:
         result.errors.append(f"Failed to list events: {exc}")
+        return result
+
+    if existing_event is not None:
+        # Resume: event exists — try to upload IGC files and rescore tasks that lack uploads
+        result.event_id = existing_event["id"]
+        log.info("Event '%s' already exists (id=%d) — resuming upload/rescore", comp.name, result.event_id)
+        _resume_existing_event(client, registry, comp, comp_folder, result)
         return result
 
     if dry_run:
@@ -366,8 +524,8 @@ def import_competition(
         except Exception as exc:
             result.errors.append(f"Failed to publish task {task.name}: {exc}")
 
-        # 5. Upload IGC files
-        igc_folder = _find_igc_folder(task, comp_folder, i)
+        # 5. Upload IGC files (one at a time, matched to pilots via FSDB tracklog filenames)
+        igc_folder = _find_igc_folder(task, comp_folder, i, comp.name)
         if igc_folder is None:
             igc_folder = _find_igc_folder_2012(task, comp_folder)
 
@@ -377,21 +535,35 @@ def import_competition(
             result.upload_summary[task.fsdb_id] = {"matched": 0, "unmatched": 0, "total": 0}
             continue
 
-        log.info("Uploading %d IGC files for task %s", len(igc_files), task.name)
-        try:
-            upload_resp = client.bulk_upload_igc(aervyx_task_id, igc_files)
-            matched = sum(1 for u in upload_resp if u.get("matched"))
-            unmatched = sum(1 for u in upload_resp if not u.get("matched"))
-            result.upload_summary[task.fsdb_id] = {
-                "matched": matched,
-                "unmatched": unmatched,
-                "total": len(upload_resp),
-                "details": upload_resp,
-            }
-            log.info("Uploaded: %d matched, %d unmatched", matched, unmatched)
-        except Exception as exc:
-            result.errors.append(f"Failed to upload IGC for task {task.name}: {exc}")
-            continue
+        # Build filename→pilot mapping from FSDB flight data
+        filename_to_pilot = _build_filename_pilot_map(task, result.pilot_map)
+
+        matched_count = 0
+        unmatched_count = 0
+        for igc_file in igc_files:
+            pilot_id = _match_igc_to_pilot(igc_file, filename_to_pilot, result.pilot_map, comp)
+            if pilot_id is None:
+                log.warning("  No pilot match for %s", igc_file.name)
+                unmatched_count += 1
+                continue
+            try:
+                client.upload_single_igc(aervyx_task_id, igc_file, pilot_id)
+                matched_count += 1
+                log.debug("  Uploaded %s → pilot %d", igc_file.name, pilot_id)
+            except Exception as exc:
+                # Duplicate or other error — log but continue
+                if "duplicate" in str(exc).lower() or "sha256" in str(exc).lower():
+                    log.debug("  Duplicate skipped: %s", igc_file.name)
+                    matched_count += 1
+                else:
+                    log.warning("  Upload failed %s: %s", igc_file.name, exc)
+                    unmatched_count += 1
+
+        log.info("Uploaded %d/%d IGC files for task %s (%d unmatched)",
+                 matched_count, len(igc_files), task.name, unmatched_count)
+        result.upload_summary[task.fsdb_id] = {
+            "matched": matched_count, "unmatched": unmatched_count, "total": len(igc_files),
+        }
 
         # 6. Select uploads for scoring and rescore
         try:
@@ -400,6 +572,101 @@ def import_competition(
             result.errors.append(f"Failed to score task {task.name}: {exc}")
 
     return result
+
+
+def _resume_existing_event(
+    client: AervyxClient,
+    registry: PilotRegistry,
+    comp: FsdbCompetition,
+    comp_folder: Path,
+    result: ImportResult,
+) -> None:
+    """Resume an existing event: rebuild pilot map, find tasks, upload IGC, rescore."""
+    event_id = result.event_id
+
+    # Rebuild pilot map by matching FSDB participants to existing event pilots
+    event_pilots = client.list_event_pilots(event_id)
+    pilot_by_name: dict[str, int] = {}
+    pilot_by_civl: dict[str, int] = {}
+    for ep in event_pilots:
+        name_key = f"{ep.get('first_name', '')} {ep.get('last_name', '')}".strip().lower()
+        pilot_by_name[name_key] = ep["id"]
+        if ep.get("civl_id"):
+            pilot_by_civl[ep["civl_id"]] = ep["id"]
+
+    for p in comp.participants:
+        if p.civl_id and p.civl_id in pilot_by_civl:
+            result.pilot_map[p.fsdb_id] = pilot_by_civl[p.civl_id]
+        elif p.name.lower() in pilot_by_name:
+            result.pilot_map[p.fsdb_id] = pilot_by_name[p.name.lower()]
+        else:
+            # Try to create/assign
+            try:
+                aervyx_id = registry.find_or_create(p, event_id)
+                result.pilot_map[p.fsdb_id] = aervyx_id
+            except Exception as exc:
+                result.errors.append(f"Failed to match/create pilot {p.name}: {exc}")
+
+    log.info("Rebuilt pilot map: %d/%d matched", len(result.pilot_map), len(comp.participants))
+
+    # Match existing tasks by name
+    existing_tasks = client.list_tasks(event_id)
+    task_by_name: dict[str, dict] = {t["name"]: t for t in existing_tasks}
+
+    for i, task in enumerate(comp.tasks):
+        aervyx_task = task_by_name.get(task.name)
+        if aervyx_task is None:
+            log.warning("No matching Aervyx task for FSDB task '%s'", task.name)
+            continue
+
+        aervyx_task_id = aervyx_task["id"]
+        result.task_map[task.fsdb_id] = aervyx_task_id
+
+        # Check if uploads already exist
+        existing_uploads = client.list_uploads(aervyx_task_id)
+        if existing_uploads:
+            log.info("Task %s already has %d uploads, skipping upload", task.name, len(existing_uploads))
+        else:
+            # Upload IGC files
+            igc_folder = _find_igc_folder(task, comp_folder, i, comp.name)
+            if igc_folder is None:
+                igc_folder = _find_igc_folder_2012(task, comp_folder)
+
+            igc_files = _collect_igc_files(igc_folder) if igc_folder else []
+            if not igc_files:
+                log.warning("No IGC files found for task %s", task.name)
+                result.upload_summary[task.fsdb_id] = {"matched": 0, "unmatched": 0, "total": 0}
+                continue
+
+            filename_to_pilot = _build_filename_pilot_map(task, result.pilot_map)
+            matched_count = 0
+            unmatched_count = 0
+            for igc_file in igc_files:
+                pilot_id = _match_igc_to_pilot(igc_file, filename_to_pilot, result.pilot_map, comp)
+                if pilot_id is None:
+                    log.warning("  No pilot match for %s", igc_file.name)
+                    unmatched_count += 1
+                    continue
+                try:
+                    client.upload_single_igc(aervyx_task_id, igc_file, pilot_id)
+                    matched_count += 1
+                except Exception as exc:
+                    if "duplicate" in str(exc).lower() or "sha256" in str(exc).lower():
+                        matched_count += 1
+                    else:
+                        log.warning("  Upload failed %s: %s", igc_file.name, exc)
+                        unmatched_count += 1
+
+            log.info("Uploaded %d/%d IGC for task %s", matched_count, len(igc_files), task.name)
+            result.upload_summary[task.fsdb_id] = {
+                "matched": matched_count, "unmatched": unmatched_count, "total": len(igc_files),
+            }
+
+        # Select uploads and rescore
+        try:
+            _select_uploads_and_rescore(client, aervyx_task_id, result, task)
+        except Exception as exc:
+            result.errors.append(f"Failed to score task {task.name}: {exc}")
 
 
 def _select_uploads_and_rescore(
