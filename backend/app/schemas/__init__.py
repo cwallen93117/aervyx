@@ -69,6 +69,7 @@ class AccountSettingsUpdate(BaseModel):
     username: str
     full_name: str
     profile_type: str = "pilot"
+    role: str | None = None
     altitude_unit: str = "ft"
     speed_unit: str = "kph"
     distance_unit: str = "km"

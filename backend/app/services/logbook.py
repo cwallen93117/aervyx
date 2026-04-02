@@ -94,7 +94,7 @@ def _validated_climb_rate(
     current_altitude: float | None,
     elapsed_seconds: float,
     *,
-    max_abs_climb_mps: float = 20.0,
+    max_abs_climb_mps: float = 10.0,
 ) -> float | None:
     if previous_altitude is None or current_altitude is None or elapsed_seconds <= 0:
         return None
@@ -294,8 +294,6 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         if climb_rate is not None:
             segment_climb_rates.append(climb_rate)
             segment_durations.append(elapsed_seconds)
-            if best_climb_mps is None or climb_rate > best_climb_mps:
-                best_climb_mps = climb_rate
 
     time_in_thermals_seconds = 0.0
     time_on_glide_seconds = 0.0
@@ -303,6 +301,8 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         window_start = max(0, index - 1)
         window_end = min(len(segment_climb_rates), index + 2)
         smoothed_climb_rate = sum(segment_climb_rates[window_start:window_end]) / (window_end - window_start)
+        if best_climb_mps is None or smoothed_climb_rate > best_climb_mps:
+            best_climb_mps = smoothed_climb_rate
         if smoothed_climb_rate >= 0.5:
             time_in_thermals_seconds += segment_durations[index]
         else:
