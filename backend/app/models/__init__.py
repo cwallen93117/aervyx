@@ -403,11 +403,32 @@ class AuditLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class BuddyGroup(Base):
+    __tablename__ = "buddy_groups"
+    __table_args__ = (UniqueConstraint("user_id", "name", name="uq_buddy_group_user_name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class BuddyGroupMember(Base):
+    __tablename__ = "buddy_group_members"
+    __table_args__ = (UniqueConstraint("group_id", "pilot_id", name="uq_buddy_member_group_pilot"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("buddy_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), nullable=False, index=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class LivePosition(Base):
     __tablename__ = "live_positions"
     __table_args__ = (
         Index("ix_live_positions_task_ts", "task_id", "timestamp"),
         Index("ix_live_positions_task_pilot_ts", "task_id", "pilot_id", "timestamp"),
+        Index("ix_live_positions_pilot_ts", "pilot_id", "timestamp"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

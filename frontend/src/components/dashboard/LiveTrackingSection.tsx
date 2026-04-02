@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SectionCard } from "../SectionCard";
 import {
@@ -11,14 +11,14 @@ import {
   type MapUnitPreferences,
   type TrackCollection,
 } from "../TaskMap";
-import type { TaskPointRecord, TaskRecord } from "./types";
+import type { BuddyGroup, TaskPointRecord, TaskRecord } from "./types";
 
 const TRACK_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d", "#0f766e", "#c2410c"];
 
 type LivePositionRecord = {
   id: string;
   pilot_id: number | null;
-  task_id: number;
+  task_id: number | null;
   lat: number;
   lon: number;
   alt: number | null;
@@ -38,6 +38,11 @@ type MeshConfigRecord = {
   mqtt_port: number;
   topic_prefix: string;
 };
+
+type TrackingSource =
+  | { type: "task"; taskId: number }
+  | { type: "buddy_group"; groupId: number }
+  | null;
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -181,10 +186,117 @@ export default function LiveTrackingSection({
   loadTask,
 }: LiveTrackingSectionProps) {
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
+  const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
   const [liveError, setLiveError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [meshConfig, setMeshConfig] = useState<MeshConfigRecord | null>(null);
+  const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
+  const [trackingSource, setTrackingSource] = useState<TrackingSource>(null);
+
+  // Fetch buddy groups on mount
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${resolveApiBase()}/api/buddies/groups`, {
+          headers: { Authorization: `Bearer ${token}` },
+          cache: "no-store",
+        });
+        if (response.ok && !cancelled) {
+          setBuddyGroups((await response.json()) as BuddyGroup[]);
+        }
+      } catch { /* silent */ }
+    })();
+    return () => { cancelled = true; };
+  }, [token]);
+
+  // Auto-select task source when selectedTaskId changes from parent
+  useEffect(() => {
+    if (selectedTaskId && (!trackingSource || trackingSource.type === "task")) {
+      setTrackingSource({ type: "task", taskId: selectedTaskId });
+    }
+  }, [selectedTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Build pilot name map for buddy group mode
+  const activePilotNameById = useMemo(() => {
+    if (trackingSource?.type === "buddy_group") {
+      const group = buddyGroups.find((g) => g.id === trackingSource.groupId);
+      return new Map((group?.members ?? []).map((m) => [m.pilot_id, `${m.first_name} ${m.last_name}`]));
+    }
+    return pilotNameById;
+  }, [trackingSource, buddyGroups, pilotNameById]);
+
+  // Derive active pilot IDs for buddy group
+  const buddyPilotIds = useMemo(() => {
+    if (trackingSource?.type !== "buddy_group") return [];
+    const group = buddyGroups.find((g) => g.id === trackingSource.groupId);
+    return (group?.members ?? []).map((m) => m.pilot_id);
+  }, [trackingSource, buddyGroups]);
+
+  // Handle source dropdown change
+  const handleSourceChange = useCallback((value: string) => {
+    if (!value) {
+      setTrackingSource(null);
+      return;
+    }
+    if (value.startsWith("task:")) {
+      const taskId = Number(value.slice(5));
+      const task = tasks.find((t) => t.id === taskId);
+      if (task) {
+        void loadTask(token, taskId, task, false);
+        setTrackingSource({ type: "task", taskId });
+      }
+    } else if (value.startsWith("buddy:")) {
+      const groupId = Number(value.slice(6));
+      setTrackingSource({ type: "buddy_group", groupId });
+    }
+  }, [tasks, token, loadTask]);
+
+  // Fetch IGC track and replace live positions for a pilot
+  const fetchIgcTrack = useCallback(async (taskId: number, pilotId: number) => {
+    try {
+      const response = await fetch(`${resolveApiBase()}/api/track/igc/${taskId}/${pilotId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) return;
+      const geojson = await response.json();
+      const feature = geojson?.features?.[0];
+      if (!feature?.geometry?.coordinates?.length) return;
+      const coords = feature.geometry.coordinates as [number, number, number][];
+      const timestamps = (feature.properties?.timestamps ?? []) as string[];
+      const igcPositions: LivePositionRecord[] = coords.map((coord, i) => ({
+        id: `igc-${pilotId}-${i}`,
+        pilot_id: pilotId,
+        task_id: taskId,
+        lat: coord[1],
+        lon: coord[0],
+        alt: coord[2] ?? null,
+        speed: null,
+        heading: null,
+        accuracy: null,
+        timestamp: timestamps[i] ?? "",
+        source: "igc",
+        device_id: null,
+        battery_level: null,
+        aircraft_icon: "hang_glider",
+      }));
+      setIgcTracksByPilot((current) => {
+        const next = new Map(current);
+        next.set(pilotId, igcPositions);
+        return next;
+      });
+    } catch { /* silent */ }
+  }, [token]);
+
+  // Derive dropdown value
+  const sourceDropdownValue = useMemo(() => {
+    if (!trackingSource) return "";
+    if (trackingSource.type === "task") return `task:${trackingSource.taskId}`;
+    return `buddy:${trackingSource.groupId}`;
+  }, [trackingSource]);
 
   useEffect(() => {
     if (!canManagePlatform) {
@@ -214,10 +326,12 @@ export default function LiveTrackingSection({
     };
   }, [canManagePlatform, token]);
 
+  // SSE connection — switches between task-scoped and pilot-scoped based on source
   useEffect(() => {
-    if (!selectedTaskId || !token) {
+    if (!trackingSource || !token) {
       setPositionsByPilot(new Map());
       setLivePositionsByPilot(new Map());
+      setIgcTracksByPilot(new Map());
       setLiveError("");
       return;
     }
@@ -228,6 +342,7 @@ export default function LiveTrackingSection({
     setLiveError("");
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
+    setIgcTracksByPilot(new Map());
 
     const handleSnapshot = (positions: LivePositionRecord[]) => {
       if (!active) return;
@@ -253,7 +368,24 @@ export default function LiveTrackingSection({
 
     const readSse = async () => {
       try {
-        const historyResponse = await fetch(`${resolveApiBase()}/api/track/positions/${selectedTaskId}?limit=10000`, {
+        // Determine endpoints based on source
+        let historyUrl: string;
+        let sseUrl: string;
+
+        if (trackingSource.type === "task") {
+          historyUrl = `${resolveApiBase()}/api/track/positions/${trackingSource.taskId}?limit=10000`;
+          sseUrl = `${resolveApiBase()}/api/track/live/${trackingSource.taskId}`;
+        } else {
+          const ids = buddyPilotIds.join(",");
+          if (!ids) {
+            setLoading(false);
+            return;
+          }
+          historyUrl = `${resolveApiBase()}/api/track/positions/pilots?ids=${ids}&limit=10000`;
+          sseUrl = `${resolveApiBase()}/api/track/live/pilots?ids=${ids}`;
+        }
+
+        const historyResponse = await fetch(historyUrl, {
           headers: { Authorization: `Bearer ${token}` },
           cache: "no-store",
           signal: controller.signal,
@@ -263,7 +395,7 @@ export default function LiveTrackingSection({
           handleSnapshot(history);
         }
 
-        const response = await fetch(`${resolveApiBase()}/api/track/live/${selectedTaskId}`, {
+        const response = await fetch(sseUrl, {
           headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
           cache: "no-store",
           signal: controller.signal,
@@ -310,6 +442,11 @@ export default function LiveTrackingSection({
                 handleSnapshot(payload as LivePositionRecord[]);
               } else if (eventName === "position" && payload && typeof payload === "object") {
                 handlePosition(payload as LivePositionRecord);
+              } else if (eventName === "igc_available" && payload && typeof payload === "object") {
+                const { task_id: igcTaskId, pilot_id: igcPilotId } = payload as { task_id: number; pilot_id: number };
+                if (igcTaskId && igcPilotId) {
+                  fetchIgcTrack(igcTaskId, igcPilotId);
+                }
               }
             } catch {
               // Ignore malformed event payloads without breaking the stream.
@@ -329,7 +466,7 @@ export default function LiveTrackingSection({
       active = false;
       controller.abort();
     };
-  }, [selectedTaskId, token]);
+  }, [trackingSource, token, buddyPilotIds, fetchIgcTrack]);
 
   const taskPoints = useMemo<TaskPointRecord[]>(() => selectedTask?.points ?? [], [selectedTask]);
   const taskTurnpoints = useMemo<MapTurnpoint[]>(() => {
@@ -347,14 +484,24 @@ export default function LiveTrackingSection({
     return Array.from(unique.values());
   }, [taskPoints, turnpoints]);
 
-  const liveTrack = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById), [pilotNameById, positionsByPilot]);
+  // Merge IGC tracks over live tracks when available
+  const effectivePositionsByPilot = useMemo(() => {
+    if (igcTracksByPilot.size === 0) return positionsByPilot;
+    const merged = new Map(positionsByPilot);
+    for (const [pilotId, igcPositions] of igcTracksByPilot) {
+      merged.set(pilotId, igcPositions);
+    }
+    return merged;
+  }, [positionsByPilot, igcTracksByPilot]);
+
+  const liveTrack = useMemo(() => buildTrackCollection(effectivePositionsByPilot, activePilotNameById), [activePilotNameById, effectivePositionsByPilot]);
   const livePositions = useMemo<MapLivePosition[]>(() => {
     const liveValues = Array.from(livePositionsByPilot.values());
     const pilotIds = liveValues.map((position) => position.pilot_id ?? 0).sort((a, b) => a - b);
     return liveValues.map((position) => ({
       id: position.id,
       pilotId: position.pilot_id,
-      pilotName: pilotNameById.get(position.pilot_id ?? 0) ?? `Pilot ${position.pilot_id ?? 0}`,
+      pilotName: activePilotNameById.get(position.pilot_id ?? 0) ?? `Pilot ${position.pilot_id ?? 0}`,
       latitude: position.lat,
       longitude: position.lon,
       altitudeM: position.alt,
@@ -366,7 +513,7 @@ export default function LiveTrackingSection({
       color: colorForPilot(position.pilot_id, pilotIds),
       aircraftType: position.aircraft_icon ?? "hang_glider",
     }));
-  }, [livePositionsByPilot, pilotNameById]);
+  }, [livePositionsByPilot, activePilotNameById]);
 
   const livePilotRows = useMemo(() => {
     return [...livePositions].sort((left, right) => {
@@ -379,49 +526,68 @@ export default function LiveTrackingSection({
     });
   }, [livePositions]);
 
-  if (!selectedEventId) {
-    return (
-      <SectionCard title="Live tracking" description="Select or create an event first.">
-        <p className="hint">Live tracking needs an event and task context before pilot positions can stream in.</p>
-      </SectionCard>
-    );
-  }
+  // Status label for the current tracking source
+  const sourceLabel = useMemo(() => {
+    if (!trackingSource) return "";
+    if (trackingSource.type === "task") {
+      const task = tasks.find((t) => t.id === trackingSource.taskId);
+      return task ? task.name : `Task ${trackingSource.taskId}`;
+    }
+    const group = buddyGroups.find((g) => g.id === trackingSource.groupId);
+    return group ? group.name : "Buddy group";
+  }, [trackingSource, tasks, buddyGroups]);
+
+  const isSourceActive = trackingSource !== null;
+  const showTaskMap = trackingSource?.type === "task" && selectedTask;
+  const showBuddyMap = trackingSource?.type === "buddy_group";
 
   return (
     <div className="section-stack">
       <SectionCard
         title="Live tracking"
-        description="Stream pilot positions for the selected task, keep Meshtastic wiring visible, and monitor the live task map."
+        description="Stream pilot positions for a competition task or buddy group."
       >
         <div className="stack form-block">
           <div className="participant-intake-row">
             <label className="stack compact">
-              <span>Selected task</span>
-              <select
-                value={selectedTaskId ?? ""}
-                onChange={(event) => {
-                  const nextId = Number(event.target.value);
-                  const nextTask = tasks.find((task) => task.id === nextId);
-                  if (nextTask) {
-                    void loadTask(token, nextId, nextTask, false);
-                  }
-                }}
-              >
-                <option value="">Select a task</option>
-                {tasks.map((task) => (
-                  <option key={task.id} value={task.id}>
-                    {task.name} - {task.status}
-                  </option>
-                ))}
+              <span>Tracking source</span>
+              <select value={sourceDropdownValue} onChange={(e) => handleSourceChange(e.target.value)}>
+                <option value="">Select a source</option>
+                {tasks.length > 0 ? (
+                  <optgroup label="Competition tasks">
+                    {tasks.map((task) => (
+                      <option key={`task:${task.id}`} value={`task:${task.id}`}>
+                        {task.name} - {task.status}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+                {buddyGroups.length > 0 ? (
+                  <optgroup label="Buddy groups">
+                    {buddyGroups.map((group) => (
+                      <option key={`buddy:${group.id}`} value={`buddy:${group.id}`}>
+                        {group.name} ({group.members.length} pilot{group.members.length !== 1 ? "s" : ""})
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
               </select>
             </label>
-            <div className="live-tracking-status-block">
-              <span className={`status-chip ${liveError ? "error" : "success"}`}>
-                {liveError ? "Disconnected" : loading ? "Connecting" : "Live"}
-              </span>
-              <span className="hint">{livePilotRows.length} active pilot{livePilotRows.length === 1 ? "" : "s"}</span>
-            </div>
+            {isSourceActive ? (
+              <div className="live-tracking-status-block">
+                <span className={`status-chip ${liveError ? "error" : "success"}`}>
+                  {liveError ? "Disconnected" : loading ? "Connecting" : "Live"}
+                </span>
+                <span className="hint">
+                  {sourceLabel} — {livePilotRows.length} pilot{livePilotRows.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+            ) : null}
           </div>
+
+          {!selectedEventId && !buddyGroups.length ? (
+            <p className="hint">Select or create an event, or create buddy groups in Settings to get started.</p>
+          ) : null}
 
           {meshConfig && canManagePlatform ? (
             <div className="live-tracking-mesh-card">
@@ -442,7 +608,7 @@ export default function LiveTrackingSection({
             </div>
           ) : null}
 
-          {selectedTaskId ? (
+          {isSourceActive ? (
             <div className="results-task-map-layout live-tracking-layout">
               <div className="results-task-map-pilot-list live-tracking-pilot-list">
                 <div className="results-task-map-pilot-header">
@@ -463,6 +629,7 @@ export default function LiveTrackingSection({
                           </small>
                         </span>
                         <span className="live-tracking-pilot-meta">
+                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span> : null}
                           <span>{formatRelativeTime(pilot.timestamp)}</span>
                           {pilot.batteryLevel != null ? <span>{pilot.batteryLevel}%</span> : null}
                         </span>
@@ -470,33 +637,33 @@ export default function LiveTrackingSection({
                     ))
                   ) : (
                     <div className="results-task-map-empty">
-                      {loading ? "Connecting to the live position stream..." : "No active pilot tracking for this task yet."}
+                      {loading ? "Connecting to the live position stream..." : trackingSource?.type === "buddy_group" ? "No recent positions from buddy group pilots." : "No active pilot tracking for this task yet."}
                     </div>
                   )}
                 </div>
               </div>
               <div className="results-task-map-canvas">
                 <TaskMap
-                  turnpoints={taskTurnpoints}
-                  fitTurnpoints={turnpoints}
-                  airspaces={visibleAirspaces}
-                  taskPoints={taskPoints}
+                  turnpoints={showTaskMap ? taskTurnpoints : []}
+                  fitTurnpoints={showTaskMap ? turnpoints : []}
+                  airspaces={showTaskMap ? visibleAirspaces : []}
+                  taskPoints={showTaskMap ? taskPoints : []}
                   track={liveTrack}
                   livePositions={livePositions}
                   editable={false}
                   mode="live"
                   units={units}
-                  fitKey={`live-${selectedTaskId}`}
+                  fitKey={trackingSource.type === "task" ? `live-${trackingSource.taskId}` : `live-buddy-${trackingSource.groupId}`}
                 />
               </div>
             </div>
           ) : (
-            <p className="hint">Choose a task to start the live position stream and map overlays.</p>
+            <p className="hint">Choose a tracking source to start the live position stream and map overlays.</p>
           )}
 
           {liveError ? <div className="status-chip error">{liveError}</div> : null}
 
-          {selectedTaskId && livePilotRows.length ? (
+          {isSourceActive && livePilotRows.length ? (
             <div className="live-tracking-table-wrap">
               <table className="results-table live-tracking-table">
                 <thead>

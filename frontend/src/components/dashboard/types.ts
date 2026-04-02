@@ -20,6 +20,7 @@ export type AccountSettingsRecord = {
   nation: string | null;
   competition_number: string | null;
   civl_id: string | null;
+  has_password?: boolean;
   access_token?: string | null;
 };
 export type AdminUserRecord = {
@@ -361,6 +362,28 @@ export type DebugStatusResponse = {
     last_hour_cellular: number;
     last_hour_mesh: number;
   };
+};
+
+export type BuddyGroupMember = {
+  pilot_id: number;
+  first_name: string;
+  last_name: string;
+  nation: string | null;
+  competition_number: string | null;
+};
+export type BuddyGroup = {
+  id: number;
+  name: string;
+  members: BuddyGroupMember[];
+  created_at: string;
+};
+export type PilotSearchResult = {
+  pilot_id: number;
+  first_name: string;
+  last_name: string;
+  nation: string | null;
+  competition_number: string | null;
+  email: string | null;
 };
 
 export { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection };

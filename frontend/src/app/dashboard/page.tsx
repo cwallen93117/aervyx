@@ -190,6 +190,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     nation: "",
     competition_number: "",
     civl_id: "",
+    has_password: false,
   };
 }
 
@@ -416,7 +417,21 @@ export default function HomePage() {
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
-  const [eventTab, setEventTab] = useState<EventTab>("details");
+  const [eventTab, setEventTabRaw] = useState<EventTab>(() => {
+    if (typeof window !== "undefined") {
+      const saved = window.localStorage.getItem("aervyx-event-tab");
+      if (saved && ["details", "turnpoints", "airspace", "participants", "scoring"].includes(saved)) {
+        return saved as EventTab;
+      }
+    }
+    return "details";
+  });
+  const setEventTab = (tab: EventTab) => {
+    setEventTabRaw(tab);
+    window.localStorage.setItem("aervyx-event-tab", tab);
+    setMessage("");
+    setError("");
+  };
   const [pilots, setPilots] = useState<PilotRecord[]>([]);
   const [pilotDirectory, setPilotDirectory] = useState<PilotRecord[]>([]);
   const [turnpoints, setTurnpoints] = useState<TurnpointRecord[]>([]);
@@ -434,8 +449,24 @@ export default function HomePage() {
   const [highlightedResultUploadId, setHighlightedResultUploadId] = useState<number | null>(null);
   const [pilotSummaryEventId, setPilotSummaryEventId] = useState<number | null>(null);
   const [scoringDataTaskId, setScoringDataTaskId] = useState<number | null>(null);
-  const [message, setMessage] = useState(DEFAULT_MESSAGE);
-  const [error, setError] = useState("");
+  const [message, setMessageRaw] = useState(DEFAULT_MESSAGE);
+  const [error, setErrorRaw] = useState("");
+  const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const setMessage = useCallback((text: string) => {
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+    setMessageRaw(text);
+    if (text && text !== DEFAULT_MESSAGE) {
+      messageTimer.current = setTimeout(() => setMessageRaw(""), 4000);
+    }
+  }, []);
+  const setError = useCallback((text: string) => {
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    setErrorRaw(text);
+    if (text) {
+      errorTimer.current = setTimeout(() => setErrorRaw(""), 6000);
+    }
+  }, []);
   const [authChecking, setAuthChecking] = useState(true);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [eventForm, setEventForm] = useState(blankEventForm());
@@ -1313,6 +1344,7 @@ export default function HomePage() {
           username: normalizeIdentityEmail(settingsForm.username),
           full_name: settingsForm.full_name,
           profile_type: settingsForm.profile_type,
+          role: settingsForm.role === "admin" ? undefined : settingsForm.role,
           altitude_unit: settingsForm.altitude_unit,
           speed_unit: settingsForm.speed_unit,
           distance_unit: settingsForm.distance_unit,
@@ -1348,7 +1380,7 @@ export default function HomePage() {
         document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
         setToken(payload.access_token);
       }
-      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, profile_type: payload.profile_type } : current));
+      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, role: payload.role, profile_type: payload.profile_type } : current));
       setSettingsFeedback((current) => ({ ...current, profile: { type: "success", text: "Account settings saved." } }));
     } catch (caught) {
       setSettingsFeedback((current) => ({
@@ -1378,8 +1410,10 @@ export default function HomePage() {
           new_password: settingsPasswordForm.new_password,
         }),
       });
+      const wasFirstPassword = !settingsForm.has_password;
       setSettingsPasswordForm({ current_password: "", new_password: "", confirm_password: "" });
-      setSettingsFeedback((current) => ({ ...current, password: { type: "success", text: "Password updated successfully." } }));
+      if (wasFirstPassword) setSettingsForm((current) => ({ ...current, has_password: true }));
+      setSettingsFeedback((current) => ({ ...current, password: { type: "success", text: wasFirstPassword ? "Password set successfully. You can now log in from the mobile app." : "Password updated successfully." } }));
     } catch (caught) {
       setSettingsFeedback((current) => ({
         ...current,
@@ -2454,6 +2488,7 @@ export default function HomePage() {
         case "settings":
           return (
             <SettingsSection
+              token={token}
               settingsForm={settingsForm}
               setSettingsForm={setSettingsForm}
               settingsPasswordForm={settingsPasswordForm}
@@ -2490,6 +2525,7 @@ export default function HomePage() {
             />
           ) : (
             <SettingsSection
+              token={token}
               settingsForm={settingsForm}
               setSettingsForm={setSettingsForm}
               settingsPasswordForm={settingsPasswordForm}
@@ -2516,7 +2552,7 @@ export default function HomePage() {
           <AppSidebar
             items={sidebarItems}
             activeItem={activeSection}
-            onSelect={(id) => setActiveSection(id as SidebarSection)}
+            onSelect={(id) => { setActiveSection(id as SidebarSection); setMessage(""); setError(""); }}
             eventName={selectedEvent?.name ?? null}
             compact={sidebarCompact}
             onToggleCompact={() => setSidebarCompact((current) => !current)}
@@ -2537,16 +2573,6 @@ export default function HomePage() {
                 <button className="signout" onClick={signOut}>Sign out</button>
               </div>
             </section>
-            {error ? (
-              <div className="status-row">
-                <div className="status-chip error">{error}</div>
-              </div>
-            ) : null}
-            {message && message !== DEFAULT_MESSAGE ? (
-              <div className="status-row">
-                <div className="status-chip success">{message}</div>
-              </div>
-            ) : null}
             {workspaceLoading ? (
               <div className="status-row">
                 <div className="status-chip pending">Loading event workspace...</div>
@@ -2555,6 +2581,16 @@ export default function HomePage() {
             {renderActiveSection()}
           </section>
         </div>
+        {error ? (
+          <div className="toast-container">
+            <div className="toast-chip error" onClick={() => setError("")}>{error}</div>
+          </div>
+        ) : null}
+        {message && message !== DEFAULT_MESSAGE ? (
+          <div className="toast-container">
+            <div className="toast-chip success" onClick={() => setMessage("")}>{message}</div>
+          </div>
+        ) : null}
     </main>
   );
 }

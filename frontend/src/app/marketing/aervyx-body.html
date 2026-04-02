@@ -14,11 +14,16 @@
   </a>
   <ul class="nav-links">
     <li><a href="#features">Features</a></li>
-    <li><a href="#tracking">Tracking</a></li>
-    <li><a href="#scoring">Scoring</a></li>
+    <li><a href="#logbook">Logbook</a></li>
+    <li><a href="#tracking">Intelligent Tracking</a></li>
+    <li><a href="#scoring">Task Planning &amp; Scoring</a></li>
     <li><a href="#opensource">Open Source</a></li>
   </ul>
   <div class="nav-right">
+    <a href="/app" class="nav-gh">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 2H6.477C5.768 2 5.2 2.568 5.2 3.277v17.446C5.2 21.432 5.768 22 6.477 22h11.046c.709 0 1.277-.568 1.277-1.277V3.277C18.8 2.568 18.232 2 17.523 2zM12 20.769a.923.923 0 110-1.846.923.923 0 010 1.846zM16.954 17.23H7.046V4.615h9.908V17.23z"/></svg>
+      Get the App
+    </a>
     <a href="https://github.com/cwallen93117/aervyx" class="nav-gh">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/></svg>
       GitHub
@@ -176,15 +181,96 @@
     <h2 class="section-title">One platform.<br/>Every discipline.</h2>
     <p class="section-body">From the first task briefing to the final podium — live tracking, auto-scoring, and driver routing in one place.</p>
     <div class="cap-grid reveal">
-      <div class="cap" style="--cg:rgba(0,230,118,.06)"><div class="cap-n">01</div><span class="cap-ico">📡</span><h3>Live Tracking</h3><p>Pilot positions updated every few seconds via 4G/LTE cellular or Meshtastic LoRa mesh nodes. No dead zones.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.06)"><div class="cap-n">01</div><span class="cap-ico">📡</span><h3>Live Tracking</h3><p>Pilot positions updated every few seconds via 4G/LTE cellular or Meshtastic LoRa mesh. Track competition tasks or free-flight buddy groups — one unified view.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.06)"><div class="cap-n">02</div><span class="cap-ico">🏅</span><h3>Auto Scoring</h3><p>GAP-aligned scoring runs automatically as pilots land. Live provisional rankings update in real time throughout the task.</p><span class="cap-badge cb-auto">Automatic</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.06)"><div class="cap-n">03</div><span class="cap-ico">🚗</span><h3>Driver Routing</h3><p>Optimal retrieve routes calculated from live pilot positions — adapts every 30 seconds as pilots move toward their LZ.</p><span class="cap-badge cb-smart">Smart</span></div>
       <div class="cap" style="--cg:rgba(167,139,250,.06)"><div class="cap-n">04</div><span class="cap-ico">🗺️</span><h3>Task Builder</h3><p>Draw tasks on an interactive map. Upload turnpoint libraries in CUP, DAT, or GeoJSON. Set cylinder radii and publish.</p><span class="cap-badge cb-core">Core</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.05)"><div class="cap-n">05</div><span class="cap-ico">📁</span><h3>IGC Evidence</h3><p>Every IGC file is SHA-256 fingerprinted on upload and stored immutably. Full audit trail for all scoring actions.</p><span class="cap-badge cb-auto">Tamper-proof</span></div>
       <div class="cap" style="--cg:rgba(0,230,118,.05)"><div class="cap-n">06</div><span class="cap-ico">🌐</span><h3>Spectator View</h3><p>Public live-tracking links for spectators and media. No account needed — share a URL and watch the task.</p><span class="cap-badge cb-live">Public</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.05)"><div class="cap-n">07</div><span class="cap-ico">👥</span><h3>Event & Pilot Management</h3><p>Multi-day events, CIVL pilot rosters with comp numbers, and auto-generated portal credentials.</p><span class="cap-badge cb-core">Core</span></div>
-      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. Upload IGC, see your live track, check rankings, and get task briefings.</p><span class="cap-badge cb-soon">Coming soon</span></div>
-      <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">🔄</span><h3>Flight Replay</h3><p>Replay any task — scrub through the full flight with altitude, speed, and scoring overlays.</p><span class="cap-badge cb-soon">Coming soon</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. Live position streaming, driver mode with retrieve routing, and Meshtastic device configuration over Bluetooth.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">🔄</span><h3>3D Flight Replay</h3><p>Replay any flight over 3D terrain with turnpoint cylinders, altitude profiles, speed overlays, and full scrub control.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">📓</span><h3>Pilot Logbook</h3><p>Personal flight logbook with bulk IGC upload, automatic site matching, climb stats, flight duration, and 3D replay for every track.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(255,107,53,.04)"><div class="cap-n">11</div><span class="cap-ico">👥</span><h3>Buddy Groups</h3><p>Create groups of pilots to follow in real time — free-flight tracking without a competition context. See friends on the map wherever they fly.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.04)"><div class="cap-n">12</div><span class="cap-ico">📊</span><h3>Flight Statistics</h3><p>Altitude, ground speed, best climb rate, total distance, and time-in-thermals vs glide breakdown — derived automatically from every IGC track.</p><span class="cap-badge cb-auto">Automatic</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- LOGBOOK -->
+<section class="section" id="logbook">
+  <div class="inner">
+    <div class="eyebrow ey-cyan">Pilot logbook</div>
+    <h2 class="section-title">Every flight.<br/>Automatically analysed.</h2>
+    <p class="section-body">Upload an IGC file and Aervyx does the rest — flight statistics, site matching, and 3D replay. Drag a folder to bulk-import an entire season.</p>
+    <div class="logbook-wrap reveal">
+      <div class="logbook-showcase">
+        <div class="logbook-table-demo">
+          <div class="lb-hdr">
+            <span class="lb-hdr-title">2025</span>
+            <span class="lb-hdr-count">12 flights</span>
+          </div>
+          <div class="lb-row">
+            <div class="lb-star active">★</div>
+            <div class="lb-cell lb-date">Mar 15, 2025</div>
+            <div class="lb-cell lb-site"><strong>Torrey Pines</strong><span class="lb-hint">Ridge soaring</span></div>
+            <div class="lb-cell lb-dur">2:34</div>
+            <div class="lb-cell lb-alt">3,842 ft</div>
+            <div class="lb-cell lb-climb">+482 fpm</div>
+            <div class="lb-badge">IGC</div>
+          </div>
+          <div class="lb-row">
+            <div class="lb-star">☆</div>
+            <div class="lb-cell lb-date">Mar 8, 2025</div>
+            <div class="lb-cell lb-site"><strong>Marshall Peak</strong><span class="lb-hint">Spring thermal day</span></div>
+            <div class="lb-cell lb-dur">1:47</div>
+            <div class="lb-cell lb-alt">6,120 ft</div>
+            <div class="lb-cell lb-climb">+738 fpm</div>
+            <div class="lb-badge">IGC</div>
+          </div>
+          <div class="lb-row">
+            <div class="lb-star">☆</div>
+            <div class="lb-cell lb-date">Feb 22, 2025</div>
+            <div class="lb-cell lb-site"><strong>Crestline</strong><span class="lb-hint">Task 2 — Regional Open</span></div>
+            <div class="lb-cell lb-dur">3:12</div>
+            <div class="lb-cell lb-alt">8,450 ft</div>
+            <div class="lb-cell lb-climb">+912 fpm</div>
+            <div class="lb-badge lb-task">Task</div>
+          </div>
+        </div>
+      </div>
+      <div class="logbook-features">
+        <div class="lf-card">
+          <span class="lf-ico">📂</span>
+          <h3>Bulk Upload</h3>
+          <p>Drag an entire folder of IGC files. Aervyx scans, deduplicates, and imports — with a review step for files that need pilot confirmation.</p>
+        </div>
+        <div class="lf-card">
+          <span class="lf-ico">📍</span>
+          <h3>Auto Site Matching</h3>
+          <p>Launch coordinates are matched against your site library. Flights are automatically tagged with the correct flying site — no manual entry needed.</p>
+        </div>
+        <div class="lf-card">
+          <span class="lf-ico">🌀</span>
+          <h3>Climb &amp; Glide Breakdown</h3>
+          <p>Each flight's time is split into climbing and gliding segments. See your best climb rate, time spent gaining altitude vs cruising, and highest altitude reached.</p>
+        </div>
+        <div class="lf-card">
+          <span class="lf-ico">🔄</span>
+          <h3>3D Flight Replay</h3>
+          <p>Replay any IGC-backed flight over 3D terrain with altitude profiles, turnpoint cylinders, and full timeline scrubbing. Relive the flight from any angle.</p>
+        </div>
+        <div class="lf-card">
+          <span class="lf-ico">📊</span>
+          <h3>Flight Statistics</h3>
+          <p>Duration, highest altitude, best climb rate, max ground speed, total distance, and climb-vs-glide time split — computed automatically from every IGC track.</p>
+        </div>
+        <div class="lf-card">
+          <span class="lf-ico">⭐</span>
+          <h3>Star &amp; Organise</h3>
+          <p>Star your best flights, add notes, select by year, and bulk-delete old records. Your logbook, your way — with per-year selection and full export support.</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -224,45 +310,109 @@
   </div>
 </section>
 
-<!-- DRIVER -->
+<!-- MESHTASTIC DEEP DIVE -->
+<section class="section dark-section" id="meshtastic">
+  <div class="inner">
+    <div class="eyebrow ey-green">Meshtastic mesh tracking</div>
+    <h2 class="section-title">Off-grid coverage for<br/>every flying site.</h2>
+    <p class="section-body">Meshtastic LoRa devices form a self-healing radio mesh that works where cell towers don't. Affordable, solar-powered, and purpose-built for remote terrain.</p>
+    <div class="mesh-grid reveal">
+      <div class="mesh-card">
+        <span class="mesh-ico">🏆</span>
+        <h3>Competition Safety</h3>
+        <p>Real-time pilot positions for safety directors and retrieve teams. SOS alerts relay instantly through the mesh — even in valleys with zero cell signal. Every pilot visible, every second.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">🪂</span>
+        <h3>Free Flight Clubs</h3>
+        <p>Install a solar-powered node at your club's launch and LZ. Every member with a Meshtastic device is automatically tracked — no subscriptions, no cell plans, no recurring costs.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">⛰️</span>
+        <h3>Remote Sites</h3>
+        <p>Mountain launches, desert thermals, coastal ridges with no coverage — LoRa reaches 10-50 km per hop in open terrain. The mesh fills gaps that cellular simply can't.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">💲</span>
+        <h3>Affordable Hardware</h3>
+        <p>Complete Meshtastic nodes cost $20-40. Solar-powered and weatherproof options exist for permanent outdoor installation. No monthly fees, no SIM cards, no data plans.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">🚗</span>
+        <h3>Retrieve Vehicles</h3>
+        <p>Mount a node on each retrieve vehicle. Drivers stay visible on the tracking map and relay positions for pilots overhead — turning every car into a mobile mesh repeater.</p>
+      </div>
+      <div class="mesh-card">
+        <span class="mesh-ico">📍</span>
+        <h3>Landing Zone Routers</h3>
+        <p>Leave a fixed node at the LZ before you launch. It acts as a relay point for your flight — capturing your positions and forwarding them through the mesh to the cloud.</p>
+      </div>
+    </div>
+    <div class="mesh-how reveal">
+      <div class="eyebrow" style="margin-bottom:.5rem">How it works</div>
+      <p class="section-body" style="max-width:52rem">Each pilot carries a small LoRa radio that broadcasts GPS positions. Nearby nodes relay the signal hop-by-hop until it reaches any internet-connected node, which bridges positions to the Aervyx cloud via MQTT. The mesh is self-healing — add or remove nodes and coverage adapts automatically.</p>
+    </div>
+  </div>
+</section>
+
+<!-- MESH SAFETY -->
 <section class="section dark-section">
   <div class="inner">
-    <div class="eyebrow ey-orange">Driver &amp; retrieve</div>
-    <h2 class="section-title">The smartest navigator<br/>in the retrieve car.</h2>
-    <p class="section-body">Aervyx continuously calculates the optimal road route to intercept your pilot, updating every 30 seconds as they fly.</p>
+    <div class="eyebrow ey-green">Safety mesh network</div>
+    <h2 class="section-title">Every pilot visible.<br/>Every second.</h2>
+    <p class="section-body">Meshtastic nodes create a self-healing radio mesh across your flying site — no cell towers required. Pilots, drivers, and ground stations relay for each other automatically.</p>
     <div class="driver-wrap reveal">
       <div class="driver-map">
         <svg width="100%" height="100%" viewBox="0 0 480 400" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
           <rect width="480" height="400" fill="#0a1510"/>
-          <path d="M0,290 Q108,278 192,252 Q272,226 342,216 Q412,208 480,194" fill="none" stroke="#1e3a1e" stroke-width="7"/>
-          <path d="M0,290 Q108,278 192,252 Q272,226 342,216 Q412,208 480,194" fill="none" stroke="#243824" stroke-width="3.5"/>
-          <path d="M192,400 Q198,330 204,252" fill="none" stroke="#1e3a1e" stroke-width="5.5"/>
-          <path d="M192,400 Q198,330 204,252" fill="none" stroke="#243824" stroke-width="2.5"/>
-          <circle cx="348" cy="126" r="36" fill="rgba(255,107,53,.05)" stroke="rgba(255,107,53,.18)" stroke-width="1" stroke-dasharray="4,3"/>
-          <circle cx="348" cy="126" r="8" fill="rgba(255,107,53,.15)" stroke="#ff6b35" stroke-width="1.5"/>
-          <text x="360" y="124" font-size="7" fill="#ff6b35" font-family="JetBrains Mono,monospace">Predicted LZ</text>
-          <rect x="110" y="275" width="18" height="12" rx="3" fill="#ff6b35" opacity=".92"/>
-          <text x="100" y="297" font-size="6" fill="#ff6b35" font-family="JetBrains Mono,monospace">YOU</text>
-          <path d="M119,281 Q192,254 274,228 Q335,216 348,134" fill="none" stroke="#ff6b35" stroke-width="2.5" opacity=".82"/>
-          <circle cx="193" cy="254" r="3.5" fill="#ff6b35" opacity=".58"/><circle cx="296" cy="220" r="3.5" fill="#ff6b35" opacity=".58"/>
-          <rect x="338" y="154" width="72" height="34" rx="7" fill="rgba(6,9,15,.92)" stroke="rgba(255,107,53,.28)" stroke-width="1"/>
-          <text x="351" y="167" font-size="7" fill="rgba(255,255,255,.38)" font-family="JetBrains Mono,monospace">ETA</text>
-          <text x="347" y="181" font-size="11" fill="#ff6b35" font-family="Exo 2,sans-serif" font-weight="800">14 min</text>
-          <circle cx="256" cy="174" r="7" fill="#fbbf24" opacity=".9"/>
-          <circle cx="256" cy="174" r="15" fill="none" stroke="#fbbf24" stroke-width="1" opacity=".36" stroke-dasharray="3,2"/>
-          <text x="266" y="172" font-size="7" fill="#fbbf24" font-family="JetBrains Mono,monospace">#23 live</text>
-          <circle cx="226" cy="192" r="5" fill="#94a3b8" opacity=".7"/>
-          <circle cx="206" cy="208" r="5" fill="#c084fc" opacity=".7"/>
+          <!-- Terrain contour lines -->
+          <path d="M0,320 Q120,280 240,260 Q360,240 480,220" fill="none" stroke="#1a3a1a" stroke-width=".6" opacity=".5"/>
+          <path d="M0,280 Q130,240 260,215 Q380,195 480,175" fill="none" stroke="#1a3a1a" stroke-width=".6" opacity=".4"/>
+          <path d="M0,240 Q140,195 270,170 Q390,148 480,130" fill="none" stroke="#1a3a1a" stroke-width=".6" opacity=".3"/>
+          <!-- Mesh relay lines -->
+          <line x1="72" y1="340" x2="192" y2="265" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="6,4" opacity=".42"/>
+          <line x1="192" y1="265" x2="340" y2="180" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="6,4" opacity=".42"/>
+          <line x1="340" y1="180" x2="420" y2="100" stroke="#a78bfa" stroke-width="1.2" stroke-dasharray="6,4" opacity=".42"/>
+          <line x1="192" y1="265" x2="120" y2="160" stroke="#a78bfa" stroke-width="1" stroke-dasharray="5,4" opacity=".3"/>
+          <line x1="340" y1="180" x2="260" y2="120" stroke="#a78bfa" stroke-width="1" stroke-dasharray="5,4" opacity=".3"/>
+          <!-- LZ fixed node -->
+          <circle cx="72" cy="340" r="22" fill="rgba(167,139,250,.06)" stroke="rgba(167,139,250,.2)" stroke-width="1"/>
+          <circle cx="72" cy="340" r="6" fill="#a78bfa" opacity=".9"/>
+          <text x="56" y="374" font-size="6.5" fill="#a78bfa" font-family="JetBrains Mono,monospace" font-weight="600">LZ NODE</text>
+          <!-- Ridgeline relay node -->
+          <circle cx="192" cy="265" r="18" fill="rgba(0,230,118,.05)" stroke="rgba(0,230,118,.18)" stroke-width="1"/>
+          <circle cx="192" cy="265" r="5" fill="#00e676" opacity=".85"/>
+          <text x="176" y="294" font-size="6.5" fill="#00e676" font-family="JetBrains Mono,monospace" font-weight="600">RELAY</text>
+          <!-- MQTT gateway -->
+          <circle cx="340" cy="180" r="20" fill="rgba(0,229,255,.05)" stroke="rgba(0,229,255,.2)" stroke-width="1"/>
+          <circle cx="340" cy="180" r="6" fill="#00e5ff" opacity=".9"/>
+          <text x="325" y="212" font-size="6.5" fill="#00e5ff" font-family="JetBrains Mono,monospace" font-weight="600">GATEWAY</text>
+          <!-- Pilot in air -->
+          <circle cx="260" cy="120" r="7" fill="#fbbf24" opacity=".9"/>
+          <circle cx="260" cy="120" r="14" fill="none" stroke="#fbbf24" stroke-width="1" opacity=".36" stroke-dasharray="3,2"/>
+          <text x="272" y="118" font-size="7" fill="#fbbf24" font-family="JetBrains Mono,monospace">#23</text>
+          <!-- Pilot 2 -->
+          <circle cx="120" cy="160" r="6" fill="#94a3b8" opacity=".8"/>
+          <circle cx="120" cy="160" r="12" fill="none" stroke="#94a3b8" stroke-width=".8" opacity=".3" stroke-dasharray="3,2"/>
+          <text x="132" y="158" font-size="7" fill="#94a3b8" font-family="JetBrains Mono,monospace">#07</text>
+          <!-- SOS alert pilot -->
+          <circle cx="420" cy="100" r="8" fill="rgba(255,59,48,.2)" stroke="#ff3b30" stroke-width="1.5"/>
+          <circle cx="420" cy="100" r="16" fill="none" stroke="#ff3b30" stroke-width="1" opacity=".5" stroke-dasharray="3,2"/>
+          <text x="432" y="98" font-size="7" fill="#ff3b30" font-family="JetBrains Mono,monospace" font-weight="700">SOS</text>
+          <!-- Cloud bridge indicator -->
+          <rect x="330" y="142" width="56" height="26" rx="6" fill="rgba(6,9,15,.92)" stroke="rgba(0,229,255,.28)" stroke-width="1"/>
+          <text x="338" y="153" font-size="6" fill="rgba(255,255,255,.38)" font-family="JetBrains Mono,monospace">MQTT</text>
+          <text x="338" y="163" font-size="7" fill="#00e5ff" font-family="JetBrains Mono,monospace" font-weight="600">→ Cloud</text>
         </svg>
       </div>
       <div class="driver-info">
         <div>
-          <div class="eyebrow ey-orange" style="margin-bottom:.42rem">Smart routing engine</div>
-          <p style="font-size:.86rem;color:var(--muted);line-height:1.75">Live positions feed a routing engine that calculates the best road path to intercept your pilot — updating every 30 seconds as they fly toward their landing zone.</p>
+          <div class="eyebrow ey-green" style="margin-bottom:.42rem">How the mesh works</div>
+          <p style="font-size:.86rem;color:var(--muted);line-height:1.75">Each Meshtastic node broadcasts GPS positions over LoRa radio. Nearby nodes automatically relay the signal hop-by-hop until it reaches an internet-connected gateway, which bridges everything to the Aervyx cloud.</p>
         </div>
-        <div class="rk"><div class="rk-lbl">Predicted ETA to LZ</div><div class="rk-val"><em>14</em> min</div><div class="rk-sub">Via Hwy 395 → Chalk Bluffs Rd</div></div>
-        <div class="rk"><div class="rk-lbl">Pilot distance remaining</div><div class="rk-val"><em>37.2</em> km</div><div class="rk-sub">Est. landing in ~48 min</div></div>
-        <div class="rk"><div class="rk-lbl">Route recalculates</div><div class="rk-val">Every <em>30s</em></div><div class="rk-sub">Adapts as pilot position changes</div></div>
+        <div class="rk"><div class="rk-lbl">SOS alerting</div><div class="rk-val" style="color:#ff3b30">Instant <em style="color:#ff3b30">relay</em></div><div class="rk-sub">Emergency alerts propagate through every node in range</div></div>
+        <div class="rk"><div class="rk-lbl">Node-to-node range</div><div class="rk-val"><em>10–50</em> km</div><div class="rk-sub">Line-of-sight LoRa in open mountain terrain</div></div>
+        <div class="rk"><div class="rk-lbl">Self-healing coverage</div><div class="rk-val"><em>Automatic</em></div><div class="rk-sub">Add or remove nodes — the mesh adapts instantly</div></div>
       </div>
     </div>
   </div>
@@ -304,14 +454,13 @@
     <div class="oss-grid reveal">
       <div class="oss-card"><span class="oss-card-ico">🔓</span><h3>Apache 2.0 Licence</h3><p>Free to use commercially, modify, and distribute — with or without source. No copyleft obligations. No "open core" bait-and-switch. Everything is in the repo.</p></div>
       <div class="oss-card"><span class="oss-card-ico">🏠</span><h3>Self-Host for Free</h3><p>Deploy the full Aervyx stack on your own infrastructure using Docker Compose. Perfect for federations wanting complete data sovereignty — no subscription required.</p></div>
-      <div class="oss-card"><span class="oss-card-ico">🤝</span><h3>Community Driven</h3><p>Built by pilots and developers in the free-flight community. Contributions welcome — scoring formulas, hardware integrations, translations, and bug fixes.</p></div>
+      <div class="oss-card"><span class="oss-card-ico">🤝</span><h3>Built by a Pilot</h3><p>Created by Charles Allen, President of USHPA, for the free-flight community. Features like SOS alerting, bulk IGC import, and mesh safety are built from real flying experience. Contributions welcome — scoring formulas, hardware integrations, and bug fixes.</p></div>
     </div>
     <div class="oss-links reveal">
       <a href="https://github.com/cwallen93117/aervyx" class="oss-link">⭐ GitHub — cwallen93117/aervyx</a>
       <a href="/login" class="oss-link">📄 Apache 2.0 Licence</a>
       <a href="/login" class="oss-link">📖 Self-host docs</a>
       <a href="/login" class="oss-link">🗺️ Roadmap</a>
-      <a href="/login" class="oss-link">💬 Community Discord</a>
     </div>
     <div class="dep-lbl reveal">Built on proven open-source foundations</div>
     <div class="deps reveal">
@@ -395,50 +544,27 @@
   </div>
 </section>
 
-<!-- SIGNUP -->
+<!-- GET STARTED -->
 <section class="section" id="signup">
   <div class="inner">
     <div class="signup-wrap reveal">
       <div class="su-glow"></div>
       <div class="su-left">
-        <div class="eyebrow" style="margin-bottom:.75rem">Early access</div>
-        <h2>Be first to run a competition on Aervyx.</h2>
-        <p>We're onboarding directors ahead of public launch. Register your interest and we'll set you up with a free sandbox event — including a live tracking demo with real Meshtastic nodes.</p>
+        <div class="eyebrow" style="margin-bottom:.75rem">Get started</div>
+        <h2>Ready to fly with Aervyx?</h2>
+        <p>Create a free account and start using the full platform — live tracking, auto-scoring, pilot logbook, buddy groups, and Meshtastic mesh safety. No credit card required.</p>
         <div class="su-checks">
-          <div class="su-check"><span class="su-ck">✓</span>No hardware to buy or manage</div>
-          <div class="su-check"><span class="su-ck">✓</span>Live in minutes — first event free</div>
-          <div class="su-check"><span class="su-ck">✓</span>Cellular + mesh tracking included</div>
-          <div class="su-check"><span class="su-ck">✓</span>Auto-scoring from first IGC upload</div>
-          <div class="su-check"><span class="su-ck">✓</span>Driver routing built in</div>
+          <div class="su-check"><span class="su-ck">✓</span>Live tracking over cellular + Meshtastic mesh</div>
+          <div class="su-check"><span class="su-ck">✓</span>Auto GAP scoring from first IGC upload</div>
+          <div class="su-check"><span class="su-ck">✓</span>Personal logbook with bulk upload &amp; 3D replay</div>
+          <div class="su-check"><span class="su-ck">✓</span>SOS alerting through the mesh network</div>
+          <div class="su-check"><span class="su-ck">✓</span>Bulk IGC upload with automatic flight stats</div>
           <div class="su-check"><span class="su-ck">✓</span>Open source — Apache 2.0 licence</div>
         </div>
       </div>
-      <div>
-        <div style="margin-bottom:1.35rem">
-          <div style="font-family:'Exo 2',sans-serif;font-size:1.12rem;font-weight:800;color:var(--white);margin-bottom:.22rem">Request early access</div>
-          <div style="font-size:.8rem;color:var(--muted)">We'll be in touch within 48 hours.</div>
-        </div>
-        <div class="su-form">
-          <div class="sf-2c">
-            <div><label class="sf-lbl">First name</label><input class="sf-in" type="text" name="first_name" placeholder="Alex" required/></div>
-            <div><label class="sf-lbl">Last name</label><input class="sf-in" type="text" placeholder="Müller"/></div>
-          </div>
-          <div><label class="sf-lbl">Email</label><input class="sf-in" type="email" name="email" placeholder="alex@yourclub.org" required/></div>
-          <div><label class="sf-lbl">Organisation / federation</label><input class="sf-in" type="text" placeholder="USHPA, DHV, FFVL, BHPc…"/></div>
-          <div><label class="sf-lbl">Your role</label>
-            <select class="sf-sel"><option value="">Select…</option><option>Competition director / meet director</option><option>Scoring official</option><option>National federation IT / tech</option><option>Club organiser</option><option>Pilot</option></select>
-          </div>
-          <div class="sf-2c">
-            <div><label class="sf-lbl">Discipline</label>
-              <select class="sf-sel"><option value="">Select…</option><option>Paragliding</option><option>Hang gliding</option><option>Both</option></select>
-            </div>
-            <div><label class="sf-lbl">Deployment</label>
-              <select class="sf-sel"><option value="">Select…</option><option>Aervyx Cloud</option><option>Self-hosted</option><option>Undecided</option></select>
-            </div>
-          </div>
-          <button class="sf-submit" type="button" data-signup-submit="true">Request early access →</button>
-          <div class="sf-note">No spam. No obligations. Your data is never sold.</div>
-        </div>
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1.2rem;padding:2rem 0">
+        <a href="/login" class="btn-primary" style="font-size:1.1rem;padding:1rem 2.8rem">Create your free account <span>→</span></a>
+        <span style="font-size:.82rem;color:var(--muted)">Already have an account? <a href="/login" style="color:var(--cyan);font-weight:600;text-decoration:none">Log in</a></span>
       </div>
     </div>
   </div>
@@ -458,6 +584,7 @@
         <li><a href="/login">Live tracking</a></li><li><a href="/login">Auto scoring</a></li>
         <li><a href="/login">Driver routing</a></li><li><a href="/login">Task builder</a></li>
         <li><a href="/login">Spectator view</a></li><li><a href="/login">Pilot portal</a></li>
+        <li><a href="/app">Android App</a></li>
       </ul>
     </div>
     <div>

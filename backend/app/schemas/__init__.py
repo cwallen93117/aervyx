@@ -58,6 +58,7 @@ class AccountSettingsResponse(BaseModel):
     nation: str | None = None
     competition_number: str | None = None
     civl_id: str | None = None
+    has_password: bool = False
 
 
 class AccountSettingsUpdateResponse(AccountSettingsResponse):
@@ -68,6 +69,7 @@ class AccountSettingsUpdate(BaseModel):
     username: str
     full_name: str
     profile_type: str = "pilot"
+    role: str | None = None
     altitude_unit: str = "ft"
     speed_unit: str = "kph"
     distance_unit: str = "km"
@@ -82,7 +84,7 @@ class AccountSettingsUpdate(BaseModel):
 
 
 class PasswordChangeRequest(BaseModel):
-    current_password: str
+    current_password: str = ""
     new_password: str
 
 

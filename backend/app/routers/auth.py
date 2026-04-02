@@ -72,6 +72,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         nation=pilot.nation if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
         civl_id=pilot.civl_id if pilot else None,
+        has_password=bool(user.password_hash),
         access_token=access_token,
     )
 
@@ -249,6 +250,14 @@ def update_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
     if aircraft_icon not in VALID_AIRCRAFT_ICONS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Aircraft icon must be hang_glider, paraglider, or sailplane")
+
+    if payload.role is not None:
+        requested_role = payload.role.strip().lower()
+        if requested_role not in VALID_ACCOUNT_ROLES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Role must be pilot or organizer")
+        if user.role == "admin":
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role cannot be changed through settings")
+        user.role = requested_role
 
     normalized_email_identity = _normalize_email_identity(payload.username, payload.email)
     if normalized_email_identity is None:

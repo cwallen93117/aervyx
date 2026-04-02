@@ -17,6 +17,7 @@ from app.models import LivePosition, TrackingSession, User
 # ---------------------------------------------------------------------------
 
 _subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
+_pilot_subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
 logger = logging.getLogger("aervyx.tracking")
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 
@@ -71,6 +72,48 @@ def _publish(task_id: int, message: dict[str, Any]) -> None:
         task_subs.discard(queue)
     if not task_subs:
         del _subscribers[task_id]
+
+
+# ---------------------------------------------------------------------------
+# Pilot-scoped pub/sub (for buddy group tracking)
+# ---------------------------------------------------------------------------
+
+def subscribe_pilots(pilot_ids: list[int]) -> asyncio.Queue[dict[str, Any]]:
+    """Register a single queue that receives positions for any of the given pilot IDs."""
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
+    for pid in pilot_ids:
+        _pilot_subscribers.setdefault(pid, set()).add(queue)
+    return queue
+
+
+def unsubscribe_pilots(pilot_ids: list[int], queue: asyncio.Queue[dict[str, Any]]) -> None:
+    """Remove a subscriber queue from all specified pilot channels."""
+    for pid in pilot_ids:
+        subs = _pilot_subscribers.get(pid)
+        if subs:
+            subs.discard(queue)
+            if not subs:
+                del _pilot_subscribers[pid]
+
+
+def _publish_to_pilot_subscribers(pilot_id: int, message: dict[str, Any]) -> None:
+    """Fan out a message to all SSE subscribers watching a specific pilot."""
+    subs = _pilot_subscribers.get(pilot_id)
+    if not subs:
+        return
+    dead: list[asyncio.Queue[dict[str, Any]]] = []
+    for queue in subs:
+        try:
+            queue.put_nowait(message)
+        except asyncio.QueueFull:
+            dead.append(queue)
+        except Exception:
+            logger.warning("Dropping failed pilot subscriber for pilot %s", pilot_id, exc_info=True)
+            dead.append(queue)
+    for queue in dead:
+        subs.discard(queue)
+    if not subs:
+        del _pilot_subscribers[pilot_id]
 
 
 # ---------------------------------------------------------------------------
@@ -148,8 +191,8 @@ def store_position(
 
     session.flush()
 
-    # Fan out to SSE subscribers (only for task-scoped positions) ---------------
-    if task_id is not None:
+    # Build SSE message once for both fan-out paths ----------------------------
+    if task_id is not None or (pilot_id is not None and pilot_id in _pilot_subscribers):
         message = {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,
@@ -166,7 +209,10 @@ def store_position(
             "battery_level": pos.battery_level,
             "aircraft_icon": _aircraft_icons_by_pilot(session, [pilot_id]).get(pilot_id, "hang_glider") if pilot_id is not None else "hang_glider",
         }
-        _publish(task_id, message)
+        if task_id is not None:
+            _publish(task_id, message)
+        if pilot_id is not None:
+            _publish_to_pilot_subscribers(pilot_id, message)
 
     return pos
 
@@ -229,6 +275,72 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
     ]
 
 
+def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[str, Any]]:
+    """Return latest position for every pilot with recent activity (any task or free-flight)."""
+    from datetime import timedelta
+    from sqlalchemy import func as sa_func
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+
+    active_sessions = session.scalars(
+        select(TrackingSession).where(
+            TrackingSession.is_active.is_(True),
+            TrackingSession.last_seen_at >= cutoff,
+        )
+    ).all()
+
+    if not active_sessions:
+        return []
+
+    pilot_ids = [s.pilot_id for s in active_sessions if s.pilot_id is not None]
+    if not pilot_ids:
+        return []
+
+    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+
+    # Pilot names via User table
+    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all()
+    pilot_names: dict[int, str] = {}
+    for u in users:
+        if u.pilot_id is not None and u.pilot_id not in pilot_names:
+            pilot_names[u.pilot_id] = u.full_name
+
+    # Latest position per pilot
+    row_num = sa_func.row_number().over(
+        partition_by=LivePosition.pilot_id,
+        order_by=LivePosition.timestamp.desc(),
+    ).label("rn")
+
+    subq = (
+        select(LivePosition, row_num)
+        .where(
+            LivePosition.pilot_id.in_(pilot_ids),
+            LivePosition.timestamp >= cutoff,
+        )
+        .subquery()
+    )
+
+    rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
+
+    return [
+        {
+            "pilot_id": row.pilot_id,
+            "pilot_name": pilot_names.get(row.pilot_id, f"Pilot {row.pilot_id}"),
+            "lat": row.lat,
+            "lon": row.lon,
+            "alt": row.alt,
+            "speed": row.speed,
+            "heading": row.heading,
+            "accuracy": row.accuracy,
+            "timestamp": row.timestamp.isoformat(),
+            "source": row.source,
+            "battery_level": row.battery_level,
+            "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
+        }
+        for row in rows
+    ]
+
+
 def get_position_history(
     session: Session,
     task_id: int,
@@ -263,6 +375,94 @@ def get_position_history(
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
             "aircraft_icon": aircraft_icons_by_pilot.get(pos.pilot_id, "hang_glider"),
+        }
+        for pos in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Pilot-set queries (for buddy group tracking)
+# ---------------------------------------------------------------------------
+
+def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> list[dict[str, Any]]:
+    """Return the latest position per pilot for a set of pilot IDs."""
+    from sqlalchemy import func as sa_func
+
+    if not pilot_ids:
+        return []
+
+    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+
+    row_num = sa_func.row_number().over(
+        partition_by=LivePosition.pilot_id,
+        order_by=LivePosition.timestamp.desc(),
+    ).label("rn")
+
+    subq = (
+        select(LivePosition, row_num)
+        .where(LivePosition.pilot_id.in_(pilot_ids))
+        .subquery()
+    )
+
+    rows = session.execute(
+        select(subq).where(subq.c.rn == 1)
+    ).all()
+
+    return [
+        {
+            "id": str(row.id),
+            "pilot_id": row.pilot_id,
+            "task_id": row.task_id,
+            "lat": row.lat,
+            "lon": row.lon,
+            "alt": row.alt,
+            "speed": row.speed,
+            "heading": row.heading,
+            "accuracy": row.accuracy,
+            "timestamp": row.timestamp.isoformat(),
+            "source": row.source,
+            "device_id": row.device_id,
+            "battery_level": row.battery_level,
+            "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
+        }
+        for row in rows
+    ]
+
+
+def get_position_history_for_pilots(
+    session: Session,
+    pilot_ids: list[int],
+    *,
+    since: datetime | None = None,
+    limit: int = 10000,
+) -> list[dict[str, Any]]:
+    """Return position history for a set of pilots (all tasks + free-flight)."""
+    if not pilot_ids:
+        return []
+
+    query = select(LivePosition).where(LivePosition.pilot_id.in_(pilot_ids))
+    if since is not None:
+        query = query.where(LivePosition.timestamp >= since)
+    query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
+
+    rows = session.scalars(query).all()
+    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+    return [
+        {
+            "id": str(pos.id),
+            "pilot_id": pos.pilot_id,
+            "task_id": pos.task_id,
+            "lat": pos.lat,
+            "lon": pos.lon,
+            "alt": pos.alt,
+            "speed": pos.speed,
+            "heading": pos.heading,
+            "accuracy": pos.accuracy,
+            "timestamp": pos.timestamp.isoformat(),
+            "source": pos.source,
+            "device_id": pos.device_id,
+            "battery_level": pos.battery_level,
+            "aircraft_icon": aircraft_icons.get(pos.pilot_id, "hang_glider"),
         }
         for pos in rows
     ]

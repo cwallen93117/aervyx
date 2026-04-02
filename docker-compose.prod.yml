@@ -35,6 +35,7 @@ services:
       - "8000"
     volumes:
       - backend_uploads:/app/storage/uploads
+      - backend_apks:/app/storage/apks
 
   frontend:
     build:
@@ -66,5 +67,6 @@ services:
 volumes:
   postgres_data:
   backend_uploads:
+  backend_apks:
   mosquitto_data:
   mosquitto_log:

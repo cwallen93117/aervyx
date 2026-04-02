@@ -23,6 +23,7 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
   double? _maxAlt;
   bool _loading = true;
   String? _error;
+  _MapStyle _mapStyle = _MapStyle.map;
 
   @override
   void initState() {
@@ -151,8 +152,9 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
           ),
           children: [
             TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              urlTemplate: _mapStyle.urlTemplate,
               userAgentPackageName: 'com.aervyx.aervyx_mobile',
+              maxZoom: _mapStyle.maxZoom,
             ),
             // Flight track segments (altitude-colored)
             if (_segments != null)
@@ -187,11 +189,20 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
               ),
           ],
         ),
-        // Altitude legend
+        // Map style selector
+        Positioned(
+          top: 12,
+          right: 12,
+          child: _MapStyleSelector(
+            current: _mapStyle,
+            onChanged: (style) => setState(() => _mapStyle = style),
+          ),
+        ),
+        // Altitude legend — above the info bar
         if (_minAlt != null && _maxAlt != null)
           Positioned(
             right: 12,
-            bottom: 12,
+            bottom: 56,
             child: _AltitudeLegend(minAlt: _minAlt!, maxAlt: _maxAlt!),
           ),
         // Flight info bar
@@ -227,7 +238,7 @@ class _AltitudeLegend extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
       decoration: BoxDecoration(
         color: Colors.white.withAlpha(220),
         borderRadius: BorderRadius.circular(8),
@@ -235,36 +246,40 @@ class _AltitudeLegend extends StatelessWidget {
           BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4),
         ],
       ),
-      child: Column(
+      child: Row(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const Text('Altitude',
-              style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-          const SizedBox(height: 4),
-          Container(
-            width: 16,
-            height: 80,
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.red,
-                  Colors.orange,
-                  Colors.yellow,
-                  Colors.green,
-                  Colors.blue,
-                ],
+          // Altitude labels and gradient bar
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('${maxAlt.toStringAsFixed(0)}m',
+                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 2),
+              Container(
+                width: 12,
+                height: 64,
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.red,
+                      Colors.orange,
+                      Colors.yellow,
+                      Colors.green,
+                      Colors.blue,
+                    ],
+                  ),
+                  borderRadius: BorderRadius.all(Radius.circular(3)),
+                ),
               ),
-              borderRadius: BorderRadius.all(Radius.circular(4)),
-            ),
+              const SizedBox(height: 2),
+              Text('${minAlt.toStringAsFixed(0)}m',
+                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text('${maxAlt.toStringAsFixed(0)}m',
-              style: const TextStyle(fontSize: 9)),
-          const SizedBox(height: 50),
-          Text('${minAlt.toStringAsFixed(0)}m',
-              style: const TextStyle(fontSize: 9)),
         ],
       ),
     );
@@ -306,9 +321,6 @@ class _FlightInfoBar extends StatelessWidget {
                 label: flight.maxSpeed != null
                     ? '${(flight.maxSpeed! * 3.6).toStringAsFixed(0)} km/h'
                     : '--'),
-            _InfoChip(
-                icon: Icons.location_on,
-                label: '${flight.trackPoints} pts'),
           ],
         ),
       ),
@@ -331,6 +343,97 @@ class _InfoChip extends StatelessWidget {
         const SizedBox(width: 4),
         Text(label, style: const TextStyle(fontSize: 12)),
       ],
+    );
+  }
+}
+
+// ── Map Style ──
+
+enum _MapStyle {
+  map(
+    label: 'Map',
+    icon: Icons.map_outlined,
+    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    maxZoom: 19,
+  ),
+  satellite(
+    label: 'Satellite',
+    icon: Icons.satellite_alt,
+    urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    maxZoom: 18,
+  ),
+  terrain(
+    label: 'Terrain',
+    icon: Icons.terrain,
+    urlTemplate: 'https://tile.opentopomap.org/{z}/{x}/{y}.png',
+    maxZoom: 17,
+  );
+
+  const _MapStyle({
+    required this.label,
+    required this.icon,
+    required this.urlTemplate,
+    required this.maxZoom,
+  });
+
+  final String label;
+  final IconData icon;
+  final String urlTemplate;
+  final double maxZoom;
+}
+
+class _MapStyleSelector extends StatelessWidget {
+  final _MapStyle current;
+  final ValueChanged<_MapStyle> onChanged;
+
+  const _MapStyleSelector({required this.current, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withAlpha(220),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 4),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: _MapStyle.values.map((style) {
+          final selected = style == current;
+          return InkWell(
+            onTap: () => onChanged(style),
+            borderRadius: BorderRadius.circular(8),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color: selected ? Colors.blue.withAlpha(30) : Colors.transparent,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    style.icon,
+                    size: 16,
+                    color: selected ? Colors.blue : Colors.grey.shade600,
+                  ),
+                  const SizedBox(width: 4),
+                  Text(
+                    style.label,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      color: selected ? Colors.blue : Colors.grey.shade700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 }

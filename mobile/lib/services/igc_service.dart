@@ -91,14 +91,13 @@ class IgcService extends ChangeNotifier {
 
     final dir = await _flightsDirectory();
     final startTime = _currentTrack.first.time;
-    final dateFmt = DateFormat('MM-dd-yyyy');
-    // Filename: FirstName_LastName-MM-DD-YYYY[-N].igc
-    final safeName = (pilotName ?? 'Aervyx_Pilot')
-        .replaceAll(' ', '_')
+    final dateFmt = DateFormat('yyyy-MM-dd');
+    // Filename: FirstName-YYYY-MM-DD-#N.igc
+    final firstName = (pilotName ?? 'Pilot').split(' ').first;
+    final safeName = firstName
         .replaceAll(RegExp(r'[^\w\-]'), '');
-    final flightSuffix =
-        (flightNumber != null && flightNumber > 1) ? '-$flightNumber' : '';
-    final filename = '$safeName-${dateFmt.format(startTime)}$flightSuffix.igc';
+    final flightNum = flightNumber ?? 1;
+    final filename = '$safeName-${dateFmt.format(startTime)}-#$flightNum.igc';
     final file = File('${dir.path}/$filename');
 
     final igcContent = _buildIgcContent(
