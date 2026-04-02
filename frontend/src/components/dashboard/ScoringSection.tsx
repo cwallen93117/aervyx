@@ -418,7 +418,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             const hideUnscoredState = isUnscored && selectedTaskResultsOfficial;
                             const statusLabel = isUnscored ? null : result.status.toUpperCase();
                             const stateClassName = hideUnscoredState ? "" : isUnscored ? "unscored" : result.result_state === "official" ? "official" : "provisional";
-                            const stateLabel = hideUnscoredState ? "" : isUnscored ? "Unscored" : result.result_state === "official" ? "Official" : "Unofficial";
+                            const stateLabel = hideUnscoredState ? "" : isUnscored ? "Unscored" : result.result_state === "official" ? "Official" : "Provisional";
                             const taskPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "distance"));
                             const timePoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "speed"));
                             const arrivalPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "arrival"));
