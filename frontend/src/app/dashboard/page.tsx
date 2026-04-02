@@ -156,6 +156,7 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
   return {
     id: null,
     name: "New Task",
+    task_date: "",
     task_type: "race_to_goal",
     task_start_time: "",
     task_finish_time: "",
@@ -1298,6 +1299,7 @@ export default function HomePage() {
     setTaskDraft({
       id: task.id,
       name: task.name,
+      task_date: task.task_date ?? "",
       task_type: normalizeTaskType(task.task_type),
       task_start_time: normalizeTimeValue(task.task_start_time),
       task_finish_time: normalizeTimeValue(task.task_finish_time),
@@ -1931,6 +1933,7 @@ export default function HomePage() {
       setTaskFeedback(null);
       const payload = {
         name: taskDraft.name,
+        task_date: taskDraft.task_date || null,
         status: "draft",
         task_type: taskDraft.task_type,
         task_start_time: timeOrNull(taskDraft.task_start_time),

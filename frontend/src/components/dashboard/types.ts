@@ -192,6 +192,7 @@ export type TaskRecord = {
   id: number;
   event_id: number;
   name: string;
+  task_date: string | null;
   status: string;
   task_type: string;
   task_start_time: string | null;
@@ -250,6 +251,7 @@ export type AirspaceUploadResponse = { source_id: number; kind: AirspaceSourceKi
 export type TaskDraftState = {
   id: number | null;
   name: string;
+  task_date: string;
   task_type: string;
   task_start_time: string;
   task_finish_time: string;

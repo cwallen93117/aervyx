@@ -283,6 +283,10 @@ export default function TasksSection(props: TasksSectionProps) {
                 <span>Task name</span>
                 <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
               </label>
+              <label className="stack compact">
+                <span>Task date</span>
+                <input type="date" value={taskDraft.task_date} onChange={(event) => setTaskDraft({ ...taskDraft, task_date: event.target.value })} disabled={!canManagePlatform} />
+              </label>
               <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
                 <span>Task type</span>
                 <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>

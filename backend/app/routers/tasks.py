@@ -64,6 +64,7 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         id=task.id,
         event_id=task.event_id,
         name=task.name,
+        task_date=task.task_date,
         status=task.status,
         task_type=_normalize_task_type(task.task_type),
         task_start_time=task.task_start_time,
@@ -98,6 +99,7 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
     task = Task(
         event_id=event_id,
         name=payload.name,
+        task_date=payload.task_date,
         status=payload.status,
         task_type=_normalize_task_type(payload.task_type),
         task_start_time=payload.task_start_time,
@@ -135,6 +137,7 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
     task.name = payload.name
+    task.task_date = payload.task_date
     task.status = payload.status
     task.task_type = _normalize_task_type(payload.task_type)
     task.task_start_time = payload.task_start_time
