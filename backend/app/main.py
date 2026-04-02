@@ -90,3 +90,46 @@ if admin_debug is not None:
 @app.get('/health')
 def health() -> dict[str, str]:
     return {'status': 'ok'}
+
+
+@app.get('/debug/route-test')
+def debug_route_test():
+    """Temporary diagnostic endpoint to verify AirScore route optimizer."""
+    from app.services.airscore.track_lib import to_rad_dict, distance as vincenty_distance
+    from app.services.airscore.route import find_shortest_route, task_distance
+
+    # HC 2025 Task 4 turnpoints
+    waypoints = [
+        to_rad_dict(39.17217, -75.96996, radius=3000.0, type='start', how='exit', shape='circle'),
+        to_rad_dict(39.30175, -75.79859, radius=2000.0, type='turnpoint', how='entry', shape='circle'),
+        to_rad_dict(39.44303, -75.73191, radius=400.0, type='goal', how='entry', shape='circle'),
+    ]
+
+    shortest = find_shortest_route(waypoints)
+    for i, wpt in enumerate(waypoints):
+        if i < len(shortest):
+            wpt['short_lat'] = shortest[i]['lat']
+            wpt['short_long'] = shortest[i]['long']
+        else:
+            wpt['short_lat'] = wpt['lat']
+            wpt['short_long'] = wpt['long']
+
+    spt, ept, gpt, ssdist, startssdist, endssdist, totdist = task_distance(waypoints)
+
+    # Center-to-center for comparison
+    cc_dist = vincenty_distance(waypoints[0], waypoints[1]) + vincenty_distance(waypoints[1], waypoints[2])
+
+    return {
+        'optimized_distance_km': round(totdist / 1000.0, 3),
+        'center_to_center_km': round(cc_dist / 1000.0, 3),
+        'spt': spt, 'ept': ept, 'gpt': gpt,
+        'shortest_count': len(shortest),
+        'short_positions': [
+            {'lat': s.get('lat', 0), 'long': s.get('long', 0), 'dlat': s.get('dlat', 0), 'dlong': s.get('dlong', 0)}
+            for s in shortest
+        ],
+        'original_positions': [
+            {'lat': w['lat'], 'long': w['long']}
+            for w in waypoints
+        ],
+    }
