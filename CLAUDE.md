@@ -56,27 +56,37 @@ Read these first:
 
 ## Live Deployment
 
-Two environments run side-by-side on the same VM (192.168.87.94):
+Three environments run on the same VM (192.168.87.94):
 
-| | Production | Staging |
-|---|---|---|
-| **Site** | `https://aervyx.net` | `https://staging.aervyx.net` |
-| **API** | `https://api.aervyx.net` | `https://api-staging.aervyx.net` |
-| **Branch** | `main` | `staging` |
-| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/staging-repo` |
-| **Compose project** | `aervyx-prod` | `aervyx-staging` |
-| **Deploy trigger** | push to `main` | push to `staging` |
-| **Database** | separate volume | separate volume |
+| | Production | Staging | Alpha |
+|---|---|---|---|
+| **Site** | `https://aervyx.net` | `https://staging.aervyx.net` | `https://alpha.aervyx.net` |
+| **API** | `https://api.aervyx.net` | `https://api-staging.aervyx.net` | `https://api-alpha.aervyx.net` |
+| **Branch** | `main` | `staging` | `alpha` |
+| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/staging-repo` | `/srv/aervyx-staging/alpha-repo` |
+| **Compose project** | `aervyx-prod` | `aervyx-staging` | `aervyx-alpha` |
+| **Deploy trigger** | push to `main` | push to `staging` | push to `alpha` |
+| **Database** | separate volume | separate volume | separate volume |
+| **Purpose** | live users | Charles reviews | AI agent preview |
 
 - Deploy listener health: `https://deploy.aervyx.net/health`
 - The VM is internally named `aervyx-staging` and paths still use that naming.
 - Webhook config: `/etc/default/aervyx-staging-webhook` with `BRANCH_MAP`
-- Deploy scripts: `deploy/staging/deploy-prod.sh` and `deploy/staging/deploy-staging.sh` (both call `deploy-common.sh`)
+- Deploy scripts: `deploy/staging/deploy-prod.sh`, `deploy-staging.sh`, and `deploy-alpha.sh` (all call `deploy-common.sh`)
+- Alpha is behind Cloudflare Access (Charles only) — used for AI-generated feature previews
+- Database sync: `scripts/sync-db.sh` copies data between environments with optional PII anonymization
+- Admin DB export/import: `GET/POST /api/admin/db/export` and `/api/admin/db/import`
 
 ### Development workflow
 1. Push to `staging` → auto-deploys to `staging.aervyx.net`
 2. Test at `staging.aervyx.net`
 3. Merge `staging` → `main` → auto-deploys to `aervyx.net`
+
+### AI agent workflow (OpenClaw)
+1. OpenClaw runs on separate Proxmox VM (`aervyx-openclaw`), manages Claude + Codex agents
+2. Agents push `ai/<slug>` branches → merged into `alpha` → auto-deploys to `alpha.aervyx.net`
+3. Charles reviews at `alpha.aervyx.net`, creates PR from `ai/<slug>` → `staging` if approved
+4. OpenClaw agents can ONLY push to `ai/*` branches — walled off from staging/main by design
 
 - The current live deployment handoff is:
   - `docs/live-deployment-handoff.md`

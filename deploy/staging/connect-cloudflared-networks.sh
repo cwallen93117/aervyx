@@ -5,7 +5,7 @@ set -euo pipefail
 
 CLOUDFLARED_CONTAINER="${CLOUDFLARED_CONTAINER:-aervyx-cloudflared}"
 
-for network in aervyx-prod_default aervyx-staging_default; do
+for network in aervyx-prod_default aervyx-staging_default aervyx-alpha_default; do
   if docker network inspect "${network}" >/dev/null 2>&1; then
     docker network connect "${network}" "${CLOUDFLARED_CONTAINER}" 2>/dev/null \
       && echo "Connected ${CLOUDFLARED_CONTAINER} to ${network}" \
