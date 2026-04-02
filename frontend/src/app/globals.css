@@ -1093,6 +1093,31 @@ select {
   margin: 0;
 }
 
+.custom-formula-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-formula-save-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.custom-formula-name-input {
+  width: 180px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 0.75rem;
+}
+
+.danger-text {
+  color: var(--danger, #dc2626);
+}
+
 .scoring-import-strip {
   display: flex;
   align-items: flex-end;

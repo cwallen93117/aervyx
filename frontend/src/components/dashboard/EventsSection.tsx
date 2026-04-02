@@ -16,7 +16,7 @@ import type {
   TurnpointUploadResponse,
 } from "./types";
 
-const scoringFormulaOptions = [
+const builtInFormulaOptions = [
   { value: "GAP2021", label: "GAP 2021" },
   { value: "GAP2020", label: "GAP 2020" },
   { value: "GAP2018", label: "GAP 2018" },
@@ -25,6 +25,26 @@ const scoringFormulaOptions = [
   { value: "OzGAP2005", label: "OzGAP 2005" },
   { value: "PWC2016", label: "PWC 2016" },
 ] as const;
+const builtInFormulaValues = new Set(builtInFormulaOptions.map((o) => o.value));
+
+const CUSTOM_FORMULAS_KEY = "aervyx_custom_scoring_formulas";
+
+type CustomFormula = { value: string; label: string; preset: FormulaPreset };
+
+function loadCustomFormulas(): CustomFormula[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_FORMULAS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveCustomFormulas(formulas: CustomFormula[]) {
+  localStorage.setItem(CUSTOM_FORMULAS_KEY, JSON.stringify(formulas));
+}
 
 /* ---------- Formula preset defaults per GAP version ---------- */
 
@@ -644,6 +664,13 @@ export default function EventsSection(props: EventsSectionProps) {
   const [presetFeedback, setPresetFeedback] = useState<PresetFeedback>(null);
   const [activeHelpId, setActiveHelpId] = useState<ScoringHelpId | null>(null);
   const [formulaInfoOpen, setFormulaInfoOpen] = useState(false);
+  const [customFormulas, setCustomFormulas] = useState<CustomFormula[]>(() => loadCustomFormulas());
+  const [savingFormulaName, setSavingFormulaName] = useState("");
+  const [showSaveFormula, setShowSaveFormula] = useState(false);
+  const scoringFormulaOptions = [
+    ...builtInFormulaOptions,
+    ...customFormulas.map((cf) => ({ value: cf.value, label: cf.label })),
+  ];
   const [scoringTemplateEventId, setScoringTemplateEventId] = useState("");
   const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
@@ -937,7 +964,7 @@ export default function EventsSection(props: EventsSectionProps) {
                 <LabelWithHelp label="Scoring formula" helpId="scoring_formula" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
                 <select value={eventForm.scoring_formula} onChange={(event) => {
                   const newFormula = event.target.value;
-                  const preset = formulaPresets[newFormula];
+                  const preset = formulaPresets[newFormula] ?? customFormulas.find((cf) => cf.value === newFormula)?.preset;
                   setFormulaInfoOpen(false);
                   if (preset) {
                     setEventForm({ ...eventForm, ...preset, scoring_formula: newFormula });
@@ -961,6 +988,40 @@ export default function EventsSection(props: EventsSectionProps) {
                   ) : null}
                 </div>
               ) : null}
+              <div className="custom-formula-actions">
+                {!builtInFormulaValues.has(eventForm.scoring_formula) && customFormulas.some((cf) => cf.value === eventForm.scoring_formula) ? (
+                  <button type="button" className="formula-info-toggle danger-text" onClick={() => {
+                    const next = customFormulas.filter((cf) => cf.value !== eventForm.scoring_formula);
+                    setCustomFormulas(next);
+                    saveCustomFormulas(next);
+                    setEventForm({ ...eventForm, scoring_formula: "GAP2021", ...formulaPresets.GAP2021 });
+                  }}>Delete custom formula</button>
+                ) : null}
+                {showSaveFormula ? (
+                  <span className="custom-formula-save-row">
+                    <input type="text" placeholder="Custom formula name" value={savingFormulaName} onChange={(e) => setSavingFormulaName(e.target.value)} className="custom-formula-name-input" />
+                    <button type="button" className="formula-info-toggle" onClick={() => {
+                      const name = savingFormulaName.trim();
+                      if (!name) return;
+                      const key = `custom_${name.replace(/\s+/g, "_").toLowerCase()}_${Date.now()}`;
+                      const preset: FormulaPreset = {};
+                      for (const field of Object.keys(formulaPresetBase) as Array<keyof typeof formulaPresetBase>) {
+                        (preset as Record<string, unknown>)[field] = eventForm[field];
+                      }
+                      const entry: CustomFormula = { value: key, label: name, preset };
+                      const next = [...customFormulas, entry];
+                      setCustomFormulas(next);
+                      saveCustomFormulas(next);
+                      setEventForm({ ...eventForm, scoring_formula: key });
+                      setSavingFormulaName("");
+                      setShowSaveFormula(false);
+                    }}>Save</button>
+                    <button type="button" className="formula-info-toggle" onClick={() => { setShowSaveFormula(false); setSavingFormulaName(""); }}>Cancel</button>
+                  </span>
+                ) : (
+                  <button type="button" className="formula-info-toggle" onClick={() => setShowSaveFormula(true)}>Save current as custom formula</button>
+                )}
+              </div>
               <div className="inline-grid">
                 <label className="stack compact">
                   <LabelWithHelp label="Nominal goal (%)" helpId="nominal_goal_percent" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
