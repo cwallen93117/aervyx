@@ -169,7 +169,56 @@ def _find_exit_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: f
     return None
 
 
-def evaluate_task(task: Task, task_points: list[TaskPoint], trackpoints: list[TrackPoint], event_timezone: str | None = None) -> dict:
+def _find_goal_line_crossing(
+    prev_point: TaskPoint,
+    goal_point: TaskPoint,
+    trackpoints: list[TrackPoint],
+    radius_km: float,
+    cursor: int = 0,
+) -> tuple[int, datetime] | None:
+    """Detect when a pilot's track crosses the goal line (semi-circle mode).
+
+    The goal line is perpendicular to the last course leg at the goal centre,
+    extending ``radius_km`` to each side.  A crossing occurs when the pilot's
+    track moves from the *approach* side to the *far* side of this line.
+
+    The approach side is the side the previous waypoint is on.
+    """
+    # Direction vector from prev_point to goal_point (the last leg)
+    dx = goal_point.longitude - prev_point.longitude
+    dy = goal_point.latitude - prev_point.latitude
+    leg_len_sq = dx * dx + dy * dy
+    if leg_len_sq <= 0:
+        return None
+
+    for idx in range(max(cursor, 1), len(trackpoints)):
+        tp_prev = trackpoints[idx - 1]
+        tp_curr = trackpoints[idx]
+
+        # Only consider trackpoints within goal radius of goal centre
+        if _distance_to_task_point(tp_curr, goal_point) > radius_km:
+            continue
+
+        # Signed projection along the leg direction for each trackpoint
+        # Positive = past the goal line (goal-side), Negative = approach-side
+        def _signed_proj(tp: TrackPoint) -> float:
+            px = tp.longitude - goal_point.longitude
+            py = tp.latitude - goal_point.latitude
+            return (px * dx + py * dy) / leg_len_sq
+
+        proj_prev = _signed_proj(tp_prev)
+        proj_curr = _signed_proj(tp_curr)
+
+        # Crossing occurs when pilot goes from approach-side (negative)
+        # past the goal line to the far side (positive).  We accept the
+        # crossing as soon as the pilot transitions through zero.
+        if proj_prev <= 0 and proj_curr > 0:
+            return idx, tp_curr.recorded_at
+
+    return None
+
+
+def evaluate_task(task: Task, task_points: list[TaskPoint], trackpoints: list[TrackPoint], event_timezone: str | None = None, formula: dict | None = None) -> dict:
     ordered_points = sorted(task_points, key=lambda point: point.position)
     if len(ordered_points) < 2:
         return {"status": "uploaded", "distance_flown_km": 0.0, "details": {"hits": [], "total_distance_km": 0.0}}
@@ -179,19 +228,33 @@ def evaluate_task(task: Task, task_points: list[TaskPoint], trackpoints: list[Tr
     timezone_name = event_timezone or "UTC"
     start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
+
+    # Turnpoint radius tolerance: expand each cylinder by a fractional tolerance
+    # with a minimum absolute floor (in metres).
+    tp_tolerance_frac = formula.get("turnpoint_radius_tolerance", 0.0) if formula else 0.0
+    tp_min_abs_m = formula.get("turnpoint_radius_minimum_absolute_tolerance_m", 0.0) if formula else 0.0
+    use_goal_line = formula.get("use_semi_circle_control_zone_for_goal_line", False) if formula else False
+
     cursor = 0
+    prev_point: TaskPoint | None = None
     for point in ordered_points:
-        radius_km = point.radius_m / 1000.0
+        # Apply tolerance: effective radius = nominal + max(nominal * fraction, minimum_absolute)
+        tolerance_m = max(point.radius_m * tp_tolerance_frac, tp_min_abs_m) if (tp_tolerance_frac > 0 or tp_min_abs_m > 0) else 0.0
+        radius_km = (point.radius_m + tolerance_m) / 1000.0
         if point.point_type == "start":
             hit = _find_exit_hit(point, trackpoints, radius_km, cursor=cursor, earliest_at=start_open_at, latest_at=start_close_at)
+        elif point.point_type == "goal" and use_goal_line and prev_point is not None:
+            hit = _find_goal_line_crossing(prev_point, point, trackpoints, radius_km, cursor=cursor)
         else:
             hit = _find_entry_hit(point, trackpoints, radius_km, cursor=cursor)
         if hit is None:
+            prev_point = point
             continue
         idx, hit_at = hit
         hit_indices[point.id] = idx
         hit_times[point.id] = hit_at
         cursor = idx + 1
+        prev_point = point
 
     total_distance = 0.0
     progress_distance = 0.0
@@ -273,6 +336,8 @@ def _build_formula(task: Task, event: Event | None = None) -> dict:
     base_leading_weight = float(penalties.get("weightleading", 1.0 / 8.0))
 
     return {
+        # Formula identity
+        "scoring_formula": str(event.scoring_formula or "GAP2021") if event else "GAP2021",
         # Core nominal parameters
         "mindist_km": max(float(task.minimum_distance_km or (event.minimum_distance_km if event and event.minimum_distance_km is not None else 0) or 0), 0.1),
         "nomdist_km": max(float(task.nominal_distance_km or (event.nominal_distance_km if event and event.nominal_distance_km is not None else 0) or 0), 1.0),
@@ -322,11 +387,17 @@ def _build_formula(task: Task, event: Event | None = None) -> dict:
         # Altitude and glide
         "scoring_altitude": str(event.scoring_altitude or "GPS") if event else "GPS",
         "final_glide_decelerator": str(event.final_glide_decelerator or "none") if event else "none",
+        "no_final_glide_decelerator_reason": str(event.no_final_glide_decelerator_reason or "") if event else "",
         # Rounding
         "number_of_decimals_task_results": int(event.number_of_decimals_task_results) if event and event.number_of_decimals_task_results is not None else 2,
         "number_of_decimals_competition_results": int(event.number_of_decimals_competition_results) if event and event.number_of_decimals_competition_results is not None else 1,
         # Turnpoint tolerance
         "turnpoint_radius_tolerance": float(event.turnpoint_radius_tolerance) if event and event.turnpoint_radius_tolerance is not None else 0.0005,
+        "turnpoint_radius_minimum_absolute_tolerance_m": float(event.turnpoint_radius_minimum_absolute_tolerance_m) if event and event.turnpoint_radius_minimum_absolute_tolerance_m is not None else 5.0,
+        # Goal line geometry
+        "use_semi_circle_control_zone_for_goal_line": bool(event.use_semi_circle_control_zone_for_goal_line) if event and event.use_semi_circle_control_zone_for_goal_line is not None else True,
+        # Overall competition scoring
+        "use_best_score_for_ftv_validity": bool(event.use_best_score_for_ftv_validity) if event and event.use_best_score_for_ftv_validity is not None else True,
     }
 
 
@@ -918,6 +989,9 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     event_pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
     registered_pilot_count = len(event_pilot_ids)
 
+    # Build formula early so evaluate_task can use turnpoint tolerance / goal line settings
+    eval_formula = _build_formula(task, event)
+
     # Batch-load trackpoints only for explicitly selected uploads.
     selected_upload_ids: list[int] = []
     for pilot_id in event_pilot_ids:
@@ -951,7 +1025,7 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
                 {
                     "pilot_id": pilot_id,
                     "upload": upload,
-                    "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None),
+                    "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None, formula=eval_formula),
                     "_trackpoints": trackpoints,  # kept for leading coefficient computation
                 }
             )
