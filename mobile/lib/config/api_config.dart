@@ -21,6 +21,9 @@ class ApiConfig {
   // Tracking — no task ID needed; backend resolves event from pilot identity
   static const String trackPositionPath = '/api/track/position';
 
+  // Active pilots — latest position for all currently flying pilots
+  static const String activePilotsPath = '/api/track/active-pilots';
+
   // Active task — returns turnpoints if pilot is in an active competition task
   static const String activeTaskPath = '/api/track/active-task';
 
