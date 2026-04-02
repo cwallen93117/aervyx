@@ -220,6 +220,7 @@ class Task(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     name: Mapped[str] = mapped_column(String(160))
+    task_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     task_type: Mapped[str] = mapped_column(String(40), default="race_to_goal")
     task_start_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
