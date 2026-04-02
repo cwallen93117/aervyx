@@ -87,8 +87,13 @@ def day_quality(
     dist_val = max(0.0, min(1.0, dist_val))
 
     # Time validity (Gap.pm line 405-434)
+    # GAP2021+ uses fastest time; older versions use 2nd-fastest (tqtime)
     if taskt["ess"] > 0:
-        tmin = taskt.get("tqtime", taskt["fastest"])
+        version = int(formula.get("version", 0))
+        if version >= 2021:
+            tmin = taskt["fastest"]
+        else:
+            tmin = taskt.get("tqtime", taskt["fastest"])
         x_time = tmin / formula["nomtime"]
     else:
         x_time = taskt["maxdist"] / formula["nomdist"]
