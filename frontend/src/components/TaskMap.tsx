@@ -1843,7 +1843,8 @@ export const TaskMap = React.memo(function TaskMap({
     }
   }, [altitudeMultiplier, isPerspective3D, styleGeneration]);
 
-  const applyFitBounds = useCallback((map: maplibregl.Map) => {
+  const applyFitBounds = useCallback((map: maplibregl.Map, animate = false) => {
+    const ms = animate ? 800 : 0;
     if (fitBounds.length === 0) {
       programmaticCameraMoveRef.current = true;
       map.fitBounds(USA_FIT_BOUNDS, { padding: 32, maxZoom: 5, duration: 0 });
@@ -1854,7 +1855,7 @@ export const TaskMap = React.memo(function TaskMap({
       map.easeTo({
         center: fitBounds[0],
         zoom: fitMaxZoom,
-        duration: 0,
+        duration: ms,
       });
       return;
     }
@@ -1863,7 +1864,7 @@ export const TaskMap = React.memo(function TaskMap({
       lngLatBounds.extend(coordinate);
     }
     programmaticCameraMoveRef.current = true;
-    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: fitMaxZoom, duration: 0 });
+    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: fitMaxZoom, duration: ms });
   }, [fitBounds, fitMaxZoom]);
 
   // Sync turnpoint data to map
@@ -1999,7 +2000,7 @@ export const TaskMap = React.memo(function TaskMap({
     if (shouldFitToTaskContext || shouldFitToTaskAfterFallback || shouldFitToWaypointGeometry) {
       manualViewChangedRef.current = false;
       const doFit = () => {
-        applyFitBounds(map);
+        applyFitBounds(map, shouldFitToTaskContext);
       };
       if (map.isStyleLoaded()) {
         doFit();

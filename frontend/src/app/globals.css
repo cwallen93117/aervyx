@@ -2130,6 +2130,13 @@ button[type="submit"]:hover,
   color: var(--ink);
 }
 
+.results-header-date {
+  font-weight: 400;
+  font-size: 0.8125rem;
+  color: var(--muted);
+  margin-left: 8px;
+}
+
 .results-sheet-header p {
   font-size: 0.8125rem;
   color: var(--muted);
@@ -3266,6 +3273,7 @@ button[type="submit"]:hover,
   align-items: center;
   justify-content: center;
   color: #333;
+  transition: background 150ms ease;
 }
 
 .map-control-button:hover {
@@ -4871,6 +4879,8 @@ details[open] > summary {
   font-size: 0.8125rem;
   font-weight: 500;
   border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, opacity 150ms ease;
 }
 
 .scoring-ops-footer-btn.primary { background: #1a56db; color: #fff; }
@@ -5414,6 +5424,10 @@ html[data-theme="dark"] .map-control-button {
   background: #111827;
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
   color: rgba(255, 255, 255, 0.88);
+}
+
+html[data-theme="dark"] .map-control-button:hover {
+  background: #1f2937;
 }
 
 html[data-theme="dark"] .map-fullscreen-sidebar .results-task-map-pilot-list {

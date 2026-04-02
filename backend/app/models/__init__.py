@@ -235,6 +235,7 @@ class Task(Base):
     nominal_launch: Mapped[float] = mapped_column(Float, default=0.95)
     minimum_distance_km: Mapped[float] = mapped_column(Float, default=5)
     penalties_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    task_date: Mapped[str | None] = mapped_column(String(10), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

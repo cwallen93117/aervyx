@@ -408,7 +408,7 @@ export default function ScoringOperationsPanel({
   const toggleTaskResultsState = async () => {
     if (!token || !activePublishedTaskId) return;
     try {
-      setFeedback({ type: "pending", text: taskResultsOfficial ? "Marking task unofficial..." : "Marking task official..." });
+      setFeedback({ type: "pending", text: taskResultsOfficial ? "Marking task provisional..." : "Marking task official..." });
       const payload = await apiFetch<{ status: string; published_count?: number; unpublished_count?: number }>(`/api/tasks/${activePublishedTaskId}/${taskResultsOfficial ? "unpublish-results" : "publish-results"}`, token, {
         method: "POST",
       });
@@ -418,8 +418,8 @@ export default function ScoringOperationsPanel({
         type: "success",
         text: taskResultsOfficial
           ? payload.unpublished_count
-            ? `Marked ${payload.unpublished_count} result${payload.unpublished_count === 1 ? "" : "s"} as unofficial for ${selectedTask?.name ?? "the selected task"}.`
-            : `All scored results for ${selectedTask?.name ?? "the selected task"} were already unofficial.`
+            ? `Marked ${payload.unpublished_count} result${payload.unpublished_count === 1 ? "" : "s"} as provisional for ${selectedTask?.name ?? "the selected task"}.`
+            : `All scored results for ${selectedTask?.name ?? "the selected task"} were already provisional.`
           : payload.published_count
             ? `Marked ${payload.published_count} result${payload.published_count === 1 ? "" : "s"} as official for ${selectedTask?.name ?? "the selected task"}.`
             : `All scored results for ${selectedTask?.name ?? "the selected task"} were already official.`,
@@ -462,7 +462,7 @@ export default function ScoringOperationsPanel({
                   onClick={() => void toggleTaskResultsState()}
                   disabled={!activePublishedTaskId || !hasResults}
                 >
-                  {taskResultsOfficial ? "Official" : "Unofficial"}
+                  {taskResultsOfficial ? "Official" : "Provisional"}
                 </button>
                 <button
                   type="button"
