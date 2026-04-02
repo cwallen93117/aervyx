@@ -550,13 +550,6 @@ function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange"
   return "red";
 }
 
-function batteryColor(level: number | null): string {
-  if (level == null) return "inherit";
-  if (level > 50) return "#22c55e";
-  if (level >= 20) return "#f59e0b";
-  return "#ef4444";
-}
-
 function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./types").DebugStatusResponse | null; refreshDebugStatus: () => void }) {
   if (!debugStatus) {
     return (
@@ -568,7 +561,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
     );
   }
 
-  const { mqtt_connected, mqtt_last_message_at, sse_subscriber_count, active_sessions, recent_sos_alerts, position_stats } = debugStatus;
+  const { sse_subscriber_count, active_sessions, recent_sos_alerts, position_stats } = debugStatus;
   const meshRatio = position_stats.last_hour_total > 0 ? Math.round((position_stats.last_hour_mesh / position_stats.last_hour_total) * 100) : 0;
 
   return (
@@ -577,26 +570,11 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
         {/* Status cards row */}
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>API</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: "#22c55e" }} />
-              <strong>Online</strong>
-            </div>
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>MQTT Broker</div>
-            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", background: mqtt_connected ? "#22c55e" : "#ef4444" }} />
-              <strong>{mqtt_connected ? "Connected" : "Disconnected"}</strong>
-            </div>
-            {mqtt_last_message_at ? <div className="hint" style={{ marginTop: "2px" }}>Last msg: {relativeTime(mqtt_last_message_at)}</div> : null}
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>SSE Listeners</div>
+            <div className="hint" style={{ marginBottom: "4px" }}>Live Viewers</div>
             <strong style={{ fontSize: "1.25rem" }}>{sse_subscriber_count}</strong>
           </div>
           <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>Active Sessions</div>
+            <div className="hint" style={{ marginBottom: "4px" }}>Connected Devices</div>
             <strong style={{ fontSize: "1.25rem" }}>{active_sessions.length}</strong>
           </div>
         </div>
@@ -611,9 +589,8 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                 <th>Source</th>
                 <th>Mesh</th>
                 <th>Task</th>
-                <th>Battery</th>
                 <th>Positions</th>
-                <th>Rate</th>
+                <th>Interval</th>
                 <th>Last Fix</th>
               </tr>
             </thead>
@@ -622,7 +599,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                 active_sessions.map((session) => {
                   const color = lastSeenColor(session.last_seen_at);
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
-                  const rate = (session.positions_last_60s / 60).toFixed(1);
+                  const interval = session.positions_last_60s > 0 ? Math.round(60 / session.positions_last_60s) : null;
                   const sourceLabel = session.source === "app" ? "App (cellular)" : session.source === "mqtt_gateway" ? "Mesh (MQTT)" : session.source ?? "\u2014";
                   const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
                   return (
@@ -650,18 +627,15 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
                         }} title={session.has_mesh ? "Meshtastic active" : "No mesh"} />
                       </td>
                       <td>{session.task_name ?? "Free flight"}</td>
-                      <td style={{ color: batteryColor(session.battery_level) }}>
-                        {session.battery_level != null ? `${session.battery_level}%` : "\u2014"}
-                      </td>
                       <td>{session.position_count.toLocaleString()}</td>
-                      <td>{rate}/s</td>
+                      <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
                       <td style={{ color: lastFixColor }}>{relativeTime(session.last_seen_at)}</td>
                     </tr>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="participant-table-empty">No active tracking sessions. Enable Debug Mode in the mobile app to test.</td>
+                  <td colSpan={8} className="participant-table-empty">No active tracking sessions. Enable Debug Mode in the mobile app to test.</td>
                 </tr>
               )}
             </tbody>
