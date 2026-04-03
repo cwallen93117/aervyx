@@ -92,6 +92,8 @@ class AdminUserResponse(BaseModel):
     id: int
     username: str
     full_name: str
+    first_name: str | None = None
+    last_name: str | None = None
     role: str
     profile_type: str
     pilot_id: int | None

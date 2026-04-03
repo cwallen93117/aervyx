@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging";
+type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
+type SortDir = "asc" | "desc";
 
 export interface AdminSectionProps {
   user: User | null;
@@ -53,6 +55,51 @@ export default function AdminSection(props: AdminSectionProps) {
     refreshDebugStatus,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
+  const [userSearch, setUserSearch] = useState("");
+  const [userSortField, setUserSortField] = useState<UserSortField>("last_name");
+  const [userSortDir, setUserSortDir] = useState<SortDir>("asc");
+
+  const toggleUserSort = useCallback((field: UserSortField) => {
+    setUserSortField((prev) => {
+      if (prev === field) {
+        setUserSortDir((d) => (d === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setUserSortDir("asc");
+      return field;
+    });
+  }, []);
+
+  const filteredSortedUsers = useMemo(() => {
+    const q = userSearch.trim().toLowerCase();
+    let list = adminUsers;
+    if (q) {
+      list = list.filter((u) => {
+        const hay = `${u.first_name ?? ""} ${u.last_name ?? ""} ${u.full_name} ${u.username} ${u.email ?? ""} ${u.competition_number ?? ""} ${u.role}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return [...list].sort((a, b) => {
+      const dir = userSortDir === "asc" ? 1 : -1;
+      switch (userSortField) {
+        case "first_name":
+          return dir * (a.first_name ?? a.full_name).localeCompare(b.first_name ?? b.full_name);
+        case "last_name":
+          return dir * (a.last_name ?? "").localeCompare(b.last_name ?? "");
+        case "username":
+          return dir * a.username.localeCompare(b.username);
+        case "role": {
+          const order: Record<string, number> = { admin: 0, organizer: 1, pilot: 2 };
+          return dir * ((order[a.role] ?? 3) - (order[b.role] ?? 3));
+        }
+        case "status":
+          return dir * (Number(b.is_active) - Number(a.is_active));
+        default:
+          return 0;
+      }
+    });
+  }, [adminUsers, userSearch, userSortField, userSortDir]);
+
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
   const [sitePreviewFitNonce, setSitePreviewFitNonce] = useState(0);
   const [siteMatchRadiusInput, setSiteMatchRadiusInput] = useState(() => siteSettings.site_match_radius_m.toLocaleString());
@@ -187,22 +234,34 @@ export default function AdminSection(props: AdminSectionProps) {
         <SectionCard title="Platform users" description="Admins can manage organizer and pilot accounts for the entire platform here.">
           <div className="stack form-block">
             {adminFeedback ? <div className={`status-chip ${adminFeedback.type}`}>{adminFeedback.text}</div> : null}
+            <div className="admin-users-search-row">
+              <input
+                type="text"
+                placeholder="Search users by name, email, comp #..."
+                value={userSearch}
+                onChange={(event) => setUserSearch(event.target.value)}
+                className="admin-users-search"
+              />
+              <span className="hint">{filteredSortedUsers.length} of {adminUsers.length} users</span>
+            </div>
             <div className="participant-table-wrap">
               <table className="participant-table admin-users-table">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Username</th>
-                    <th>Role</th>
-                    <th>Status</th>
+                    <SortHeader field="first_name" label="First" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
+                    <SortHeader field="last_name" label="Last" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
+                    <SortHeader field="username" label="Username" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
+                    <SortHeader field="role" label="Role" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
+                    <SortHeader field="status" label="Status" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <th className="participant-table-actions">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {adminUsers.length ? (
-                    adminUsers.map((account) => (
+                  {filteredSortedUsers.length ? (
+                    filteredSortedUsers.map((account) => (
                       <tr key={account.id}>
-                        <td><strong>{account.full_name}</strong></td>
+                        <td>{account.first_name ?? account.full_name}</td>
+                        <td>{account.last_name ?? ""}</td>
                         <td>{account.username}</td>
                         <td>
                           <select
@@ -236,7 +295,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={5} className="participant-table-empty">No platform users found.</td>
+                      <td colSpan={6} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -523,6 +582,20 @@ export default function AdminSection(props: AdminSectionProps) {
         </SectionCard>
       )}
     </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  SortHeader helper for admin users table                           */
+/* ------------------------------------------------------------------ */
+
+function SortHeader({ field, label, current, dir, toggle }: { field: UserSortField; label: string; current: UserSortField; dir: SortDir; toggle: (f: UserSortField) => void }) {
+  const active = current === field;
+  const arrow = active ? (dir === "asc" ? " \u25B2" : " \u25BC") : "";
+  return (
+    <th className={`sortable-th${active ? " active" : ""}`} onClick={() => toggle(field)}>
+      {label}{arrow}
+    </th>
   );
 }
 

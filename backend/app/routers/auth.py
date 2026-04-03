@@ -133,7 +133,7 @@ def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_sessi
             logger.info("Linked Google account %s to existing user %s", google_id, user.username)
 
     if user is None:
-        # 3. Create a new account
+        # 3. Find or create pilot, then find or create user account
         given_name = idinfo.get("given_name", "")
         family_name = idinfo.get("family_name", "")
         full_name = f"{given_name} {family_name}".strip() or email
@@ -148,20 +148,32 @@ def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_sessi
             session.add(pilot)
             session.flush()
 
-        user = User(
-            username=email,
-            full_name=full_name,
-            role="pilot",
-            profile_type="pilot",
-            pilot_id=pilot.id,
-            password_hash=None,
-            oauth_provider="google",
-            oauth_id=google_id,
-        )
-        session.add(user)
+        # Auto-merge: if the pilot already has a linked User (e.g. organizer-created
+        # slug account), upgrade that account instead of creating a duplicate.
+        user = session.scalar(select(User).where(User.pilot_id == pilot.id))
+        if user is not None:
+            logger.info("Merging Google sign-in into existing account %s (pilot_id=%s)", user.username, pilot.id)
+            user.username = email
+            user.full_name = full_name
+            user.oauth_provider = "google"
+            user.oauth_id = google_id
+            user.is_active = True
+            session.add(user)
+        else:
+            user = User(
+                username=email,
+                full_name=full_name,
+                role="pilot",
+                profile_type="pilot",
+                pilot_id=pilot.id,
+                password_hash=None,
+                oauth_provider="google",
+                oauth_id=google_id,
+            )
+            session.add(user)
         session.commit()
         session.refresh(user)
-        logger.info("Created new user %s via Google sign-in", user.username)
+        logger.info("User %s authenticated via Google sign-in", user.username)
 
     return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
 
@@ -172,7 +184,10 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
     account_role = payload.account_role.strip().lower() if payload.account_role else "pilot"
     if account_role not in VALID_ACCOUNT_ROLES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or organizer for the new account")
-    if session.scalar(select(User).where(User.username == email)) is not None:
+
+    # Check if an account with this email as username already exists
+    existing_by_email = session.scalar(select(User).where(User.username == email))
+    if existing_by_email is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with that email already exists")
 
     pilot: Pilot | None = None
@@ -197,15 +212,28 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
             pilot.competition_number = payload.competition_number or pilot.competition_number
             pilot.civl_id = payload.civl_id or pilot.civl_id
 
-    user = User(
-        username=email,
-        full_name=f"{payload.first_name.strip()} {payload.last_name.strip()}",
-        role=account_role,
-        profile_type="pilot" if account_role == "pilot" else "driver",
-        pilot_id=pilot.id if pilot else None,
-        password_hash=hash_password(payload.password),
-    )
-    session.add(user)
+    # Auto-merge: if the pilot already has a linked User (e.g. organizer-created
+    # slug account), upgrade that account instead of creating a duplicate.
+    user: User | None = None
+    if pilot is not None:
+        user = session.scalar(select(User).where(User.pilot_id == pilot.id))
+    if user is not None:
+        logger.info("Merging registration into existing account %s (pilot_id=%s) — upgrading to email login", user.username, pilot.id)
+        user.username = email
+        user.full_name = f"{payload.first_name.strip()} {payload.last_name.strip()}"
+        user.password_hash = hash_password(payload.password)
+        user.is_active = True
+        session.add(user)
+    else:
+        user = User(
+            username=email,
+            full_name=f"{payload.first_name.strip()} {payload.last_name.strip()}",
+            role=account_role,
+            profile_type="pilot" if account_role == "pilot" else "driver",
+            pilot_id=pilot.id if pilot else None,
+            password_hash=hash_password(payload.password),
+        )
+        session.add(user)
     session.commit()
     session.refresh(user)
     return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
@@ -334,6 +362,8 @@ def list_users(admin: User = Depends(require_admin), session: Session = Depends(
             id=user.id,
             username=user.username,
             full_name=user.full_name,
+            first_name=pilots[user.pilot_id].first_name if user.pilot_id and user.pilot_id in pilots else None,
+            last_name=pilots[user.pilot_id].last_name if user.pilot_id and user.pilot_id in pilots else None,
             role=user.role,
             profile_type=user.profile_type,
             pilot_id=user.pilot_id,
@@ -384,6 +414,8 @@ def update_user_account(
         id=target.id,
         username=target.username,
         full_name=target.full_name,
+        first_name=pilot.first_name if pilot else None,
+        last_name=pilot.last_name if pilot else None,
         role=target.role,
         profile_type=target.profile_type,
         pilot_id=target.pilot_id,
