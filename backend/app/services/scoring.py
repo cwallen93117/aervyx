@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 from app.models import Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
 from app.services.airscore.gap import build_task_totals, day_quality, pilot_arrival, pilot_departure_leadout, pilot_distance, pilot_speed, points_allocation, points_weight, select_coeff
 from app.services.airscore.route import find_shortest_route, task_distance as route_task_distance
+from app.services.airscore.task import distance_flown as airscore_distance_flown, precompute_waypoint_dist
 from app.services.airscore.track_lib import PI, distance as vincenty_distance, distance_deg, to_rad_dict
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
@@ -192,6 +193,118 @@ def _compute_optimized_task_distance(task_points: list[TaskPoint]) -> tuple[floa
     return totdist / 1000.0, waypoints  # convert metres to km
 
 
+# ---------- leading coefficient computation ----------
+
+def _compute_leading_coeff(
+    waypoints: list[dict],
+    trackpoints: list[TrackPoint],
+    started_at: datetime | None,
+    ess_at: datetime | None,
+    distance_flown_m: float,
+    task_class: str = "HG",
+    task_sstart: float = 0.0,
+    task_sfinish: float = 0.0,
+) -> tuple[float, float]:
+    """
+    Compute leading coefficients (LC1 and LC2) from track data.
+
+    Port of AirScore track_verify_sr.pl inc_leading_area / inc_offset_leading_coeff.
+    Returns (coeff, coeff2) — normalized by 1800 * essdist.
+
+    The leading coefficient measures how much time a pilot spent "in front" of the
+    rest of the field. For each track fix where the pilot advances their max distance,
+    the coefficient accumulates time × distance-increment.
+
+    task_sstart / task_sfinish are epoch timestamps for the task gate open / task deadline.
+    """
+    if not waypoints or len(waypoints) < 2 or not trackpoints or started_at is None:
+        return 0.0, 0.0
+
+    # Get task metadata from waypoints (stored by _compute_optimized_task_distance)
+    ssdist = waypoints[0].get("_ssdist", 0)
+    endssdist = waypoints[0].get("_endssdist", 0)
+    startssdist = endssdist - ssdist if endssdist > 0 and ssdist > 0 else 0
+
+    if ssdist <= 0 or endssdist <= 0:
+        return 0.0, 0.0
+
+    # Use task gate open time as the reference; fall back to pilot's start time
+    task_start_epoch = task_sstart if task_sstart > 0 else started_at.timestamp()
+    pilot_start_epoch = started_at.timestamp()
+
+    coeff = 0.0
+    leading_area = 0.0
+    maxdist = 0.0
+    had_previous = False
+    # Stop accumulating LC at the pilot's ESS crossing time (if they reached ESS)
+    ess_epoch = ess_at.timestamp() if ess_at is not None else float("inf")
+
+    for tp in trackpoints:
+        coord_time = tp.recorded_at.timestamp()
+        # Stop processing after ESS crossing
+        if coord_time > ess_epoch:
+            break
+        # Convert trackpoint to AirScore coord dict (radians)
+        coord = to_rad_dict(tp.latitude, tp.longitude, time=coord_time)
+
+        # Compute distance flown using AirScore engine
+        try:
+            newdist = airscore_distance_flown(waypoints, 1, coord)
+        except (IndexError, ZeroDivisionError):
+            continue
+
+        if newdist > maxdist:
+            if had_previous:
+                # Accumulate leading area (same as AirScore inc_leading_area)
+                tasktime = coord_time - task_start_epoch
+                if newdist >= startssdist and tasktime > 0:
+                    # LC1: flat leading coefficient
+                    coeff += tasktime * (newdist - maxdist)
+
+                    # LC2: class-dependent leading area
+                    last_remaining = endssdist - maxdist
+                    remaining = endssdist - newdist
+                    if task_class == "HG":
+                        leading_area += tasktime * (last_remaining * last_remaining - remaining * remaining)
+                    else:
+                        # PG formula with rising/falling factors
+                        if ssdist > 0 and remaining >= 0:
+                            rising = (1 - 10 ** ((9 * remaining / ssdist) - 9)) ** 5
+                            falling = (1 - 10 ** ((-3 * remaining / ssdist))) ** 2
+                            leading_area += tasktime * rising * falling * (last_remaining - remaining)
+
+            had_previous = True
+            maxdist = newdist
+
+    # For pilots who didn't reach ESS: add offset for remaining distance
+    # AirScore: coeff += ssdist * (startSS - task_sstart) + remaining * (sfinish - task_sstart)
+    if ess_at is None and maxdist > startssdist:
+        remaining_ss = endssdist - distance_flown_m
+        if remaining_ss > 0:
+            task_finish_epoch = task_sfinish if task_sfinish > 0 else task_start_epoch + 86400
+            # Time pilot waited before starting SS (penalty for late start)
+            ss_delay = max(pilot_start_epoch - task_start_epoch, 0)
+            task_duration = task_finish_epoch - task_start_epoch
+            coeff += ssdist * ss_delay + remaining_ss * task_duration
+            # missing leading area
+            if task_class == "HG":
+                leading_area += task_duration * remaining_ss * remaining_ss
+            else:
+                if ssdist > 0:
+                    falling = (1 - 10 ** ((-3 * remaining_ss / ssdist))) ** 2
+                    leading_area += falling * task_duration * remaining_ss
+
+    # Pilots who didn't even start get max coeff (worst possible)
+    if maxdist < startssdist:
+        return 0.0, 0.0
+
+    # Normalize (AirScore: coeff / 1800 / essdist)
+    norm = 1800.0 * ssdist
+    if norm > 0:
+        return coeff / norm, leading_area / norm
+    return 0.0, 0.0
+
+
 # ---------- evaluate_task ----------
 
 def _isoformat_or_none(value: datetime | None) -> str | None:
@@ -248,6 +361,8 @@ def evaluate_task(
     trackpoints: list[TrackPoint],
     event_timezone: str | None = None,
     optimized_distance_km: float | None = None,
+    airscore_waypoints: list[dict] | None = None,
+    task_class: str = "HG",
 ) -> dict:
     """
     Evaluate a single pilot's flight against the task.
@@ -334,6 +449,20 @@ def evaluate_task(
         if elapsed_seconds < 0:
             elapsed_seconds = None
 
+    # Compute leading coefficients if waypoints are available
+    lc1, lc2 = 0.0, 0.0
+    if airscore_waypoints and trackpoints and started_at is not None:
+        task_sstart_epoch = start_open_at.timestamp() if start_open_at is not None else 0.0
+        task_sfinish_epoch = start_close_at.timestamp() if start_close_at is not None else 0.0
+        lc1, lc2 = _compute_leading_coeff(
+            airscore_waypoints, trackpoints, started_at,
+            ess_at if ess_at is not None else goal_at,
+            progress_distance * 1000.0,
+            task_class,
+            task_sstart=task_sstart_epoch,
+            task_sfinish=task_sfinish_epoch,
+        )
+
     return {
         "status": status,
         "distance_flown_km": round(progress_distance, 3),
@@ -342,6 +471,8 @@ def evaluate_task(
         "goal_at": goal_at,
         "elapsed_seconds": elapsed_seconds,
         "score_points": 0.0,
+        "leading_coeff": lc1,
+        "leading_coeff2": lc2,
         "details": {
             "hits": [
                 {
@@ -537,7 +668,8 @@ def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: f
         "goal": goal_flag,
         "result": result_type,
         "penalty": 0,
-        "coeff": 0,
+        "coeff": evaluation.get("leading_coeff", 0),
+        "coeff2": evaluation.get("leading_coeff2", 0),
         "stopalt": 0,
         "stoptime": 0,
         "place": 0,
@@ -551,6 +683,7 @@ def _score_evaluations(
     evaluations: list[dict],
     penalties_by_pilot: dict[int, list[ScorePenalty]] | Event | None = None,
     event: Event | None = None,
+    airscore_waypoints: list[dict] | None = None,
 ) -> list[dict]:
     """Score all evaluations using the AirScore GAP engine."""
     if event is None and penalties_by_pilot is not None and not isinstance(penalties_by_pilot, dict):
@@ -570,6 +703,47 @@ def _score_evaluations(
         pilot_results.append(pil)
         eval_map[pilot_id] = entry
 
+    # Extract task distance metadata from waypoints
+    ssdist_m = 0.0
+    endssdist_m = 0.0
+    if airscore_waypoints and len(airscore_waypoints) >= 2:
+        ssdist_m = airscore_waypoints[0].get("_ssdist", 0)
+        endssdist_m = airscore_waypoints[0].get("_endssdist", 0)
+
+    # Resolve task start/finish times (epoch) from the first pilot's track
+    sstart_epoch = 0.0
+    sfinish_epoch = 0.0
+    for entry in evaluations:
+        ev = entry.get("evaluation", {})
+        sa = ev.get("started_at")
+        if sa is not None:
+            sstart_epoch = sa.timestamp()
+            # Use task finish time if available, otherwise add a generous window
+            sfinish_epoch = sstart_epoch + 86400
+            break
+    # Try to get more accurate times from task fields
+    if task.start_open_time and evaluations:
+        for entry in evaluations:
+            ev = entry.get("evaluation", {})
+            sa = ev.get("started_at")
+            if sa is not None:
+                # Resolve start_open_time to epoch using the flight date
+                from datetime import datetime as dt_cls
+                try:
+                    zone = ZoneInfo(_resolve_timezone_name(event.timezone if event else None))
+                except (ZoneInfoNotFoundError, AttributeError):
+                    zone = ZoneInfo("UTC")
+                flight_date = sa.astimezone(zone).date()
+                open_time = _parse_clock_time(task.start_open_time)
+                finish_time = _parse_clock_time(task.task_finish_time)
+                if open_time:
+                    sstart_epoch = dt_cls.combine(flight_date, open_time, tzinfo=zone).timestamp()
+                if finish_time:
+                    sfinish_epoch = dt_cls.combine(flight_date, finish_time, tzinfo=zone).timestamp()
+                elif open_time:
+                    sfinish_epoch = sstart_epoch + 86400
+                break
+
     # Build AirScore task dict
     airscore_task = {
         "class": "HG" if "hg" in (event.scoring_formula or "").lower() or formula["class"] == "gap" else "PG",
@@ -577,10 +751,10 @@ def _score_evaluations(
         "arrival": formula["arrival"] if formula["arrival"] != "off" else "off",
         "stopped": 0,
         "sstopped": 0,
-        "endssdistance": 0,
-        "ssdistance": 0,
-        "sstart": 0,
-        "sfinish": 0,
+        "endssdistance": endssdist_m,
+        "ssdistance": ssdist_m,
+        "sstart": sstart_epoch,
+        "sfinish": sfinish_epoch,
         "goalalt": 0,
         "launchvalid": 1,
     }
@@ -796,7 +970,8 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     registered_pilot_count = len(event_pilot_ids)
 
     # Pre-compute optimized task distance once for all pilots
-    optimized_distance_km, _ = _compute_optimized_task_distance(task_points)
+    optimized_distance_km, airscore_waypoints = _compute_optimized_task_distance(task_points)
+    task_class = "HG" if event and "hg" in (event.scoring_formula or "").lower() else "PG"
 
     # Batch-load trackpoints only for explicitly selected uploads.
     selected_upload_ids: list[int] = []
@@ -826,7 +1001,7 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
             evaluations.append({
                 "pilot_id": pilot_id,
                 "upload": upload,
-                "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None, optimized_distance_km),
+                "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None, optimized_distance_km, airscore_waypoints=airscore_waypoints, task_class=task_class),
             })
             continue
         if scoring_input is None:
@@ -840,7 +1015,7 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     session.flush()
     session.expire_all()
 
-    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, penalties_by_pilot, event)
+    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, penalties_by_pilot, event, airscore_waypoints=airscore_waypoints)
     results: list[ScoreResult] = []
     for payload in scored_payloads:
         payload["result_state"] = "provisional"
