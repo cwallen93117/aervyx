@@ -96,7 +96,11 @@
 </div>
 
 <div class="known-gap">
-  <strong>Known Gap:</strong> Aervyx does not yet implement <strong>leading points</strong>. The "Adj. Diff" column shows the comparison after subtracting FSDB leading points from the FSDB total, giving an apples-to-apples comparison on the scoring components Aervyx does calculate.
+  <strong>Known Gap — Leading Points:</strong> Aervyx does not yet implement <strong>leading points</strong>. The "Adj. Diff" column shows the comparison after subtracting FSDB leading points from the FSDB total, giving an apples-to-apples comparison on the scoring components Aervyx does calculate.
+</div>
+
+<div class="known-gap">
+  <strong>Known Gap — Route Optimization:</strong> The AirScore route optimizer (shortest path through cylinder edges) is verified correct locally but appears to return <strong>center-to-center distances</strong> on the staging server. This causes task distances to be ~1-3km longer than FS, which cascades into different distance validity, day quality, and available points. This is a <strong>deployment issue</strong>, not a code issue. Once resolved, score accuracy should improve significantly for tasks with large turnpoint radii.
 </div>
 
 {% for comp in comparisons %}
