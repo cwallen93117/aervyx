@@ -67,7 +67,6 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         task_date=task.task_date,
         status=task.status,
         task_type=_normalize_task_type(task.task_type),
-        task_date=task.task_date,
         task_start_time=task.task_start_time,
         task_finish_time=task.task_finish_time,
         start_open_time=task.start_open_time,
