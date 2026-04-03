@@ -1385,6 +1385,17 @@ button[type="submit"]:hover,
   justify-content: flex-end;
 }
 
+.admin-users-search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-users-search {
+  flex: 1;
+  max-width: 360px;
+}
+
 .admin-users-table .compact-slot-actions {
   flex-wrap: nowrap;
 }
@@ -1405,6 +1416,20 @@ button[type="submit"]:hover,
   height: 28px;
   padding: 2px 10px;
   font-size: 0.75rem;
+}
+
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s;
+}
+
+.sortable-th:hover {
+  color: var(--accent);
+}
+
+.sortable-th.active {
+  color: var(--accent);
 }
 
 .compact-file-input,
