@@ -1,17 +1,16 @@
 # Aervyx Mobile
 
-Flutter companion app for pilots. Authenticates against the existing Aervyx
-backend, displays task maps, tracks GPS position in real time, and pairs with
-Meshtastic BLE radios.
+Flutter companion app for pilots and drivers. Authenticates against the Aervyx
+backend, displays task maps, tracks GPS position in real time, records flights
+as IGC files, and pairs with Meshtastic BLE radios for off-grid mesh tracking.
+
+> **Status (2026-04-02):** Substantial implementation exists across all screens and services. End-to-end field validation with physical Meshtastic hardware is still incomplete.
 
 ## Setup
 
 Flutter 3.22+ and Dart 3.4+ are required.
 
 ```bash
-# Generate platform directories (run once)
-flutter create --platforms android,ios --org com.aervyx .
-
 # Install dependencies
 flutter pub get
 
@@ -20,33 +19,45 @@ flutter run
 
 # Override the backend URL (e.g. for a local network host)
 flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8000
+
+# Build release APK
+flutter build apk --release
 ```
 
 ## Project Structure
 
 ```
 lib/
-  main.dart               Entry point, provider setup
-  app.dart                MaterialApp with auth gating
+  main.dart                    Entry point, provider setup
+  app.dart                     MaterialApp with auth gating
   config/
-    api_config.dart       Backend URL and endpoint paths
+    api_config.dart            Backend URL and endpoint paths
   models/
-    user.dart             User / AuthToken
-    position.dart         Live position
-    task.dart             Event / Task / TaskPoint
-    mesh_config.dart      Meshtastic mesh configuration
+    user.dart                  User / AuthToken
+    position.dart              Live position
+    task.dart                  Event / Task / TaskPoint
+    mesh_config.dart           Meshtastic mesh configuration
   services/
-    api_service.dart      HTTP + SSE client with JWT auth
-    auth_service.dart     Login, register, token persistence
-    tracking_service.dart GPS capture + position upload + SSE consumer
-    ble_service.dart      Meshtastic BLE scan, pair, config push
+    api_service.dart           HTTP + SSE client with JWT auth
+    auth_service.dart          Login, register, token persistence
+    tracking_service.dart      GPS capture + position upload + SSE consumer
+    ble_service.dart           Meshtastic BLE scan, pair, config push
+    background_service.dart    Background GPS tracking when app is minimized
+    driver_service.dart        Driver mode: retrieve pilot location for pickup
+    igc_service.dart           IGC flight log generation and export
   screens/
-    login_screen.dart     Email / password login
-    task_list_screen.dart Event and task browser
-    task_map_screen.dart  flutter_map with task waypoints + live pilots
-    ble_pairing_screen.dart  Meshtastic device scan and config push
+    login_screen.dart          Email / password login
+    register_screen.dart       New account registration
+    home_screen.dart           Main navigation hub after login
+    flights_screen.dart        Flight history list with IGC downloads
+    flight_detail_screen.dart  Single flight detail view with map and stats
+    live_view_screen.dart      Live map showing tracked pilots in real time
+    settings_screen.dart       User preferences (units, aircraft icon, etc.)
+    driver_home_screen.dart    Driver mode: pilot pickup assistance
+    ble_pairing_screen.dart    Meshtastic device scan and config push
+    meshtastic_settings_screen.dart  Meshtastic radio configuration
   widgets/
-    tracking_controls.dart  Start/stop tracking panel with status readout
+    tracking_controls.dart     Start/stop tracking panel with status readout
 ```
 
 ## Key Dependencies

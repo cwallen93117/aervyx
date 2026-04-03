@@ -1,5 +1,7 @@
 # Scoring Software Thread Reconstruction
 
+> **Historical (2026-04-02):** This document reconstructs the original development thread and project-memory timeline. For current implementation details, see `README.md`, `CLAUDE.md`, or `docs/live-deployment-handoff.md`.
+
 Last updated: 2026-03-25
 
 This document reconstructs the archived `Scoring Software` thread that originally ran with `cwd = C:\Users\Charles\Documents\Playground`, plus the follow-on continuity in the current workspace at [C:\Projects\scoring software- codex](C:\Projects\scoring software- codex).
