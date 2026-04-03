@@ -5,6 +5,12 @@ Configuration via environment variables:
   BRANCH_MAP  – comma-separated "branch:script" pairs, e.g.
                 "main:/path/deploy-prod.sh,staging:/path/deploy-staging.sh"
   BRANCH / DEPLOY_SCRIPT – legacy single-branch fallback (used when BRANCH_MAP is empty)
+
+Features:
+  - Per-branch deploy queue: if a push arrives while a deploy is running,
+    the latest push is queued and auto-dispatched when the active deploy finishes.
+  - Only the most recent pending push per branch is kept (older ones are superseded).
+  - Thread-safe: all queue state is protected by a lock.
 """
 from __future__ import annotations
 
@@ -14,6 +20,8 @@ import json
 import logging
 import os
 import subprocess
+import threading
+import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -42,6 +50,90 @@ else:
     BRANCH_MAP[_branch] = _script
 
 
+# ---------------------------------------------------------------------------
+# Deploy queue: ensures back-to-back pushes don't get lost
+# ---------------------------------------------------------------------------
+_queue_lock = threading.Lock()
+# branch -> True if a deploy is currently running
+_active_deploys: dict[str, bool] = {}
+# branch -> env dict for the most recent pending push (only latest is kept)
+_pending_deploys: dict[str, dict[str, str]] = {}
+
+
+def _run_deploy(branch: str, script: str, env: dict[str, str]) -> None:
+    """Run a deploy and, when it finishes, check if another push arrived while it was running."""
+    try:
+        logging.info("Deploy executing for branch %s via %s", branch, script)
+        process = subprocess.Popen(
+            [script],
+            cwd=REPO_DIR,
+            env=env,
+            start_new_session=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
+        stdout, _ = process.communicate(timeout=600)  # 10 minute timeout
+        exit_code = process.returncode
+        if exit_code == 0:
+            logging.info("Deploy finished successfully for branch %s", branch)
+        else:
+            output_tail = (stdout or b"")[-500:].decode("utf-8", errors="replace")
+            logging.warning(
+                "Deploy failed for branch %s (exit %d): ...%s",
+                branch, exit_code, output_tail,
+            )
+    except subprocess.TimeoutExpired:
+        logging.error("Deploy timed out for branch %s after 600s — killing", branch)
+        process.kill()
+        process.wait()
+    except Exception:
+        logging.exception("Deploy crashed for branch %s", branch)
+
+    # Check if a newer push arrived while we were deploying
+    with _queue_lock:
+        pending_env = _pending_deploys.pop(branch, None)
+        if pending_env is not None:
+            logging.info("Queued deploy found for branch %s — starting follow-up", branch)
+            # Keep the branch marked as active and start the queued deploy
+            thread = threading.Thread(
+                target=_run_deploy,
+                args=(branch, script, pending_env),
+                daemon=True,
+            )
+            thread.start()
+        else:
+            _active_deploys[branch] = False
+
+
+def dispatch_deploy(branch: str, script: str, env: dict[str, str]) -> str:
+    """Dispatch a deploy, queuing it if one is already running for this branch.
+
+    Returns a status string for the webhook response.
+    """
+    with _queue_lock:
+        if _active_deploys.get(branch):
+            # A deploy is already running — queue this one (supersedes any older pending)
+            _pending_deploys[branch] = env
+            logging.info(
+                "Deploy already running for branch %s — queued (delivery %s)",
+                branch, env.get("GITHUB_DELIVERY_ID", "?"),
+            )
+            return "queued"
+        else:
+            _active_deploys[branch] = True
+
+    thread = threading.Thread(
+        target=_run_deploy,
+        args=(branch, script, env),
+        daemon=True,
+    )
+    thread.start()
+    return "started"
+
+
+# ---------------------------------------------------------------------------
+# Webhook signature verification
+# ---------------------------------------------------------------------------
 def _verify_signature(raw_body: bytes, header_value: str | None) -> bool:
     if not WEBHOOK_SECRET or not header_value or not header_value.startswith("sha256="):
         return False
@@ -52,8 +144,11 @@ def _verify_signature(raw_body: bytes, header_value: str | None) -> bool:
     return hmac.compare_digest(expected, actual)
 
 
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
 class WebhookHandler(BaseHTTPRequestHandler):
-    server_version = "AervyxWebhook/2.0"
+    server_version = "AervyxWebhook/3.0"
 
     def log_message(self, fmt: str, *args) -> None:
         logging.info("%s - %s", self.address_string(), fmt % args)
@@ -68,7 +163,15 @@ class WebhookHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         if self.path == "/health":
-            self._respond(HTTPStatus.OK, {"status": "ok"})
+            with _queue_lock:
+                active = [b for b, running in _active_deploys.items() if running]
+                pending = list(_pending_deploys.keys())
+            health: dict[str, str] = {"status": "ok"}
+            if active:
+                health["active_deploys"] = ",".join(active)
+            if pending:
+                health["pending_deploys"] = ",".join(pending)
+            self._respond(HTTPStatus.OK, health)
             return
         self._respond(HTTPStatus.NOT_FOUND, {"error": "not found"})
 
@@ -97,16 +200,14 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if ref == f"refs/heads/{branch}":
                 env = os.environ.copy()
                 env["GITHUB_DELIVERY_ID"] = self.headers.get("X-GitHub-Delivery", "")
-                subprocess.Popen(
-                    [script],
-                    cwd=REPO_DIR,
-                    env=env,
-                    start_new_session=True,
+                deploy_status = dispatch_deploy(branch, script, env)
+                logging.info(
+                    "Deploy %s for branch %s (delivery %s)",
+                    deploy_status, branch, env["GITHUB_DELIVERY_ID"],
                 )
-                logging.info("Deploy started for branch %s via %s", branch, script)
                 self._respond(
                     HTTPStatus.ACCEPTED,
-                    {"status": "deploy started", "ref": ref, "branch": branch},
+                    {"status": f"deploy {deploy_status}", "ref": ref, "branch": branch},
                 )
                 return
 
