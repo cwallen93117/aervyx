@@ -95,8 +95,8 @@
   </div>
 </div>
 
-<div class="known-gap">
-  <strong>Known Gap — Leading Points:</strong> Aervyx does not yet implement <strong>leading points</strong>. The "Adj. Diff" column shows the comparison after subtracting FSDB leading points from the FSDB total, giving an apples-to-apples comparison on the scoring components Aervyx does calculate.
+<div class="known-gap" style="background: var(--green); border-left-color: #28a745;">
+  <strong style="color: var(--green-text);">Resolved — Leading Points:</strong> Aervyx now implements <strong>leading coefficient (LC) computation</strong> from track data, ported from AirScore's track_verify_sr.pl. Both LC1 (flat) and LC2 (class-dependent) are computed. Differences between Aervyx and FS leading points reflect implementation subtleties in distance-along-route tracking and offset calculations for pilots who don't reach ESS.
 </div>
 
 <div class="known-gap">
@@ -149,8 +149,8 @@
       </div>
       {% if tc.aervyx_avail_distance is not none %}
       <div class="stat">
-        <span class="stat-label">Aervyx Avail Dist/Time:</span>
-        <span class="stat-value">{{ tc.aervyx_avail_distance|fmt }} / {{ tc.aervyx_avail_time|fmt }}</span>
+        <span class="stat-label">Aervyx Avail Dist/Time/Lead:</span>
+        <span class="stat-value">{{ tc.aervyx_avail_distance|fmt }} / {{ tc.aervyx_avail_time|fmt }} / {{ tc.aervyx_avail_leading|fmt }}</span>
       </div>
       {% endif %}
       <div class="stat">
