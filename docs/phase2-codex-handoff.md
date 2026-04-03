@@ -1,5 +1,7 @@
 # Phase 2 Codex Handoff
 
+> **Partially stale (2026-04-02):** Backend tracking endpoints are implemented and deployed. The live tracking dashboard is integrated into `TaskMap.tsx`. Mobile + Meshtastic field validation remains incomplete. For current deployment details, see `docs/live-deployment-handoff.md`.
+
 This document describes the new Phase 2 backend endpoints, data schemas, and
 exactly which existing frontend files a follow-on Codex session should extend
 to add the live tracking map and replay system.

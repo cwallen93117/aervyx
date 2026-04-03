@@ -1,5 +1,7 @@
 # Logbook Backend Design
 
+> **Historical (2026-04-02):** This document describes an earlier design direction for event-scoped activity logs. The deployed logbook is a personal pilot flight logbook with IGC upload, statistics, site matching, and replay. See `backend/app/services/logbook.py` and `backend/app/routers/logbook.py` for the current implementation.
+
 Last updated: 2026-03-25
 
 This document captures the planned backend shape for the logbook feature without wiring anything into the live app yet.
