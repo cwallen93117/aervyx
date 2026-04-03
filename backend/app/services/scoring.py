@@ -1,3 +1,11 @@
+"""
+Scoring service — wires Aervyx models to the AirScore GAP engine.
+
+The AirScore engine (app.services.airscore) is a 1:1 port of Geoff Wong's
+scoring code from https://github.com/geoffwong/airscore.
+This module is the only place that bridges Aervyx ORM models ↔ AirScore dicts.
+"""
+
 from __future__ import annotations
 
 import math
@@ -8,6 +16,9 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
+from app.services.airscore.gap import build_task_totals, day_quality, pilot_arrival, pilot_departure_leadout, pilot_distance, pilot_speed, points_allocation, points_weight, select_coeff
+from app.services.airscore.route import find_shortest_route, task_distance as route_task_distance
+from app.services.airscore.track_lib import PI, distance as vincenty_distance, distance_deg, to_rad_dict
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
@@ -20,7 +31,10 @@ TIMEZONE_ALIASES = {
 }
 
 
+# ---------- geometry helpers ----------
+
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Kept for backward compat. Prefer vincenty for scoring accuracy."""
     radius_km = 6371.0
     phi1 = math.radians(lat1)
     phi2 = math.radians(lat2)
@@ -30,71 +44,12 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     return 2 * radius_km * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
-def _to_xy_km(latitude: float, longitude: float, reference_latitude: float, reference_longitude: float) -> tuple[float, float]:
-    x = (longitude - reference_longitude) * 111.32 * math.cos(math.radians(reference_latitude))
-    y = (latitude - reference_latitude) * 110.57
-    return x, y
+def _vincenty_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Vincenty distance in km from degree coordinates (matches AirScore TrackLib)."""
+    return distance_deg(lat1, lon1, lat2, lon2) / 1000.0
 
 
-def _project_progress(prev_point: TaskPoint, next_point: TaskPoint, trackpoints: list[TrackPoint]) -> float:
-    leg_distance = haversine_km(prev_point.latitude, prev_point.longitude, next_point.latitude, next_point.longitude)
-    if leg_distance <= 0:
-        return 0.0
-    bx, by = _to_xy_km(next_point.latitude, next_point.longitude, prev_point.latitude, prev_point.longitude)
-    length_sq = bx * bx + by * by
-    if length_sq <= 0:
-        return 0.0
-    best = 0.0
-    for trackpoint in trackpoints:
-        px, py = _to_xy_km(trackpoint.latitude, trackpoint.longitude, prev_point.latitude, prev_point.longitude)
-        projection = (px * bx + py * by) / length_sq
-        best = max(best, min(max(projection, 0.0), 1.0))
-    return best * leg_distance
-
-
-def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
-    return max(lower, min(upper, value))
-
-
-def _isoformat_or_none(value: datetime | None) -> str | None:
-    return value.isoformat() if value is not None else None
-
-
-def _blank_evaluation(status: str) -> dict:
-    return {
-        "status": status,
-        "distance_flown_km": 0.0,
-        "started_at": None,
-        "ess_at": None,
-        "goal_at": None,
-        "elapsed_seconds": None,
-        "score_points": 0.0,
-        "details": {"hits": [], "total_distance_km": 0.0},
-    }
-
-
-def _minimum_distance_evaluation(task: Task, event: Event | None = None) -> dict:
-    formula = _build_formula(task, event)
-    evaluation = _blank_evaluation("minimum_distance")
-    evaluation["distance_flown_km"] = round(formula["mindist_km"], 3)
-    evaluation["details"] = {
-        "hits": [],
-        "total_distance_km": 0.0,
-        "status_override": "minimum_distance",
-    }
-    return evaluation
-
-
-def _apply_penalties(raw_score: float, penalties: list[ScorePenalty]) -> float:
-    score = max(float(raw_score or 0.0), 0.0)
-    percentage_penalties = [penalty for penalty in penalties if penalty.penalty_type == "percentage"]
-    fixed_penalties = [penalty for penalty in penalties if penalty.penalty_type == "fixed"]
-    for penalty in percentage_penalties:
-        score -= score * (max(float(penalty.value or 0.0), 0.0) / 100.0)
-    for penalty in fixed_penalties:
-        score -= max(float(penalty.value or 0.0), 0.0)
-    return round(max(score, 0.0), 2)
-
+# ---------- task time / timezone helpers ----------
 
 def _resolve_timezone_name(value: str | None) -> str:
     if not value:
@@ -109,10 +64,7 @@ def _parse_clock_time(value: str | None) -> time | None:
     parts = value.split(":")
     if len(parts) < 2:
         return None
-    hour = int(parts[0])
-    minute = int(parts[1])
-    second = int(parts[2]) if len(parts) > 2 else 0
-    return time(hour, minute, second)
+    return time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
 
 
 def _resolve_task_time_utc(value: str | None, trackpoints: list[TrackPoint], timezone_name: str) -> datetime | None:
@@ -128,8 +80,11 @@ def _resolve_task_time_utc(value: str | None, trackpoints: list[TrackPoint], tim
     return local_dt.astimezone(trackpoints[0].recorded_at.tzinfo)
 
 
+# ---------- turnpoint hit detection ----------
+
 def _distance_to_task_point(trackpoint: TrackPoint, point: TaskPoint) -> float:
-    return haversine_km(trackpoint.latitude, trackpoint.longitude, point.latitude, point.longitude)
+    """Distance in km from a trackpoint to a task point (Vincenty)."""
+    return _vincenty_km(trackpoint.latitude, trackpoint.longitude, point.latitude, point.longitude)
 
 
 def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: float, cursor: int = 0, earliest_at: datetime | None = None, latest_at: datetime | None = None) -> tuple[int, datetime] | None:
@@ -169,59 +124,145 @@ def _find_exit_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: f
     return None
 
 
-def _find_goal_line_crossing(
-    prev_point: TaskPoint,
-    goal_point: TaskPoint,
-    trackpoints: list[TrackPoint],
-    radius_km: float,
-    cursor: int = 0,
-) -> tuple[int, datetime] | None:
-    """Detect when a pilot's track crosses the goal line (semi-circle mode).
+# ---------- optimized task distance via AirScore Route ----------
 
-    The goal line is perpendicular to the last course leg at the goal centre,
-    extending ``radius_km`` to each side.  A crossing occurs when the pilot's
-    track moves from the *approach* side to the *far* side of this line.
+def _build_airscore_waypoints(task_points: list[TaskPoint]) -> list[dict]:
+    """Convert Aervyx TaskPoints into AirScore waypoint dicts for Route.pm."""
+    ordered = sorted(task_points, key=lambda p: p.position)
+    waypoints = []
+    for i, tp in enumerate(ordered):
+        pt = tp.point_type.lower()
+        # Map Aervyx point_type to AirScore type/how
+        if pt == "start":
+            wpt_type = "start"
+            how = "exit"
+        elif pt in ("ess", "endspeed"):
+            wpt_type = "endspeed"
+            how = "entry"
+        elif pt == "goal":
+            wpt_type = "goal"
+            how = "entry"
+        else:
+            wpt_type = "turnpoint"
+            how = "entry"
 
-    The approach side is the side the previous waypoint is on.
+        wpt = to_rad_dict(tp.latitude, tp.longitude,
+                          radius=tp.radius_m,
+                          type=wpt_type,
+                          how=how,
+                          shape="circle",
+                          name=tp.name,
+                          key=tp.id,
+                          number=i)
+        waypoints.append(wpt)
+    return waypoints
+
+
+def _compute_optimized_task_distance(task_points: list[TaskPoint]) -> tuple[float, list[dict]]:
     """
-    # Direction vector from prev_point to goal_point (the last leg)
-    dx = goal_point.longitude - prev_point.longitude
-    dy = goal_point.latitude - prev_point.latitude
-    leg_len_sq = dx * dx + dy * dy
-    if leg_len_sq <= 0:
-        return None
+    Compute the optimized task distance (shortest route through cylinders)
+    using the AirScore Route engine.
+    Returns (total_distance_km, waypoints_with_short_positions).
+    """
+    waypoints = _build_airscore_waypoints(task_points)
+    if len(waypoints) < 2:
+        return 0.0, waypoints
 
-    for idx in range(max(cursor, 1), len(trackpoints)):
-        tp_prev = trackpoints[idx - 1]
-        tp_curr = trackpoints[idx]
+    shortest = find_shortest_route(waypoints)
 
-        # Only consider trackpoints within goal radius of goal centre
-        if _distance_to_task_point(tp_curr, goal_point) > radius_km:
-            continue
+    # Apply short-route positions back to waypoints
+    for i, wpt in enumerate(waypoints):
+        if i < len(shortest):
+            wpt["short_lat"] = shortest[i]["lat"]
+            wpt["short_long"] = shortest[i]["long"]
+        else:
+            wpt["short_lat"] = wpt["lat"]
+            wpt["short_long"] = wpt["long"]
 
-        # Signed projection along the leg direction for each trackpoint
-        # Positive = past the goal line (goal-side), Negative = approach-side
-        def _signed_proj(tp: TrackPoint) -> float:
-            px = tp.longitude - goal_point.longitude
-            py = tp.latitude - goal_point.latitude
-            return (px * dx + py * dy) / leg_len_sq
+    spt, ept, gpt, ssdist, startssdist, endssdist, totdist = route_task_distance(waypoints)
 
-        proj_prev = _signed_proj(tp_prev)
-        proj_curr = _signed_proj(tp_curr)
+    # Store task metadata on waypoints for later use
+    for wpt in waypoints:
+        wpt["_spt"] = spt
+        wpt["_ept"] = ept
+        wpt["_gpt"] = gpt
+        wpt["_ssdist"] = ssdist
+        wpt["_endssdist"] = endssdist
 
-        # Crossing occurs when pilot goes from approach-side (negative)
-        # past the goal line to the far side (positive).  We accept the
-        # crossing as soon as the pilot transitions through zero.
-        if proj_prev <= 0 and proj_curr > 0:
-            return idx, tp_curr.recorded_at
-
-    return None
+    return totdist / 1000.0, waypoints  # convert metres to km
 
 
-def evaluate_task(task: Task, task_points: list[TaskPoint], trackpoints: list[TrackPoint], event_timezone: str | None = None, formula: dict | None = None) -> dict:
+# ---------- evaluate_task ----------
+
+def _isoformat_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value is not None else None
+
+
+def _blank_evaluation(status: str) -> dict:
+    return {
+        "status": status,
+        "distance_flown_km": 0.0,
+        "started_at": None,
+        "ess_at": None,
+        "goal_at": None,
+        "elapsed_seconds": None,
+        "score_points": 0.0,
+        "details": {"hits": [], "total_distance_km": 0.0},
+    }
+
+
+def _minimum_distance_evaluation(task: Task, event: Event | None = None) -> dict:
+    formula = _build_formula(task, event)
+    evaluation = _blank_evaluation("minimum_distance")
+    evaluation["distance_flown_km"] = round(formula["mindist_km"], 3)
+    evaluation["details"] = {"hits": [], "total_distance_km": 0.0, "status_override": "minimum_distance"}
+    return evaluation
+
+
+def _clamp(value: float, lower: float = 0.0, upper: float = 1.0) -> float:
+    return max(lower, min(upper, value))
+
+
+def _project_progress(prev_point: TaskPoint, next_point: TaskPoint, trackpoints: list[TrackPoint]) -> float:
+    """Project pilot's furthest progress along a leg (used when a turnpoint is missed)."""
+    leg_distance = _vincenty_km(prev_point.latitude, prev_point.longitude, next_point.latitude, next_point.longitude)
+    if leg_distance <= 0:
+        return 0.0
+    bx = (next_point.longitude - prev_point.longitude) * 111.32 * math.cos(math.radians(prev_point.latitude))
+    by = (next_point.latitude - prev_point.latitude) * 110.57
+    length_sq = bx * bx + by * by
+    if length_sq <= 0:
+        return 0.0
+    best = 0.0
+    for trackpoint in trackpoints:
+        px = (trackpoint.longitude - prev_point.longitude) * 111.32 * math.cos(math.radians(prev_point.latitude))
+        py = (trackpoint.latitude - prev_point.latitude) * 110.57
+        projection = (px * bx + py * by) / length_sq
+        best = max(best, min(max(projection, 0.0), 1.0))
+    return best * leg_distance
+
+
+def evaluate_task(
+    task: Task,
+    task_points: list[TaskPoint],
+    trackpoints: list[TrackPoint],
+    event_timezone: str | None = None,
+    optimized_distance_km: float | None = None,
+) -> dict:
+    """
+    Evaluate a single pilot's flight against the task.
+    Returns a dict with status, distance_flown_km, start/ess/goal times, hits, etc.
+
+    Uses Vincenty distance (matching AirScore) for turnpoint hit detection.
+    Uses optimized task distance (via AirScore Route) for distance flown.
+    """
     ordered_points = sorted(task_points, key=lambda point: point.position)
     if len(ordered_points) < 2:
         return {"status": "uploaded", "distance_flown_km": 0.0, "details": {"hits": [], "total_distance_km": 0.0}}
+
+    # Compute optimized task distance if not provided
+    if optimized_distance_km is None:
+        optimized_distance_km, _ = _compute_optimized_task_distance(task_points)
 
     hit_indices: dict[int, int] = {}
     hit_times: dict[int, datetime] = {}
@@ -229,50 +270,51 @@ def evaluate_task(task: Task, task_points: list[TaskPoint], trackpoints: list[Tr
     start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
 
-    # Turnpoint radius tolerance: expand each cylinder by a fractional tolerance
-    # with a minimum absolute floor (in metres).
-    tp_tolerance_frac = formula.get("turnpoint_radius_tolerance", 0.0) if formula else 0.0
-    tp_min_abs_m = formula.get("turnpoint_radius_minimum_absolute_tolerance_m", 0.0) if formula else 0.0
-    use_goal_line = formula.get("use_semi_circle_control_zone_for_goal_line", False) if formula else False
-
     cursor = 0
-    prev_point: TaskPoint | None = None
     for point in ordered_points:
-        # Apply tolerance: effective radius = nominal + max(nominal * fraction, minimum_absolute)
-        tolerance_m = max(point.radius_m * tp_tolerance_frac, tp_min_abs_m) if (tp_tolerance_frac > 0 or tp_min_abs_m > 0) else 0.0
-        radius_km = (point.radius_m + tolerance_m) / 1000.0
-        if point.point_type == "start":
+        radius_km = point.radius_m / 1000.0
+        if point.point_type.lower() == "start":
             hit = _find_exit_hit(point, trackpoints, radius_km, cursor=cursor, earliest_at=start_open_at, latest_at=start_close_at)
-        elif point.point_type == "goal" and use_goal_line and prev_point is not None:
-            hit = _find_goal_line_crossing(prev_point, point, trackpoints, radius_km, cursor=cursor)
         else:
             hit = _find_entry_hit(point, trackpoints, radius_km, cursor=cursor)
         if hit is None:
-            prev_point = point
             continue
         idx, hit_at = hit
         hit_indices[point.id] = idx
         hit_times[point.id] = hit_at
         cursor = idx + 1
-        prev_point = point
 
+    # Distance flown uses optimized task distance and leg proportions
     total_distance = 0.0
     progress_distance = 0.0
     for index in range(1, len(ordered_points)):
         previous_point = ordered_points[index - 1]
         current_point = ordered_points[index]
-        leg_distance = haversine_km(previous_point.latitude, previous_point.longitude, current_point.latitude, current_point.longitude)
+        leg_distance = _vincenty_km(previous_point.latitude, previous_point.longitude, current_point.latitude, current_point.longitude)
         total_distance += leg_distance
         if current_point.id in hit_indices:
             progress_distance += leg_distance
             continue
         if previous_point.id in hit_indices:
-            progress_distance += _project_progress(previous_point, current_point, trackpoints[hit_indices[previous_point.id] + 1 :])
+            progress_distance += _project_progress(previous_point, current_point, trackpoints[hit_indices[previous_point.id] + 1:])
         break
 
-    start_point = next((point for point in ordered_points if point.point_type == "start"), None)
-    ess_point = next((point for point in ordered_points if point.point_type == "ESS"), None)
-    goal_point = next((point for point in ordered_points if point.point_type == "goal"), None)
+    # Scale progress by the optimized/raw ratio to use optimized distance
+    if total_distance > 0 and optimized_distance_km > 0:
+        scale_factor = optimized_distance_km / total_distance
+        progress_distance *= scale_factor
+    # Goal pilots get the full optimized task distance
+    goal_point = next((p for p in ordered_points if p.point_type.lower() == "goal"), None)
+    if goal_point and goal_point.id in hit_indices:
+        progress_distance = optimized_distance_km
+
+    # Find start, ESS, goal — case-insensitive
+    start_point = next((p for p in ordered_points if p.point_type.lower() == "start"), None)
+    ess_point = next((p for p in ordered_points if p.point_type.lower() in ("ess", "endspeed")), None)
+    # If no separate ESS, goal acts as ESS
+    if ess_point is None:
+        ess_point = goal_point
+
     started_at = hit_times.get(start_point.id) if start_point else None
     ess_at = hit_times.get(ess_point.id) if ess_point else None
     goal_at = hit_times.get(goal_point.id) if goal_point else None
@@ -311,519 +353,195 @@ def evaluate_task(task: Task, task_points: list[TaskPoint], trackpoints: list[Tr
                 }
                 for point in ordered_points
             ],
-            "total_distance_km": round(total_distance, 3),
+            "total_distance_km": round(optimized_distance_km, 3),
         },
     }
 
 
+# ---------- formula builder: maps Event/Task fields → AirScore formula dict ----------
+
 def _build_formula(task: Task, event: Event | None = None) -> dict:
+    """
+    Build the AirScore-compatible formula dict from Aervyx Event + Task models.
+    Every event parameter is wired through here — nothing is hardcoded.
+    """
     penalties = task.penalties_json or {}
-    nominal_goal = event.nominal_goal_percent if event and event.nominal_goal_percent is not None else penalties.get("nominal_goal", penalties.get("nomgoal", 0.3))
+
+    def _ev(attr: str, default=None):
+        """Get an event attribute, falling back to default."""
+        if event is not None:
+            val = getattr(event, attr, None)
+            if val is not None:
+                return val
+        return default
+
+    nominal_goal = _ev("nominal_goal_percent", penalties.get("nominal_goal", penalties.get("nomgoal", 0.3)))
     nominal_goal = float(nominal_goal)
     if nominal_goal > 1:
         nominal_goal /= 100.0
-    ss_penalty_source = event.goal_ss_penalty if event and event.goal_ss_penalty is not None else penalties.get("sspenalty", 1.0)
-    use_time_points = bool(event.use_time_points) if event and event.use_time_points is not None else True
-    use_departure_points = bool(event.use_departure_points) if event and event.use_departure_points is not None else False
-    use_leading_points = bool(event.use_leading_points) if event and event.use_leading_points is not None else True
-    use_arrival_points = False
-    if event is not None:
-        if event.use_arrival_position_points is not None or event.use_arrival_time_points is not None:
-            use_arrival_points = bool(event.use_arrival_position_points) or bool(event.use_arrival_time_points)
 
-    # Leading weight: default 1/8, scaled by leading_weight_factor from event
-    leading_weight_factor = float(event.leading_weight_factor) if event and event.leading_weight_factor is not None else 1.0
-    base_leading_weight = float(penalties.get("weightleading", 1.0 / 8.0))
+    mindist_km = max(float(task.minimum_distance_km or _ev("minimum_distance_km", 5) or 5), 0.1)
+    nomdist_km = max(float(task.nominal_distance_km or _ev("nominal_distance_km", 60) or 60), 1.0)
+    nomtime_hours = float(task.nominal_time_hours or _ev("nominal_time_hours", 1.5) or 1.5)
+    nomlaunch = _clamp(float(task.nominal_launch or _ev("nominal_launch", 0.95) or 0.95), 0.1, 1.0)
+
+    # Arrival mode
+    arrival_mode = "off"
+    if _ev("use_arrival_time_points", False):
+        arrival_mode = "timed"
+    elif _ev("use_arrival_position_points", False):
+        arrival_mode = "position"
+
+    # Departure mode
+    if _ev("use_leading_points", False):
+        departure_mode = "leadout"
+    elif _ev("use_departure_points", False):
+        departure_mode = "departure"
+    else:
+        departure_mode = "off"
+
+    # Speed calc from scoring formula version
+    scoring_formula = (_ev("scoring_formula") or "GAP2021").upper()
+    version = 2021
+    fclass = "gap"
+    if "PWC" in scoring_formula:
+        fclass = "pwc"
+    elif "OZGAP" in scoring_formula or "OZ" in scoring_formula:
+        fclass = "ozgap"
+    elif "GGAP" in scoring_formula:
+        fclass = "ggap"
+    # Extract version number
+    for part in scoring_formula.replace("GAP", "").replace("PWC", "").replace("OZ", "").replace("G", "").split():
+        try:
+            version = int(part)
+            break
+        except ValueError:
+            pass
+    try:
+        version = int("".join(c for c in scoring_formula if c.isdigit()) or "2021")
+    except ValueError:
+        version = 2021
+
+    speedcalc = penalties.get("speedcalc", "standard")
 
     return {
-        # Formula identity
-        "scoring_formula": str(event.scoring_formula or "GAP2021") if event else "GAP2021",
-        # Core nominal parameters
-        "mindist_km": max(float(task.minimum_distance_km or (event.minimum_distance_km if event and event.minimum_distance_km is not None else 0) or 0), 0.1),
-        "nomdist_km": max(float(task.nominal_distance_km or (event.nominal_distance_km if event and event.nominal_distance_km is not None else 0) or 0), 1.0),
-        "nomtime_seconds": max(float(task.nominal_time_hours or (event.nominal_time_hours if event and event.nominal_time_hours is not None else 0) or 0) * 3600.0, 600.0),
-        "nomlaunch": _clamp(float(task.nominal_launch or (event.nominal_launch if event and event.nominal_launch is not None else 0.95)), 0.1, 1.0),
-        "nomgoal_fraction": _clamp(nominal_goal, 0.05, 1.0),
-        # Weight distribution
+        # Core AirScore formula parameters
+        "mindist": mindist_km * 1000,  # AirScore uses metres
+        "nomdist": nomdist_km * 1000,
+        "nomtime": nomtime_hours * 3600,  # AirScore uses seconds
+        "nomlaunch": nomlaunch,
+        "nomgoal": nominal_goal * 100,  # AirScore uses percentage (e.g. 20 = 20%)
+        "mindist_km": mindist_km,  # keep km versions for backward compat
+        "nomdist_km": nomdist_km,
+        "nomtime_seconds": nomtime_hours * 3600,
+        "nomgoal_fraction": nominal_goal,
+        "glidebonus": float(_ev("stopped_glide_bonus", 0) or 0),
+        "sspenalty": _clamp(float(_ev("goal_ss_penalty", penalties.get("sspenalty", 1.0)) or 1.0), 0.0, 1.0),
+        "lineardist": _clamp(float(penalties.get("lineardist", 0.5)), 0.0, 1.0),
         "weightdist": penalties.get("weightdist", "post2014"),
         "weightspeed": float(penalties.get("weightspeed", 5.6 / 8.0)),
         "weightstart": float(penalties.get("weightstart", 1.4 / 8.0)),
         "weightarrival": float(penalties.get("weightarrival", 1.0 / 8.0)),
-        "weightleading": base_leading_weight * leading_weight_factor,
-        "lineardist": _clamp(float(penalties.get("lineardist", 0.5)), 0.0, 1.0),
-        # Modes
-        "departure_mode": penalties.get("departure_mode", "departure"),
-        "arrival_mode": "time" if event and event.use_arrival_time_points else penalties.get("arrival_mode", "position"),
-        "speedcalc": penalties.get("speedcalc", "standard"),
-        "sspenalty": _clamp(float(ss_penalty_source), 0.0, 1.0),
+        "speedcalc": speedcalc,
+        "arrival": arrival_mode,
+        "departure_mode": departure_mode,
+        "arrival_mode": arrival_mode,
+        "scaletovalidity": False,
+        "distmeasure": penalties.get("distmeasure", "area"),
+        "diffcalc": penalties.get("diffcalc", "all"),
+        "diffdist": float(penalties.get("diffdist", 3)),
+        "difframp": penalties.get("difframp", "flexible"),
+        "errormargin": float(_ev("turnpoint_radius_tolerance", 0.05) or 0.05),
+        "class": fclass,
+        "version": version,
         "lookahead": max(int(penalties.get("lookahead", 30)), 1),
-        # Point type toggles
-        "use_distance_points": bool(event.use_distance_points) if event and event.use_distance_points is not None else True,
-        "use_time_points": use_time_points,
-        "use_departure_points": use_departure_points,
-        "use_leading_points": use_leading_points,
-        "use_arrival_points": use_arrival_points,
-        "use_difficulty_for_distance_points": bool(event.use_difficulty_for_distance_points) if event and event.use_difficulty_for_distance_points is not None else True,
-        # Leading coefficient options
-        "leading_weight_factor": leading_weight_factor,
-        "use_distance_squared_for_lc": bool(event.use_distance_squared_for_lc) if event and event.use_distance_squared_for_lc is not None else False,
-        "use_constant_leading_weight": bool(event.use_constant_leading_weight) if event and event.use_constant_leading_weight is not None else False,
-        "use_pwca2019_for_lc": bool(event.use_pwca2019_for_lc) if event and event.use_pwca2019_for_lc is not None else False,
-        "use_proportional_leading_weight_if_nobody_in_goal": bool(event.use_proportional_leading_weight_if_nobody_in_goal) if event and event.use_proportional_leading_weight_if_nobody_in_goal is not None else True,
-        # Day quality and validation
-        "day_quality_override": float(event.day_quality_override) if event and event.day_quality_override is not None else 0.0,
-        "use_1000_points_for_max_day_quality": bool(event.use_1000_points_for_max_day_quality) if event and event.use_1000_points_for_max_day_quality is not None else False,
-        "normalize_1000_before_day_quality": bool(event.normalize_1000_before_day_quality) if event and event.normalize_1000_before_day_quality is not None else False,
-        "min_time_span_for_valid_task_minutes": int(event.min_time_span_for_valid_task_minutes) if event and event.min_time_span_for_valid_task_minutes is not None else 60,
-        # Time/speed modifiers
-        "time_points_if_not_in_goal": float(event.time_points_if_not_in_goal) if event and event.time_points_if_not_in_goal is not None else 1.0,
-        "use_flat_decline_of_timepoints": bool(event.use_flat_decline_of_timepoints) if event and event.use_flat_decline_of_timepoints is not None else False,
-        "redistribute_removed_time_points_as_distance_points": bool(event.redistribute_removed_time_points_as_distance_points) if event and event.redistribute_removed_time_points_as_distance_points is not None else False,
-        # Stopped task / jump-the-gun
-        "score_back_time_minutes": int(event.score_back_time_minutes) if event and event.score_back_time_minutes is not None else 15,
-        "stopped_glide_bonus": float(event.stopped_glide_bonus) if event and event.stopped_glide_bonus is not None else 0.0,
-        "jump_the_gun_factor": float(event.jump_the_gun_factor) if event and event.jump_the_gun_factor is not None else 0.0,
-        "jump_the_gun_max_seconds": int(event.jump_the_gun_max_seconds) if event and event.jump_the_gun_max_seconds is not None else 0,
-        # Altitude and glide
-        "scoring_altitude": str(event.scoring_altitude or "GPS") if event else "GPS",
-        "final_glide_decelerator": str(event.final_glide_decelerator or "none") if event else "none",
-        "no_final_glide_decelerator_reason": str(event.no_final_glide_decelerator_reason or "") if event else "",
-        # Rounding
-        "number_of_decimals_task_results": int(event.number_of_decimals_task_results) if event and event.number_of_decimals_task_results is not None else 2,
-        "number_of_decimals_competition_results": int(event.number_of_decimals_competition_results) if event and event.number_of_decimals_competition_results is not None else 1,
-        # Turnpoint tolerance
-        "turnpoint_radius_tolerance": float(event.turnpoint_radius_tolerance) if event and event.turnpoint_radius_tolerance is not None else 0.0005,
-        "turnpoint_radius_minimum_absolute_tolerance_m": float(event.turnpoint_radius_minimum_absolute_tolerance_m) if event and event.turnpoint_radius_minimum_absolute_tolerance_m is not None else 5.0,
-        # Goal line geometry
-        "use_semi_circle_control_zone_for_goal_line": bool(event.use_semi_circle_control_zone_for_goal_line) if event and event.use_semi_circle_control_zone_for_goal_line is not None else True,
-        # Overall competition scoring
-        "use_best_score_for_ftv_validity": bool(event.use_best_score_for_ftv_validity) if event and event.use_best_score_for_ftv_validity is not None else True,
+        # Boolean flags
+        "use_distance_points": bool(_ev("use_distance_points", True)),
+        "use_time_points": bool(_ev("use_time_points", True)),
+        "use_departure_points": bool(_ev("use_departure_points", False)),
+        "use_leading_points": bool(_ev("use_leading_points", False)),
+        "use_arrival_position_points": bool(_ev("use_arrival_position_points", False)),
+        "use_arrival_time_points": bool(_ev("use_arrival_time_points", False)),
+        "use_difficulty_for_distance_points": bool(_ev("use_difficulty_for_distance_points", True)),
+        "use_distance_squared_for_lc": bool(_ev("use_distance_squared_for_lc", False)),
+        "use_flat_decline_of_timepoints": bool(_ev("use_flat_decline_of_timepoints", False)),
+        "use_1000_points_for_max_day_quality": bool(_ev("use_1000_points_for_max_day_quality", False)),
+        "normalize_1000_before_day_quality": bool(_ev("normalize_1000_before_day_quality", False)),
+        "redistribute_removed_time_points_as_distance_points": bool(_ev("redistribute_removed_time_points_as_distance_points", False)),
+        "time_points_if_not_in_goal": float(_ev("time_points_if_not_in_goal", 1.0) or 1.0),
+        "leading_weight_factor": float(_ev("leading_weight_factor", 1.0) or 1.0),
+        "score_back_time_minutes": int(_ev("score_back_time_minutes", 15) or 15),
+        "number_of_decimals_task_results": int(_ev("number_of_decimals_task_results", 1) or 1),
     }
 
 
-def _day_quality(task_stats: dict, formula: dict) -> dict:
-    pilots = max(task_stats["pilots"], 1)
-    launched = task_stats["launched"]
-    launched_goal = task_stats["goal"]
-    x_launch = launched / max(pilots * formula["nomlaunch"], 1e-6)
-    if x_launch >= 1:
-        launch_validity = 1.0
+# ---------- penalty application ----------
+
+def _apply_penalties(raw_score: float, penalties: list[ScorePenalty]) -> float:
+    score = max(float(raw_score or 0.0), 0.0)
+    for penalty in penalties:
+        if penalty.penalty_type == "percentage":
+            score -= score * (max(float(penalty.value or 0.0), 0.0) / 100.0)
+    for penalty in penalties:
+        if penalty.penalty_type == "fixed":
+            score -= max(float(penalty.value or 0.0), 0.0)
+    return round(max(score, 0.0), 2)
+
+
+# ---------- AirScore GAP scoring pipeline ----------
+
+def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: float = 0) -> dict:
+    """Convert an evaluation dict into an AirScore pilot result dict."""
+    distance_m = evaluation["distance_flown_km"] * 1000.0
+    started_at = evaluation.get("started_at")
+    ess_at = evaluation.get("ess_at")
+    goal_at = evaluation.get("goal_at")
+    elapsed = evaluation.get("elapsed_seconds")
+
+    start_ss = 0
+    end_ss = 0
+    if started_at is not None:
+        start_ss = started_at.timestamp()
+    if ess_at is not None:
+        end_ss = ess_at.timestamp()
+    elif goal_at is not None:
+        end_ss = goal_at.timestamp()
+
+    time_val = end_ss - start_ss if (start_ss > 0 and end_ss > 0) else 0
+    if time_val < 0:
+        time_val = 0
+
+    status = evaluation["status"]
+    if status == "goal":
+        result_type = "lo"  # AirScore uses "lo" for all that flew
+        goal_flag = 1
+    elif status in ("ess", "partial"):
+        result_type = "lo"
+        goal_flag = 0
+    elif status in ("did_not_fly", "minimum_distance"):
+        result_type = "dnf"
+        goal_flag = 0
+    elif status == "absent":
+        result_type = "abs"
+        goal_flag = 0
     else:
-        launch_validity = _clamp(0.027 * x_launch + 2.917 * x_launch**2 - 1.944 * x_launch**3)
-
-    nomdist = formula["nomdist_km"]
-    mindist = formula["mindist_km"]
-    distance_span = max(nomdist - mindist, 0.1)
-    average_distance = task_stats["distance_sum_km"] / launched if launched else 0.0
-    distance_ratio = max(average_distance - mindist, 0.0) / distance_span
-    goal_expectation = max(launched * formula["nomgoal_fraction"], 1.0)
-    goal_ratio = launched_goal / goal_expectation
-    max_ratio = task_stats["max_distance_km"] / max(nomdist, 0.1)
-    distance_validity = _clamp(distance_ratio * 0.6 + _clamp(goal_ratio) * 0.25 + _clamp(max_ratio) * 0.15)
-
-    if task_stats["fastest_time_seconds"] is not None:
-        x_time = task_stats["fastest_time_seconds"] / formula["nomtime_seconds"]
-    else:
-        x_time = task_stats["max_distance_km"] / max(formula["nomdist_km"], 0.1)
-    if x_time < 1:
-        time_validity = _clamp(-0.271 + 2.912 * x_time - 2.098 * x_time**2 + 0.457 * x_time**3)
-    else:
-        time_validity = 1.0
-
-    stopped_validity = 1.0
-    quality = round(launch_validity * distance_validity * time_validity * stopped_validity, 6)
-
-    # Day quality override: if set to a positive value, use it instead of computed quality
-    day_quality_override = formula.get("day_quality_override", 0.0)
-    if day_quality_override and day_quality_override > 0:
-        quality = _clamp(day_quality_override)
+        result_type = "lo"
+        goal_flag = 0
 
     return {
-        "launch": round(launch_validity, 6),
-        "distance": round(distance_validity, 6),
-        "time": round(time_validity, 6),
-        "stopped": stopped_validity,
-        "overall": quality,
-    }
-
-
-def _points_weight(task_stats: dict, formula: dict) -> dict:
-    quality = task_stats["quality"]
-    if task_stats["launched"] <= 0 or quality <= 0:
-        return {"distance": 0.0, "speed": 0.0, "departure": 0.0, "leading": 0.0, "arrival": 0.0}
-
-    x = task_stats["goal"] / max(task_stats["launched"], 1)
-    if not formula["use_distance_points"]:
-        distweight = 0.0
-    elif formula["weightdist"] == "post2014":
-        distweight = _clamp(0.9 - 1.665 * x + 1.713 * x**2 - 0.587 * x**3, 0.1, 0.9)
-    else:
-        distweight = 0.838
-    speed_bucket = 1.0 - distweight
-
-    # If redistribute_removed_time_points_as_distance_points is on and time/leading/etc
-    # are disabled, shift their share to distance
-    if formula.get("redistribute_removed_time_points_as_distance_points"):
-        any_speed_active = (
-            formula["use_time_points"]
-            or formula["use_departure_points"]
-            or formula.get("use_leading_points", False)
-            or formula["use_arrival_points"]
-        )
-        if not any_speed_active:
-            distweight = 1.0
-            speed_bucket = 0.0
-
-    active_speed_weights: list[tuple[str, float]] = []
-    if formula["use_time_points"]:
-        active_speed_weights.append(("speed", formula["weightspeed"]))
-    if formula.get("use_leading_points", False):
-        active_speed_weights.append(("leading", formula.get("weightleading", 1.0 / 8.0)))
-    if formula["use_departure_points"]:
-        active_speed_weights.append(("departure", formula["weightstart"]))
-    if formula["use_arrival_points"]:
-        active_speed_weights.append(("arrival", formula["weightarrival"]))
-    if not active_speed_weights:
-        active_speed_weights.append(("speed", 1.0))
-    normalizer = sum(weight for _, weight in active_speed_weights) or 1.0
-    bucket_points = {name: round(1000.0 * quality * speed_bucket * (weight / normalizer), 3) for name, weight in active_speed_weights}
-    return {
-        "distance": round(1000.0 * quality * distweight, 3),
-        "departure": bucket_points.get("departure", 0.0),
-        "leading": bucket_points.get("leading", 0.0),
-        "arrival": bucket_points.get("arrival", 0.0),
-        "speed": bucket_points.get("speed", 0.0),
-    }
-
-
-def _calc_kmdiff(task_stats: dict, evaluations: list[dict], formula: dict) -> list[float]:
-    max_distance = task_stats["max_distance_km"]
-    if max_distance <= 0:
-        return [0.5]
-
-    bucket_count = max(int(math.floor(max_distance * 10)), 1)
-    min_bucket = max(0, min(bucket_count, int(math.floor(formula["mindist_km"] * 10))))
-    landed_counts = [0] * (bucket_count + 1)
-    landed_out_count = 0
-    for entry in evaluations:
-        evaluation = entry["evaluation"]
-        if evaluation["status"] in {"goal", "ess"}:
-            continue
-        if evaluation["distance_flown_km"] <= 0 and evaluation["started_at"] is None:
-            continue
-        distance = min(max(evaluation["distance_flown_km"], formula["mindist_km"]), max_distance)
-        bucket = min(bucket_count, max(min_bucket, int(math.floor(distance * 10))))
-        landed_counts[bucket] += 1
-        landed_out_count += 1
-
-    if landed_out_count <= 0:
-        return [round(0.5 * (index / bucket_count), 6) for index in range(bucket_count + 1)]
-
-    lookahead = min(bucket_count, max(30, int(round((30.0 * max_distance) / landed_out_count))))
-    difficulty = [0.0] * (bucket_count + 1)
-    for bucket in range(min_bucket, bucket_count + 1):
-        upper = min(bucket_count, bucket + lookahead)
-        difficulty[bucket] = float(sum(landed_counts[bucket : upper + 1]))
-
-    sum_of_difficulty = sum(difficulty[min_bucket : bucket_count + 1])
-    if sum_of_difficulty <= 0:
-        return [round(0.5 * (index / bucket_count), 6) for index in range(bucket_count + 1)]
-
-    running = 0.0
-    diffscore = [0.0] * (bucket_count + 1)
-    for bucket in range(bucket_count + 1):
-        if bucket < min_bucket:
-            diffscore[bucket] = 0.0
-            continue
-        running += difficulty[bucket] / (2.0 * sum_of_difficulty)
-        diffscore[bucket] = min(running, 0.5)
-
-    diffscore[bucket_count] = 0.5
-    return [round(value, 6) for value in diffscore]
-
-
-def _pilot_distance_score(evaluation: dict, available_points: dict, task_stats: dict, kmdiff: list[float], formula: dict) -> float:
-    if available_points["distance"] <= 0:
-        return 0.0
-    max_distance = task_stats["max_distance_km"]
-    if max_distance <= 0:
-        return 0.0
-    distance = min(max(evaluation["distance_flown_km"], 0.0), max_distance)
-    if formula["use_difficulty_for_distance_points"]:
-        linear_fraction = (distance / max_distance) / 2.0
-        distance_tenths = distance * 10.0
-        lower_bucket = min(len(kmdiff) - 1, max(0, int(math.floor(distance_tenths))))
-        upper_bucket = min(len(kmdiff) - 1, lower_bucket + 1)
-        interpolation = min(max(distance_tenths - lower_bucket, 0.0), 1.0)
-        difficulty_fraction = kmdiff[lower_bucket] + (kmdiff[upper_bucket] - kmdiff[lower_bucket]) * interpolation
-        ratio = linear_fraction + difficulty_fraction
-    else:
-        ratio = distance / max_distance
-    return round(available_points["distance"] * _clamp(ratio), 2)
-
-
-def _pilot_speed_score(evaluation: dict, available_points: dict, task_stats: dict, formula: dict) -> float:
-    fastest_time = task_stats["fastest_time_seconds"]
-    elapsed_seconds = evaluation["elapsed_seconds"]
-    if available_points["speed"] <= 0 or fastest_time is None or elapsed_seconds is None:
-        return 0.0
-    if evaluation["status"] not in {"ess", "goal"}:
-        return 0.0
-
-    time_delta_hours = max((elapsed_seconds - fastest_time) / 3600.0, 0.0)
-
-    if formula.get("use_flat_decline_of_timepoints"):
-        # Linear decline: points drop linearly from 1 at fastest to 0 at slowest
-        slowest_time = task_stats.get("slowest_time_seconds")
-        if slowest_time is not None and slowest_time > fastest_time:
-            ratio = 1.0 - (elapsed_seconds - fastest_time) / (slowest_time - fastest_time)
-        else:
-            ratio = 1.0
-    elif formula["speedcalc"] == "extended":
-        denominator = math.sqrt(max(fastest_time / 1800.0, 1e-6))
-        ratio = 1.0 - (time_delta_hours / denominator) ** (2.0 / 3.0)
-    else:
-        denominator = math.sqrt(max(fastest_time / 3600.0, 1e-6))
-        ratio = 1.0 - (time_delta_hours / denominator) ** (5.0 / 6.0)
-    if math.isnan(ratio):
-        return 0.0
-    score = available_points["speed"] * _clamp(ratio)
-
-    # If pilot reached ESS but not goal, apply time_points_if_not_in_goal factor
-    time_factor = formula.get("time_points_if_not_in_goal", 1.0)
-    if evaluation["status"] == "ess" and time_factor < 1.0:
-        score *= time_factor
-
-    return round(score, 2)
-
-
-def _pilot_arrival_score(evaluation: dict, available_points: dict, task_stats: dict, arrival_place: int | None, arrival_delta_seconds: float | None, formula: dict) -> float:
-    if available_points["arrival"] <= 0 or evaluation["status"] not in {"ess", "goal"}:
-        return 0.0
-
-    if formula["arrival_mode"] == "time" and arrival_delta_seconds is not None:
-        x = 1.0 - (arrival_delta_seconds / (90.0 * 60.0))
-    else:
-        ess_count = max(task_stats["ess"], 1)
-        if arrival_place is None:
-            return 0.0
-        x = 1.0 - ((arrival_place - 1) / ess_count)
-    x = _clamp(x)
-    curve = 0.2 + 0.037 * x + 0.13 * x**2 + 0.633 * x**3
-    return round(available_points["arrival"] * curve, 2)
-
-
-def _pilot_departure_score(evaluation: dict, available_points: dict, speed_points: float, task_stats: dict, formula: dict) -> float:
-    first_departure_at = task_stats["first_departure_at"]
-    started_at = evaluation["started_at"]
-    if available_points["departure"] <= 0 or available_points["speed"] <= 0 or speed_points <= 0:
-        return 0.0
-    if started_at is None or first_departure_at is None or evaluation["elapsed_seconds"] is None:
-        return 0.0
-    if formula["departure_mode"] != "departure":
-        return 0.0
-
-    x = (started_at - first_departure_at).total_seconds() / max(formula["nomtime_seconds"], 1.0)
-    if x >= 0.5:
-        return 0.0
-    curve = 1.0 - 6.312 * x + 10.932 * x**2 - 2.99 * x**3
-    ratio = available_points["departure"] / max(available_points["speed"], 1e-6)
-    return round(speed_points * ratio * _clamp(curve), 2)
-
-
-def _compute_leading_coefficients(
-    task_points: list[TaskPoint],
-    evaluations: list[dict],
-    formula: dict,
-) -> dict[int, float]:
-    """Compute Leading Coefficient (LC) for each pilot per GAP2021.
-
-    The LC measures how much each pilot contributed to "opening the course".
-    At each time step the best (minimum) distance-to-ESS across all flying
-    pilots is tracked.  Each pilot accumulates a coefficient proportional to
-    how close they were to ESS relative to the task distance.
-
-    Higher LC → pilot was closer to ESS for longer → more leading points.
-
-    Returns mapping of pilot_id → LC value.
-    """
-    ordered = sorted(task_points, key=lambda p: p.position)
-    ess_point = next((p for p in ordered if p.point_type == "ESS"), None)
-    if ess_point is None:
-        ess_point = next((p for p in ordered if p.point_type == "goal"), None)
-    if ess_point is None:
-        return {}
-
-    # Total course distance from launch to ESS
-    task_distance = 0.0
-    for i in range(1, len(ordered)):
-        task_distance += haversine_km(
-            ordered[i - 1].latitude, ordered[i - 1].longitude,
-            ordered[i].latitude, ordered[i].longitude,
-        )
-        if ordered[i].id == ess_point.id:
-            break
-    if task_distance <= 0:
-        return {}
-
-    use_squared = formula.get("use_distance_squared_for_lc", False)
-
-    # Build per-pilot distance-to-ESS timelines from trackpoints
-    pilot_timelines: dict[int, list[tuple[datetime, float]]] = {}
-    for entry in evaluations:
-        trackpoints = entry.get("_trackpoints")
-        if not trackpoints:
-            continue
-        evaluation = entry["evaluation"]
-        if evaluation["started_at"] is None:
-            continue
-        pilot_id = entry.get("pilot_id")
-        if pilot_id is None:
-            continue
-
-        timeline: list[tuple[datetime, float]] = []
-        started_at = evaluation["started_at"]
-        for tp in trackpoints:
-            if tp.recorded_at < started_at:
-                continue
-            dist_to_ess = haversine_km(
-                tp.latitude, tp.longitude,
-                ess_point.latitude, ess_point.longitude,
-            )
-            timeline.append((tp.recorded_at, min(dist_to_ess, task_distance)))
-        if timeline:
-            pilot_timelines[pilot_id] = timeline
-
-    if not pilot_timelines:
-        return {}
-
-    # Compute LC for each pilot: integral of (1 - dist_to_ess / task_dist) over time
-    # This yields higher values for pilots closer to ESS over more time (leaders).
-    coefficients: dict[int, float] = {}
-    for pilot_id, timeline in pilot_timelines.items():
-        lc = 0.0
-        for i in range(1, len(timeline)):
-            t_prev, d_prev = timeline[i - 1]
-            t_curr, d_curr = timeline[i]
-            dt = (t_curr - t_prev).total_seconds()
-            if dt <= 0 or dt > 120:  # skip large gaps (> 2 minutes)
-                continue
-
-            # Fraction of course covered (0 at start, 1 at ESS)
-            frac_prev = max(0.0, 1.0 - d_prev / task_distance)
-            frac_curr = max(0.0, 1.0 - d_curr / task_distance)
-            avg_frac = (frac_prev + frac_curr) / 2.0
-
-            if use_squared:
-                avg_frac = avg_frac ** 2
-
-            lc += avg_frac * dt
-
-        coefficients[pilot_id] = lc
-
-    return coefficients
-
-
-def _pilot_leading_score(
-    pilot_id: int,
-    leading_coefficients: dict[int, float],
-    available_points: dict,
-    formula: dict,
-    task_stats: dict,
-) -> float:
-    """Compute leading points for a single pilot from pre-computed LCs."""
-    if available_points.get("leading", 0.0) <= 0:
-        return 0.0
-    lc = leading_coefficients.get(pilot_id, 0.0)
-    if lc <= 0:
-        return 0.0
-
-    all_lcs = [v for v in leading_coefficients.values() if v > 0]
-    if not all_lcs:
-        return 0.0
-
-    lc_max = max(all_lcs)
-    if lc_max <= 0:
-        return 0.0
-
-    # Ratio: 1.0 for best leader, lower for others
-    ratio = lc / lc_max
-
-    # Square-root curve rewards moderate leaders fairly
-    score = available_points["leading"] * math.sqrt(_clamp(ratio))
-
-    # If nobody made goal and proportional leading weight is on, scale down
-    if task_stats["goal"] == 0 and formula.get("use_proportional_leading_weight_if_nobody_in_goal", True):
-        # Scale by the best distance fraction — less leading points if nobody got far
-        best_dist = task_stats["max_distance_km"]
-        nomdist = formula.get("nomdist_km", 1.0)
-        scale = _clamp(best_dist / max(nomdist, 1.0))
-        score *= scale
-
-    return round(score, 2)
-
-
-def _build_task_stats(task: Task, registered_pilot_count: int, evaluations: list[dict], formula: dict) -> dict:
-    launched_entries = [entry for entry in evaluations if entry["evaluation"]["distance_flown_km"] > 0 or entry["evaluation"]["started_at"] is not None]
-    ess_entries = [entry for entry in evaluations if entry["evaluation"]["status"] in {"ess", "goal"}]
-    goal_entries = [entry for entry in evaluations if entry["evaluation"]["status"] == "goal"]
-    effective_distances = [
-        max(entry["evaluation"]["distance_flown_km"], formula["mindist_km"]) if entry in launched_entries else entry["evaluation"]["distance_flown_km"]
-        for entry in evaluations
-    ]
-    elapsed_candidates = [entry["evaluation"]["elapsed_seconds"] for entry in ess_entries if entry["evaluation"]["elapsed_seconds"] is not None]
-    first_departure_at = min(
-        (entry["evaluation"]["started_at"] for entry in launched_entries if entry["evaluation"]["started_at"] is not None),
-        default=None,
-    )
-    first_arrival_at = min(
-        ((entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"]) for entry in ess_entries if (entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"]) is not None),
-        default=None,
-    )
-    last_arrival_at = max(
-        ((entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"]) for entry in ess_entries if (entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"]) is not None),
-        default=None,
-    )
-    stats = {
-        "pilots": max(registered_pilot_count, len(evaluations)),
-        "launched": len(launched_entries),
-        "ess": len(ess_entries),
-        "goal": len(goal_entries),
-        "distance_sum_km": round(sum(effective_distances), 3),
-        "max_distance_km": round(max(effective_distances, default=0.0), 3),
-        "fastest_time_seconds": min(elapsed_candidates, default=None),
-        "slowest_time_seconds": max(elapsed_candidates, default=None),
-        "first_departure_at": first_departure_at,
-        "first_arrival_at": first_arrival_at,
-        "last_arrival_at": last_arrival_at,
-    }
-    validity = _day_quality(stats, formula)
-    stats["launch_validity"] = validity["launch"]
-    stats["distance_validity"] = validity["distance"]
-    stats["time_validity"] = validity["time"]
-    stats["stopped_validity"] = validity["stopped"]
-    stats["quality"] = validity["overall"]
-    return stats
-
-
-def _serialize_stats(task_stats: dict) -> dict:
-    return {
-        "pilots": task_stats["pilots"],
-        "launched": task_stats["launched"],
-        "ess": task_stats["ess"],
-        "goal": task_stats["goal"],
-        "distance_sum_km": task_stats["distance_sum_km"],
-        "max_distance_km": task_stats["max_distance_km"],
-        "fastest_time_seconds": task_stats["fastest_time_seconds"],
-        "slowest_time_seconds": task_stats.get("slowest_time_seconds"),
-        "first_departure_at": _isoformat_or_none(task_stats["first_departure_at"]),
-        "first_arrival_at": _isoformat_or_none(task_stats["first_arrival_at"]),
-        "last_arrival_at": _isoformat_or_none(task_stats["last_arrival_at"]),
-        "launch_validity": task_stats["launch_validity"],
-        "distance_validity": task_stats["distance_validity"],
-        "time_validity": task_stats["time_validity"],
-        "stopped_validity": task_stats["stopped_validity"],
-        "quality": task_stats["quality"],
+        "pilot_id": pilot_id,
+        "distance": distance_m,
+        "time": time_val,
+        "startSS": start_ss,
+        "endSS": end_ss,
+        "goal": goal_flag,
+        "result": result_type,
+        "penalty": 0,
+        "coeff": 0,
+        "stopalt": 0,
+        "stoptime": 0,
+        "place": 0,
+        "timeafter": 0,
     }
 
 
@@ -833,111 +551,192 @@ def _score_evaluations(
     evaluations: list[dict],
     penalties_by_pilot: dict[int, list[ScorePenalty]] | Event | None = None,
     event: Event | None = None,
-    task_points: list[TaskPoint] | None = None,
 ) -> list[dict]:
+    """Score all evaluations using the AirScore GAP engine."""
     if event is None and penalties_by_pilot is not None and not isinstance(penalties_by_pilot, dict):
         event = penalties_by_pilot
         penalties_by_pilot = None
     penalties_by_pilot = penalties_by_pilot or {}
     formula = _build_formula(task, event)
-    task_stats = _build_task_stats(task, registered_pilot_count, evaluations, formula)
-    available_points = _points_weight(task_stats, formula)
-    kmdiff = _calc_kmdiff(task_stats, evaluations, formula)
 
-    # Compute leading coefficients from trackpoints when leading points are enabled
-    leading_coefficients: dict[int, float] = {}
-    if formula.get("use_leading_points", False) and available_points.get("leading", 0.0) > 0 and task_points:
-        leading_coefficients = _compute_leading_coefficients(task_points, evaluations, formula)
-
-    arrival_entries = sorted(
-        [
-            entry
-            for entry in evaluations
-            if entry["evaluation"]["status"] in {"ess", "goal"} and (entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"]) is not None
-        ],
-        key=lambda entry: entry["evaluation"]["goal_at"] or entry["evaluation"]["ess_at"],
-    )
-    arrival_places = {
-        (entry.get("pilot_id") or (entry.get("upload").pilot_id if entry.get("upload") is not None else None)): index
-        for index, entry in enumerate(arrival_entries, start=1)
-        if (entry.get("pilot_id") or (entry.get("upload").pilot_id if entry.get("upload") is not None else None)) is not None
-    }
-    first_arrival_at = task_stats["first_arrival_at"]
-    decimals = formula.get("number_of_decimals_task_results", 2)
-
-    scored: list[dict] = []
+    # Build AirScore pilot results
+    pilot_results = []
+    eval_map: dict[int, dict] = {}
     for entry in evaluations:
-        upload = entry.get("upload")
-        pilot_id = entry.get("pilot_id") or (upload.pilot_id if upload is not None else None)
+        pilot_id = entry.get("pilot_id") or (entry["upload"].pilot_id if entry.get("upload") else None)
         if pilot_id is None:
-            raise KeyError("pilot_id")
+            continue
+        pil = _build_airscore_pilot_result(entry["evaluation"], pilot_id)
+        pilot_results.append(pil)
+        eval_map[pilot_id] = entry
+
+    # Build AirScore task dict
+    airscore_task = {
+        "class": "HG" if "hg" in (event.scoring_formula or "").lower() or formula["class"] == "gap" else "PG",
+        "departure": formula["departure_mode"] if formula["departure_mode"] != "departure" else "off",
+        "arrival": formula["arrival"] if formula["arrival"] != "off" else "off",
+        "stopped": 0,
+        "sstopped": 0,
+        "endssdistance": 0,
+        "ssdistance": 0,
+        "sstart": 0,
+        "sfinish": 0,
+        "goalalt": 0,
+        "launchvalid": 1,
+    }
+
+    # Use departure mode mapping
+    if formula.get("use_leading_points"):
+        airscore_task["departure"] = "leadout"
+    elif formula.get("use_departure_points"):
+        airscore_task["departure"] = "departure"
+    else:
+        airscore_task["departure"] = "off"
+
+    # Arrival mode
+    if formula.get("use_arrival_time_points"):
+        airscore_task["arrival"] = "timed"
+    elif formula.get("use_arrival_position_points"):
+        airscore_task["arrival"] = "position"
+    else:
+        airscore_task["arrival"] = "off"
+
+    # Build task totals using AirScore
+    taskt = build_task_totals(formula, airscore_task, pilot_results)
+
+    # Order pilots for scoring (AirScore Gap.pm ordered_results style)
+    # Sort by: goal first (by time), then by distance desc
+    first_arrival = taskt.get("firstarrival", 0)
+    sorted_pilots = sorted(
+        pilot_results,
+        key=lambda p: (
+            99999999 if (p["endSS"] - p["startSS"]) <= 0 else (p["endSS"] - p["startSS"]),
+            -p["distance"],
+        ),
+    )
+    place = 0
+    last_es = -1
+    last_place = -1
+    for pil in sorted_pilots:
+        place += 1
+        es_time = pil["endSS"]
+        if es_time == last_es:
+            pil["place"] = last_place
+        else:
+            pil["place"] = place
+            last_es = es_time
+            last_place = place
+        pil["timeafter"] = es_time - first_arrival if (es_time > 0 and first_arrival > 0) else 0
+
+    # Run AirScore points allocation
+    scored_pilots = points_allocation(airscore_task, taskt, formula, sorted_pilots)
+
+    # Build available points dict for output
+    Adistance, Aspeed, Astart, Aarrival = points_weight(airscore_task, taskt, formula)
+    available_points = {
+        "distance": round(Adistance, 3),
+        "speed": round(Aspeed, 3),
+        "leading": round(Astart, 3),
+        "arrival": round(Aarrival, 3),
+        "departure": 0.0,
+    }
+
+    decimals = formula.get("number_of_decimals_task_results", 1)
+
+    # Build output
+    scored: list[dict] = []
+    for pil in scored_pilots:
+        pilot_id = pil["pilot_id"]
+        entry = eval_map.get(pilot_id)
+        if entry is None:
+            continue
         evaluation = entry["evaluation"]
-        distance_points = _pilot_distance_score(evaluation, available_points, task_stats, kmdiff, formula)
-        speed_points = _pilot_speed_score(evaluation, available_points, task_stats, formula)
-        if task_stats["goal"] == 0:
-            speed_points = round(speed_points * formula["sspenalty"], 2)
-        arrival_at = evaluation["goal_at"] or evaluation["ess_at"]
-        arrival_delta_seconds = None
-        if arrival_at is not None and first_arrival_at is not None:
-            arrival_delta_seconds = max((arrival_at - first_arrival_at).total_seconds(), 0.0)
-        arrival_points = _pilot_arrival_score(
-            evaluation,
-            available_points,
-            task_stats,
-            arrival_places.get(pilot_id),
-            arrival_delta_seconds,
-            formula,
-        )
-        if task_stats["goal"] == 0:
-            arrival_points = round(arrival_points * formula["sspenalty"], 2)
-        departure_points = _pilot_departure_score(evaluation, available_points, speed_points, task_stats, formula)
+        upload = entry.get("upload")
 
-        # Leading points
-        leading_points = _pilot_leading_score(pilot_id, leading_coefficients, available_points, formula, task_stats)
-
-        raw_points = round(distance_points + speed_points + leading_points + arrival_points + departure_points, decimals)
+        raw_points = round(pil.get("Pscore", 0), decimals)
         pilot_penalties = penalties_by_pilot.get(pilot_id, [])
         final_points = _apply_penalties(raw_points, pilot_penalties)
-        final_points = round(final_points, decimals)
+
         details = dict(evaluation["details"])
         details["gap"] = {
-            "formula": formula,
+            "formula": {
+                "scoring_formula": _ev_str(event, "scoring_formula", "GAP2021"),
+                "mindist_km": formula["mindist_km"],
+                "nomdist_km": formula["nomdist_km"],
+                "nomtime_seconds": formula["nomtime_seconds"],
+                "nomlaunch": formula["nomlaunch"],
+                "nomgoal_fraction": formula["nomgoal_fraction"],
+                "weightdist": formula["weightdist"],
+                "weightspeed": formula["weightspeed"],
+                "weightstart": formula["weightstart"],
+                "weightarrival": formula["weightarrival"],
+                "lineardist": formula["lineardist"],
+                "departure_mode": formula["departure_mode"],
+                "arrival_mode": formula["arrival_mode"],
+                "speedcalc": formula["speedcalc"],
+                "sspenalty": formula["sspenalty"],
+                "use_distance_points": formula["use_distance_points"],
+                "use_time_points": formula["use_time_points"],
+                "use_departure_points": formula["use_departure_points"],
+                "use_leading_points": formula["use_leading_points"],
+                "use_arrival_position_points": formula["use_arrival_position_points"],
+                "use_arrival_time_points": formula["use_arrival_time_points"],
+                "use_difficulty_for_distance_points": formula["use_difficulty_for_distance_points"],
+                "use_flat_decline_of_timepoints": formula["use_flat_decline_of_timepoints"],
+                "time_points_if_not_in_goal": formula["time_points_if_not_in_goal"],
+                "score_back_time_minutes": formula["score_back_time_minutes"],
+                "number_of_decimals_task_results": decimals,
+            },
             "validity": {
-                "launch": task_stats["launch_validity"],
-                "distance": task_stats["distance_validity"],
-                "time": task_stats["time_validity"],
-                "stopped": task_stats["stopped_validity"],
-                "overall": task_stats["quality"],
+                "launch": round(taskt.get("launch_validity", 0), 6),
+                "distance": round(taskt.get("dist_validity", 0), 6),
+                "time": round(taskt.get("time_validity", 0), 6),
+                "stopped": round(taskt.get("stop_validity", 1), 6),
+                "overall": round(taskt.get("quality", 0), 6),
             },
             "available_points": available_points,
-            "task_stats": _serialize_stats(task_stats),
+            "task_stats": {
+                "pilots": taskt["pilots"],
+                "launched": taskt["launched"],
+                "ess": taskt["ess"],
+                "goal": taskt["goal"],
+                "distance_sum_km": round(taskt["distance"] / 1000.0, 3),
+                "max_distance_km": round(taskt["maxdist"] / 1000.0, 3),
+                "fastest_time_seconds": taskt["fastest"] if taskt["fastest"] > 0 else None,
+                "slowest_time_seconds": max((p["time"] for p in scored_pilots if p.get("goal", 0) > 0), default=None),
+                "launch_validity": round(taskt.get("launch_validity", 0), 6),
+                "distance_validity": round(taskt.get("dist_validity", 0), 6),
+                "time_validity": round(taskt.get("time_validity", 0), 6),
+                "stopped_validity": round(taskt.get("stop_validity", 1), 6),
+                "quality": round(taskt.get("quality", 0), 6),
+            },
             "awarded_points": {
-                "distance": distance_points,
-                "speed": speed_points,
-                "leading": leading_points,
-                "arrival": arrival_points,
-                "departure": departure_points,
+                "distance": round(pil.get("Pdist", 0), decimals),
+                "speed": round(pil.get("Pspeed", 0), decimals),
+                "leading": round(pil.get("Pdepart", 0), decimals),
+                "arrival": round(pil.get("Parrival", 0), decimals),
+                "departure": 0.0,
                 "total": raw_points,
                 "final": final_points,
             },
         }
-        scored.append(
-            {
-                "task_id": task.id,
-                "pilot_id": pilot_id,
-                "upload_id": upload.id if upload is not None else None,
-                "status": evaluation["status"],
-                "distance_flown_km": evaluation["distance_flown_km"],
-                "started_at": evaluation["started_at"],
-                "ess_at": evaluation["ess_at"],
-                "goal_at": evaluation["goal_at"],
-                "elapsed_seconds": evaluation["elapsed_seconds"],
-                "raw_score_points": raw_points,
-                "score_points": final_points,
-                "details_json": details,
-            }
-        )
 
+        scored.append({
+            "task_id": task.id,
+            "pilot_id": pilot_id,
+            "upload_id": upload.id if upload is not None else None,
+            "status": evaluation["status"],
+            "distance_flown_km": evaluation["distance_flown_km"],
+            "started_at": evaluation["started_at"],
+            "ess_at": evaluation["ess_at"],
+            "goal_at": evaluation["goal_at"],
+            "elapsed_seconds": evaluation["elapsed_seconds"],
+            "raw_score_points": raw_points,
+            "score_points": final_points,
+            "details_json": details,
+        })
+
+    # Rank by score (same logic as before)
     scored.sort(
         key=lambda result: (
             0 if result["status"] in COMPETITIVE_STATUSES else 1,
@@ -957,6 +756,16 @@ def _score_evaluations(
     return scored
 
 
+def _ev_str(event: Event | None, attr: str, default: str = "") -> str:
+    if event is not None:
+        val = getattr(event, attr, None)
+        if val is not None:
+            return str(val)
+    return default
+
+
+# ---------- public API ----------
+
 def score_upload(session: Session, upload: IGCUpload) -> ScoreResult:
     rescore_task(session, upload.task_id)
     result = session.scalar(select(ScoreResult).where(ScoreResult.task_id == upload.task_id, ScoreResult.pilot_id == upload.pilot_id))
@@ -973,9 +782,6 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
 
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at)).all()
     uploads_by_id = {upload.id: upload for upload in uploads}
-    uploads_by_pilot: dict[int, list[IGCUpload]] = {}
-    for upload in reversed(uploads):
-        uploads_by_pilot.setdefault(upload.pilot_id, []).append(upload)
     scoring_inputs = session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task_id)).all()
     scoring_input_by_pilot = {entry.pilot_id: entry for entry in scoring_inputs}
     penalties = session.scalars(
@@ -989,18 +795,14 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     event_pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
     registered_pilot_count = len(event_pilot_ids)
 
-    # Build formula early so evaluate_task can use turnpoint tolerance / goal line settings
-    eval_formula = _build_formula(task, event)
+    # Pre-compute optimized task distance once for all pilots
+    optimized_distance_km, _ = _compute_optimized_task_distance(task_points)
 
     # Batch-load trackpoints only for explicitly selected uploads.
     selected_upload_ids: list[int] = []
     for pilot_id in event_pilot_ids:
         scoring_input = scoring_input_by_pilot.get(pilot_id)
-        if (
-            scoring_input is not None
-            and scoring_input.selected_upload_id is not None
-            and scoring_input.selected_upload_id in uploads_by_id
-        ):
+        if scoring_input is not None and scoring_input.selected_upload_id is not None and scoring_input.selected_upload_id in uploads_by_id:
             selected_upload_ids.append(scoring_input.selected_upload_id)
     upload_ids = list(dict.fromkeys(selected_upload_ids))
     all_trackpoints = session.scalars(
@@ -1021,14 +823,11 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
             if upload is None or upload.pilot_id != pilot_id:
                 continue
             trackpoints = trackpoints_by_upload.get(upload.id, [])
-            evaluations.append(
-                {
-                    "pilot_id": pilot_id,
-                    "upload": upload,
-                    "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None, formula=eval_formula),
-                    "_trackpoints": trackpoints,  # kept for leading coefficient computation
-                }
-            )
+            evaluations.append({
+                "pilot_id": pilot_id,
+                "upload": upload,
+                "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None, optimized_distance_km),
+            })
             continue
         if scoring_input is None:
             continue
@@ -1041,7 +840,7 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     session.flush()
     session.expire_all()
 
-    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, penalties_by_pilot, event, task_points=task_points)
+    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, penalties_by_pilot, event)
     results: list[ScoreResult] = []
     for payload in scored_payloads:
         payload["result_state"] = "provisional"

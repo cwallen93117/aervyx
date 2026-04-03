@@ -90,3 +90,5 @@ if admin_debug is not None:
 @app.get('/health')
 def health() -> dict[str, str]:
     return {'status': 'ok'}
+
+

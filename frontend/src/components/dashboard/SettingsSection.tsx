@@ -63,15 +63,13 @@ export default function SettingsSection(props: SettingsSectionProps) {
         <div className="settings-tab-panel">
           <div className="settings-summary-row">
             <label className="settings-type-control">
-              <span>Current role</span>
+              <span>Profile type</span>
               <select
-                value={settingsForm.role === "admin" ? "admin" : settingsForm.role}
-                disabled={settingsForm.role === "admin"}
-                onChange={(event) => setSettingsForm((current) => ({ ...current, role: event.target.value as "pilot" | "organizer" }))}
+                value={settingsForm.profile_type}
+                onChange={(event) => setSettingsForm((current) => ({ ...current, profile_type: event.target.value as "pilot" | "driver" }))}
               >
-                {settingsForm.role === "admin" && <option value="admin">Admin</option>}
                 <option value="pilot">Pilot</option>
-                <option value="organizer">Organizer</option>
+                <option value="driver">Driver</option>
               </select>
             </label>
           </div>
