@@ -27,6 +27,8 @@ export type AdminUserRecord = {
   id: number;
   username: string;
   full_name: string;
+  first_name: string | null;
+  last_name: string | null;
   role: "admin" | "organizer" | "pilot";
   profile_type: "pilot" | "driver";
   pilot_id: number | null;
