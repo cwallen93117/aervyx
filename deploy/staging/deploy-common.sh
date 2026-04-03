@@ -91,6 +91,40 @@ wait_for_command "frontend" \
   docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" exec -T frontend \
   wget -qO- http://127.0.0.1:3000/login >/dev/null
 
+# Seed APK release data into the volume if it's empty.
+# The persistent host seed lives at ROOT_DIR/apk-seed/ and is created by the
+# first successful admin upload.  If the backend_apks volume was wiped (e.g.
+# docker compose down -v), this restores the last known release automatically.
+APK_SEED_DIR="${ROOT_DIR}/apk-seed"
+if [[ -d "${APK_SEED_DIR}" && -f "${APK_SEED_DIR}/releases.json" ]]; then
+  has_releases=$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" \
+    exec -T backend python -c "
+import json, pathlib
+p = pathlib.Path('/app/storage/apks/releases.json')
+print('yes' if p.exists() and json.loads(p.read_text()) else 'no')
+" 2>/dev/null || echo "no")
+  if [[ "${has_releases}" == *"no"* ]]; then
+    echo "Seeding APK release data from ${APK_SEED_DIR}..."
+    BACKEND_CONTAINER=$(docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps -q backend)
+    docker cp "${APK_SEED_DIR}/releases.json" "${BACKEND_CONTAINER}:/app/storage/apks/releases.json"
+    # Copy each versioned APK directory
+    for ver_dir in "${APK_SEED_DIR}"/*/; do
+      if [[ -d "${ver_dir}" ]]; then
+        ver_name=$(basename "${ver_dir}")
+        docker exec "${BACKEND_CONTAINER}" mkdir -p "/app/storage/apks/${ver_name}"
+        for apk_file in "${ver_dir}"*.apk; do
+          [[ -f "${apk_file}" ]] && docker cp "${apk_file}" "${BACKEND_CONTAINER}:/app/storage/apks/${ver_name}/$(basename "${apk_file}")"
+        done
+      fi
+    done
+    echo "APK seed complete."
+  else
+    echo "APK release data already present, skipping seed."
+  fi
+else
+  echo "No APK seed directory at ${APK_SEED_DIR}, skipping."
+fi
+
 # Connect cloudflared to both docker networks so it can route to both stacks
 CONNECT_SCRIPT="${REPO_DIR}/deploy/staging/connect-cloudflared-networks.sh"
 if [[ -x "${CONNECT_SCRIPT}" ]]; then
