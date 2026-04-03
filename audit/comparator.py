@@ -35,6 +35,7 @@ class PilotComparison:
     aervyx_time_pts: float = 0.0
     time_diff: float = 0.0
     fsdb_leading_pts: float = 0.0
+    aervyx_leading_pts: float = 0.0
     fsdb_arrival_pts: float = 0.0
     aervyx_arrival_pts: float = 0.0
     fsdb_departure_pts: float = 0.0
@@ -65,6 +66,7 @@ class TaskComparison:
     fsdb_avail_leading: float = 0.0
     aervyx_avail_distance: float | None = None
     aervyx_avail_time: float | None = None
+    aervyx_avail_leading: float | None = None
     # Pilots
     pilots: list[PilotComparison] = field(default_factory=list)
     # Stats
@@ -183,6 +185,7 @@ def _compare_task(
             avail = gap.get("available_points", {})
             tc.aervyx_avail_distance = avail.get("distance")
             tc.aervyx_avail_time = avail.get("speed")
+            tc.aervyx_avail_leading = avail.get("leading")
             break
 
     # Compare per pilot
@@ -196,7 +199,7 @@ def _compare_task(
             aervyx_pilot_id=aervyx_id or 0,
             fsdb_rank=fsdb_pr.rank,
             fsdb_total=fsdb_pr.points,
-            fsdb_total_adj=fsdb_pr.points - fsdb_pr.leading_points,
+            fsdb_total_adj=fsdb_pr.points,  # kept for backward compat; adj diff now subtracts leading from both sides
             fsdb_distance_pts=fsdb_pr.distance_points,
             fsdb_time_pts=fsdb_pr.time_points,
             fsdb_leading_pts=fsdb_pr.leading_points,
@@ -222,12 +225,16 @@ def _compare_task(
         pc.aervyx_distance_km = ar.get("distance_flown_km", 0.0)
         pc.aervyx_distance_pts = awarded.get("distance", 0.0)
         pc.aervyx_time_pts = awarded.get("speed", 0.0)
+        pc.aervyx_leading_pts = awarded.get("leading", 0.0)
         pc.aervyx_arrival_pts = awarded.get("arrival", 0.0)
         pc.aervyx_departure_pts = awarded.get("departure", 0.0)
 
         # Diffs
         pc.total_diff = pc.aervyx_total - pc.fsdb_total
-        pc.total_diff_adj = pc.aervyx_total - pc.fsdb_total_adj
+        # Adjusted: compare totals without leading on either side
+        aervyx_no_leading = pc.aervyx_total - pc.aervyx_leading_pts
+        fsdb_no_leading = pc.fsdb_total - pc.fsdb_leading_pts
+        pc.total_diff_adj = aervyx_no_leading - fsdb_no_leading
         pc.distance_diff = pc.aervyx_distance_pts - pc.fsdb_distance_pts
         pc.time_diff = pc.aervyx_time_pts - pc.fsdb_time_pts
         pc.distance_km_diff = pc.aervyx_distance_km - pc.fsdb_distance_km
@@ -235,11 +242,11 @@ def _compare_task(
         if pc.fsdb_rank is not None and pc.aervyx_rank is not None:
             pc.rank_diff = pc.aervyx_rank - pc.fsdb_rank
 
-        # Classify
-        abs_diff_adj = abs(pc.total_diff_adj)
-        if abs_diff_adj <= 0.1:
+        # Classify (use full total-to-total comparison now that leading is implemented)
+        abs_diff = abs(pc.total_diff)
+        if abs_diff <= 0.1:
             pc.match_status = "exact"
-        elif abs_diff_adj <= 2.0:
+        elif abs_diff <= 2.0:
             pc.match_status = "close"
         else:
             pc.match_status = "mismatch"
