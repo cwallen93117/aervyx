@@ -102,7 +102,6 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
         task_date=payload.task_date,
         status=payload.status,
         task_type=_normalize_task_type(payload.task_type),
-        task_date=payload.task_date,
         task_start_time=payload.task_start_time,
         task_finish_time=payload.task_finish_time,
         start_open_time=payload.start_open_time,
