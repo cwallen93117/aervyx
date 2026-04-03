@@ -25,7 +25,7 @@ const builtInFormulaOptions = [
   { value: "OzGAP2005", label: "OzGAP 2005" },
   { value: "PWC2016", label: "PWC 2016" },
 ] as const;
-const builtInFormulaValues = new Set(builtInFormulaOptions.map((o) => o.value));
+const builtInFormulaValues: Set<string> = new Set(builtInFormulaOptions.map((o) => o.value));
 
 const CUSTOM_FORMULAS_KEY = "aervyx_custom_scoring_formulas";
 
