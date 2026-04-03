@@ -198,7 +198,7 @@ def calc_kmdiff(task: dict, taskt: dict, formula: dict) -> list[float]:
 
     difsum = 0.0
     for ref in distspread:
-        difdist = int(ref["Distance"]) - lookahead
+        difdist = int(ref["Distance"]) - int(lookahead)
         if difdist < 0:
             difdist = 0
         if difdist < num_buckets:
