@@ -228,6 +228,11 @@ def _compute_leading_coeff(
     if ssdist <= 0 or endssdist <= 0:
         return 0.0, 0.0
 
+    # Ensure the task.py module-level distance caches are populated.
+    # route.py's task_distance is separate from task.py's precompute_waypoint_dist,
+    # but distance_flown depends on the latter's caches.
+    precompute_waypoint_dist(waypoints, {"errormargin": 0.05})
+
     # Use task gate open time as the reference; fall back to pilot's start time
     task_start_epoch = task_sstart if task_sstart > 0 else started_at.timestamp()
     pilot_start_epoch = started_at.timestamp()
