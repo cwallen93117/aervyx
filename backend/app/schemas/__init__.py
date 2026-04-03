@@ -353,7 +353,6 @@ class TaskInput(BaseModel):
     task_date: date | None = None
     status: str = "draft"
     task_type: str = "race_to_goal"
-    task_date: str | None = None
     task_start_time: str | None = None
     task_finish_time: str | None = None
     start_open_time: str | None = None
@@ -379,7 +378,6 @@ class TaskResponse(BaseModel):
     task_date: date | None = None
     status: str
     task_type: str
-    task_date: str | None
     task_start_time: str | None
     task_finish_time: str | None
     start_open_time: str | None

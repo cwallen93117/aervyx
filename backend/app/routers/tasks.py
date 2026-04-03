@@ -140,7 +140,6 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
     task.task_date = payload.task_date
     task.status = payload.status
     task.task_type = _normalize_task_type(payload.task_type)
-    task.task_date = payload.task_date
     task.task_start_time = payload.task_start_time
     task.task_finish_time = payload.task_finish_time
     task.start_open_time = payload.start_open_time

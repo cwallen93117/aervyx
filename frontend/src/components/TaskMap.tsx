@@ -1038,6 +1038,7 @@ export const TaskMap = React.memo(function TaskMap({
   const viewStateKeyRef = useRef(viewStateKey);
   const fitGeometrySignatureRef = useRef("");
   const fitKeyRef = useRef<string>("");
+  const fitPendingForGeometryRef = useRef(false);
   const fitTargetKindRef = useRef<FitTarget["kind"]>("fallback");
   const renderedTaskGeometrySignatureRef = useRef("");
   const programmaticCameraMoveRef = useRef(false);
@@ -1979,15 +1980,26 @@ export const TaskMap = React.memo(function TaskMap({
     const highlightSelectionChanged = previousHighlightedTrackUploadId !== highlightedTrackUploadId;
     previousHighlightedTrackUploadIdRef.current = highlightedTrackUploadId;
     const previousFitTargetKind = fitTargetKindRef.current;
-    const shouldFitToTaskContext = nextFitKey !== fitKeyRef.current;
+    const fitKeyChanged = nextFitKey !== fitKeyRef.current;
+    const geometryChanged = nextFitGeometrySignature !== fitGeometrySignatureRef.current;
+    const shouldFitToTaskContext = fitKeyChanged;
     const shouldFitToTaskAfterFallback = nextFitTargetKind === "task" && previousFitTargetKind !== "task";
     const shouldFitToWaypointGeometry =
       nextFitTargetKind !== "task" &&
-      nextFitGeometrySignature !== fitGeometrySignatureRef.current;
+      geometryChanged;
+    // When fitKey changes before new geometry arrives, mark a deferred fit
+    // so we refit once the new task's data loads.
+    const shouldFitDeferredTaskGeometry =
+      fitPendingForGeometryRef.current &&
+      nextFitTargetKind === "task" &&
+      geometryChanged;
+    if (fitKeyChanged) {
+      fitPendingForGeometryRef.current = true;
+    }
     const highlightOnlySelectionChange =
       highlightSelectionChanged &&
-      nextFitKey === fitKeyRef.current &&
-      nextFitGeometrySignature === fitGeometrySignatureRef.current &&
+      !fitKeyChanged &&
+      !geometryChanged &&
       nextFitTargetKind === fitTargetKindRef.current;
 
     if (highlightOnlySelectionChange) {
@@ -1997,10 +2009,14 @@ export const TaskMap = React.memo(function TaskMap({
       return;
     }
 
-    if (shouldFitToTaskContext || shouldFitToTaskAfterFallback || shouldFitToWaypointGeometry) {
+    if (shouldFitToTaskContext || shouldFitToTaskAfterFallback || shouldFitToWaypointGeometry || shouldFitDeferredTaskGeometry) {
       manualViewChangedRef.current = false;
+      if (shouldFitDeferredTaskGeometry || shouldFitToTaskAfterFallback) {
+        fitPendingForGeometryRef.current = false;
+      }
+      const doAnimate = shouldFitToTaskContext || shouldFitDeferredTaskGeometry;
       const doFit = () => {
-        applyFitBounds(map, shouldFitToTaskContext);
+        applyFitBounds(map, doAnimate);
       };
       if (map.isStyleLoaded()) {
         doFit();
