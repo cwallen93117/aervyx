@@ -3192,6 +3192,7 @@ button[type="submit"]:hover,
   border: 1px solid var(--line);
   background: var(--wash);
   position: relative;
+  isolation: isolate;
 }
 
 .map-shell.map-shell-fullscreen .map-card,
