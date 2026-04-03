@@ -1,6 +1,6 @@
 # Request Tracker
 
-Last updated: 2026-03-27
+Last updated: 2026-04-03
 
 Status guide:
 - `Deployed` means implemented and pushed through the live frontend/deployment flow.
@@ -87,3 +87,12 @@ Status guide:
 | Deployed | Add 15x and 45x replay-speed options | Expanded the replay speed dropdown on the task, scores, and logbook replay maps so it now includes `15x` and `45x` in addition to the existing speeds. The frontend was rebuilt and the frontend container was restarted after the change. |
 | Closed | Create Claude-led logbook mockup with left-nav Logbook tab | Created a frontend-only HTML mockup for a new `Logbook` section, including a left sidebar concept where `Logbook` sits above `Settings`. This planning/design artifact is now superseded by the live pilot logbook implementation and is no longer an active work item. |
 | Closed | Establish dedicated Logbook lane and backend design memo | Created a dedicated `Logbook` lane for logbook work and documented the planned backend shape in separate persistent docs. This planning artifact is now closed because the live pilot logbook implementation has replaced it as the active product path. |
+| Deployed | Wire all 39 GAP2021 scoring parameters from event settings into the scoring engine | Updated the scoring engine so every event scoring parameter (nominal distance, nominal time, nominal launch, nominal goal, minimum distance, leading weight factor, and all checkboxes) feeds through from saved event settings into the GAP formulas. Added leading coefficient (LC) computation from track data with distance caches and proper initialization. |
+| Deployed | Add task date field to task setup | Added a date picker to the task setup form across the full stack: `task_date` column in the database with runtime schema migration, backend API support, and a date input in the Tasks section between task name and task type. |
+| Deployed | Add deploy queue to webhook listener for back-to-back push resilience | Rewrote the webhook listener (v3.0) with a thread-safe per-branch deploy queue so back-to-back pushes no longer get silently dropped by `flock -n`. The latest pending push per branch is kept and auto-dispatched after the active deploy completes. Health endpoint now reports active and pending deploys. |
+| Deployed | Add historical disclaimers to stale docs and update mobile README | Added historical/partially-stale disclaimers to `logbook-backend-design.md`, `scoring-software-thread-reconstruction.md`, and `phase2-codex-handoff.md`. Rewrote `mobile/README.md` to reflect the actual 10 screens and 7 services in the current mobile app. |
+| Deployed | Add admin users table with split name, search, sort, and account merge | Added an admin users management table with first/last name columns, search by name/email, sortable columns, and an account merge flow for consolidating duplicate user records. |
+| Deployed | Fix map overlays always rendering above map content | Fixed CSS stacking context so map overlays (airspace, restricted fields) render above the map tiles but below UI controls, preventing overlay layers from covering interactive elements. |
+| Deployed | Add APK download page and release hosting | Added a public `/app` page with APK download, version info, release notes, and installation instructions. Backend serves APK files from a persistent Docker volume with admin upload via `POST /api/app/upload`. Deploy scripts now auto-seed APK data from a host-side backup directory if the volume is empty. |
+| Deployed | Add APK seed mechanism to deploy scripts | Updated `deploy-common.sh` to check if the backend APK volume is empty after startup and seed it from a persistent host directory (`apk-seed/`), so APK releases survive a `docker compose down -v` without needing a manual re-upload. |
+| Deployed | Sync all branches and redeploy all environments | Merged all staging changes through to main and alpha, redeployed production (`aervyx.net`), staging (`staging.aervyx.net`), and alpha (`alpha.aervyx.net`) to current code. Copied APK release data to production and alpha Docker volumes. |
