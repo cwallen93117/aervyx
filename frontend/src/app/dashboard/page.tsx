@@ -192,6 +192,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     nation: "",
     competition_number: "",
     civl_id: "",
+    pilot_id: null,
     has_password: false,
   };
 }
@@ -1443,6 +1444,7 @@ export default function HomePage() {
         nation: payload.nation,
         competition_number: payload.competition_number,
         civl_id: payload.civl_id,
+        pilot_id: payload.pilot_id ?? null,
       });
       if (payload.access_token) {
         window.localStorage.setItem(TOKEN_KEY, payload.access_token);
@@ -1489,6 +1491,14 @@ export default function HomePage() {
         password: { type: "error", text: caught instanceof Error ? caught.message : "Could not update password." },
       }));
     }
+  }
+
+  async function handlePilotClaimed() {
+    if (!token) return;
+    try {
+      const settings = await apiFetch<AccountSettingsRecord>("/api/auth/settings", token);
+      setSettingsForm(settings);
+    } catch { /* ignore */ }
   }
 
   async function saveAdminUser(userRecord: AdminUserRecord) {
@@ -2589,6 +2599,8 @@ export default function HomePage() {
               settingsFeedback={settingsFeedback}
               saveAccountSettings={saveAccountSettings}
               savePasswordSettings={savePasswordSettings}
+              pilotId={settingsForm.pilot_id ?? null}
+              onPilotClaimed={handlePilotClaimed}
             />
           );
         case "admin":
@@ -2626,6 +2638,8 @@ export default function HomePage() {
               settingsFeedback={settingsFeedback}
               saveAccountSettings={saveAccountSettings}
               savePasswordSettings={savePasswordSettings}
+              pilotId={settingsForm.pilot_id ?? null}
+              onPilotClaimed={handlePilotClaimed}
             />
           );
       }

@@ -404,6 +404,23 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_buddy_group_members_group_id ON buddy_group_members (group_id)"))
             connection.execute(text("CREATE INDEX ix_buddy_group_members_pilot_id ON buddy_group_members (pilot_id)"))
 
+        if "user_emails" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE user_emails (
+                      id INTEGER PRIMARY KEY,
+                      user_id INTEGER NOT NULL,
+                      email VARCHAR(160) NOT NULL,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+                      UNIQUE(email)
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_user_emails_user_id ON user_emails (user_id)"))
+
         # Index for pilot-scoped queries (buddy group tracking)
         if "live_positions" in table_names:
             existing_indexes = {idx["name"] for idx in inspector.get_indexes("live_positions")}
