@@ -56,37 +56,49 @@ Read these first:
 
 ## Live Deployment
 
-Three environments run on the same VM (192.168.87.94):
+The VM (192.168.87.94, 8 vCPU / 16 GB RAM / 120 GB disk) runs production, a dev environment, and on-demand staging:
 
-| | Production | Staging | Alpha |
+| | Production | Dev | Staging (on-demand) |
 |---|---|---|---|
-| **Site** | `https://aervyx.net` | `https://staging.aervyx.net` | `https://alpha.aervyx.net` |
-| **API** | `https://api.aervyx.net` | `https://api-staging.aervyx.net` | `https://api-alpha.aervyx.net` |
-| **Branch** | `main` | `staging` | `alpha` |
-| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/staging-repo` | `/srv/aervyx-staging/alpha-repo` |
-| **Compose project** | `aervyx-prod` | `aervyx-staging` | `aervyx-alpha` |
-| **Deploy trigger** | push to `main` | push to `staging` | push to `alpha` |
-| **Database** | separate volume | separate volume | separate volume |
-| **Purpose** | live users | Charles reviews | AI agent preview |
+| **Site** | `https://aervyx.net` | `https://dev-app.aervyx.net` | `https://staging.aervyx.net` |
+| **API** | `https://api.aervyx.net` | `https://api-dev.aervyx.net` | `https://api-staging.aervyx.net` |
+| **Branch** | `main` | working tree | `staging` |
+| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/dev-repo` | `/srv/aervyx-staging/staging-repo` |
+| **Compose project** | `aervyx-prod` | `aervyx-dev` | `aervyx-staging` |
+| **Compose file** | `docker-compose.prod.yml` | `docker-compose.yml` (hot reload) | `docker-compose.prod.yml` |
+| **Deploy trigger** | push to `main` | instant (hot reload) | push to `staging` |
+| **Access** | public | Cloudflare Access (Charles only) | Cloudflare Access (Charles only) |
+
+### Dev tools on the VM
+
+| Tool | URL | Port | Purpose |
+|------|-----|------|---------|
+| code-server | `https://dev.aervyx.net` | 8080 | VS Code in browser |
+| OpenHands | `https://oh.aervyx.net` | 3080 | AI agent platform |
+| Dev frontend | `https://dev-app.aervyx.net` | 3000 | Hot-reload Next.js |
+| Dev backend | `https://api-dev.aervyx.net` | 8000 | Hot-reload FastAPI |
+
+All dev URLs are behind Cloudflare Access (Charles's email only).
 
 - Deploy listener health: `https://deploy.aervyx.net/health`
 - The VM is internally named `aervyx-staging` and paths still use that naming.
-- Webhook config: `/etc/default/aervyx-staging-webhook` with `BRANCH_MAP`
-- Deploy scripts: `deploy/staging/deploy-prod.sh`, `deploy-staging.sh`, and `deploy-alpha.sh` (all call `deploy-common.sh`)
-- Alpha is behind Cloudflare Access (Charles only) — used for AI-generated feature previews
+- Webhook config: `/etc/default/aervyx-staging-webhook` with `BRANCH_MAP` (main + staging)
+- Deploy scripts: `deploy/staging/deploy-prod.sh`, `deploy-staging.sh` (both call `deploy-common.sh`)
+- OpenHands runs as systemd service `openhands` (port 3080)
+- code-server runs as systemd service `code-server@deploy` (port 8080)
+- UFW allows ports 8080 and 3080 from Docker subnets (172.16.0.0/12)
+- Weekly Docker prune cron runs Sundays at 3am
 - Database sync: `scripts/sync-db.sh` copies data between environments with optional PII anonymization
 - Admin DB export/import: `GET/POST /api/admin/db/export` and `/api/admin/db/import`
 
 ### Development workflow
-1. Push to `staging` → auto-deploys to `staging.aervyx.net`
-2. Test at `staging.aervyx.net`
-3. Merge `staging` → `main` → auto-deploys to `aervyx.net`
+1. Edit code via `dev.aervyx.net` (code-server) or `oh.aervyx.net` (OpenHands agents)
+2. Changes hot-reload instantly on `dev-app.aervyx.net` / `api-dev.aervyx.net`
+3. When ready for production-like testing: `git push origin staging` → auto-deploys to `staging.aervyx.net`
+4. Merge `staging` → `main` → auto-deploys to `aervyx.net`
 
-### AI agent workflow (OpenClaw)
-1. OpenClaw runs on separate Proxmox VM (`aervyx-openclaw`), manages Claude + Codex agents
-2. Agents push `ai/<slug>` branches → merged into `alpha` → auto-deploys to `alpha.aervyx.net`
-3. Charles reviews at `alpha.aervyx.net`, creates PR from `ai/<slug>` → `staging` if approved
-4. OpenClaw agents can ONLY push to `ai/*` branches — walled off from staging/main by design
+### Mobile development
+Flutter/Android stays on the desktop. Point `api_config.dart` at `https://api-dev.aervyx.net` for the dev backend.
 
 - The current live deployment handoff is:
   - `docs/live-deployment-handoff.md`
@@ -141,20 +153,14 @@ Three environments run on the same VM (192.168.87.94):
 
 ## Useful Validation Commands
 
-```powershell
-git status -sb
+On the VM (via code-server terminal or Proxmox exec):
+```bash
+cd /srv/aervyx-staging/dev-repo
+docker compose ps                    # dev stack status
+docker compose logs backend --tail 20  # dev backend logs
 ```
 
-```powershell
-cd backend
-.\.venv\Scripts\python.exe -m pytest
-```
-
-```powershell
-cd frontend
-npm run build
-```
-
+On the desktop (for mobile):
 ```powershell
 cd mobile
 flutter pub get
