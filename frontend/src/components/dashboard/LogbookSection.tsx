@@ -30,6 +30,7 @@ export interface LogbookSectionProps {
   deleteFlight: (flight: LogbookFlightSummaryRecord) => Promise<void>;
   bulkDeleteFlights: (flights: LogbookFlightSummaryRecord[]) => Promise<void>;
   saveFlightNotes: (flightId: number, notes: string) => Promise<void>;
+  updateFlightSite: (flightId: number, siteName: string) => Promise<void>;
   setFlightStar: (flight: LogbookFlightSummaryRecord, starred: boolean) => Promise<void>;
 }
 
@@ -132,6 +133,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
     deleteFlight,
     bulkDeleteFlights,
     saveFlightNotes,
+    updateFlightSite,
     setFlightStar,
   } = props;
 
@@ -153,25 +155,36 @@ export default function LogbookSection(props: LogbookSectionProps) {
   const attachUploadRef = useRef<HTMLInputElement | null>(null);
   const [filterYear, setFilterYear] = useState<string>("all");
   const [filterSite, setFilterSite] = useState<string>("all");
-  const [filterSearch, setFilterSearch] = useState("");
+  const [siteDraft, setSiteDraft] = useState("");
+  const [siteSaving, setSiteSaving] = useState(false);
 
   const hasPilotProfile = Boolean(user?.pilot_id);
 
   const availableYears = useMemo(() => {
+    let list = flights;
+    if (filterSite !== "all") list = list.filter((f) => f.site_name === filterSite);
     const years = new Set<string>();
-    flights.forEach((f) => {
+    list.forEach((f) => {
       const y = Number.parseInt(f.flight_date.slice(0, 4), 10);
       if (Number.isFinite(y)) years.add(String(y));
     });
     return [...years].sort((a, b) => Number(b) - Number(a));
-  }, [flights]);
+  }, [flights, filterSite]);
 
   const availableSites = useMemo(() => {
+    let list = flights;
+    if (filterYear !== "all") list = list.filter((f) => f.flight_date.startsWith(filterYear));
     const sites = new Map<string, string>();
-    flights.forEach((f) => {
+    list.forEach((f) => {
       if (f.site_name) sites.set(f.site_name, f.site_city_state ?? "");
     });
     return [...sites.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [flights, filterYear]);
+
+  const allSiteNames = useMemo(() => {
+    const sites = new Set<string>();
+    flights.forEach((f) => { if (f.site_name) sites.add(f.site_name); });
+    return [...sites].sort((a, b) => a.localeCompare(b));
   }, [flights]);
 
   const filteredFlights = useMemo(() => {
@@ -182,15 +195,8 @@ export default function LogbookSection(props: LogbookSectionProps) {
     if (filterSite !== "all") {
       list = list.filter((f) => f.site_name === filterSite);
     }
-    const q = filterSearch.trim().toLowerCase();
-    if (q) {
-      list = list.filter((f) => {
-        const hay = `${f.site_name} ${f.site_city_state ?? ""} ${f.event_name ?? ""} ${f.task_name ?? ""} ${f.filename ?? ""} ${f.flight_date}`.toLowerCase();
-        return hay.includes(q);
-      });
-    }
     return list;
-  }, [flights, filterYear, filterSite, filterSearch]);
+  }, [flights, filterYear, filterSite]);
 
   const groupedFlights = useMemo(() => {
     const groups: Array<{ year: string; flights: LogbookFlightSummaryRecord[] }> = [];
@@ -277,6 +283,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
 
   useEffect(() => {
     setNotesDraft(detailFlight?.notes ?? "");
+    setSiteDraft(detailFlight?.site_name ?? "");
   }, [detailFlight]);
 
   useEffect(() => {
@@ -336,6 +343,18 @@ export default function LogbookSection(props: LogbookSectionProps) {
       await saveFlightNotes(detailFlight.id, notesDraft);
     } finally {
       setNotesSaving(false);
+    }
+  }
+
+  async function handleSaveSite() {
+    if (!detailFlight) return;
+    const trimmed = siteDraft.trim();
+    if (trimmed === (detailFlight.site_name ?? "")) return;
+    setSiteSaving(true);
+    try {
+      await updateFlightSite(detailFlight.id, trimmed);
+    } finally {
+      setSiteSaving(false);
     }
   }
 
@@ -457,13 +476,6 @@ export default function LogbookSection(props: LogbookSectionProps) {
                 <option value="all">All sites</option>
                 {availableSites.map(([name]) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <input
-                type="text"
-                placeholder="Search flights..."
-                value={filterSearch}
-                onChange={(e) => setFilterSearch(e.target.value)}
-                className="logbook-filter-search"
-              />
               <span className="hint">{filteredFlights.length} of {flights.length} flights</span>
             </div>
             <div className="logbook-bulk-actions">
@@ -608,7 +620,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                                   <td>
                                     <div className="logbook-row-actions">
                                       <button type="button" className="ghost-button" onClick={() => void openFlightDetail(flight.id)}>
-                                        Stats
+                                        Info
                                       </button>
                                       {flight.can_replay ? (
                                         <button type="button" className="ghost-button" onClick={() => void openFlightReplay(flight)}>
@@ -617,7 +629,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                                       ) : null}
                                       {flight.can_download ? (
                                         <button type="button" className="ghost-button" onClick={() => void downloadFlight(flight.id)}>
-                                          Download IGC
+                                          IGC
                                         </button>
                                       ) : null}
                                       {!flight.can_download ? (
@@ -817,8 +829,8 @@ export default function LogbookSection(props: LogbookSectionProps) {
           <div className="logbook-modal logbook-modal-wide">
             <div className="section-card-header">
               <div>
-                <h3>{detailFlight ? `${formatFlightDate(detailFlight.flight_date)} - ${detailFlight.site_name || "Flight statistics"}` : "Loading statistics..."}</h3>
-                <p className="hint">Derived flight metrics and summary details for this personal logbook entry.</p>
+                <h3>{detailFlight ? `${formatFlightDate(detailFlight.flight_date)} - ${detailFlight.site_name || "Flight info"}` : "Loading..."}</h3>
+                <p className="hint">Flight metrics and details for this logbook entry.</p>
               </div>
               <div className="button-row compact">
                 <button type="button" className="ghost-button" onClick={closeFlightDetail}>Close</button>
@@ -826,7 +838,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
             </div>
             {detailLoading || !detailFlight ? (
               <div className="stack form-block">
-                <p className="hint">Loading flight statistics...</p>
+                <p className="hint">Loading flight info...</p>
               </div>
             ) : (
               <div className="logbook-stats-grid">
@@ -842,7 +854,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   </dl>
                 </div>
                 <div className="logbook-stats-card">
-                  <h4>Stats</h4>
+                  <h4>Details</h4>
                   <dl className="logbook-stats-list">
                     <div><dt>Launch altitude</dt><dd>{formatAltitude(detailFlight.stats.launch_altitude_m, units.altitude)}</dd></div>
                     <div><dt>Landing altitude</dt><dd>{formatAltitude(detailFlight.stats.landing_altitude_m, units.altitude)}</dd></div>
@@ -852,6 +864,32 @@ export default function LogbookSection(props: LogbookSectionProps) {
                     <div><dt>Max ground speed</dt><dd>{detailFlight.stats.max_ground_speed_kmh ? `${detailFlight.stats.max_ground_speed_kmh.toFixed(1)} km/h` : "--"}</dd></div>
                     <div><dt>IGC file</dt><dd>{detailFlight.filename || "--"}</dd></div>
                   </dl>
+                </div>
+                <div className="logbook-stats-card">
+                  <h4>Site</h4>
+                  <div className="stack compact">
+                    <select
+                      value={allSiteNames.includes(siteDraft) ? siteDraft : "__custom__"}
+                      onChange={(event) => {
+                        if (event.target.value === "__custom__") return;
+                        setSiteDraft(event.target.value);
+                      }}
+                    >
+                      <option value="__custom__">{siteDraft && !allSiteNames.includes(siteDraft) ? siteDraft : "-- Select a site --"}</option>
+                      {allSiteNames.map((name) => <option key={name} value={name}>{name}</option>)}
+                    </select>
+                    <input
+                      type="text"
+                      value={siteDraft}
+                      onChange={(event) => setSiteDraft(event.target.value)}
+                      placeholder="Or type a site name..."
+                    />
+                    <div className="button-row">
+                      <button type="button" onClick={() => void handleSaveSite()} disabled={siteSaving || siteDraft.trim() === (detailFlight.site_name ?? "")}>
+                        {siteSaving ? "Saving..." : "Save site"}
+                      </button>
+                    </div>
+                  </div>
                 </div>
                 <div className="logbook-stats-card logbook-stats-notes">
                   <h4>Notes</h4>

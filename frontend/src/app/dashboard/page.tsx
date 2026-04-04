@@ -1175,6 +1175,23 @@ export default function HomePage() {
     }
   }
 
+  async function updateLogbookFlightSite(flightId: number, siteName: string) {
+    if (!token) return;
+    setLogbookFeedback({ type: "pending", text: "Saving site..." });
+    try {
+      const updated = await apiFetch<LogbookFlightDetailRecord>(`/api/logbook/flights/${flightId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ site_name: siteName }),
+      });
+      setLogbookDetailFlight(updated);
+      await refreshLogbookFlights(token);
+      setLogbookFeedback({ type: "success", text: `Site updated to "${updated.site_name}".` });
+    } catch (caught) {
+      setLogbookFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update the site." });
+      throw caught;
+    }
+  }
+
   async function setLogbookFlightStar(flight: LogbookFlightSummaryRecord, starred: boolean) {
     if (!token) return;
     const flightLabel = flight.site_name || flight.filename || "that flight";
@@ -2484,6 +2501,7 @@ export default function HomePage() {
               deleteFlight={deleteLogbookFlight}
               bulkDeleteFlights={bulkDeleteLogbookFlights}
               saveFlightNotes={saveLogbookFlightNotes}
+              updateFlightSite={updateLogbookFlightSite}
               setFlightStar={setLogbookFlightStar}
             />
           );
