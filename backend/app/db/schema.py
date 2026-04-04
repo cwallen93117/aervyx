@@ -221,6 +221,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "penalties_json": "ALTER TABLE events ADD COLUMN penalties_json JSON",
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT FALSE",
+        "visibility": "ALTER TABLE events ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
@@ -384,6 +385,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
             bg_cols = {c["name"] for c in inspector.get_columns("buddy_groups")}
             if "is_public" not in bg_cols:
                 connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN is_public BOOLEAN DEFAULT FALSE"))
+            if "visibility" not in bg_cols:
+                connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'"))
 
         if "buddy_group_members" not in table_names:
             connection.execute(
