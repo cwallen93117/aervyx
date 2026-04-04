@@ -15,10 +15,12 @@ router = APIRouter(prefix="/api/buddies", tags=["buddies"])
 
 class GroupCreate(BaseModel):
     name: str
+    visibility: str = "private"
 
 
 class GroupRename(BaseModel):
-    name: str
+    name: str | None = None
+    visibility: str | None = None
 
 
 class MemberAdd(BaseModel):
@@ -36,6 +38,7 @@ class MemberResponse(BaseModel):
 class GroupResponse(BaseModel):
     id: int
     name: str
+    visibility: str
     members: list[MemberResponse]
     created_at: str
 
@@ -62,6 +65,7 @@ def _load_group_with_members(session: Session, group: BuddyGroup) -> GroupRespon
     return GroupResponse(
         id=group.id,
         name=group.name,
+        visibility=group.visibility or "private",
         members=[
             MemberResponse(
                 pilot_id=pilot.id,
@@ -104,7 +108,8 @@ def create_group(payload: GroupCreate, user: User = Depends(get_current_user), s
     ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="A group with that name already exists")
-    group = BuddyGroup(user_id=user.id, name=name)
+    visibility = payload.visibility if payload.visibility in {"public", "users", "buddies", "private"} else "private"
+    group = BuddyGroup(user_id=user.id, name=name, visibility=visibility)
     session.add(group)
     session.commit()
     session.refresh(group)
@@ -114,15 +119,20 @@ def create_group(payload: GroupCreate, user: User = Depends(get_current_user), s
 @router.patch("/groups/{group_id}", response_model=GroupResponse)
 def rename_group(group_id: int, payload: GroupRename, user: User = Depends(get_current_user), session: Session = Depends(get_session)):
     group = _get_own_group(session, user, group_id)
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=422, detail="Group name is required")
-    duplicate = session.execute(
-        select(BuddyGroup).where(BuddyGroup.user_id == user.id, BuddyGroup.name == name, BuddyGroup.id != group_id)
-    ).scalar_one_or_none()
-    if duplicate:
-        raise HTTPException(status_code=409, detail="A group with that name already exists")
-    group.name = name
+    if payload.name is not None:
+        name = payload.name.strip()
+        if not name:
+            raise HTTPException(status_code=422, detail="Group name is required")
+        duplicate = session.execute(
+            select(BuddyGroup).where(BuddyGroup.user_id == user.id, BuddyGroup.name == name, BuddyGroup.id != group_id)
+        ).scalar_one_or_none()
+        if duplicate:
+            raise HTTPException(status_code=409, detail="A group with that name already exists")
+        group.name = name
+    if payload.visibility is not None:
+        if payload.visibility not in {"public", "users", "buddies", "private"}:
+            raise HTTPException(status_code=422, detail="Invalid visibility value")
+        group.visibility = payload.visibility
     session.commit()
     session.refresh(group)
     return _load_group_with_members(session, group)

@@ -4543,6 +4543,15 @@ button[type="submit"]:hover,
   font-size: 0.75rem;
   color: var(--text-muted);
 }
+.buddy-visibility-select {
+  font-size: 0.75rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+}
 .buddy-group-actions {
   margin-left: auto;
   display: flex;

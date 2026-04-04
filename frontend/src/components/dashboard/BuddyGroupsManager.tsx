@@ -86,6 +86,19 @@ export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
     }
   }
 
+  async function updateGroupVisibility(groupId: number, visibility: string) {
+    try {
+      await apiFetch<BuddyGroup>(`/api/buddies/groups/${groupId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ visibility }),
+      });
+      showFeedback("success", "Visibility updated");
+      loadGroups();
+    } catch (err) {
+      showFeedback("error", err instanceof Error ? err.message : "Failed to update visibility");
+    }
+  }
+
   async function renameGroup(groupId: number) {
     const name = editingName.trim();
     if (!name) return;
@@ -205,6 +218,16 @@ export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
                   <>
                     <strong className="buddy-group-name">{group.name}</strong>
                     <span className="buddy-group-count">{group.members.length} pilot{group.members.length !== 1 ? "s" : ""}</span>
+                    <select
+                      className="buddy-visibility-select"
+                      value={group.visibility ?? "private"}
+                      onChange={(e) => updateGroupVisibility(group.id, e.target.value)}
+                    >
+                      <option value="public">Public</option>
+                      <option value="users">All Aervyx users</option>
+                      <option value="buddies">Buddies only</option>
+                      <option value="private">Not viewable</option>
+                    </select>
                     <div className="buddy-group-actions">
                       <button type="button" className="ghost-button" onClick={() => { setEditingGroupId(group.id); setEditingName(group.name); }}>Rename</button>
                       <button type="button" className="ghost-button danger-text" onClick={() => deleteGroup(group.id, group.name)}>Delete</button>
