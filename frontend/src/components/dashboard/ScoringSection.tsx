@@ -523,6 +523,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           </div>
                         </div>
                       <TaskMap
+                        key={`scoring-map-${selectedTaskId ?? "none"}`}
                         turnpoints={scoringTaskMapTurnpoints}
                         airspaces={[]}
                         taskPoints={scoringTaskPoints}
