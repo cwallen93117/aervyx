@@ -41,6 +41,7 @@ export function TaskBuilderMap({
 
   return (
     <TaskMap
+      key={`task-builder-${selectedEventId ?? "none"}-${selectedTaskId ?? "draft"}`}
       turnpoints={turnpoints}
       airspaces={airspaces}
       taskPoints={taskPoints}
