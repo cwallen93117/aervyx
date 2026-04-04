@@ -2004,6 +2004,48 @@ button[type="submit"]:hover,
   font-weight: 700;
 }
 
+.scoring-nav {
+  display: flex;
+  flex-wrap: wrap;
+  background: #edf3fb;
+  border: 1px solid #d6dfed;
+  border-radius: 18px;
+  padding: 6px;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.scoring-nav-btn {
+  min-height: 38px;
+  padding: 8px 14px;
+  border-radius: 13px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #5c6d87;
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 150ms ease;
+  white-space: nowrap;
+}
+
+.scoring-nav-btn:hover {
+  color: #1b2f4e;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.scoring-nav-btn.active {
+  border-color: rgba(31, 94, 255, 0.16);
+  background: #ffffff;
+  color: #132238;
+  box-shadow: 0 8px 18px rgba(17, 34, 68, 0.08);
+  font-weight: 700;
+}
+
+.scoring-nav-overall {
+  margin-left: auto;
+}
+
 .hint {
   font-size: 0.8125rem;
   color: #647791;
@@ -3105,6 +3147,33 @@ button[type="submit"]:hover,
 .results-table-task thead th:nth-child(2),
 .results-table-task tbody td:nth-child(2) {
   text-align: left;
+}
+
+/* Sticky rank + name columns on horizontally-scrolled results tables */
+.results-table thead th:nth-child(1),
+.results-table tbody td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.results-table thead th:nth-child(2),
+.results-table tbody td:nth-child(2) {
+  position: sticky;
+  left: 40px;
+  z-index: 2;
+  background: var(--surface);
+}
+
+.results-table thead th:nth-child(1),
+.results-table thead th:nth-child(2) {
+  z-index: 3;
+}
+
+.results-table tbody tr:hover td:nth-child(1),
+.results-table tbody tr:hover td:nth-child(2) {
+  background: var(--accent-softer);
 }
 
 .field-disabled {
@@ -5470,6 +5539,27 @@ html[data-theme="dark"] .tab-button:hover {
 }
 
 html[data-theme="dark"] .tab-button.active {
+  border-color: rgba(59, 130, 246, 0.25);
+  background: rgba(59, 130, 246, 0.12);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .scoring-nav {
+  background: rgba(30, 41, 59, 0.7);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .scoring-nav-btn {
+  color: #94a3b8;
+}
+
+html[data-theme="dark"] .scoring-nav-btn:hover {
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .scoring-nav-btn.active {
   border-color: rgba(59, 130, 246, 0.25);
   background: rgba(59, 130, 246, 0.12);
   color: #fff;
