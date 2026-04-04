@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../config/api_config.dart';
 import '../models/position.dart' as model;
@@ -199,6 +202,8 @@ class TrackingService extends ChangeNotifier {
   TrackingService(this._api, this._auth, this._igc) {
     // Start server heartbeat immediately so the LED shows status on app open
     _startHeartbeat();
+    // Retry any pending IGC uploads from previous sessions
+    _retryPendingUploads();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -965,6 +970,9 @@ class TrackingService extends ChangeNotifier {
 
       // Drain buffered positions (up to 20 per successful send)
       await _drainPositionBuffer();
+
+      // Connectivity confirmed — retry any pending IGC uploads
+      _retryPendingUploads();
     } on ApiException catch (e) {
       // Server IS reachable but rejected the request (4xx/5xx)
       _backendConnected = true;
@@ -1037,11 +1045,18 @@ class TrackingService extends ChangeNotifier {
     }
   }
 
-  /// Best-effort upload of the IGC file to the backend.
-  /// If [taskId] is non-null, uploads as a task upload (also syncs to logbook).
-  /// If [taskId] is null, uploads as a free-flight logbook entry.
+  /// Upload IGC file to the backend, queuing for retry on failure.
   Future<void> _uploadIgcFile(String filePath, int? taskId) async {
+    final success = await _attemptUpload(filePath, taskId);
+    if (!success) {
+      await _enqueueUpload(filePath, taskId);
+    }
+  }
+
+  /// Attempt a single upload. Returns true on success.
+  Future<bool> _attemptUpload(String filePath, int? taskId) async {
     try {
+      if (!File(filePath).existsSync()) return true; // file gone, nothing to upload
       if (taskId != null) {
         await _api.uploadFile(
           ApiConfig.taskUploadPath(taskId),
@@ -1054,9 +1069,70 @@ class TrackingService extends ChangeNotifier {
           filePath: filePath,
         );
       }
+      return true;
     } catch (e) {
-      // Upload is best-effort — the file is already saved locally
       debugPrint('IGC upload failed: $e');
+      return false;
+    }
+  }
+
+  // ── Persistent upload retry queue ──
+
+  bool _retrying = false;
+
+  Future<File> _uploadQueueFile() async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/pending_uploads.json');
+  }
+
+  Future<List<Map<String, dynamic>>> _loadQueue() async {
+    try {
+      final file = await _uploadQueueFile();
+      if (!file.existsSync()) return [];
+      final content = await file.readAsString();
+      if (content.trim().isEmpty) return [];
+      return (jsonDecode(content) as List).cast<Map<String, dynamic>>();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  Future<void> _saveQueue(List<Map<String, dynamic>> queue) async {
+    final file = await _uploadQueueFile();
+    await file.writeAsString(jsonEncode(queue));
+  }
+
+  Future<void> _enqueueUpload(String filePath, int? taskId) async {
+    final queue = await _loadQueue();
+    // Don't add duplicates
+    if (queue.any((e) => e['filePath'] == filePath)) return;
+    queue.add({'filePath': filePath, 'taskId': taskId});
+    await _saveQueue(queue);
+    debugPrint('IGC upload queued for retry: $filePath');
+  }
+
+  /// Retry all pending uploads. Called on app startup and after
+  /// successful position sends confirm connectivity.
+  Future<void> _retryPendingUploads() async {
+    if (_retrying) return;
+    _retrying = true;
+    try {
+      final queue = await _loadQueue();
+      if (queue.isEmpty) return;
+      final remaining = <Map<String, dynamic>>[];
+      for (final entry in queue) {
+        final filePath = entry['filePath'] as String;
+        final taskId = entry['taskId'] as int?;
+        final success = await _attemptUpload(filePath, taskId);
+        if (!success) {
+          remaining.add(entry);
+        } else {
+          debugPrint('IGC upload retry succeeded: $filePath');
+        }
+      }
+      await _saveQueue(remaining);
+    } finally {
+      _retrying = false;
     }
   }
 
