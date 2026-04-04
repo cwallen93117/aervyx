@@ -180,6 +180,7 @@ export type EventRecord = {
   show_restricted_fields: boolean;
   penalties_json: Record<string, unknown>;
   is_public_tracking: boolean;
+  visibility: "public" | "users" | "participants" | "private";
   updated_at: string;
   pilot_count: number;
   task_count: number;
@@ -216,7 +217,7 @@ export type TaskRecord = {
 export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string };
 export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number>; task_result_states: Record<string, string> };
 export type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; upload_source?: "manual" | "bulk" | "tracker" | string; metadata_json: Record<string, unknown> };
-export type ScoringUploadOptionRecord = { id: number; filename: string; upload_source: "manual" | "bulk" | "tracker" | string; label: string; uploaded_at: string };
+export type ScoringUploadOptionRecord = { id: number; filename: string; upload_source: "manual" | "bulk" | "tracker" | "app" | string; label: string; uploaded_at: string; late_start?: boolean };
 export type ScorePenaltyRecord = { id?: number | null; penalty_type: "percentage" | "fixed"; value: number; reason: string; position: number; applied_by?: string | null; applied_at?: string | null };
 export type PenaltyAuditRecord = { actor_name: string; timestamp: string; summary: string };
 export type ScoringPresetRecord = { id: string; label: string; penalty_type: "percentage" | "fixed"; value: number; reason: string };
@@ -326,6 +327,7 @@ export function blankEventForm() {
     show_restricted_fields: true,
     penalties_text: "{}",
     is_public_tracking: false,
+    visibility: "private" as "public" | "users" | "participants" | "private",
   };
 }
 
@@ -380,6 +382,7 @@ export type BuddyGroupMember = {
 export type BuddyGroup = {
   id: number;
   name: string;
+  visibility: "public" | "users" | "buddies" | "private";
   members: BuddyGroupMember[];
   created_at: string;
 };

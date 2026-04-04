@@ -867,6 +867,15 @@ export default function EventsSection(props: EventsSectionProps) {
                     <input type="checkbox" checked={eventForm.is_public_tracking ?? false} onChange={(event) => setEventForm({ ...eventForm, is_public_tracking: event.target.checked })} />
                     <span>Public live tracking</span>
                   </label>
+                  <label className="stack compact">
+                    <span>Publicly viewable</span>
+                    <select value={eventForm.visibility} onChange={(event) => setEventForm({ ...eventForm, visibility: event.target.value as "public" | "users" | "participants" | "private" })}>
+                      <option value="public">Public</option>
+                      <option value="users">Viewable by all Aervyx users</option>
+                      <option value="participants">Viewable by Event Participants</option>
+                      <option value="private">Not viewable</option>
+                    </select>
+                  </label>
                 </div>
               </fieldset>
               <fieldset className="fieldset-cluster">

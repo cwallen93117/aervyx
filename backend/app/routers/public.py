@@ -111,13 +111,16 @@ class PublicTaskInfoResponse(BaseModel):
 
 @router.get("/events", response_model=list[EventResponse])
 def list_public_events(session: Session = Depends(get_session)) -> list[EventResponse]:
-    events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
+    events = session.scalars(
+        select(Event).where(Event.visibility == "public").order_by(Event.updated_at.desc(), Event.name.asc())
+    ).all()
     return [_event_payload(session, event) for event in events]
 
 
 @router.get("/events/{event_id}/tasks", response_model=list[TaskResponse])
 def list_public_tasks(event_id: int, session: Session = Depends(get_session)) -> list[TaskResponse]:
-    if session.get(Event, event_id) is None:
+    event = session.get(Event, event_id)
+    if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Event not found")
     tasks = session.scalars(
         select(Task)
@@ -132,6 +135,9 @@ def get_public_task(task_id: int, session: Session = Depends(get_session)) -> Ta
     task = session.get(Task, task_id)
     if task is None or task.status != "published":
         raise HTTPException(status_code=404, detail="Published task not found")
+    event = session.get(Event, task.event_id)
+    if event is None or event.visibility != "public":
+        raise HTTPException(status_code=404, detail="Published task not found")
     return _task_response(session, task)
 
 
@@ -139,6 +145,9 @@ def get_public_task(task_id: int, session: Session = Depends(get_session)) -> Ta
 def get_public_task_results(task_id: int, session: Session = Depends(get_session)) -> list[ScoreResultResponse]:
     task = session.get(Task, task_id)
     if task is None or task.status != "published":
+        raise HTTPException(status_code=404, detail="Published task not found")
+    event = session.get(Event, task.event_id)
+    if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Published task not found")
     results = session.scalars(
         select(ScoreResult)
@@ -150,7 +159,8 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
 
 @router.get("/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])
 def public_pilot_summary(event_id: int, session: Session = Depends(get_session)) -> list[PilotSummaryResponse]:
-    if session.get(Event, event_id) is None:
+    event = session.get(Event, event_id)
+    if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Event not found")
     pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
     published_task_ids = session.scalars(select(Task.id).where(Task.event_id == event_id, Task.status == "published")).all()

@@ -1,6 +1,6 @@
 name: aervyx_mobile
 description: Aervyx pilot tracking and competition companion app.
-version: 0.1.0
+version: 0.2.0+2
 publish_to: none
 
 environment:
@@ -37,6 +37,7 @@ dependencies:
   wifi_scan: ^0.4.1+2
   # Google Sign-In
   google_sign_in: ^6.2.0
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:

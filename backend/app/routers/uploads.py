@@ -5,22 +5,24 @@ import hashlib
 import io
 import re
 import zipfile
-from datetime import timezone
+from datetime import datetime as dt, time as dt_time, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.schemas import BulkUploadItemResponse, UploadResponse
 from app.services.audit import log_action
 from app.services.igc import parse_igc
 from app.services.logbook import sync_task_upload_to_logbook
+from app.services.scoring import rescore_task
 from app.services.tracking import _publish
 router = APIRouter(tags=["uploads"])
 
@@ -170,6 +172,78 @@ def _serialize_upload(upload: IGCUpload) -> UploadResponse:
     )
 
 
+def _is_late_start_upload(session: Session, task: Task, upload: IGCUpload) -> bool:
+    """Return True if the upload's first fix is after the task's start_close_time."""
+    if not task.start_close_time:
+        return False
+    first_fix_time = session.scalar(
+        select(func.min(TrackPoint.recorded_at)).where(TrackPoint.upload_id == upload.id)
+    )
+    if first_fix_time is None:
+        return False
+    try:
+        parts = task.start_close_time.split(":")
+        close_time = dt_time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+    except (ValueError, IndexError):
+        return False
+    event = session.get(Event, task.event_id)
+    try:
+        tz = ZoneInfo(event.timezone if event else "UTC")
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local_fix = first_fix_time.astimezone(tz).time()
+    return local_fix > close_time
+
+
+def _auto_select_and_rescore(
+    session: Session, task: Task, pilot_id: int, upload: IGCUpload, uploaded_by_user_id: int,
+) -> None:
+    """If the task has been scored, auto-select the newest upload and rescore.
+    Late-start uploads are NOT auto-selected — they appear in the dropdown but
+    the existing selection stays."""
+    if _is_late_start_upload(session, task, upload):
+        return
+
+    existing_input = session.scalar(
+        select(TaskScoringInput).where(
+            TaskScoringInput.task_id == task.id,
+            TaskScoringInput.pilot_id == pilot_id,
+        )
+    )
+    has_scored = (
+        session.scalar(
+            select(func.count()).select_from(ScoreResult).where(ScoreResult.task_id == task.id)
+        )
+        or 0
+    ) > 0
+
+    if existing_input is not None:
+        existing_input.selected_upload_id = upload.id
+        existing_input.updated_by_user_id = uploaded_by_user_id
+    elif has_scored:
+        session.add(TaskScoringInput(
+            task_id=task.id,
+            pilot_id=pilot_id,
+            selected_upload_id=upload.id,
+            updated_by_user_id=uploaded_by_user_id,
+        ))
+    else:
+        return
+
+    session.flush()
+
+    if has_scored:
+        rescore_task(session, task.id)
+        log_action(
+            session,
+            actor_user_id=uploaded_by_user_id,
+            action="task.auto_rescore",
+            entity_type="task",
+            entity_id=str(task.id),
+            details={"pilot_id": pilot_id, "upload_id": upload.id, "trigger": "new_upload"},
+        )
+
+
 async def _store_upload(
     session: Session,
     task: Task,
@@ -180,6 +254,16 @@ async def _store_upload(
     upload_source: str = "manual",
 ) -> UploadResponse:
     sha256 = hashlib.sha256(content).hexdigest()
+    # Dedup: if the same file was already uploaded for this pilot/task, return existing
+    existing = session.scalar(
+        select(IGCUpload).where(
+            IGCUpload.task_id == task.id,
+            IGCUpload.pilot_id == pilot_id,
+            IGCUpload.sha256 == sha256,
+        )
+    )
+    if existing is not None:
+        return _serialize_upload(existing)
     parsed = parse_igc(content)
     filename = file.filename or "track.igc"
     if upload_source == "manual":
@@ -231,11 +315,20 @@ async def _store_upload(
         "pilot_id": pilot_id,
         "upload_id": upload.id,
     })
+    # Auto-select newest upload and rescore if task has been scored
+    _auto_select_and_rescore(session, task, pilot_id, upload, uploaded_by_user_id)
     return _serialize_upload(upload)
 
 
 @router.post("/api/tasks/{task_id}/uploads", response_model=UploadResponse)
-async def upload_igc(task_id: int, file: UploadFile = File(...), pilot_id: int | None = Form(default=None), user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> UploadResponse:
+async def upload_igc(
+    task_id: int,
+    file: UploadFile = File(...),
+    pilot_id: int | None = Form(default=None),
+    upload_source: str = Form(default="manual"),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> UploadResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -247,7 +340,11 @@ async def upload_igc(task_id: int, file: UploadFile = File(...), pilot_id: int |
     if session.scalar(select(EventPilot).where(EventPilot.event_id == task.event_id, EventPilot.pilot_id == effective_pilot_id)) is None:
         raise HTTPException(status_code=400, detail="Pilot is not registered for this event")
     content = await file.read()
-    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source="manual")
+    max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {get_settings().max_upload_size_mb} MB.")
+    source = _normalized_upload_source(upload_source)
+    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source=source)
     session.commit()
     return response
 
@@ -260,11 +357,21 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can bulk upload IGC files")
 
+    max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
     results: list[BulkUploadItemResponse] = []
     for file in files:
         filename = file.filename or "track.igc"
         try:
             content = await file.read()
+            if len(content) > max_bytes:
+                results.append(
+                    BulkUploadItemResponse(
+                        filename=filename,
+                        matched=False,
+                        message=f"File too large ({len(content) // 1024}KB). Maximum is {get_settings().max_upload_size_mb}MB.",
+                    )
+                )
+                continue
             parsed = parse_igc(content)
             matched_pilot = _match_pilot_for_upload(session, task.event_id, filename, parsed.metadata)
             if matched_pilot is None:

@@ -109,6 +109,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         visible_airspace_classes_json=list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]),
         show_restricted_fields=True if event.show_restricted_fields is None else event.show_restricted_fields,
         penalties_json=event.penalties_json or {},
+        visibility=event.visibility or "private",
         created_at=event.created_at,
         updated_at=event.updated_at,
         pilot_count=pilot_count,
@@ -121,8 +122,40 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
 
 @router.get("", response_model=list[EventResponse])
 def list_events(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[EventResponse]:
-    events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
-    return [_event_payload(session, event) for event in events]
+    # Staff (admin/organizer) can see all events regardless of visibility
+    if user.role in {"admin", "organizer"}:
+        events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
+        return [_event_payload(session, event) for event in events]
+
+    # Regular users: public + users visibility
+    visible_events = list(
+        session.scalars(
+            select(Event).where(Event.visibility.in_(["public", "users"])).order_by(Event.updated_at.desc(), Event.name.asc())
+        ).all()
+    )
+
+    # Also include participant-visible events where user is a participant
+    if user.pilot_id is not None:
+        participant_event_ids = list(
+            session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all()
+        )
+        if participant_event_ids:
+            participant_events = list(
+                session.scalars(
+                    select(Event).where(Event.id.in_(participant_event_ids), Event.visibility == "participants")
+                ).all()
+            )
+            visible_events.extend(participant_events)
+
+    # Deduplicate and sort by updated_at desc, name asc
+    seen: set[int] = set()
+    unique_events: list[Event] = []
+    for event in sorted(visible_events, key=lambda e: (e.updated_at or e.created_at,), reverse=True):
+        if event.id not in seen:
+            seen.add(event.id)
+            unique_events.append(event)
+
+    return [_event_payload(session, event) for event in unique_events]
 
 
 @router.post("", response_model=EventResponse)
@@ -282,6 +315,17 @@ def get_event(event_id: int, user: User = Depends(get_current_user), session: Se
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
+    # Staff can always see any event
+    if user.role not in {"admin", "organizer"}:
+        visibility = event.visibility or "private"
+        if visibility == "private":
+            raise HTTPException(status_code=404, detail="Event not found")
+        if visibility == "participants":
+            is_participant = user.pilot_id is not None and session.scalar(
+                select(EventPilot.id).where(EventPilot.event_id == event_id, EventPilot.pilot_id == user.pilot_id).limit(1)
+            )
+            if not is_participant:
+                raise HTTPException(status_code=404, detail="Event not found")
     return _event_payload(session, event)
 
 

@@ -36,6 +36,12 @@ class ApiConfig {
   // Flight detection settings — admin-configurable takeoff/landing thresholds
   static const String flightDetectionConfigPath = '/api/config/flight-detection';
 
+  // IGC upload — task upload (also syncs to logbook automatically)
+  static String taskUploadPath(int taskId) => '/api/tasks/$taskId/uploads';
+
+  // IGC upload — logbook-only upload for free flights
+  static const String logbookUploadPath = '/api/logbook/flights/upload';
+
   // Driver — assigned pilot list for a task
   static String driverAssignedPilotsPath(int taskId) =>
       '/api/driver/assigned-pilots/$taskId';

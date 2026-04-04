@@ -36,8 +36,13 @@ class UserSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     user: UserSummary
 
@@ -223,6 +228,7 @@ class EventCreate(BaseModel):
     show_restricted_fields: bool = True
     penalties_json: dict = Field(default_factory=dict)
     is_public_tracking: bool = False
+    visibility: str = "private"
 
 
 class EventResponse(EventCreate):
@@ -500,6 +506,7 @@ class ScoringUploadOption(BaseModel):
     upload_source: str
     label: str
     uploaded_at: datetime
+    late_start: bool = False
 
 
 class ScoringOperationsResultSummary(BaseModel):

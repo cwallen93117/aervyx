@@ -38,6 +38,7 @@ function resolveApiBase() {
   return configured ?? "/backend";
 }
 const TOKEN_KEY = "flightcomp-platform-token";
+const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 const SESSION_COOKIE = "flightcomp_session";
 
 function setSessionCookie() {
@@ -108,8 +109,9 @@ export default function LoginPage() {
       if (!res.ok) {
         throw new Error(await readApiError(res, "Google sign-in failed. Please try again."));
       }
-      const payload = (await res.json()) as { access_token: string; user: { full_name: string } };
+      const payload = (await res.json()) as { access_token: string; refresh_token?: string; user: { full_name: string } };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+      if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
       setSessionCookie();
       setMessage(`Signed in as ${payload.user.full_name}. Opening your dashboard...`);
       window.location.replace(destination);
@@ -168,8 +170,9 @@ export default function LoginPage() {
       if (!response.ok) {
         throw new Error(await readApiError(response, "Sign in failed. Please try again."));
       }
-      const payload = (await response.json()) as { access_token: string };
+      const payload = (await response.json()) as { access_token: string; refresh_token?: string };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+      if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
       setSessionCookie();
       setMessage("Sign-in successful. Opening your dashboard...");
       window.location.replace(destination);
@@ -198,8 +201,9 @@ export default function LoginPage() {
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response, "Registration failed. Please try again."));
-      const payload = (await response.json()) as { access_token: string; user: { full_name: string } };
+      const payload = (await response.json()) as { access_token: string; refresh_token?: string; user: { full_name: string } };
       window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+      if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
       setSessionCookie();
       setMessage(`Created account for ${payload.user.full_name}. Redirecting...`);
       window.location.replace(destination);
