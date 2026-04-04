@@ -247,6 +247,9 @@ async def upload_igc(task_id: int, file: UploadFile = File(...), pilot_id: int |
     if session.scalar(select(EventPilot).where(EventPilot.event_id == task.event_id, EventPilot.pilot_id == effective_pilot_id)) is None:
         raise HTTPException(status_code=400, detail="Pilot is not registered for this event")
     content = await file.read()
+    max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
+    if len(content) > max_bytes:
+        raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {get_settings().max_upload_size_mb} MB.")
     response = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source="manual")
     session.commit()
     return response
@@ -260,11 +263,21 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can bulk upload IGC files")
 
+    max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
     results: list[BulkUploadItemResponse] = []
     for file in files:
         filename = file.filename or "track.igc"
         try:
             content = await file.read()
+            if len(content) > max_bytes:
+                results.append(
+                    BulkUploadItemResponse(
+                        filename=filename,
+                        matched=False,
+                        message=f"File too large ({len(content) // 1024}KB). Maximum is {get_settings().max_upload_size_mb}MB.",
+                    )
+                )
+                continue
             parsed = parse_igc(content)
             matched_pilot = _match_pilot_for_upload(session, task.event_id, filename, parsed.metadata)
             if matched_pilot is None:
