@@ -41,7 +41,7 @@ function taskTypeLabel(value: string): string {
 
 function formatClockTime(value: string | null | undefined, includeSeconds = false): string {
   if (!value) return "-";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined });
+  return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: true });
 }
 
 function formatTaskClockLabel(value: string | null | undefined): string {
@@ -383,7 +383,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
                   <div className="results-sheet-header results-sheet-header-actions">
                     <div>
                       <h3>{selectedTask?.name ?? "Task results"}</h3>
-                      <p>{taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)} {taskDistanceMetrics.optimizedDistanceKm ? `- ${taskDistanceMetrics.optimizedDistanceKm.toFixed(1)} km` : ""}</p>
                     </div>
                     <div className="button-row">
                       <button
@@ -392,7 +391,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         onClick={() => void downloadAllIgcFiles()}
                         disabled={resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all}
                       >
-                        {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all ? "Preparing..." : "Download all IGC files"}
+                        {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.all ? "Preparing..." : "Download all IGC"}
                       </button>
                       {resultsDownloadFeedback?.all ? <div className={`status-chip ${resultsDownloadFeedback.type}`}>{resultsDownloadFeedback.text}</div> : null}
                     </div>
@@ -465,7 +464,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                       void downloadUploadFile(result.upload_id, uploadById.get(result.upload_id)?.filename ?? `${result.pilot_name}.igc`);
                                     }}
                                   >
-                                    {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id ? "Preparing..." : "Download"}
+                                    {resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id ? "..." : "IGC"}
                                   </button>
                                 </td>
                                 {canManagePlatform ? (
