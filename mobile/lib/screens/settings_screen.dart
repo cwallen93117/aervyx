@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../services/auth_service.dart';
@@ -6,8 +7,25 @@ import '../services/ble_service.dart';
 import '../services/tracking_service.dart';
 import 'meshtastic_settings_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
+
+  @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  String _version = '...';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) {
+        setState(() => _version = '${info.version}+${info.buildNumber}');
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -403,7 +421,7 @@ class SettingsScreen extends StatelessWidget {
                 children: [
                   _InfoRow(label: 'App', value: 'Aervyx Pilot'),
                   const SizedBox(height: 4),
-                  _InfoRow(label: 'Version', value: '0.1.0'),
+                  _InfoRow(label: 'Version', value: _version),
                 ],
               ),
             ),

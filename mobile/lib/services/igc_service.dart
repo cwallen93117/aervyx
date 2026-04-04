@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -54,12 +55,14 @@ class IgcService extends ChangeNotifier {
   final List<TrackPoint> _currentTrack = [];
   List<SavedFlight> _savedFlights = [];
   DateTime? _flightStart;
+  String _appVersion = '0.0.0';
 
   List<SavedFlight> get savedFlights => List.unmodifiable(_savedFlights);
   int get currentTrackPointCount => _currentTrack.length;
 
   IgcService() {
     _loadSavedFlights();
+    PackageInfo.fromPlatform().then((info) => _appVersion = info.version);
   }
 
   /// Record a trackpoint during an active flight.
@@ -306,7 +309,7 @@ class IgcService extends ChangeNotifier {
     buf.writeln('HFGIDGLIDERID:');
     buf.writeln('HFDTMGPSDATUM:WGS84');
     buf.writeln('HFGPSGPS:Smartphone');
-    buf.writeln('HFFRSFIRMWAREVERSION:Aervyx 0.1.0');
+    buf.writeln('HFFRSFIRMWAREVERSION:Aervyx $_appVersion');
     buf.writeln('HFRHWHARDWAREVERSION:Smartphone');
     buf.writeln('HFFTYFRTYPE:Aervyx Mobile');
 
