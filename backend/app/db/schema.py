@@ -220,7 +220,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "show_restricted_fields": "ALTER TABLE events ADD COLUMN show_restricted_fields BOOLEAN",
         "penalties_json": "ALTER TABLE events ADD COLUMN penalties_json JSON",
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-        "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT 0",
+        "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT FALSE",
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
@@ -352,7 +352,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       geometry_json JSON,
                       label_latitude FLOAT,
                       label_longitude FLOAT,
-                      is_restricted_field BOOLEAN DEFAULT 0,
+                      is_restricted_field BOOLEAN DEFAULT FALSE,
                       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                       FOREIGN KEY(event_id) REFERENCES events (id) ON DELETE CASCADE,
                       FOREIGN KEY(source_id) REFERENCES airspace_sources (id) ON DELETE CASCADE
@@ -383,7 +383,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         else:
             bg_cols = {c["name"] for c in inspector.get_columns("buddy_groups")}
             if "is_public" not in bg_cols:
-                connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN is_public BOOLEAN DEFAULT 0"))
+                connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN is_public BOOLEAN DEFAULT FALSE"))
 
         if "buddy_group_members" not in table_names:
             connection.execute(
