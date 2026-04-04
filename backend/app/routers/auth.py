@@ -71,13 +71,17 @@ def _find_pilot_broad_match(session: Session, email: str, competition_number: st
     if pilot is not None:
         return pilot
     # 2. user_emails table → owning user → their pilot
-    ue_row = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == email))
-    if ue_row is not None:
-        owner = session.get(User, ue_row.user_id)
-        if owner and owner.pilot_id:
-            pilot = session.get(Pilot, owner.pilot_id)
-            if pilot is not None:
-                return pilot
+    try:
+        ue_row = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == email))
+        if ue_row is not None:
+            owner = session.get(User, ue_row.user_id)
+            if owner and owner.pilot_id:
+                pilot = session.get(Pilot, owner.pilot_id)
+                if pilot is not None:
+                    return pilot
+    except Exception:
+        # user_emails table may not exist yet — degrade gracefully
+        logger.debug("user_emails lookup skipped (table may not exist)")
     # 3. competition_number
     if competition_number and competition_number.strip():
         pilot = session.scalar(select(Pilot).where(func.lower(Pilot.competition_number) == competition_number.strip().lower()))
