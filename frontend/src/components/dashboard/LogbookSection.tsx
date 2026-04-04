@@ -151,11 +151,51 @@ export default function LogbookSection(props: LogbookSectionProps) {
   const uploadRef = useRef<HTMLInputElement | null>(null);
   const folderUploadRef = useRef<HTMLInputElement | null>(null);
   const attachUploadRef = useRef<HTMLInputElement | null>(null);
+  const [filterYear, setFilterYear] = useState<string>("all");
+  const [filterSite, setFilterSite] = useState<string>("all");
+  const [filterSearch, setFilterSearch] = useState("");
+
   const hasPilotProfile = Boolean(user?.pilot_id);
+
+  const availableYears = useMemo(() => {
+    const years = new Set<string>();
+    flights.forEach((f) => {
+      const y = Number.parseInt(f.flight_date.slice(0, 4), 10);
+      if (Number.isFinite(y)) years.add(String(y));
+    });
+    return [...years].sort((a, b) => Number(b) - Number(a));
+  }, [flights]);
+
+  const availableSites = useMemo(() => {
+    const sites = new Map<string, string>();
+    flights.forEach((f) => {
+      if (f.site_name) sites.set(f.site_name, f.site_city_state ?? "");
+    });
+    return [...sites.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [flights]);
+
+  const filteredFlights = useMemo(() => {
+    let list = flights;
+    if (filterYear !== "all") {
+      list = list.filter((f) => f.flight_date.startsWith(filterYear));
+    }
+    if (filterSite !== "all") {
+      list = list.filter((f) => f.site_name === filterSite);
+    }
+    const q = filterSearch.trim().toLowerCase();
+    if (q) {
+      list = list.filter((f) => {
+        const hay = `${f.site_name} ${f.site_city_state ?? ""} ${f.event_name ?? ""} ${f.task_name ?? ""} ${f.filename ?? ""} ${f.flight_date}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return list;
+  }, [flights, filterYear, filterSite, filterSearch]);
+
   const groupedFlights = useMemo(() => {
     const groups: Array<{ year: string; flights: LogbookFlightSummaryRecord[] }> = [];
     const groupMap = new Map<string, LogbookFlightSummaryRecord[]>();
-    flights.forEach((flight) => {
+    filteredFlights.forEach((flight) => {
       const parsedYear = Number.parseInt(flight.flight_date.slice(0, 4), 10);
       const year = Number.isFinite(parsedYear) ? String(parsedYear) : "Unknown year";
       const existing = groupMap.get(year);
@@ -168,7 +208,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
       groups.push({ year, flights: created });
     });
     return groups;
-  }, [flights]);
+  }, [filteredFlights]);
   const allFlightIds = useMemo(() => flights.map((flight) => flight.id), [flights]);
   const selectedCount = useMemo(
     () => allFlightIds.filter((flightId) => selectedFlightIds[flightId]).length,
@@ -408,6 +448,24 @@ export default function LogbookSection(props: LogbookSectionProps) {
           <div className="logbook-section-body">
             {feedback ? <div className={`status-chip ${feedback.type}`}>{feedback.text}</div> : null}
             {folderImportNotice ? <div className="status-chip pending">{folderImportNotice}</div> : null}
+            <div className="logbook-filter-bar">
+              <select value={filterYear} onChange={(e) => setFilterYear(e.target.value)}>
+                <option value="all">All years</option>
+                {availableYears.map((y) => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <select value={filterSite} onChange={(e) => setFilterSite(e.target.value)}>
+                <option value="all">All sites</option>
+                {availableSites.map(([name]) => <option key={name} value={name}>{name}</option>)}
+              </select>
+              <input
+                type="text"
+                placeholder="Search flights..."
+                value={filterSearch}
+                onChange={(e) => setFilterSearch(e.target.value)}
+                className="logbook-filter-search"
+              />
+              <span className="hint">{filteredFlights.length} of {flights.length} flights</span>
+            </div>
             <div className="logbook-bulk-actions">
               <div className="button-row compact">
                 <button type="button" className="ghost-button" onClick={handleSelectAllFlights} disabled={!allFlightIds.length || allSelected}>
