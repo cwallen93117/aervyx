@@ -1,5 +1,6 @@
 import json
-from datetime import datetime
+from datetime import datetime, time as dt_time
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import delete, func, select
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_staff
-from app.models import AuditLog, Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskScoringInput, User
+from app.models import AuditLog, Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.schemas import (
     PenaltyAuditEntry,
     PilotSummaryResponse,
@@ -26,6 +27,23 @@ from app.services.scoring import build_result_payload, rescore_task
 router = APIRouter(tags=["results"])
 
 STATUS_ONLY_VALUES = {"minimum_distance", "did_not_fly", "absent"}
+
+
+def _is_late_start(task: Task, event_tz: str, first_fix_time: datetime | None) -> bool:
+    """Return True if the first fix is after the task's start_close_time."""
+    if not task.start_close_time or first_fix_time is None:
+        return False
+    try:
+        parts = task.start_close_time.split(":")
+        close_time = dt_time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
+    except (ValueError, IndexError):
+        return False
+    try:
+        tz = ZoneInfo(event_tz)
+    except Exception:
+        tz = ZoneInfo("UTC")
+    local_fix = first_fix_time.astimezone(tz).time()
+    return local_fix > close_time
 
 
 def _upload_source(upload: IGCUpload) -> str:
@@ -224,6 +242,19 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
     for penalty in penalties:
         penalties_by_pilot.setdefault(penalty.pilot_id, []).append(penalty)
 
+    # Preload first fix time per upload for late-start detection
+    first_fix_times: dict[int, datetime] = {}
+    event = session.get(Event, task.event_id)
+    event_tz = event.timezone if event else "UTC"
+    if task.start_close_time and uploads:
+        upload_ids = [u.id for u in uploads]
+        first_fixes = session.execute(
+            select(TrackPoint.upload_id, func.min(TrackPoint.recorded_at))
+            .where(TrackPoint.upload_id.in_(upload_ids))
+            .group_by(TrackPoint.upload_id)
+        ).all()
+        first_fix_times = {row[0]: row[1] for row in first_fixes}
+
     rows: list[ScoringOperationsRow] = []
     for pilot in pilots:
         entry = scoring_input_by_pilot.get(pilot.id)
@@ -243,6 +274,7 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
                         upload_source=_upload_source(upload),
                         label=f"{upload.filename} — {_upload_source(upload).title()}",
                         uploaded_at=upload.uploaded_at,
+                        late_start=_is_late_start(task, event_tz, first_fix_times.get(upload.id)),
                     )
                     for upload in uploads_by_pilot.get(pilot.id, [])
                 ],

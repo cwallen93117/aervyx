@@ -1011,6 +1011,9 @@ class TrackingService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _saveCurrentFlight() async {
+    // Capture task reference before save — it could be cleared during state transitions
+    final taskId = _activeTask?.taskId;
+
     try {
       final trackPoints = _igc.currentTrackPointCount;
       _lastSavedIgcPath = await _igc.saveCurrentFlight(
@@ -1027,6 +1030,34 @@ class TrackingService extends ChangeNotifier {
       _error = 'Failed to save flight: $e';
     }
     notifyListeners();
+
+    // Best-effort upload to backend — fire and forget
+    if (_lastSavedIgcPath != null) {
+      _uploadIgcFile(_lastSavedIgcPath!, taskId);
+    }
+  }
+
+  /// Best-effort upload of the IGC file to the backend.
+  /// If [taskId] is non-null, uploads as a task upload (also syncs to logbook).
+  /// If [taskId] is null, uploads as a free-flight logbook entry.
+  Future<void> _uploadIgcFile(String filePath, int? taskId) async {
+    try {
+      if (taskId != null) {
+        await _api.uploadFile(
+          ApiConfig.taskUploadPath(taskId),
+          filePath: filePath,
+          fields: {'upload_source': 'app'},
+        );
+      } else {
+        await _api.uploadFile(
+          ApiConfig.logbookUploadPath,
+          filePath: filePath,
+        );
+      }
+    } catch (e) {
+      // Upload is best-effort — the file is already saved locally
+      debugPrint('IGC upload failed: $e');
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

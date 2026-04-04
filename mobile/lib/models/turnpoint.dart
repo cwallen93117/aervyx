@@ -44,7 +44,7 @@ class Turnpoint {
 
 /// Active task info returned by the backend.
 class ActiveTask {
-  final String taskId;
+  final int taskId;
   final String taskName;
   final List<Turnpoint> turnpoints;
 
@@ -55,7 +55,7 @@ class ActiveTask {
   });
 
   factory ActiveTask.fromJson(Map<String, dynamic> json) => ActiveTask(
-        taskId: json['task_id'] as String,
+        taskId: json['task_id'] as int,
         taskName: json['task_name'] as String? ?? 'Task',
         turnpoints: (json['turnpoints'] as List<dynamic>)
             .map((tp) => Turnpoint.fromJson(tp as Map<String, dynamic>))
