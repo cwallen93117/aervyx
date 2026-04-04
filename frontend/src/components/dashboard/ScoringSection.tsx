@@ -69,6 +69,22 @@ function formatResultPoints(value: number | null | undefined): string {
   return (value ?? 0).toFixed(1);
 }
 
+function formatPointsWithComma(value: number): string {
+  const fixed = value.toFixed(1);
+  const [int, dec] = fixed.split(".");
+  const intWithComma = Number(int).toLocaleString("en-US");
+  return `${intWithComma}.${dec}`;
+}
+
+function statusAbbreviation(status: string): string | null {
+  switch (status) {
+    case "absent": return "ABS";
+    case "did_not_fly": return "DNF";
+    case "minimum_distance": return "MinD";
+    default: return null;
+  }
+}
+
 function formatPenaltyPoints(result: ResultRecord): string {
   const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
   const finalScore = Number(result.score_points ?? 0);
@@ -421,7 +437,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             const pilot = pilotById.get(result.pilot_id);
                             const isUnscored = result.result_state === "unscored";
                             const hideUnscoredState = isUnscored && selectedTaskResultsOfficial;
-                            const statusLabel = isUnscored ? null : result.status.toUpperCase();
+                            const statusLabel = isUnscored ? null : statusAbbreviation(result.status);
                             const stateClassName = hideUnscoredState ? "" : isUnscored ? "unscored" : result.result_state === "official" ? "official" : "provisional";
                             const stateLabel = hideUnscoredState ? "" : isUnscored ? "Unscored" : result.result_state === "official" ? "Official" : "Provisional";
                             const taskPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "distance"));
@@ -434,7 +450,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                 <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
                                 <td>
                                   <strong>{result.pilot_name}</strong>
-                                  {statusLabel && statusLabel !== "GOAL" ? <span className="results-status-badge">{statusLabel}</span> : null}
+                                  {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
                                 </td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
@@ -453,7 +469,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                     {formatPenaltyPoints(result)}
                                   </td>
                                 ) : null}
-                                <td className={`results-table-total${isUnscored ? " scoring-ops-muted" : ""}`}>{isUnscored ? "-" : result.score_points.toFixed(1)}</td>
+                                <td className={`results-table-total${isUnscored ? " scoring-ops-muted" : ""}`}>{isUnscored ? "-" : formatPointsWithComma(result.score_points)}</td>
                                 <td>
                                   <button
                                     type="button"
@@ -580,7 +596,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                     </table>
                   </div>
                   <div className="results-table-wrap">
-                    <table className="results-table">
+                    <table className="results-table results-table-task">
                       <thead>
                         <tr>
                           <th>#</th>
@@ -601,7 +617,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
                               {scoredTasks.map((task) => <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatResultPoints(summary.task_scores[String(task.id)]) : "-"}</td>)}
-                              <td className="results-table-total">{summary.total_score_points.toFixed(1)}</td>
+                              <td className="results-table-total">{formatPointsWithComma(summary.total_score_points)}</td>
                             </tr>
                           );
                         })}
