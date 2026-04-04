@@ -1439,7 +1439,6 @@ button[type="submit"]:hover,
   width: 15px;
   height: 15px;
 }
-
 .sortable-th {
   cursor: pointer;
   user-select: none;
