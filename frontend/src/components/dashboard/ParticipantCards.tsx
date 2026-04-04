@@ -45,6 +45,8 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
     setMessage,
   } = props;
   const [directorySearch, setDirectorySearch] = useState("");
+  const [selectedPilotIds, setSelectedPilotIds] = useState<Set<number>>(new Set());
+  const [confirmRemove, setConfirmRemove] = useState<PilotRecord[] | null>(null);
   const assignedPilotIds = useMemo(() => new Set(pilots.map((pilot) => pilot.id)), [pilots]);
   const normalizedDirectorySearch = directorySearch.trim().toLowerCase();
   const searchableDirectoryPilots = useMemo(() => {
@@ -186,10 +188,40 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
         )}
       </SectionCard>
       <SectionCard title="Current participants" description={`${pilots.length} pilots assigned to ${selectedEvent?.name ?? "this event"}.`}>
+        {canManagePlatform && selectedPilotIds.size > 0 ? (
+          <div className="participant-bulk-bar">
+            <span>{selectedPilotIds.size} selected</span>
+            <button
+              type="button"
+              className="ghost-button danger-button"
+              onClick={() => {
+                const selected = pilots.filter((p) => selectedPilotIds.has(p.id));
+                if (selected.length) setConfirmRemove(selected);
+              }}
+            >
+              Remove selected
+            </button>
+          </div>
+        ) : null}
         <div className="participant-table-wrap">
           <table className="participant-table">
             <thead>
               <tr>
+                {canManagePlatform ? (
+                  <th className="participant-table-check">
+                    <input
+                      type="checkbox"
+                      checked={pilots.length > 0 && selectedPilotIds.size === pilots.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedPilotIds(new Set(pilots.map((p) => p.id)));
+                        } else {
+                          setSelectedPilotIds(new Set());
+                        }
+                      }}
+                    />
+                  </th>
+                ) : null}
                 <th>Name</th>
                 <th>Competition #</th>
                 <th>Email</th>
@@ -200,7 +232,20 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
             <tbody>
               {pilots.length ? (
                 pilots.map((pilot) => (
-                  <tr key={pilot.id}>
+                  <tr key={pilot.id} className={selectedPilotIds.has(pilot.id) ? "participant-row-selected" : ""}>
+                    {canManagePlatform ? (
+                      <td className="participant-table-check">
+                        <input
+                          type="checkbox"
+                          checked={selectedPilotIds.has(pilot.id)}
+                          onChange={(e) => {
+                            const next = new Set(selectedPilotIds);
+                            if (e.target.checked) next.add(pilot.id); else next.delete(pilot.id);
+                            setSelectedPilotIds(next);
+                          }}
+                        />
+                      </td>
+                    ) : null}
                     <td>
                       <strong>{pilot.first_name} {pilot.last_name}</strong>
                     </td>
@@ -209,19 +254,49 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                     <td>{pilot.portal_username ?? "No portal user"}</td>
                     {canManagePlatform ? (
                       <td className="participant-table-actions">
-                        <button type="button" className="ghost-button danger-button" onClick={() => removePilot(pilot)}>Remove</button>
+                        <button type="button" className="ghost-button danger-button" onClick={() => setConfirmRemove([pilot])}>Remove</button>
                       </td>
                     ) : null}
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={canManagePlatform ? 5 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
+                  <td colSpan={canManagePlatform ? 6 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        {confirmRemove ? (
+          <div className="confirm-overlay" onClick={() => setConfirmRemove(null)}>
+            <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>
+              <strong>Remove {confirmRemove.length === 1 ? confirmRemove[0].first_name + " " + confirmRemove[0].last_name : `${confirmRemove.length} participants`}?</strong>
+              <p>
+                {confirmRemove.length === 1
+                  ? "This will remove the pilot from the event. They can be re-added later."
+                  : `This will remove ${confirmRemove.length} pilots from the event. They can be re-added later.`}
+              </p>
+              <div className="confirm-actions">
+                <button type="button" className="ghost-button" onClick={() => setConfirmRemove(null)}>Cancel</button>
+                <button
+                  type="button"
+                  className="ghost-button danger-button"
+                  onClick={() => {
+                    for (const pilot of confirmRemove) removePilot(pilot);
+                    setSelectedPilotIds((prev) => {
+                      const next = new Set(prev);
+                      for (const pilot of confirmRemove) next.delete(pilot.id);
+                      return next;
+                    });
+                    setConfirmRemove(null);
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </SectionCard>
     </div>
   );
