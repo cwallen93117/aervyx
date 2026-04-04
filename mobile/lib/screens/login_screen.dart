@@ -21,6 +21,9 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _busy = false;
   String? _error;
   String? _googleClientId;
+  // Only hidden when the backend explicitly says Google is not configured (404).
+  // Network errors or timeouts leave it visible so the user can still try.
+  bool _googleNotConfigured = false;
 
   @override
   void initState() {
@@ -31,12 +34,19 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _fetchGoogleClientId() async {
     try {
       final api = context.read<ApiService>();
-      final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 3));
+      final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 5));
       if (mounted && json['client_id'] != null) {
         setState(() => _googleClientId = json['client_id'] as String);
       }
+    } on ApiException catch (e) {
+      // 404 = backend has Google sign-in disabled — definitively hide the button.
+      // Any other status code is a server error, not a configuration absence.
+      if (e.statusCode == 404 && mounted) {
+        setState(() => _googleNotConfigured = true);
+      }
     } catch (_) {
-      // Google sign-in not configured — button stays hidden
+      // Network error or timeout — leave button visible; the sign-in flow
+      // will retry and surface the error if Google really isn't available.
     }
   }
 
@@ -59,24 +69,39 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _handleGoogleSignIn() async {
-    if (_googleClientId == null) return;
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final googleSignIn = GoogleSignIn(serverClientId: _googleClientId);
-      final account = await googleSignIn.signIn();
-      if (account == null) {
-        if (mounted) setState(() => _busy = false);
-        return; // User cancelled
+      var clientId = _googleClientId;
+      if (clientId == null) {
+        // Initial fetch failed (e.g. network hiccup) — retry once now.
+        final api = context.read<ApiService>();
+        final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 5));
+        clientId = json['client_id'] as String?;
+        if (mounted && clientId != null) {
+          setState(() => _googleClientId = clientId);
+        }
       }
+      if (clientId == null) {
+        throw Exception('Google sign-in is not available on this server');
+      }
+      final googleSignIn = GoogleSignIn(serverClientId: clientId);
+      final account = await googleSignIn.signIn();
+      if (account == null) return; // User cancelled
       final auth = await account.authentication;
       final idToken = auth.idToken;
       if (idToken == null) {
         throw Exception('Failed to get Google ID token');
       }
       await context.read<AuthService>().loginWithGoogle(idToken);
+    } on ApiException catch (e) {
+      if (mounted) {
+        setState(() => _error = e.statusCode == 404
+            ? 'Google sign-in is not available on this server'
+            : 'Server error (${e.statusCode})');
+      }
     } catch (e) {
       if (mounted) setState(() => _error = e.toString());
     } finally {
@@ -171,7 +196,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             style: TextStyle(fontWeight: FontWeight.w600)),
                   ),
                 ),
-                if (_googleClientId != null) ...[
+                if (!_googleNotConfigured) ...[
                   const SizedBox(height: 16),
                   Row(
                     children: [
