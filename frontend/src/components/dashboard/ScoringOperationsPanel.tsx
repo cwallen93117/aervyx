@@ -444,32 +444,32 @@ export default function ScoringOperationsPanel({
                 {task.name}
               </button>
             ))}
-          </div>
-          <div className="scoring-ops-task-actions">
-            <button
-              type="button"
-              className="scoring-ops-footer-btn secondary"
-              onClick={() => void handleRescoreTask()}
-              disabled={!activePublishedTaskId}
-            >
-              Score task
-            </button>
-            <button
-              type="button"
-              className={`scoring-ops-footer-btn ${taskResultsOfficial ? "state-official" : "state-unofficial"}`}
-              onClick={() => void toggleTaskResultsState()}
-              disabled={!activePublishedTaskId || !hasResults}
-            >
-              {taskResultsOfficial ? "Official" : "Provisional"}
-            </button>
-            <button
-              type="button"
-              className="scoring-ops-footer-btn destructive"
-              onClick={() => setConfirmAction("delete_scored_task")}
-              disabled={!activePublishedTaskId}
-            >
-              Delete scored task
-            </button>
+            <div className="scoring-ops-task-actions">
+              <button
+                type="button"
+                className="scoring-ops-footer-btn secondary"
+                onClick={() => void handleRescoreTask()}
+                disabled={!activePublishedTaskId}
+              >
+                Score task
+              </button>
+              <button
+                type="button"
+                className={`scoring-ops-footer-btn ${taskResultsOfficial ? "state-official" : "state-unofficial"}`}
+                onClick={() => void toggleTaskResultsState()}
+                disabled={!activePublishedTaskId || !hasResults}
+              >
+                {taskResultsOfficial ? "Official" : "Provisional"}
+              </button>
+              <button
+                type="button"
+                className="scoring-ops-footer-btn destructive"
+                onClick={() => setConfirmAction("delete_scored_task")}
+                disabled={!activePublishedTaskId}
+              >
+                Delete scored task
+              </button>
+            </div>
           </div>
 
           <div className="scoring-ops-legend">
