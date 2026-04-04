@@ -3210,12 +3210,12 @@ button[type="submit"]:hover,
 }
 
 .results-table-task thead th {
-  padding: 8px 8px;
+  padding: 6px 8px;
   white-space: normal;
 }
 
 .results-table-task tbody td {
-  padding: 9px 8px;
+  padding: 5px 8px;
 }
 
 .results-table-task thead th:nth-child(2),
@@ -3223,7 +3223,54 @@ button[type="submit"]:hover,
   text-align: left;
 }
 
+.results-status-badge {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: #64748b;
+  background: #e2e8f0;
+  vertical-align: middle;
+}
+
+.results-igc-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.results-igc-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.results-igc-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 /* Sticky rank + name columns on horizontally-scrolled results tables */
+.results-table thead th:nth-child(1),
+.results-table tbody td:nth-child(1) {
+  width: 40px;
+  min-width: 40px;
+  max-width: 40px;
+  box-sizing: border-box;
+}
+
 .results-table thead th:nth-child(1),
 .results-table thead th:nth-child(2) {
   position: sticky;
