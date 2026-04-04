@@ -1488,7 +1488,7 @@ button[type="submit"]:hover,
 
 .task-builder-layout {
   display: grid;
-  grid-template-columns: minmax(500px, 1.05fr) minmax(0, 1.45fr);
+  grid-template-columns: minmax(540px, 1.3fr) minmax(0, 1.2fr);
   gap: 20px;
   min-height: 560px;
   margin-top: 16px;
@@ -1719,6 +1719,10 @@ button[type="submit"]:hover,
   min-width: 0;
 }
 
+.task-point-list-grid-header > span:nth-child(2) {
+  text-align: left;
+}
+
 .task-point-list-grid-header > span:nth-child(3) {
   width: 112px;
   justify-self: center;
@@ -1788,6 +1792,11 @@ button[type="submit"]:hover,
 .task-point-list-grid-row {
   min-height: var(--task-point-row-height);
   border-bottom: 1px solid var(--line);
+  text-align: center;
+}
+
+.task-point-list-grid-row > div:nth-child(2) {
+  text-align: left;
 }
 
 .task-point-list-grid-row:last-child {
@@ -1802,6 +1811,7 @@ button[type="submit"]:hover,
   width: 44px;
   color: var(--muted);
   white-space: nowrap;
+  text-align: center;
 }
 
 .task-point-row-name strong {
