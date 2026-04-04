@@ -433,48 +433,44 @@ export default function ScoringOperationsPanel({
     <>
       <SectionCard>
         <div className="stack form-block compact-clusters">
-          <fieldset className="fieldset-cluster">
-            <legend>Task selection</legend>
-            <div className="cluster-stack scoring-ops-task-selection">
-              <label className="stack compact">
-                <span>Selected task</span>
-                <select value={scoringSelectedTaskId} onChange={(event) => void handleTaskChange(event)}>
-                  <option value="">Select a task</option>
-                  {publishedTasks.map((task) => (
-                    <option key={task.id} value={task.id}>
-                      {task.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="scoring-ops-task-actions">
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn secondary"
-                  onClick={() => void handleRescoreTask()}
-                  disabled={!activePublishedTaskId}
-                >
-                  Score task
-                </button>
-                <button
-                  type="button"
-                  className={`scoring-ops-footer-btn ${taskResultsOfficial ? "state-official" : "state-unofficial"}`}
-                  onClick={() => void toggleTaskResultsState()}
-                  disabled={!activePublishedTaskId || !hasResults}
-                >
-                  {taskResultsOfficial ? "Official" : "Provisional"}
-                </button>
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn destructive"
-                  onClick={() => setConfirmAction("delete_scored_task")}
-                  disabled={!activePublishedTaskId}
-                >
-                  Delete scored task
-                </button>
-              </div>
-            </div>
-          </fieldset>
+          <div className="scoring-nav">
+            {publishedTasks.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                className={Number(scoringSelectedTaskId) === task.id ? "scoring-nav-btn active" : "scoring-nav-btn"}
+                onClick={() => void handleTaskChange({ target: { value: String(task.id) } } as ChangeEvent<HTMLSelectElement>)}
+              >
+                {task.name}
+              </button>
+            ))}
+          </div>
+          <div className="scoring-ops-task-actions">
+            <button
+              type="button"
+              className="scoring-ops-footer-btn secondary"
+              onClick={() => void handleRescoreTask()}
+              disabled={!activePublishedTaskId}
+            >
+              Score task
+            </button>
+            <button
+              type="button"
+              className={`scoring-ops-footer-btn ${taskResultsOfficial ? "state-official" : "state-unofficial"}`}
+              onClick={() => void toggleTaskResultsState()}
+              disabled={!activePublishedTaskId || !hasResults}
+            >
+              {taskResultsOfficial ? "Official" : "Provisional"}
+            </button>
+            <button
+              type="button"
+              className="scoring-ops-footer-btn destructive"
+              onClick={() => setConfirmAction("delete_scored_task")}
+              disabled={!activePublishedTaskId}
+            >
+              Delete scored task
+            </button>
+          </div>
 
           <div className="scoring-ops-legend">
             <span><i className="scoring-ops-swatch scored" /> Scored / status assigned</span>
