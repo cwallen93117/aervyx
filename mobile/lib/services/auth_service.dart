@@ -69,7 +69,7 @@ class AuthService extends ChangeNotifier {
     final json = await _api.post(ApiConfig.loginPath, body: {
       'username': email.trim(),
       'password': password,
-    });
+    }).timeout(const Duration(seconds: 15));
     final auth = AuthToken.fromJson(json);
     _api.setToken(auth.accessToken);
     await _storage.write(key: 'access_token', value: auth.accessToken);
