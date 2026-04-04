@@ -412,7 +412,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
                             {taskResultsIncludePenalty ? <th>Penalty</th> : null}
                             <th>Total</th>
-                            <th>IGC file</th>
+                            <th>Download IGC</th>
                             {canManagePlatform ? <th>State</th> : null}
                           </tr>
                         </thead>
@@ -431,10 +431,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             const leadingPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "leading"));
                             return (
                               <tr key={result.id}>
-                                <td>{result.rank ?? "-"}</td>
+                                <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
                                 <td>
                                   <strong>{result.pilot_name}</strong>
-                                  {statusLabel ? <div className="results-name-meta">{statusLabel}</div> : null}
+                                  {statusLabel && statusLabel !== "GOAL" ? <span className="results-status-badge">{statusLabel}</span> : null}
                                 </td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
@@ -457,7 +457,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                 <td>
                                   <button
                                     type="button"
-                                    className="ghost-button"
+                                    className="results-igc-btn"
                                     disabled={result.upload_id == null || isUnscored || (resultsDownloadFeedback?.type === "pending" && resultsDownloadFeedback.uploadId === result.upload_id)}
                                     onClick={() => {
                                       if (result.upload_id == null) return;
@@ -596,7 +596,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           const pilot = pilotById.get(summary.pilot_id);
                           return (
                             <tr key={summary.pilot_id}>
-                              <td>{index + 1}</td>
+                              <td><span className="scoring-ops-rank-badge">{index + 1}</span></td>
                               <td><strong>{summary.pilot_name}</strong></td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
