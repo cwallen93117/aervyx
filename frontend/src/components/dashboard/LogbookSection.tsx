@@ -608,7 +608,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                                   <td>
                                     <div className="logbook-row-actions">
                                       <button type="button" className="ghost-button" onClick={() => void openFlightDetail(flight.id)}>
-                                        Statistics
+                                        Stats
                                       </button>
                                       {flight.can_replay ? (
                                         <button type="button" className="ghost-button" onClick={() => void openFlightReplay(flight)}>
@@ -633,7 +633,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                                         </button>
                                       ) : null}
                                       <button type="button" className="ghost-button danger-button" onClick={() => void handleDeleteFlight(flight)}>
-                                        Delete flight
+                                        Delete
                                       </button>
                                     </div>
                                   </td>
@@ -842,7 +842,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   </dl>
                 </div>
                 <div className="logbook-stats-card">
-                  <h4>Statistics</h4>
+                  <h4>Stats</h4>
                   <dl className="logbook-stats-list">
                     <div><dt>Launch altitude</dt><dd>{formatAltitude(detailFlight.stats.launch_altitude_m, units.altitude)}</dd></div>
                     <div><dt>Landing altitude</dt><dd>{formatAltitude(detailFlight.stats.landing_altitude_m, units.altitude)}</dd></div>

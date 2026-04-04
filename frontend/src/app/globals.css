@@ -1418,6 +1418,28 @@ button[type="submit"]:hover,
   font-size: 0.75rem;
 }
 
+.admin-users-table-wrap {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.admin-users-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--wash);
+}
+
+.admin-users-select-column {
+  width: 40px;
+  text-align: center;
+}
+
+.admin-users-select-column input {
+  width: 15px;
+  height: 15px;
+}
+
 .sortable-th {
   cursor: pointer;
   user-select: none;
@@ -2043,7 +2065,19 @@ button[type="submit"]:hover,
 }
 
 .scoring-nav-overall {
-  margin-left: auto;
+  color: #7c6a3e;
+  background: rgba(180, 155, 80, 0.08);
+}
+
+.scoring-nav-overall:hover {
+  color: #5a4d2e;
+  background: rgba(180, 155, 80, 0.16);
+}
+
+.scoring-nav-overall.active {
+  color: #5a4d2e;
+  background: #faf5e6;
+  border-color: rgba(180, 155, 80, 0.22);
 }
 
 .hint {
@@ -2366,6 +2400,15 @@ button[type="submit"]:hover,
 
 .logbook-table-wrap {
   margin-top: 0;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.logbook-table-wrap .results-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--wash);
 }
 
 .logbook-bulk-actions {
@@ -2585,8 +2628,7 @@ button[type="submit"]:hover,
   display: flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  flex-wrap: wrap;
 }
 
 .logbook-row-actions .ghost-button {
@@ -5596,6 +5638,22 @@ html[data-theme="dark"] .scoring-nav-btn.active {
   background: rgba(59, 130, 246, 0.12);
   color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .scoring-nav-overall {
+  color: #c9b06a;
+  background: rgba(180, 155, 80, 0.1);
+}
+
+html[data-theme="dark"] .scoring-nav-overall:hover {
+  color: #dcc47a;
+  background: rgba(180, 155, 80, 0.18);
+}
+
+html[data-theme="dark"] .scoring-nav-overall.active {
+  color: #f0e0a0;
+  background: rgba(180, 155, 80, 0.18);
+  border-color: rgba(180, 155, 80, 0.3);
 }
 
 /* ── Hints ── */

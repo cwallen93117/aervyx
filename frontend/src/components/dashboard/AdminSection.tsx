@@ -58,6 +58,7 @@ export default function AdminSection(props: AdminSectionProps) {
   const [userSearch, setUserSearch] = useState("");
   const [userSortField, setUserSortField] = useState<UserSortField>("last_name");
   const [userSortDir, setUserSortDir] = useState<SortDir>("asc");
+  const [selectedUserIds, setSelectedUserIds] = useState<Record<number, boolean>>({});
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -243,11 +244,54 @@ export default function AdminSection(props: AdminSectionProps) {
                 className="admin-users-search"
               />
               <span className="hint">{filteredSortedUsers.length} of {adminUsers.length} users</span>
+              {(() => {
+                const selectedCount = Object.keys(selectedUserIds).filter((k) => selectedUserIds[Number(k)]).length;
+                return selectedCount > 0 ? (
+                  <button
+                    type="button"
+                    className="ghost-button danger-button"
+                    onClick={() => {
+                      if (!window.confirm(`Delete ${selectedCount} user(s)?`)) return;
+                      const ids = Object.keys(selectedUserIds).filter((k) => selectedUserIds[Number(k)]).map(Number);
+                      for (const id of ids) {
+                        const target = adminUsers.find((u) => u.id === id);
+                        if (target && target.id !== user?.id) void deleteAdminUser(target);
+                      }
+                      setSelectedUserIds({});
+                    }}
+                  >
+                    Delete selected ({selectedCount})
+                  </button>
+                ) : null;
+              })()}
             </div>
-            <div className="participant-table-wrap">
+            <div className="participant-table-wrap admin-users-table-wrap">
               <table className="participant-table admin-users-table">
                 <thead>
                   <tr>
+                    <th className="admin-users-select-column">
+                      <input
+                        type="checkbox"
+                        aria-label="Select all users"
+                        checked={filteredSortedUsers.length > 0 && filteredSortedUsers.every((u) => selectedUserIds[u.id])}
+                        ref={(el) => {
+                          if (el) {
+                            const count = filteredSortedUsers.filter((u) => selectedUserIds[u.id]).length;
+                            el.indeterminate = count > 0 && count < filteredSortedUsers.length;
+                          }
+                        }}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            setSelectedUserIds((current) => ({
+                              ...current,
+                              ...Object.fromEntries(filteredSortedUsers.map((u) => [u.id, true])),
+                            }));
+                          } else {
+                            setSelectedUserIds({});
+                          }
+                        }}
+                      />
+                    </th>
                     <SortHeader field="first_name" label="First" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="last_name" label="Last" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="username" label="Username" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
@@ -260,6 +304,14 @@ export default function AdminSection(props: AdminSectionProps) {
                   {filteredSortedUsers.length ? (
                     filteredSortedUsers.map((account) => (
                       <tr key={account.id}>
+                        <td className="admin-users-select-column">
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${account.full_name}`}
+                            checked={selectedUserIds[account.id] ?? false}
+                            onChange={(event) => setSelectedUserIds((current) => ({ ...current, [account.id]: event.target.checked }))}
+                          />
+                        </td>
                         <td>{account.first_name ?? account.full_name}</td>
                         <td>{account.last_name ?? ""}</td>
                         <td>{account.username}</td>
@@ -267,7 +319,11 @@ export default function AdminSection(props: AdminSectionProps) {
                           <select
                             value={account.role}
                             disabled={account.id === user?.id}
-                            onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, role: event.target.value as AdminUserRecord["role"] } : entry))}
+                            onChange={(event) => {
+                              const updated = { ...account, role: event.target.value as AdminUserRecord["role"] };
+                              setAdminUsers((current) => current.map((entry) => entry.id === account.id ? updated : entry));
+                              void saveAdminUser(updated);
+                            }}
                           >
                             <option value="admin">Admin</option>
                             <option value="organizer">Organizer</option>
@@ -280,22 +336,35 @@ export default function AdminSection(props: AdminSectionProps) {
                               type="checkbox"
                               checked={account.is_active}
                               disabled={account.id === user?.id}
-                              onChange={(event) => setAdminUsers((current) => current.map((entry) => entry.id === account.id ? { ...entry, is_active: event.target.checked } : entry))}
+                              onChange={(event) => {
+                                const updated = { ...account, is_active: event.target.checked };
+                                setAdminUsers((current) => current.map((entry) => entry.id === account.id ? updated : entry));
+                                void saveAdminUser(updated);
+                              }}
                             />
                             <span>{account.is_active ? "Active" : "Disabled"}</span>
                           </label>
                         </td>
                         <td className="participant-table-actions">
                           <div className="compact-slot-actions">
-                            <button type="button" className="ghost-button" onClick={() => void saveAdminUser(account)}>Save</button>
-                            <button type="button" className="ghost-button danger-button" disabled={account.id === user?.id} onClick={() => void deleteAdminUser(account)}>Delete</button>
+                            <button
+                              type="button"
+                              className="ghost-button danger-button"
+                              disabled={account.id === user?.id}
+                              onClick={() => {
+                                if (!window.confirm(`Delete ${account.full_name}?`)) return;
+                                void deleteAdminUser(account);
+                              }}
+                            >
+                              Delete
+                            </button>
                           </div>
                         </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
+                      <td colSpan={7} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
                     </tr>
                   )}
                 </tbody>
