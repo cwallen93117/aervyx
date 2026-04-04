@@ -87,6 +87,7 @@ export interface TasksSectionProps {
   unpublishTask: () => void;
   deleteTask: () => void;
   startNewTask: () => void;
+  duplicateTask: () => void;
   handleRadiusInputChange: (index: number, point: TaskPointRecord, rawValue: string) => void;
   handleRadiusInputBlur: (index: number, point: TaskPointRecord) => void;
   handleRadiusInputKeyDown: (event: KeyboardEvent<HTMLInputElement>, index: number, point: TaskPointRecord) => void;
@@ -130,6 +131,7 @@ export default function TasksSection(props: TasksSectionProps) {
     unpublishTask,
     deleteTask,
     startNewTask,
+    duplicateTask,
     handleRadiusInputChange,
     handleRadiusInputBlur,
     handleRadiusInputKeyDown,
@@ -239,7 +241,7 @@ export default function TasksSection(props: TasksSectionProps) {
   ) : undefined;
   return (
     <div className="section-stack">
-    <SectionCard title="Task details" description={canManagePlatform ? "Choose a task, review its scoring fields, and manage the ordered task turnpoints." : "Review the selected task, turnpoints, and route geometry."}>
+    <SectionCard>
       <div className="stack form-block compact-clusters">
         <div className="task-toolbar">
           <div className="task-toolbar-left">
@@ -251,9 +253,10 @@ export default function TasksSection(props: TasksSectionProps) {
               </select>
             </label>
             {canManagePlatform ? (
-              <button type="button" className="ghost-button" onClick={startNewTask}>
-                New task
-              </button>
+              <>
+                <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
+                <button type="button" className="ghost-button" onClick={duplicateTask} disabled={!taskDraft.id}>Duplicate</button>
+              </>
             ) : null}
           </div>
           {canManagePlatform ? (

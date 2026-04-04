@@ -15,11 +15,13 @@ router = APIRouter(prefix="/api/buddies", tags=["buddies"])
 
 class GroupCreate(BaseModel):
     name: str
+    is_public: bool = False
     visibility: str = "private"
 
 
 class GroupRename(BaseModel):
     name: str | None = None
+    is_public: bool | None = None
     visibility: str | None = None
 
 
@@ -38,6 +40,7 @@ class MemberResponse(BaseModel):
 class GroupResponse(BaseModel):
     id: int
     name: str
+    is_public: bool = False
     visibility: str
     members: list[MemberResponse]
     created_at: str
@@ -65,6 +68,7 @@ def _load_group_with_members(session: Session, group: BuddyGroup) -> GroupRespon
     return GroupResponse(
         id=group.id,
         name=group.name,
+        is_public=group.is_public,
         visibility=group.visibility or "private",
         members=[
             MemberResponse(
@@ -109,7 +113,7 @@ def create_group(payload: GroupCreate, user: User = Depends(get_current_user), s
     if existing:
         raise HTTPException(status_code=409, detail="A group with that name already exists")
     visibility = payload.visibility if payload.visibility in {"public", "users", "buddies", "private"} else "private"
-    group = BuddyGroup(user_id=user.id, name=name, visibility=visibility)
+    group = BuddyGroup(user_id=user.id, name=name, is_public=payload.is_public, visibility=visibility)
     session.add(group)
     session.commit()
     session.refresh(group)
@@ -129,6 +133,8 @@ def rename_group(group_id: int, payload: GroupRename, user: User = Depends(get_c
         if duplicate:
             raise HTTPException(status_code=409, detail="A group with that name already exists")
         group.name = name
+    if payload.is_public is not None:
+        group.is_public = payload.is_public
     if payload.visibility is not None:
         if payload.visibility not in {"public", "users", "buddies", "private"}:
             raise HTTPException(status_code=422, detail="Invalid visibility value")

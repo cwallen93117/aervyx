@@ -220,6 +220,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "show_restricted_fields": "ALTER TABLE events ADD COLUMN show_restricted_fields BOOLEAN",
         "penalties_json": "ALTER TABLE events ADD COLUMN penalties_json JSON",
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+        "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT 0",
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
@@ -379,6 +380,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 )
             )
             connection.execute(text("CREATE INDEX ix_buddy_groups_user_id ON buddy_groups (user_id)"))
+        else:
+            bg_cols = {c["name"] for c in inspector.get_columns("buddy_groups")}
+            if "is_public" not in bg_cols:
+                connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN is_public BOOLEAN DEFAULT 0"))
 
         if "buddy_group_members" not in table_names:
             connection.execute(
