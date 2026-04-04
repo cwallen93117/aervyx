@@ -54,6 +54,10 @@ Current expected workflow:
   - Ubuntu Server `24.04.4 LTS`
 - current LAN IP:
   - `192.168.87.94`
+- resources:
+  - 8 vCPU, 16 GB RAM, 120 GB disk
+- Proxmox snapshot:
+  - `pre-dev-migration-20260403` (taken before dev migration)
 
 Important:
 
@@ -65,8 +69,12 @@ Important:
 
 The live repo and operational files are currently on the VM at:
 
-- repo:
+- prod repo:
   - `/srv/aervyx-staging/repo`
+- dev repo:
+  - `/srv/aervyx-staging/dev-repo`
+- staging repo:
+  - `/srv/aervyx-staging/staging-repo`
 - logs:
   - `/srv/aervyx-staging/logs`
 - backups:
@@ -76,21 +84,45 @@ The live repo and operational files are currently on the VM at:
 
 ## Runtime Components
 
-### Docker Compose App Stack
+### Production Docker Compose Stack
 
-The app itself still runs from:
+The prod app runs from:
 
 - `/srv/aervyx-staging/repo/docker-compose.prod.yml`
 
-Containers currently used:
+Containers:
 
-- `aervyx-staging-frontend-1`
-- `aervyx-staging-backend-1`
-- `aervyx-staging-db-1`
+- `aervyx-prod-frontend-1`
+- `aervyx-prod-backend-1`
+- `aervyx-prod-db-1`
+- `aervyx-prod-mosquitto-1`
 
-These containers are on the Docker network:
+Docker network: `aervyx-prod_default`
 
-- `aervyx-staging_default`
+### Dev Docker Compose Stack
+
+The dev environment runs from:
+
+- `/srv/aervyx-staging/dev-repo/docker-compose.yml`
+
+Containers (always running, hot reload enabled):
+
+- `aervyx-dev-frontend-1` (port 3000)
+- `aervyx-dev-backend-1` (port 8000)
+- `aervyx-dev-db-1` (port 5432)
+- `aervyx-dev-mosquitto-1` (ports 1883, 9001)
+
+Docker network: `aervyx-dev_default`
+
+### Host-Level Dev Services
+
+- code-server: systemd service `code-server@deploy`, port 8080
+  - Config: `/home/deploy/.config/code-server/config.yaml`
+  - Bind: `0.0.0.0:8080`, auth disabled (Cloudflare Access handles it)
+- OpenHands: systemd service `openhands`, port 3080
+  - Venv: `/home/deploy/openhands-venv/`
+  - Bind: `0.0.0.0:3080`
+  - Working directory: `/srv/aervyx-staging/dev-repo`
 
 ### Cloudflare Tunnel Connector
 
@@ -158,11 +190,22 @@ Backup outputs:
 
 ## Cloudflare Route Mapping
 
-The Cloudflare Tunnel is currently expected to route:
+The Cloudflare Tunnel (id: `129d4665-b4f4-4e03-87c7-c3debbf59eb5`) routes:
 
-- `aervyx.net` -> `http://frontend:3000`
-- `api.aervyx.net` -> `http://backend:8000`
+Public (no Access gate):
+- `aervyx.net` -> `http://aervyx-prod-frontend-1:3000`
+- `api.aervyx.net` -> `http://aervyx-prod-backend-1:8000`
 - `deploy.aervyx.net` -> `http://host.docker.internal:9100`
+
+Behind Cloudflare Access (Charles's email only):
+- `dev.aervyx.net` -> `http://host.docker.internal:8080` (code-server)
+- `oh.aervyx.net` -> `http://host.docker.internal:3080` (OpenHands)
+- `dev-app.aervyx.net` -> `http://host.docker.internal:3000` (dev frontend)
+- `api-dev.aervyx.net` -> `http://host.docker.internal:8000` (dev backend)
+
+Staging (on-demand, containers may be stopped):
+- `staging.aervyx.net` -> `http://aervyx-staging-frontend-1:3000`
+- `api-staging.aervyx.net` -> `http://aervyx-staging-backend-1:8000`
 
 Why these are plain `http://` origins:
 
@@ -198,6 +241,12 @@ The VM's untracked production env files were updated to the final public hostnam
   - `APP_PUBLIC_URL=https://aervyx.net`
   - `API_PUBLIC_URL=https://api.aervyx.net`
   - `NEXT_PUBLIC_API_BASE_URL=/backend`
+
+Dev backend env:
+- `DATABASE_URL=postgresql+psycopg://flightcomp:flightcomp-dev@db:5432/flightcomp`
+- `APP_PUBLIC_URL=https://dev-app.aervyx.net`
+- `API_PUBLIC_URL=https://api-dev.aervyx.net`
+- `CORS_ORIGINS=["https://dev-app.aervyx.net","https://api-dev.aervyx.net","http://localhost:3000"]`
 
 The repo-tracked env examples still describe earlier staging-oriented shapes in places.
 For the live server, trust the actual VM env files over older draft docs.
@@ -245,6 +294,8 @@ Do not commit or expose:
 - `/srv/aervyx-staging/repo/.env.production`
 - `/srv/aervyx-staging/repo/backend/.env.production`
 - `/srv/aervyx-staging/repo/frontend/.env.production`
+- `/srv/aervyx-staging/dev-repo/backend/.env`
+- `/srv/aervyx-staging/dev-repo/.env`
 
 Secrets are intentionally server-local now.
 
@@ -255,6 +306,9 @@ Secrets are intentionally server-local now.
 - The app login is the current only user-facing gate.
 - The Cloudflare tunnel is live via a token-managed connector container, not the older repo-draft credentials-file model.
 - If someone reads `docs/deployment-staging-proxmox.md` or `docs/deployment-cloudflare-tunnel.md` literally, they will be misled in places unless they cross-check this document.
+- The alpha stack and OpenClaw workflow are decommissioned. The alpha Docker stack is stopped. The BRANCH_MAP in the webhook config no longer includes alpha.
+- Dev tools (code-server, OpenHands) are host-level services, not Docker containers. UFW rules allow Docker subnets (172.16.0.0/12) to reach ports 8080 and 3080.
+- The staging stack is stopped by default to save RAM. It starts on-demand when pushing to the staging branch.
 
 ## What Claude Should Trust First
 
