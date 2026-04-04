@@ -478,10 +478,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
                   </div>
                   {scoringTaskPoints.length ? (
                     <div className="results-task-map">
-                      <div className="results-sheet-header">
-                        <h3>Task map</h3>
-                        <p>Waypoints, cylinders, course line, and checked pilot tracks for the selected task.</p>
-                      </div>
                       <div className="results-task-map-layout">
                         <div className="results-task-map-pilot-list">
                           <div className="results-task-map-pilot-header">
