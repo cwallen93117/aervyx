@@ -88,6 +88,7 @@ export default function LoginPage() {
 
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
+  const [googleSdkReady, setGoogleSdkReady] = useState(typeof window !== "undefined" && !!window.google);
 
   useEffect(() => {
     const next = new URLSearchParams(window.location.search).get("next");
@@ -135,7 +136,16 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (!googleClientId || !window.google || !googleButtonRef.current) return;
+    if (window.google) { setGoogleSdkReady(true); return; }
+    const script = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi/client"]');
+    if (!script) return;
+    const onLoad = () => setGoogleSdkReady(true);
+    script.addEventListener("load", onLoad);
+    return () => script.removeEventListener("load", onLoad);
+  }, []);
+
+  useEffect(() => {
+    if (!googleClientId || !googleSdkReady || !window.google || !googleButtonRef.current) return;
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: handleGoogleResponse,
@@ -151,7 +161,7 @@ export default function LoginPage() {
       logo_alignment: "left",
       type: "standard",
     });
-  }, [googleClientId, handleGoogleResponse]);
+  }, [googleClientId, googleSdkReady, handleGoogleResponse]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
