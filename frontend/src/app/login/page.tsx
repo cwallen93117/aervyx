@@ -7,15 +7,7 @@ declare global {
     google?: {
       accounts: {
         id: {
-          initialize: (config: {
-            client_id: string;
-            callback: (response: { credential: string }) => void;
-            error_callback?: (error: { type: string; message?: string }) => void;
-            auto_select?: boolean;
-            itp_support?: boolean;
-            ux_mode?: "popup" | "redirect";
-            use_fedcm_for_prompt?: boolean;
-          }) => void;
+          initialize: (config: { client_id: string; callback: (response: { credential: string }) => void; auto_select?: boolean; itp_support?: boolean }) => void;
           renderButton: (parent: HTMLElement, options: { theme?: string; size?: string; width?: number; text?: string; shape?: string; logo_alignment?: string; type?: string }) => void;
           prompt: () => void;
         };
@@ -96,7 +88,6 @@ export default function LoginPage() {
 
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null>(null);
-  const [googleSdkReady, setGoogleSdkReady] = useState(typeof window !== "undefined" && !!window.google);
 
   useEffect(() => {
     const next = new URLSearchParams(window.location.search).get("next");
@@ -106,7 +97,6 @@ export default function LoginPage() {
   }, []);
 
   const handleGoogleResponse = useCallback(async (response: { credential: string }) => {
-    console.log("[Google Auth] Callback fired, credential present:", !!response?.credential);
     setMessage("");
     setError("");
     setIsSubmitting(true);
@@ -126,21 +116,11 @@ export default function LoginPage() {
       setMessage(`Signed in as ${payload.user.full_name}. Opening your dashboard...`);
       window.location.replace(destination);
     } catch (caught) {
-      console.error("[Google Auth] Error:", caught);
       setError(caught instanceof Error ? caught.message : "Google sign-in failed");
     } finally {
       setIsSubmitting(false);
     }
   }, [destination]);
-
-  const handleGoogleError = useCallback((error: { type: string; message?: string }) => {
-    console.error("[Google Auth] GSI error_callback:", error);
-    if (error.type === "popup_closed") {
-      // User intentionally closed the popup — don't show an error
-      return;
-    }
-    setError(`Google sign-in error: ${error.type}${error.message ? ` — ${error.message}` : ""}. Please try again.`);
-  }, []);
 
   // Fetch Google Client ID from backend and initialize Google Sign-In
   useEffect(() => {
@@ -155,37 +135,12 @@ export default function LoginPage() {
   }, []);
 
   useEffect(() => {
-    if (window.google) { setGoogleSdkReady(true); return; }
-    // Poll for window.google since next/script's afterInteractive strategy
-    // may finish loading between React renders without firing addEventListener.
-    let cancelled = false;
-    const check = setInterval(() => {
-      if (window.google) {
-        clearInterval(check);
-        if (!cancelled) setGoogleSdkReady(true);
-      }
-    }, 100);
-    // Also listen for the script load event as a fallback
-    const script = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi/client"]');
-    const onLoad = () => { if (!cancelled) setGoogleSdkReady(true); };
-    script?.addEventListener("load", onLoad);
-    return () => {
-      cancelled = true;
-      clearInterval(check);
-      script?.removeEventListener("load", onLoad);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!googleClientId || !googleSdkReady || !window.google || !googleButtonRef.current) return;
-    console.log("[Google Auth] Initializing GSI with client_id:", googleClientId.slice(0, 12) + "...");
+    if (!googleClientId || !window.google || !googleButtonRef.current) return;
     window.google.accounts.id.initialize({
       client_id: googleClientId,
       callback: handleGoogleResponse,
-      error_callback: handleGoogleError,
       auto_select: false,
-      ux_mode: "popup",
-      use_fedcm_for_prompt: false,
+      itp_support: true,
     });
     window.google.accounts.id.renderButton(googleButtonRef.current, {
       theme: "outline",
@@ -196,7 +151,7 @@ export default function LoginPage() {
       logo_alignment: "left",
       type: "standard",
     });
-  }, [googleClientId, googleSdkReady, handleGoogleResponse, handleGoogleError]);
+  }, [googleClientId, handleGoogleResponse]);
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
