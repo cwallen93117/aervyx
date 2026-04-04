@@ -56,49 +56,44 @@ Read these first:
 
 ## Live Deployment
 
-The VM (192.168.87.94, 8 vCPU / 16 GB RAM / 120 GB disk) runs production, a dev environment, and on-demand staging:
+The VM (192.168.87.94, 8 vCPU / 16 GB RAM / 120 GB disk) runs production and staging:
 
-| | Production | Dev | Staging (on-demand) |
-|---|---|---|---|
-| **Site** | `https://aervyx.net` | `https://dev-app.aervyx.net` | `https://staging.aervyx.net` |
-| **API** | `https://api.aervyx.net` | `https://api-dev.aervyx.net` | `https://api-staging.aervyx.net` |
-| **Branch** | `main` | working tree | `staging` |
-| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/dev-repo` | `/srv/aervyx-staging/staging-repo` |
-| **Compose project** | `aervyx-prod` | `aervyx-dev` | `aervyx-staging` |
-| **Compose file** | `docker-compose.prod.yml` | `docker-compose.yml` (hot reload) | `docker-compose.prod.yml` |
-| **Deploy trigger** | push to `main` | instant (hot reload) | push to `staging` |
-| **Access** | public | Cloudflare Access (Charles only) | Cloudflare Access (Charles only) |
+| | Production | Staging |
+|---|---|---|
+| **Site** | `https://aervyx.net` | `https://staging.aervyx.net` |
+| **API** | `https://api.aervyx.net` | `https://api-staging.aervyx.net` |
+| **Branch** | `main` | `staging` |
+| **Repo path** | `/srv/aervyx-staging/repo` | `/srv/aervyx-staging/staging-repo` |
+| **Compose project** | `aervyx-prod` | `aervyx-staging` |
+| **Compose file** | `docker-compose.prod.yml` | `docker-compose.prod.yml` |
+| **Deploy trigger** | push to `main` | push to `staging` |
+| **Access** | public | Cloudflare Access (Charles only) |
 
-### Dev tools on the VM
+### Local dev tools (Charles's desktop)
 
-| Tool | URL | Port | Purpose |
-|------|-----|------|---------|
-| code-server | `https://dev.aervyx.net` | 8080 | VS Code in browser |
-| OpenHands | `https://oh.aervyx.net` | 3080 | AI agent platform |
-| Dev frontend | `https://dev-app.aervyx.net` | 3000 | Hot-reload Next.js |
-| Dev backend | `https://api-dev.aervyx.net` | 8000 | Hot-reload FastAPI |
-
-All dev URLs are behind Cloudflare Access (Charles's email only).
+| Tool | Location | Purpose |
+|------|----------|---------|
+| Claude Code CLI | system | Primary AI development tool (Pro/Max subscription) |
+| gstack | `~/.claude/skills/gstack/` | 35 slash commands: `/ship`, `/qa`, `/review`, `/cso`, `/investigate`, etc. |
+| VoltAgent agents | `~/.claude/agents/` | 21 specialist agents including 4 custom Aervyx agents |
+| Flutter SDK | system | Mobile development |
 
 - Deploy listener health: `https://deploy.aervyx.net/health`
 - The VM is internally named `aervyx-staging` and paths still use that naming.
 - Webhook config: `/etc/default/aervyx-staging-webhook` with `BRANCH_MAP` (main + staging)
 - Deploy scripts: `deploy/staging/deploy-prod.sh`, `deploy-staging.sh` (both call `deploy-common.sh`)
-- OpenHands runs as systemd service `openhands` (port 3080)
-- code-server runs as systemd service `code-server@deploy` (port 8080)
-- UFW allows ports 8080 and 3080 from Docker subnets (172.16.0.0/12)
 - Weekly Docker prune cron runs Sundays at 3am
 - Database sync: `scripts/sync-db.sh` copies data between environments with optional PII anonymization
 - Admin DB export/import: `GET/POST /api/admin/db/export` and `/api/admin/db/import`
 
 ### Development workflow
-1. Edit code via `dev.aervyx.net` (code-server) or `oh.aervyx.net` (OpenHands agents)
-2. Changes hot-reload instantly on `dev-app.aervyx.net` / `api-dev.aervyx.net`
-3. When ready for production-like testing: `git push origin staging` → auto-deploys to `staging.aervyx.net`
-4. Merge `staging` → `main` → auto-deploys to `aervyx.net`
+1. Edit code locally with Claude Code CLI + gstack/VoltAgent agents
+2. Commit and push to `staging` — no PRs or approvals needed
+3. Webhook auto-deploys to `staging.aervyx.net` for review
+4. When happy, merge `staging` → `main` → auto-deploys to `aervyx.net`
 
 ### Mobile development
-Flutter/Android stays on the desktop. Point `api_config.dart` at `https://api-dev.aervyx.net` for the dev backend.
+Flutter/Android stays on the desktop. Point `api_config.dart` at `https://api-staging.aervyx.net` for the staging backend.
 
 - The current live deployment handoff is:
   - `docs/live-deployment-handoff.md`
@@ -153,11 +148,11 @@ Flutter/Android stays on the desktop. Point `api_config.dart` at `https://api-de
 
 ## Useful Validation Commands
 
-On the VM (via code-server terminal or Proxmox exec):
+On the VM (via Proxmox exec):
 ```bash
-cd /srv/aervyx-staging/dev-repo
-docker compose ps                    # dev stack status
-docker compose logs backend --tail 20  # dev backend logs
+cd /srv/aervyx-staging/repo
+docker compose -f docker-compose.prod.yml ps          # prod stack status
+docker compose -f docker-compose.prod.yml logs backend --tail 20  # prod backend logs
 ```
 
 On the desktop (for mobile):
