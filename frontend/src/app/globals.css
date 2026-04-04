@@ -2483,18 +2483,23 @@ button[type="submit"]:hover,
   white-space: normal;
 }
 
+.logbook-table thead th,
+.logbook-table tbody td {
+  padding: 6px 10px;
+}
+
 .logbook-select-column {
-  width: 48px;
+  width: 40px;
   text-align: center;
 }
 
 .logbook-select-column input {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
 }
 
 .logbook-star-column {
-  width: 56px;
+  width: 44px;
   text-align: center;
 }
 
@@ -2502,13 +2507,13 @@ button[type="submit"]:hover,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: transparent;
   color: #94a3b8;
-  font-size: 1.1rem;
+  font-size: 1rem;
   line-height: 1;
 }
 
@@ -2531,9 +2536,9 @@ button[type="submit"]:hover,
   display: grid;
   grid-template-columns: auto auto 1fr auto;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
-  padding: 12px 16px;
+  padding: 8px 12px;
   border: 0;
   background: transparent;
   color: #27466f;
@@ -2556,11 +2561,38 @@ button[type="submit"]:hover,
   font-weight: 700;
 }
 
+.logbook-filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.logbook-filter-bar select {
+  min-height: 34px;
+  padding: 4px 28px 4px 10px;
+  font-size: 0.8125rem;
+  max-width: 200px;
+}
+
+.logbook-filter-search {
+  flex: 1;
+  min-width: 140px;
+  max-width: 260px;
+}
+
 .logbook-row-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 4px;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.logbook-row-actions .ghost-button {
+  height: 26px;
+  padding: 2px 8px;
+  font-size: 0.75rem;
 }
 
 .logbook-import-sections {
