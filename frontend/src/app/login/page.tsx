@@ -185,6 +185,7 @@ export default function LoginPage() {
       error_callback: handleGoogleError,
       auto_select: false,
       ux_mode: "popup",
+      use_fedcm_for_prompt: false,
     });
     window.google.accounts.id.renderButton(googleButtonRef.current, {
       theme: "outline",
