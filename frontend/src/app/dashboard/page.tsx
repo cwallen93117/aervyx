@@ -76,6 +76,7 @@ function resolveApiBase() {
   return configured ?? "/backend";
 }
 const TOKEN_KEY = "flightcomp-platform-token";
+const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
@@ -373,11 +374,48 @@ function sortEventsByUpdatedAt(eventList: EventRecord[]): EventRecord[] {
   });
 }
 
+let _refreshPromise: Promise<string> | null = null;
+
+async function tryRefreshToken(): Promise<string | null> {
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return null;
+  try {
+    const response = await fetch(`${resolveApiBase()}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const data = (await response.json()) as { access_token: string; refresh_token?: string };
+    window.localStorage.setItem(TOKEN_KEY, data.access_token);
+    if (data.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+    return data.access_token;
+  } catch {
+    return null;
+  }
+}
+
 async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Authorization", `Bearer ${token}`);
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
+  if (response.status === 401) {
+    // Try to refresh the access token once
+    if (!_refreshPromise) _refreshPromise = tryRefreshToken().then((t) => { _refreshPromise = null; return t ?? ""; });
+    const newToken = await _refreshPromise;
+    if (newToken) {
+      const retryHeaders = new Headers(init.headers ?? {});
+      retryHeaders.set("Authorization", `Bearer ${newToken}`);
+      if (!(init.body instanceof FormData) && !retryHeaders.has("Content-Type")) retryHeaders.set("Content-Type", "application/json");
+      const retryResponse = await fetch(`${resolveApiBase()}${path}`, { ...init, headers: retryHeaders, cache: "no-store" });
+      if (!retryResponse.ok) throw new Error((await retryResponse.text()) || `Request failed: ${retryResponse.status}`);
+      if (retryResponse.status === 204) return undefined as T;
+      const text = await retryResponse.text();
+      return (text ? JSON.parse(text) : undefined) as T;
+    }
+  }
   if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -752,8 +790,18 @@ export default function HomePage() {
     }
 
     void bootstrap(savedToken)
-      .catch(() => {
+      .catch(async () => {
+        // Try refreshing before redirecting to login
+        const newToken = await tryRefreshToken();
+        if (newToken) {
+          try {
+            await bootstrap(newToken);
+            setToken(newToken);
+            return;
+          } catch { /* fall through to logout */ }
+        }
         window.localStorage.removeItem(TOKEN_KEY);
+        window.localStorage.removeItem(REFRESH_TOKEN_KEY);
         document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
         setToken("");
         setUser(null);
@@ -1348,6 +1396,7 @@ export default function HomePage() {
 
   function signOut() {
     window.localStorage.removeItem(TOKEN_KEY);
+    window.localStorage.removeItem(REFRESH_TOKEN_KEY);
     document.cookie = `${SESSION_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
     window.location.replace("/login");
   }

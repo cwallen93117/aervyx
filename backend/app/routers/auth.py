@@ -1,13 +1,15 @@
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings as get_app_settings
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import Pilot, User
@@ -20,6 +22,7 @@ from app.schemas import (
     GoogleAuthRequest,
     LoginRequest,
     PasswordChangeRequest,
+    RefreshRequest,
     RegisterRequest,
     TokenResponse,
     UserSummary,
@@ -27,6 +30,7 @@ from app.schemas import (
 
 logger = logging.getLogger(__name__)
 
+limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 VALID_ACCOUNT_ROLES = {"pilot", "organizer"}
 VALID_PROFILE_TYPES = {"pilot", "driver"}
@@ -78,14 +82,19 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
+@limiter.limit("10/minute")
+def login(request: Request, payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
     submitted_username = payload.username.strip().lower()
     user = session.scalar(select(User).where(User.username == submitted_username, User.is_active.is_(True)))
     if user is None:
         user = session.scalar(select(User).where(User.username == payload.username.strip(), User.is_active.is_(True)))
     if user is None or not user.password_hash or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-    return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
+    return TokenResponse(
+        access_token=create_access_token(user.username),
+        refresh_token=create_refresh_token(user.username),
+        user=UserSummary.model_validate(user),
+    )
 
 
 @router.get("/google-client-id")
@@ -98,7 +107,8 @@ def google_client_id() -> dict[str, str | None]:
 
 
 @router.post("/google", response_model=TokenResponse)
-def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_session)) -> TokenResponse:
+@limiter.limit("10/minute")
+def google_auth(request: Request, payload: GoogleAuthRequest, session: Session = Depends(get_session)) -> TokenResponse:
     """Authenticate via Google ID token. Links to existing account if email matches, otherwise creates a new account."""
     settings = get_app_settings()
     if not settings.google_client_id:
@@ -117,6 +127,10 @@ def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_sessi
     email = idinfo.get("email", "").strip().lower()
     if not email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google account has no email")
+
+    # Only trust emails that Google has verified
+    if not idinfo.get("email_verified", False):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Google email is not verified")
 
     # 1. Check if we already have a user linked to this Google ID
     user = session.scalar(select(User).where(User.oauth_provider == "google", User.oauth_id == google_id, User.is_active.is_(True)))
@@ -175,11 +189,16 @@ def google_auth(payload: GoogleAuthRequest, session: Session = Depends(get_sessi
         session.refresh(user)
         logger.info("User %s authenticated via Google sign-in", user.username)
 
-    return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
+    return TokenResponse(
+        access_token=create_access_token(user.username),
+        refresh_token=create_refresh_token(user.username),
+        user=UserSummary.model_validate(user),
+    )
 
 
 @router.post("/register", response_model=TokenResponse)
-def register(payload: RegisterRequest, session: Session = Depends(get_session)) -> TokenResponse:
+@limiter.limit("5/minute")
+def register(request: Request, payload: RegisterRequest, session: Session = Depends(get_session)) -> TokenResponse:
     email = payload.email.strip().lower()
     account_role = payload.account_role.strip().lower() if payload.account_role else "pilot"
     if account_role not in VALID_ACCOUNT_ROLES:
@@ -236,7 +255,28 @@ def register(payload: RegisterRequest, session: Session = Depends(get_session)) 
         session.add(user)
     session.commit()
     session.refresh(user)
-    return TokenResponse(access_token=create_access_token(user.username), user=UserSummary.model_validate(user))
+    return TokenResponse(
+        access_token=create_access_token(user.username),
+        refresh_token=create_refresh_token(user.username),
+        user=UserSummary.model_validate(user),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
+def refresh(request: Request, payload: RefreshRequest, session: Session = Depends(get_session)) -> TokenResponse:
+    """Exchange a valid refresh token for a new access + refresh token pair."""
+    subject = decode_refresh_token(payload.refresh_token)
+    if subject is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
+    user = session.scalar(select(User).where(User.username == subject, User.is_active.is_(True)))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return TokenResponse(
+        access_token=create_access_token(user.username),
+        refresh_token=create_refresh_token(user.username),
+        user=UserSummary.model_validate(user),
+    )
 
 
 @router.get("/me", response_model=UserSummary)
