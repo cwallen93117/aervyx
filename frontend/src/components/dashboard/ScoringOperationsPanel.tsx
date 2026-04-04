@@ -530,7 +530,7 @@ export default function ScoringOperationsPanel({
                             <option value="">- Select file or status -</option>
                             {row.uploads.map((upload) => (
                               <option key={upload.id} value={`file:${upload.id}`}>
-                                {upload.label}
+                                {upload.label}{upload.late_start ? ' [LATE START]' : ''}
                               </option>
                             ))}
                             <option value="status:minimum_distance">Minimum Distance</option>

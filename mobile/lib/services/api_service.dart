@@ -61,6 +61,30 @@ class ApiService {
     return decoded is Map<String, dynamic> ? decoded : {};
   }
 
+  /// Upload a file via multipart/form-data POST.
+  Future<Map<String, dynamic>> uploadFile(
+    String path, {
+    required String filePath,
+    String fieldName = 'file',
+    Map<String, String>? fields,
+  }) async {
+    final uri = Uri.parse('$_baseUrl$path');
+    final request = http.MultipartRequest('POST', uri);
+    if (_token != null) {
+      request.headers['Authorization'] = 'Bearer $_token';
+    }
+    request.files.add(await http.MultipartFile.fromPath(fieldName, filePath));
+    if (fields != null) {
+      request.fields.addAll(fields);
+    }
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    _assertOk(response);
+    if (response.body.isEmpty) return {};
+    final decoded = jsonDecode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : {};
+  }
+
   /// Open an SSE stream and yield raw lines.
   Stream<String> sseStream(String path) async* {
     final request =

@@ -504,6 +504,7 @@ class ScoringUploadOption(BaseModel):
     upload_source: str
     label: str
     uploaded_at: datetime
+    late_start: bool = False
 
 
 class ScoringOperationsResultSummary(BaseModel):
