@@ -535,8 +535,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         taskEditorOverlay={resultsTrackPilotList}
                         highlightedTrackUploadId={highlightedResultUploadId}
                         fitKey={selectedTaskId}
-                        viewStateKey={`scores-replay-${selectedTaskId ?? "none"}`}
-                        preserveViewStateOnRemount
                         fitTurnpoints={allTurnpoints}
                         units={{
                           altitude: settingsForm.altitude_unit,
