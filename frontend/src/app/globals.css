@@ -2230,7 +2230,7 @@ button[type="submit"]:hover,
 }
 
 .participant-table-wrap {
-  padding: 20px 24px;
+  padding: 0;
   overflow-x: auto;
 }
 
@@ -2240,7 +2240,7 @@ button[type="submit"]:hover,
 }
 
 .participant-table thead th {
-  padding: 10px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--wash);
   font-size: 0.75rem;
@@ -2252,7 +2252,7 @@ button[type="submit"]:hover,
 }
 
 .participant-table tbody td {
-  padding: 10px 12px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
   font-size: 0.875rem;
   color: var(--ink-secondary);
@@ -2274,10 +2274,77 @@ button[type="submit"]:hover,
   text-align: right;
 }
 
+.participant-table-check {
+  width: 1%;
+  padding-left: 10px !important;
+  padding-right: 4px !important;
+}
+
+.participant-table-check input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.participant-row-selected {
+  background: var(--accent-softer);
+}
+
+.participant-bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: var(--accent-softer);
+  border-bottom: 1px solid var(--line);
+  font-size: 0.8125rem;
+  color: var(--ink-secondary);
+}
+
 .participant-table-empty {
   color: var(--muted);
   text-align: center;
   font-style: italic;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+}
+
+.confirm-dialog strong {
+  font-size: 1rem;
+  color: var(--ink);
+}
+
+.confirm-dialog p {
+  font-size: 0.875rem;
+  color: var(--ink-secondary);
+  margin: 0;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .upload-record {
@@ -2338,7 +2405,7 @@ button[type="submit"]:hover,
 }
 
 .results-table thead th {
-  padding: 10px 12px;
+  padding: 6px 10px;
   border-bottom: 1px solid var(--line);
   background: var(--wash);
   font-size: 0.75rem;
@@ -2351,7 +2418,7 @@ button[type="submit"]:hover,
 }
 
 .results-table tbody td {
-  padding: 10px 12px;
+  padding: 5px 10px;
   border-bottom: 1px solid var(--line);
   font-size: 0.875rem;
   color: var(--ink-secondary);
