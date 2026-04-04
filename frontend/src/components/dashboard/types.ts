@@ -179,6 +179,7 @@ export type EventRecord = {
   visible_airspace_classes_json: string[];
   show_restricted_fields: boolean;
   penalties_json: Record<string, unknown>;
+  is_public_tracking: boolean;
   updated_at: string;
   pilot_count: number;
   task_count: number;
@@ -324,6 +325,7 @@ export function blankEventForm() {
     visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"],
     show_restricted_fields: true,
     penalties_text: "{}",
+    is_public_tracking: false,
   };
 }
 

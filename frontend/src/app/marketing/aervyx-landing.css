@@ -25,6 +25,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;align-items:cen
 .nav-gh:hover{color:var(--white);border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.04)}
 .nav-cta{padding:.46rem 1.1rem;border-radius:8px;background:var(--cyan);color:var(--void);font-family:'Barlow',sans-serif;font-size:.875rem;font-weight:700;cursor:pointer;border:none;text-decoration:none;display:inline-block;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 18px rgba(0,229,255,.26)}
 .nav-cta:hover{background:#1aecff;transform:translateY(-1px);box-shadow:0 0 28px rgba(0,229,255,.44)}
+.nav-live{padding:.46rem 1.1rem;border-radius:8px;background:var(--green);color:var(--void);font-family:'Barlow',sans-serif;font-size:.875rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:.38rem;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 18px rgba(0,230,118,.26)}
+.nav-live:hover{background:#1aef82;transform:translateY(-1px);box-shadow:0 0 28px rgba(0,230,118,.44)}
 
 /* HERO */
 .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:88px 2rem 5rem;position:relative;overflow:hidden;text-align:center}

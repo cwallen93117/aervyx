@@ -15,10 +15,12 @@ router = APIRouter(prefix="/api/buddies", tags=["buddies"])
 
 class GroupCreate(BaseModel):
     name: str
+    is_public: bool = False
 
 
 class GroupRename(BaseModel):
     name: str
+    is_public: bool = False
 
 
 class MemberAdd(BaseModel):
@@ -36,6 +38,7 @@ class MemberResponse(BaseModel):
 class GroupResponse(BaseModel):
     id: int
     name: str
+    is_public: bool = False
     members: list[MemberResponse]
     created_at: str
 
@@ -62,6 +65,7 @@ def _load_group_with_members(session: Session, group: BuddyGroup) -> GroupRespon
     return GroupResponse(
         id=group.id,
         name=group.name,
+        is_public=group.is_public,
         members=[
             MemberResponse(
                 pilot_id=pilot.id,
@@ -104,7 +108,7 @@ def create_group(payload: GroupCreate, user: User = Depends(get_current_user), s
     ).scalar_one_or_none()
     if existing:
         raise HTTPException(status_code=409, detail="A group with that name already exists")
-    group = BuddyGroup(user_id=user.id, name=name)
+    group = BuddyGroup(user_id=user.id, name=name, is_public=payload.is_public)
     session.add(group)
     session.commit()
     session.refresh(group)
@@ -123,6 +127,7 @@ def rename_group(group_id: int, payload: GroupRename, user: User = Depends(get_c
     if duplicate:
         raise HTTPException(status_code=409, detail="A group with that name already exists")
     group.name = name
+    group.is_public = payload.is_public
     session.commit()
     session.refresh(group)
     return _load_group_with_members(session, group)

@@ -360,6 +360,7 @@ function eventToForm(event: EventRecord | null | undefined) {
         visible_airspace_classes_json: event.visible_airspace_classes_json,
         show_restricted_fields: event.show_restricted_fields,
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
+        is_public_tracking: event.is_public_tracking ?? false,
       }
     : blankEventForm();
 }
@@ -1858,6 +1859,23 @@ export default function HomePage() {
     setMessage(`Started a new draft for ${selectedEvent?.name ?? "this event"}.`);
   }
 
+  function duplicateTask() {
+    if (!taskDraft.id) return;
+    setSelectedTaskId(null);
+    setTrack(null);
+    setResults([]);
+    setUploads([]);
+    setScoringFeedback(null);
+    setTaskFeedback(null);
+    setRadiusDrafts({});
+    setTaskDraft({
+      ...taskDraft,
+      id: null,
+      name: `${taskDraft.name} (copy)`,
+    });
+    setMessage(`Created a copy of ${taskDraft.name}. Save to persist.`);
+  }
+
   function addTurnpoint(turnpoint: MapTurnpoint) {
       setRadiusDrafts({});
       setTaskDraft((current) => {
@@ -2295,6 +2313,7 @@ export default function HomePage() {
             unpublishTask={unpublishTask}
             deleteTask={deleteTask}
             startNewTask={startNewTask}
+            duplicateTask={duplicateTask}
             handleRadiusInputChange={handleRadiusInputChange}
             handleRadiusInputBlur={handleRadiusInputBlur}
             handleRadiusInputKeyDown={handleRadiusInputKeyDown}
@@ -2383,6 +2402,7 @@ export default function HomePage() {
               unpublishTask={unpublishTask}
               deleteTask={deleteTask}
               startNewTask={startNewTask}
+              duplicateTask={duplicateTask}
               handleRadiusInputChange={handleRadiusInputChange}
               handleRadiusInputBlur={handleRadiusInputBlur}
               handleRadiusInputKeyDown={handleRadiusInputKeyDown}

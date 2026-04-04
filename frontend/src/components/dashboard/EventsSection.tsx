@@ -863,6 +863,10 @@ export default function EventsSection(props: EventsSectionProps) {
                     <span>Timezone</span>
                     <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
                   </label>
+                  <label className="task-advanced-toggle">
+                    <input type="checkbox" checked={eventForm.is_public_tracking ?? false} onChange={(event) => setEventForm({ ...eventForm, is_public_tracking: event.target.checked })} />
+                    <span>Public live tracking</span>
+                  </label>
                 </div>
               </fieldset>
               <fieldset className="fieldset-cluster">

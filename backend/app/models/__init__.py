@@ -95,6 +95,7 @@ class Event(Base):
     visible_airspace_classes_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
     show_restricted_fields: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     penalties_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    is_public_tracking: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
@@ -411,6 +412,7 @@ class BuddyGroup(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

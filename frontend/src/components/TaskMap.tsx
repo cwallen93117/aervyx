@@ -1001,6 +1001,7 @@ export const TaskMap = React.memo(function TaskMap({
     telemetry_speed_smoothing_seconds: 3,
     telemetry_glide_ratio_smoothing_seconds: 5,
   },
+  showGpsButton = false,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1025,6 +1026,7 @@ export const TaskMap = React.memo(function TaskMap({
   mode?: "replay" | "live";
   units?: MapUnitPreferences;
   telemetrySmoothing?: MapTelemetrySmoothing;
+  showGpsButton?: boolean;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1060,6 +1062,73 @@ export const TaskMap = React.memo(function TaskMap({
   const [replaySpeed, setReplaySpeed] = useState(10);
   const [replayHasInteracted, setReplayHasInteracted] = useState(false);
   const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
+  const [gpsFollowing, setGpsFollowing] = useState(false);
+  const gpsWatchIdRef = useRef<number | null>(null);
+
+  // GPS toggle handler
+  const handleGpsToggle = useCallback(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (gpsFollowing) {
+      // Stop following — zoom back to task/turnpoints
+      if (gpsWatchIdRef.current != null) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+        gpsWatchIdRef.current = null;
+      }
+      try { map.removeLayer("user-location-pulse"); } catch {}
+      try { map.removeLayer("user-location-dot"); } catch {}
+      try { map.removeSource("user-location"); } catch {}
+      setGpsFollowing(false);
+      // Refit to task bounds
+      const target = resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints);
+      if (target.kind !== "fallback") {
+        const coords = target.coordinates as [number, number][];
+        if (coords.length >= 2) {
+          const bnds = new maplibregl.LngLatBounds();
+          for (const c of coords) bnds.extend(c);
+          programmaticCameraMoveRef.current = true;
+          map.fitBounds(bnds, { padding: 60, maxZoom: fitMaxZoom, duration: 600 });
+        } else if (coords.length === 1) {
+          programmaticCameraMoveRef.current = true;
+          map.easeTo({ center: coords[0], zoom: fitMaxZoom, duration: 600 });
+        }
+      }
+    } else {
+      // Start following
+      if (!("geolocation" in navigator)) return;
+      setGpsFollowing(true);
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+          const src = map.getSource("user-location") as maplibregl.GeoJSONSource | undefined;
+          const geojson = { type: "FeatureCollection" as const, features: [{ type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: lngLat } }] };
+          if (src) {
+            src.setData(geojson);
+          } else {
+            map.addSource("user-location", { type: "geojson", data: geojson });
+            map.addLayer({ id: "user-location-pulse", type: "circle", source: "user-location", paint: { "circle-radius": 18, "circle-color": "#2563eb", "circle-opacity": 0.15 } });
+            map.addLayer({ id: "user-location-dot", type: "circle", source: "user-location", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
+          }
+          programmaticCameraMoveRef.current = true;
+          map.easeTo({ center: lngLat, zoom: Math.max(map.getZoom(), 13), duration: 600 });
+        },
+        () => {
+          setGpsFollowing(false);
+        },
+        { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
+      );
+      gpsWatchIdRef.current = watchId;
+    }
+  }, [gpsFollowing, turnpoints, taskPoints, track, fitTurnpoints, fitMaxZoom]);
+
+  // Cleanup GPS watch on unmount
+  useEffect(() => {
+    return () => {
+      if (gpsWatchIdRef.current != null) {
+        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      }
+    };
+  }, []);
 
   const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
   const livePositionData = useMemo(() => ({
@@ -2215,6 +2284,20 @@ export const TaskMap = React.memo(function TaskMap({
         >
           {isPerspective3D ? "3D" : "2D"}
         </button>
+        {showGpsButton && typeof navigator !== "undefined" && "geolocation" in navigator ? (
+          <button
+            type="button"
+            className={`map-control-button map-control-mode-button${gpsFollowing ? " map-control-gps-active" : ""}`}
+            aria-label={gpsFollowing ? "Back to event" : "Center on my location"}
+            title={gpsFollowing ? "Back to event" : "My location"}
+            onClick={handleGpsToggle}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+            </svg>
+          </button>
+        ) : null}
       </div>
       <div className="map-picker-stack">
         {track ? (
