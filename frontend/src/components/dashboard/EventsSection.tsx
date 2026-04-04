@@ -863,6 +863,15 @@ export default function EventsSection(props: EventsSectionProps) {
                     <span>Timezone</span>
                     <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
                   </label>
+                  <label className="stack compact">
+                    <span>Publicly viewable</span>
+                    <select value={eventForm.visibility} onChange={(event) => setEventForm({ ...eventForm, visibility: event.target.value as "public" | "users" | "participants" | "private" })}>
+                      <option value="public">Public</option>
+                      <option value="users">Viewable by all Aervyx users</option>
+                      <option value="participants">Viewable by Event Participants</option>
+                      <option value="private">Not viewable</option>
+                    </select>
+                  </label>
                 </div>
               </fieldset>
               <fieldset className="fieldset-cluster">

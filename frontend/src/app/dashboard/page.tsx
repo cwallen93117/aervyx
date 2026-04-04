@@ -361,6 +361,7 @@ function eventToForm(event: EventRecord | null | undefined) {
         visible_airspace_classes_json: event.visible_airspace_classes_json,
         show_restricted_fields: event.show_restricted_fields,
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
+        visibility: event.visibility ?? "private",
       }
     : blankEventForm();
 }
@@ -1691,6 +1692,7 @@ export default function HomePage() {
       visible_airspace_classes_json: nextForm.visible_airspace_classes_json,
       show_restricted_fields: nextForm.show_restricted_fields,
       penalties_json: penaltiesJson,
+      visibility: nextForm.visibility,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
     const loadedEvents = await refreshEvents(token);

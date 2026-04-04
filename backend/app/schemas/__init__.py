@@ -227,6 +227,7 @@ class EventCreate(BaseModel):
     visible_airspace_classes_json: list[str] = Field(default_factory=lambda: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"])
     show_restricted_fields: bool = True
     penalties_json: dict = Field(default_factory=dict)
+    visibility: str = "private"
 
 
 class EventResponse(EventCreate):
