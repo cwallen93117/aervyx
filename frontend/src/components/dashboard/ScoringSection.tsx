@@ -319,24 +319,30 @@ export default function ScoringSection(props: ScoringSectionProps) {
         ) : null}
       {!canManagePlatform || scoresPortalTab === "results" ? (
         <div className="stack">
-          <div className="tab-row">
-            <button type="button" className={scoringTab === "task" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("task")}>Task results</button>
-            <button type="button" className={scoringTab === "overall" ? "tab-button active" : "tab-button"} onClick={() => setScoringTab("overall")}>Overall results</button>
+          <div className="scoring-nav">
+            {publishedTasks.map((task) => (
+              <button
+                key={task.id}
+                type="button"
+                className={scoringTab === "task" && Number(scoringSelectedTaskId) === task.id ? "scoring-nav-btn active" : "scoring-nav-btn"}
+                onClick={() => {
+                  setScoringTab("task");
+                  void loadTask(token, task.id, task, activeSection === "scoring");
+                }}
+              >
+                {task.name}
+              </button>
+            ))}
+            <button
+              type="button"
+              className={scoringTab === "overall" ? "scoring-nav-btn scoring-nav-overall active" : "scoring-nav-btn scoring-nav-overall"}
+              onClick={() => setScoringTab("overall")}
+            >
+              Overall
+            </button>
           </div>
           {scoringTab === "task" ? (
-            <div className="stack form-block compact-clusters">
-              <fieldset className="fieldset-cluster">
-                <legend>Task selection</legend>
-                <div className="cluster-stack">
-                  <label className="stack compact">
-                    <span>Selected task</span>
-                    <select value={scoringSelectedTaskId} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = publishedTasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                      <option value="">Select a task</option>
-                      {publishedTasks.map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}
-                    </select>
-                  </label>
-                </div>
-              </fieldset>
+            <div className="stack form-block">
               {taskDefinitionRows.length ? (
                 <div className="results-sheet task-definition-sheet">
                   <div className="results-sheet-header">
