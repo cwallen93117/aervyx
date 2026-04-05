@@ -6032,16 +6032,10 @@ html[data-theme="dark"] .logbook-modal {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
 }
 
-/* ── Map controls ── */
-html[data-theme="dark"] .map-control-button {
-  background: #111827;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.88);
-}
-
-html[data-theme="dark"] .map-control-button:hover {
-  background: #1f2937;
-}
+/* ── Map overlays stay light in dark mode ────────────────────
+   Controls sit on top of map imagery (typically light tiles),
+   so we hold them in their light-mode appearance even when
+   the rest of the app is dark. */
 
 html[data-theme="dark"] .map-fullscreen-sidebar .results-task-map-pilot-list {
   background: rgba(17, 24, 39, 0.96);
@@ -6051,36 +6045,23 @@ html[data-theme="dark"] .map-task-editor {
   background: rgba(17, 24, 39, 0.96);
 }
 
-html[data-theme="dark"] .map-card .maplibregl-ctrl-scale {
-  background: rgba(17, 24, 39, 0.92);
-  border-color: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.88);
+/* Altitude / basemap pickers: force light styling for the
+   container, label text, and the nested <select> (overrides
+   the global html[data-theme="dark"] select rule). */
+html[data-theme="dark"] .map-style-picker {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: #e2e8f0;
 }
 
-/* ── Replay controls ── */
-html[data-theme="dark"] .replay-btn {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: #111827;
-  color: rgba(255, 255, 255, 0.88);
+html[data-theme="dark"] .map-style-picker span {
+  color: #475569;
 }
 
-html[data-theme="dark"] .replay-btn:hover {
-  background: #1e293b;
-}
-
-html[data-theme="dark"] .replay-btn-primary {
-  background: #3b82f6;
-  border-color: #3b82f6;
-}
-
-html[data-theme="dark"] .replay-btn-primary:hover {
-  background: #2563eb;
-}
-
+html[data-theme="dark"] .map-style-picker select,
 html[data-theme="dark"] .replay-speed-select select {
-  border-color: rgba(255, 255, 255, 0.12);
-  background: rgba(17, 24, 39, 0.9);
-  color: rgba(255, 255, 255, 0.88);
+  background: #fcfdff;
+  border-color: #cad7e8;
+  color: #0f172a;
 }
 
 /* ── Scoring ops panel ── */

@@ -2303,7 +2303,7 @@ export const TaskMap = React.memo(function TaskMap({
         ) : null}
       </div>
       <div className="map-picker-stack">
-        {track ? (
+        {isPerspective3D ? (
           <label className="map-style-picker">
             <span>Altitude</span>
             <select value={String(altitudeMultiplier)} onChange={(event) => setAltitudeMultiplier(Number(event.target.value))}>
