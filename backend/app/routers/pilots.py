@@ -50,6 +50,7 @@ def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = N
         competition_number=pilot.competition_number,
         civl_id=pilot.civl_id,
         portal_username=user.username if user else None,
+        is_claimed=user is not None,
         temp_password=temp_password,
     )
 
@@ -109,14 +110,20 @@ def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(re
 
 
 @router.put("/api/pilots/{pilot_id}", response_model=PilotResponse)
-def update_pilot(pilot_id: int, payload: PilotUpsert, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> PilotResponse:
+def update_pilot(pilot_id: int, payload: PilotUpsert, actor: User = Depends(get_current_user), session: Session = Depends(get_session)) -> PilotResponse:
+    if actor.role not in {"admin", "organizer"}:
+        raise HTTPException(status_code=403, detail="Staff role required")
     pilot = session.get(Pilot, pilot_id)
     if pilot is None:
         raise HTTPException(status_code=404, detail="Pilot not found")
+    if actor.role != "admin":
+        claim = session.scalar(select(User).where(User.pilot_id == pilot.id))
+        if claim is not None:
+            raise HTTPException(status_code=403, detail="Only admins can edit claimed pilot accounts")
     for field in ["first_name", "last_name", "email", "nation", "competition_number", "civl_id"]:
         setattr(pilot, field, getattr(payload, field))
     _, temp_password = _ensure_portal_user(session, pilot, payload.username, payload.password)
-    log_action(session, actor_user_id=admin.id, action="pilot.update", entity_type="pilot", entity_id=str(pilot.id), details={"competition_number": pilot.competition_number})
+    log_action(session, actor_user_id=actor.id, action="pilot.update", entity_type="pilot", entity_id=str(pilot.id), details={"competition_number": pilot.competition_number})
     session.commit()
     return _pilot_payload(session, pilot, temp_password=temp_password)
 
