@@ -66,6 +66,7 @@ class FsdbParticipant:
     nation: str = ""
     glider: str = ""
     female: bool = False
+    contest_number: int | None = None
 
 
 @dataclass

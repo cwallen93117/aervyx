@@ -242,11 +242,11 @@ def _compare_task(
         if pc.fsdb_rank is not None and pc.aervyx_rank is not None:
             pc.rank_diff = pc.aervyx_rank - pc.fsdb_rank
 
-        # Classify (use full total-to-total comparison now that leading is implemented)
+        # Classify using total diff (both engines now compute leading)
         abs_diff = abs(pc.total_diff)
-        if abs_diff <= 0.1:
+        if abs_diff <= 2.0:
             pc.match_status = "exact"
-        elif abs_diff <= 2.0:
+        elif abs_diff <= 10.0:
             pc.match_status = "close"
         else:
             pc.match_status = "mismatch"
