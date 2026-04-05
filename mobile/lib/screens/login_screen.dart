@@ -19,6 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailCtl = TextEditingController();
   final _passwordCtl = TextEditingController();
   bool _busy = false;
+  bool _showPassword = false;
   String? _error;
   String? _googleClientId;
   // Only hidden when the backend explicitly says Google is not configured (404).
@@ -165,8 +166,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     focusedBorder: const OutlineInputBorder(
                       borderSide: BorderSide(color: AervyxLogo.cyan),
                     ),
+                    suffixIcon: IconButton(
+                      icon: Icon(
+                        _showPassword ? Icons.visibility_off : Icons.visibility,
+                        color: Colors.grey[500],
+                      ),
+                      onPressed: () => setState(() => _showPassword = !_showPassword),
+                    ),
                   ),
-                  obscureText: true,
+                  obscureText: !_showPassword,
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _handleLogin(),
                 ),
