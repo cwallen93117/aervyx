@@ -145,27 +145,49 @@ def points_weight(
         distweight = 1.0 - 0.8 * math.sqrt(x)
 
     Adistance = 1000.0 * quality * distweight
-    Astart = 1000.0 * quality * (1.0 - distweight) * formula.get("weightstart", 0.175)
-    Aarrival = 1000.0 * quality * (1.0 - distweight) * formula.get("weightarrival", 0.125)
-    speedweight = formula.get("weightspeed", 0.7)
 
-    # Hang glider override (Gap.pm line 493-500)
-    if task.get("class") == "HG":
-        Adistance = 1000.0 * (0.9 - 1.665 * x + 1.713 * x ** 2 - 0.587 * x ** 3) * quality
-        Astart = 1000.0 * quality * (1.0 - distweight) * 1.4 / 8.0
-        Aarrival = 1000.0 * quality * (1.0 - distweight) * 1.0 / 8.0
+    # GAP2021+ leading weight: leading_weight_factor overrides the legacy
+    # weightstart (0.175) as the fraction of non-distance points for leading.
+    # E.g. 0.26 for GAP2023 PG.  Speed gets whatever remains after
+    # distance, leading, and arrival.
+    lwf = formula.get("leading_weight_factor", 1.0)
+    if lwf != 1.0 and lwf > 0:
+        non_dist = 1000.0 * quality * (1.0 - distweight)
+        Astart = non_dist * lwf
+        Aarrival = non_dist * formula.get("weightarrival", 0.125)
 
-    # Arrival off (Gap.pm line 502-506)
-    if task.get("arrival") == "off":
-        Aarrival = 0.0
-        speedweight += formula.get("weightarrival", 0.125)
+        if task.get("class") == "HG":
+            Aarrival = non_dist * 1.0 / 8.0
 
-    # Departure off (Gap.pm line 508-512)
-    if task.get("departure") == "off":
-        Astart = 0.0
-        speedweight += formula.get("weightstart", 0.175)
+        if task.get("arrival") == "off":
+            Aarrival = 0.0
+        if task.get("departure") == "off":
+            Astart = 0.0
 
-    Aspeed = 1000.0 * quality * (1.0 - distweight) * speedweight
+        Aspeed = non_dist - Astart - Aarrival
+    else:
+        # Legacy AirScore relative allocation
+        Astart = 1000.0 * quality * (1.0 - distweight) * formula.get("weightstart", 0.175)
+        Aarrival = 1000.0 * quality * (1.0 - distweight) * formula.get("weightarrival", 0.125)
+        speedweight = formula.get("weightspeed", 0.7)
+
+        # Hang glider override (Gap.pm line 493-500)
+        if task.get("class") == "HG":
+            Adistance = 1000.0 * (0.9 - 1.665 * x + 1.713 * x ** 2 - 0.587 * x ** 3) * quality
+            Astart = 1000.0 * quality * (1.0 - distweight) * 1.4 / 8.0
+            Aarrival = 1000.0 * quality * (1.0 - distweight) * 1.0 / 8.0
+
+        # Arrival off (Gap.pm line 502-506)
+        if task.get("arrival") == "off":
+            Aarrival = 0.0
+            speedweight += formula.get("weightarrival", 0.125)
+
+        # Departure off (Gap.pm line 508-512)
+        if task.get("departure") == "off":
+            Astart = 0.0
+            speedweight += formula.get("weightstart", 0.175)
+
+        Aspeed = 1000.0 * quality * (1.0 - distweight) * speedweight
 
     # Scale to validity (Gap.pm line 515-522)
     if formula.get("scaletovalidity"):
