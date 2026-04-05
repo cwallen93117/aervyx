@@ -20,6 +20,7 @@ export type AccountSettingsRecord = {
   nation: string | null;
   competition_number: string | null;
   civl_id: string | null;
+  pilot_id: number | null;
   has_password?: boolean;
   access_token?: string | null;
 };
@@ -393,6 +394,26 @@ export type PilotSearchResult = {
   nation: string | null;
   competition_number: string | null;
   email: string | null;
+};
+
+export type UserEmailRecord = {
+  id: number;
+  email: string;
+  created_at: string;
+};
+export type PilotClaimSearchResultRecord = {
+  pilot_id: number;
+  first_name: string;
+  last_name: string;
+  nation: string | null;
+  competition_number: string | null;
+  civl_id: string | null;
+  can_instant_claim: boolean;
+};
+export type PilotClaimResponseRecord = {
+  success: boolean;
+  pilot_id: number;
+  message: string;
 };
 
 export { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection };

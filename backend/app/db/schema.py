@@ -221,6 +221,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "penalties_json": "ALTER TABLE events ADD COLUMN penalties_json JSON",
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT FALSE",
+        "visibility": "ALTER TABLE events ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
@@ -384,6 +385,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
             bg_cols = {c["name"] for c in inspector.get_columns("buddy_groups")}
             if "is_public" not in bg_cols:
                 connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN is_public BOOLEAN DEFAULT FALSE"))
+            if "visibility" not in bg_cols:
+                connection.execute(text("ALTER TABLE buddy_groups ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'"))
 
         if "buddy_group_members" not in table_names:
             connection.execute(
@@ -403,6 +406,23 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_buddy_group_members_group_id ON buddy_group_members (group_id)"))
             connection.execute(text("CREATE INDEX ix_buddy_group_members_pilot_id ON buddy_group_members (pilot_id)"))
+
+        if "user_emails" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE user_emails (
+                      id INTEGER PRIMARY KEY,
+                      user_id INTEGER NOT NULL,
+                      email VARCHAR(160) NOT NULL,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(user_id) REFERENCES users (id) ON DELETE CASCADE,
+                      UNIQUE(email)
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_user_emails_user_id ON user_emails (user_id)"))
 
         # Index for pilot-scoped queries (buddy group tracking)
         if "live_positions" in table_names:

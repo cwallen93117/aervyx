@@ -2,6 +2,8 @@
 
 import { useState, type FormEvent } from "react";
 import BuddyGroupsManager from "./BuddyGroupsManager";
+import EmailsManager from "./EmailsManager";
+import PilotClaimSection from "./PilotClaimSection";
 import type { AccountSettingsRecord } from "./types";
 
 export interface SettingsSectionProps {
@@ -18,14 +20,18 @@ export interface SettingsSectionProps {
   };
   saveAccountSettings: (event: FormEvent<HTMLFormElement>) => void;
   savePasswordSettings: (event: FormEvent<HTMLFormElement>) => void;
+  pilotId: number | null;
+  onPilotClaimed: () => void;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "buddies";
+type SettingsTab = "profile" | "units" | "password" | "emails" | "pilot_record" | "buddies";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
   { key: "units", label: "Units" },
   { key: "password", label: "Password" },
+  { key: "emails", label: "Emails" },
+  { key: "pilot_record", label: "Pilot Record" },
   { key: "buddies", label: "Pilot Buddies" },
 ];
 
@@ -41,6 +47,8 @@ export default function SettingsSection(props: SettingsSectionProps) {
     settingsFeedback,
     saveAccountSettings,
     savePasswordSettings,
+    pilotId,
+    onPilotClaimed,
   } = props;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
@@ -226,6 +234,18 @@ export default function SettingsSection(props: SettingsSectionProps) {
             </div>
             {settingsFeedback.password ? <div className={`status-chip ${settingsFeedback.password.type}`}>{settingsFeedback.password.text}</div> : null}
           </form>
+        </div>
+      )}
+
+      {activeTab === "emails" && (
+        <div className="settings-tab-panel">
+          <EmailsManager token={token} />
+        </div>
+      )}
+
+      {activeTab === "pilot_record" && (
+        <div className="settings-tab-panel">
+          <PilotClaimSection token={token} pilotId={pilotId} onClaimed={onPilotClaimed} />
         </div>
       )}
 

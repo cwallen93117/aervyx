@@ -63,6 +63,7 @@ class AccountSettingsResponse(BaseModel):
     nation: str | None = None
     competition_number: str | None = None
     civl_id: str | None = None
+    pilot_id: int | None = None
     has_password: bool = False
 
 
@@ -91,6 +92,39 @@ class AccountSettingsUpdate(BaseModel):
 class PasswordChangeRequest(BaseModel):
     current_password: str = ""
     new_password: str
+
+
+class UserEmailResponse(BaseModel):
+    id: int
+    email: str
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserEmailCreate(BaseModel):
+    email: str
+
+
+class PilotClaimSearchResult(BaseModel):
+    pilot_id: int
+    first_name: str
+    last_name: str
+    nation: str | None = None
+    competition_number: str | None = None
+    civl_id: str | None = None
+    can_instant_claim: bool = False
+
+
+class PilotClaimRequest(BaseModel):
+    pilot_id: int
+    competition_number: str | None = None
+    civl_id: str | None = None
+
+
+class PilotClaimResponse(BaseModel):
+    success: bool
+    pilot_id: int
+    message: str
 
 
 class AdminUserResponse(BaseModel):

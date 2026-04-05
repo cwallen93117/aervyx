@@ -5,14 +5,14 @@ from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Pilot, User
+from app.models import Pilot, User, UserEmail
 from app.schemas import (
     AdminUserResponse,
     AdminUserUpdate,
@@ -22,9 +22,14 @@ from app.schemas import (
     GoogleAuthRequest,
     LoginRequest,
     PasswordChangeRequest,
+    PilotClaimRequest,
+    PilotClaimResponse,
+    PilotClaimSearchResult,
     RefreshRequest,
     RegisterRequest,
     TokenResponse,
+    UserEmailCreate,
+    UserEmailResponse,
     UserSummary,
 )
 
@@ -59,6 +64,37 @@ def _normalize_email_identity(username: str | None, email: str | None) -> str | 
     return None
 
 
+def _find_pilot_broad_match(session: Session, email: str, competition_number: str | None, civl_id: str | None) -> Pilot | None:
+    """Find a Pilot by email, user_emails table, competition_number, or civl_id."""
+    # 1. Primary Pilot.email
+    pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
+    if pilot is not None:
+        return pilot
+    # 2. user_emails table → owning user → their pilot
+    try:
+        ue_row = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == email))
+        if ue_row is not None:
+            owner = session.get(User, ue_row.user_id)
+            if owner and owner.pilot_id:
+                pilot = session.get(Pilot, owner.pilot_id)
+                if pilot is not None:
+                    return pilot
+    except Exception:
+        # user_emails table may not exist yet — degrade gracefully
+        logger.debug("user_emails lookup skipped (table may not exist)")
+    # 3. competition_number
+    if competition_number and competition_number.strip():
+        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.competition_number) == competition_number.strip().lower()))
+        if pilot is not None:
+            return pilot
+    # 4. civl_id
+    if civl_id and civl_id.strip():
+        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.civl_id) == civl_id.strip().lower()))
+        if pilot is not None:
+            return pilot
+    return None
+
+
 def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None = None) -> AccountSettingsUpdateResponse:
     return AccountSettingsUpdateResponse(
         username=user.username,
@@ -76,6 +112,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         nation=pilot.nation if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
         civl_id=pilot.civl_id if pilot else None,
+        pilot_id=user.pilot_id,
         has_password=bool(user.password_hash),
         access_token=access_token,
     )
@@ -152,7 +189,7 @@ def google_auth(request: Request, payload: GoogleAuthRequest, session: Session =
         family_name = idinfo.get("family_name", "")
         full_name = f"{given_name} {family_name}".strip() or email
 
-        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
+        pilot = _find_pilot_broad_match(session, email, None, None)
         if pilot is None:
             pilot = Pilot(
                 first_name=given_name or email.split("@")[0],
@@ -211,7 +248,7 @@ def register(request: Request, payload: RegisterRequest, session: Session = Depe
 
     pilot: Pilot | None = None
     if account_role == "pilot":
-        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
+        pilot = _find_pilot_broad_match(session, email, payload.competition_number, payload.civl_id)
         if pilot is None:
             pilot = Pilot(
                 first_name=payload.first_name.strip(),
@@ -388,6 +425,197 @@ def change_password(
     session.add(user)
     session.commit()
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Additional-email management
+# ---------------------------------------------------------------------------
+
+@router.get("/emails", response_model=list[UserEmailResponse])
+def list_emails(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[UserEmailResponse]:
+    rows = session.scalars(
+        select(UserEmail).where(UserEmail.user_id == user.id).order_by(UserEmail.created_at)
+    ).all()
+    return [UserEmailResponse.model_validate(r) for r in rows]
+
+
+@router.post("/emails", response_model=UserEmailResponse, status_code=status.HTTP_201_CREATED)
+def add_email(
+    payload: UserEmailCreate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> UserEmailResponse:
+    email = payload.email.strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email address")
+    # Check against users.username (primary email) and user_emails.email
+    existing_user = session.scalar(
+        select(User).where(func.lower(User.username) == email)
+    )
+    if existing_user is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+    existing_ue = session.scalar(
+        select(UserEmail).where(func.lower(UserEmail.email) == email)
+    )
+    if existing_ue is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+    ue = UserEmail(user_id=user.id, email=email)
+    session.add(ue)
+    session.commit()
+    session.refresh(ue)
+    return UserEmailResponse.model_validate(ue)
+
+
+@router.delete("/emails/{email_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_email(
+    email_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    ue = session.scalar(
+        select(UserEmail).where(UserEmail.id == email_id, UserEmail.user_id == user.id)
+    )
+    if ue is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+    session.delete(ue)
+    session.commit()
+
+
+# ---------------------------------------------------------------------------
+# Pilot-record search & self-service claim
+# ---------------------------------------------------------------------------
+
+def _is_auto_generated_user(u: User) -> bool:
+    """Return True when the user account was auto-created during pilot import
+    (slug username like 'john-smith', not a real email)."""
+    return "@" not in (u.username or "")
+
+
+@router.get("/pilot-search", response_model=list[PilotClaimSearchResult])
+def pilot_search(
+    q: str = "",
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[PilotClaimSearchResult]:
+    """Search for unclaimed pilot records by name fragment."""
+    term = q.strip()
+    if len(term) < 2:
+        return []
+    like = f"%{term}%"
+    pilots = session.scalars(
+        select(Pilot)
+        .where(
+            or_(
+                func.lower(Pilot.first_name).like(like.lower()),
+                func.lower(Pilot.last_name).like(like.lower()),
+                func.lower(Pilot.competition_number).like(like.lower()),
+            )
+        )
+        .limit(20)
+    ).all()
+
+    # Gather user emails for instant-claim detection
+    user_emails_lower: set[str] = {(user.username or "").lower()}
+    extra_emails = session.scalars(
+        select(UserEmail.email).where(UserEmail.user_id == user.id)
+    ).all()
+    for e in extra_emails:
+        user_emails_lower.add(e.lower())
+
+    results: list[PilotClaimSearchResult] = []
+    for p in pilots:
+        # Check if pilot is claimable: no linked user, or linked user is auto-generated
+        linked_user = session.scalar(
+            select(User).where(User.pilot_id == p.id, User.is_active.is_(True))
+        )
+        if linked_user is not None and not _is_auto_generated_user(linked_user):
+            continue  # Already claimed by a real user
+        # Determine if instant claim is possible
+        can_instant = (p.email or "").lower() in user_emails_lower
+        results.append(
+            PilotClaimSearchResult(
+                pilot_id=p.id,
+                first_name=p.first_name or "",
+                last_name=p.last_name or "",
+                nation=getattr(p, "nation", None),
+                competition_number=p.competition_number,
+                civl_id=getattr(p, "civl_id", None),
+                can_instant_claim=can_instant,
+            )
+        )
+    return results
+
+
+@router.post("/claim-pilot", response_model=PilotClaimResponse)
+def claim_pilot(
+    payload: PilotClaimRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> PilotClaimResponse:
+    """Claim an unclaimed pilot record.  Requires at least one matching field
+    (email, competition_number, or civl_id)."""
+    pilot = session.get(Pilot, payload.pilot_id)
+    if pilot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pilot not found")
+
+    # Verify pilot is unclaimed (or only linked to an auto-generated account)
+    linked_user = session.scalar(
+        select(User).where(User.pilot_id == pilot.id, User.is_active.is_(True))
+    )
+    if linked_user is not None and not _is_auto_generated_user(linked_user):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Pilot already claimed by another user")
+
+    # Collect the requesting user's emails
+    user_emails_lower: set[str] = {(user.username or "").lower()}
+    extra_emails = session.scalars(
+        select(UserEmail.email).where(UserEmail.user_id == user.id)
+    ).all()
+    for e in extra_emails:
+        user_emails_lower.add(e.lower())
+
+    # Verify at least one matching field
+    matched = False
+    # 1. Email match
+    if (pilot.email or "").lower() in user_emails_lower:
+        matched = True
+    # 2. Competition number match
+    if not matched and payload.competition_number and payload.competition_number.strip():
+        if (pilot.competition_number or "").strip().lower() == payload.competition_number.strip().lower():
+            matched = True
+    # 3. CIVL ID match
+    if not matched and payload.civl_id and payload.civl_id.strip():
+        pilot_civl = getattr(pilot, "civl_id", None) or ""
+        if pilot_civl.strip().lower() == payload.civl_id.strip().lower():
+            matched = True
+
+    if not matched:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot verify ownership. Please contact an administrator.",
+        )
+
+    # Deactivate old auto-generated user if present
+    if linked_user is not None and _is_auto_generated_user(linked_user) and linked_user.id != user.id:
+        linked_user.is_active = False
+        linked_user.pilot_id = None
+        session.add(linked_user)
+
+    # Link requesting user to the pilot
+    user.pilot_id = pilot.id
+    # Populate user's full_name from pilot record if blank
+    pilot_full = f"{pilot.first_name or ''} {pilot.last_name or ''}".strip()
+    if pilot_full and not user.full_name:
+        user.full_name = pilot_full
+    session.add(user)
+    session.commit()
+    return PilotClaimResponse(
+        success=True,
+        pilot_id=pilot.id,
+        message=f"Pilot record claimed: {pilot_full}",
+    )
 
 
 @router.get("/users", response_model=list[AdminUserResponse])

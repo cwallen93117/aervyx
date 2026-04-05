@@ -290,55 +290,57 @@ export default function LoginPage() {
             {error ? <div className="aervyx-auth-banner error">{error}</div> : null}
 
             {authMode === "login" ? (
-              <form className="aervyx-auth-form" onSubmit={handleLogin}>
-                <label className="stack compact">
-                  <span>Username / email</span>
-                  <div className="aervyx-auth-input-shell">
-                    <input
-                      value={loginForm.username}
-                      onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
-                      placeholder="pilot@example.com"
-                      autoComplete="username"
-                      required
-                    />
-                  </div>
-                </label>
-                <label className="stack compact">
-                  <span>Password</span>
-                  <div className="aervyx-password-field">
-                    <input
-                      type={showLoginPassword ? "text" : "password"}
-                      value={loginForm.password}
-                      onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
-                      placeholder="Enter your password"
-                      autoComplete="current-password"
-                      required
-                    />
-                  </div>
-                  <div className="aervyx-auth-inline-actions">
-                    <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
-                      {forgotMode ? "Hide password help" : "Forgot password?"}
-                    </button>
-                    <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
-                      {showLoginPassword ? "Hide" : "Show"}
-                    </button>
-                  </div>
-                </label>
-                {forgotMode ? (
-                  <div className="aervyx-auth-forgot-card">
-                    <strong>Password recovery</strong>
-                    <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
-                    <div className="aervyx-auth-forgot-form">
-                      <div className="aervyx-auth-input-shell">
-                        <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
-                      </div>
-                      <button type="button" className="aervyx-auth-helper-submit" onClick={() => handleForgotPassword()}>Continue</button>
+              <>
+                <form className="aervyx-auth-form" onSubmit={handleLogin}>
+                  <label className="stack compact">
+                    <span>Username / email</span>
+                    <div className="aervyx-auth-input-shell">
+                      <input
+                        value={loginForm.username}
+                        onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
+                        placeholder="pilot@example.com"
+                        autoComplete="username"
+                        required
+                      />
                     </div>
-                  </div>
-                ) : null}
-                <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
-                  {isSubmitting ? "Signing in..." : "Sign in"}
-                </button>
+                  </label>
+                  <label className="stack compact">
+                    <span>Password</span>
+                    <div className="aervyx-password-field">
+                      <input
+                        type={showLoginPassword ? "text" : "password"}
+                        value={loginForm.password}
+                        onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                        placeholder="Enter your password"
+                        autoComplete="current-password"
+                        required
+                      />
+                    </div>
+                    <div className="aervyx-auth-inline-actions">
+                      <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
+                        {forgotMode ? "Hide password help" : "Forgot password?"}
+                      </button>
+                      <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
+                        {showLoginPassword ? "Hide" : "Show"}
+                      </button>
+                    </div>
+                  </label>
+                  {forgotMode ? (
+                    <div className="aervyx-auth-forgot-card">
+                      <strong>Password recovery</strong>
+                      <p>Reset emails are not automated yet. Enter your email and we'll show a safe placeholder confirmation.</p>
+                      <div className="aervyx-auth-forgot-form">
+                        <div className="aervyx-auth-input-shell">
+                          <input type="email" value={forgotEmail} onChange={(event) => setForgotEmail(event.target.value)} placeholder="pilot@example.com" autoComplete="email" required />
+                        </div>
+                        <button type="button" className="aervyx-auth-helper-submit" onClick={() => handleForgotPassword()}>Continue</button>
+                      </div>
+                    </div>
+                  ) : null}
+                  <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
+                    {isSubmitting ? "Signing in..." : "Sign in"}
+                  </button>
+                </form>
                 {googleClientId !== null ? (
                   <>
                     <div className="aervyx-auth-divider"><span>or</span></div>
@@ -358,7 +360,7 @@ export default function LoginPage() {
                   </>
                 ) : null}
                 <a href="/" className="aervyx-auth-secondary-link">Back to Aervyx landing page</a>
-              </form>
+              </>
             ) : (
               <form className="aervyx-auth-form" onSubmit={handleRegister}>
                 <label className="stack compact">
