@@ -40,6 +40,8 @@ limiter = Limiter(key_func=get_remote_address)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 VALID_ACCOUNT_ROLES = {"pilot", "organizer"}
 VALID_PROFILE_TYPES = {"pilot", "driver"}
+# Admins may additionally assign a user as a stationary Meshtastic relay node.
+VALID_PROFILE_TYPES_ADMIN = VALID_PROFILE_TYPES | {"stationary_node"}
 VALID_ALTITUDE_UNITS = {"ft", "m"}
 VALID_SPEED_UNITS = {"kph", "mph"}
 VALID_DISTANCE_UNITS = {"km", "mi"}
@@ -664,8 +666,8 @@ def update_user_account(
     profile_type = payload.profile_type.strip().lower()
     if role not in {"admin", "organizer", "pilot"}:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Role must be admin, organizer, or pilot")
-    if profile_type not in VALID_PROFILE_TYPES:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current type must be pilot or driver")
+    if profile_type not in VALID_PROFILE_TYPES_ADMIN:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current type must be pilot, driver, or stationary_node")
     if target.id == admin.id and role != "admin":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Use another admin account before changing your own admin role")
     if target.role == "admin" and role != "admin":

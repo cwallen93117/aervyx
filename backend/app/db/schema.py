@@ -263,6 +263,11 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN vario_unit VARCHAR(10) DEFAULT 'fpm'"))
         if "users" in table_names and "aircraft_icon" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN aircraft_icon VARCHAR(20) DEFAULT 'hang_glider'"))
+        if "users" in table_names and "mesh_device_id" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN mesh_device_id VARCHAR(80)"))
+            existing_user_indexes = {idx["name"] for idx in inspector.get_indexes("users")}
+            if "uq_users_mesh_device_id" not in existing_user_indexes:
+                connection.execute(text("CREATE UNIQUE INDEX uq_users_mesh_device_id ON users (mesh_device_id)"))
         if "users" in table_names:
             connection.execute(text("UPDATE users SET altitude_unit = 'ft' WHERE altitude_unit IS NULL"))
             connection.execute(text("UPDATE users SET speed_unit = 'kph' WHERE speed_unit IS NULL"))
