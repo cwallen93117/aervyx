@@ -9,6 +9,7 @@ import {
   type MapTurnpoint,
   type MapUnitPreferences,
 } from "../../components/TaskMap";
+import { PilotRoleBadge } from "../../components/PilotRoleBadge";
 import {
   type LivePositionRecord,
   resolveApiBase,
@@ -361,7 +362,9 @@ export function LiveWatchClient() {
                 const color = colorForPilot(pilotId, activePilotIds);
                 return (
                   <div key={pilotId} className="live-pilot-row">
-                    <span className="live-pilot-dot" style={{ background: color }} />
+                    <span className="live-pilot-badge" style={{ color }}>
+                      <PilotRoleBadge profileType={pos?.profile_type} color={color} size={16} />
+                    </span>
                     <div className="live-pilot-info">
                       <strong>{name}</strong>
                       <span className="live-pilot-stats">
