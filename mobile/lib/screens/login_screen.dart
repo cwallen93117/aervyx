@@ -1,5 +1,9 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../config/api_config.dart';
@@ -7,6 +11,27 @@ import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../widgets/aervyx_logo.dart';
 import 'register_screen.dart';
+
+class _NoNetworkException implements Exception {
+  final String message;
+  const _NoNetworkException(this.message);
+}
+
+String _friendlyError(Object e) {
+  if (e is TimeoutException) {
+    return 'Server took too long to respond. Check your connection and try again.';
+  }
+  if (e is SocketException) {
+    return 'Cannot reach server. Check your internet connection.';
+  }
+  if (e is ApiException) {
+    if (e.statusCode == 401) return 'Invalid email or password.';
+    if (e.statusCode == 403) return 'Your account is not authorized.';
+    if (e.statusCode >= 500) return 'Server error (${e.statusCode}). Please try again.';
+    return 'Request failed (${e.statusCode}).';
+  }
+  return 'Login failed. Please try again.';
+}
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -22,6 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showPassword = false;
   String? _error;
   String? _googleClientId;
+  String? _appVersion;
   // Only hidden when the backend explicitly says Google is not configured (404).
   // Network errors or timeouts leave it visible so the user can still try.
   bool _googleNotConfigured = false;
@@ -29,7 +55,13 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _loadVersion();
     _fetchGoogleClientId();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = 'v${info.version}');
   }
 
   Future<void> _fetchGoogleClientId() async {
@@ -58,12 +90,32 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     try {
-      await context.read<AuthService>().login(
-            _emailCtl.text,
-            _passwordCtl.text,
-          );
+      // Capture services before any async gap.
+      final api = context.read<ApiService>();
+      final auth = context.read<AuthService>();
+
+      // Quick reachability check so the user gets a fast error if the
+      // server is unreachable (instead of waiting for the full login timeout).
+      try {
+        await api.get('/api/app/version').timeout(const Duration(seconds: 10));
+      } on TimeoutException {
+        throw const _NoNetworkException(
+          'Cannot reach server. Check your connection and try again.',
+        );
+      } on SocketException {
+        throw const _NoNetworkException(
+          'No internet connection. Check your Wi-Fi or cellular data.',
+        );
+      } on ApiException {
+        // Server responded (even with an error) — network is fine. Proceed.
+      }
+
+      await auth.login(_emailCtl.text, _passwordCtl.text);
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (!mounted) return;
+      setState(() {
+        _error = e is _NoNetworkException ? e.message : _friendlyError(e);
+      });
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -75,10 +127,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _error = null;
     });
     try {
+      final api = context.read<ApiService>();
+      final authService = context.read<AuthService>();
       var clientId = _googleClientId;
       if (clientId == null) {
         // Initial fetch failed (e.g. network hiccup) — retry once now.
-        final api = context.read<ApiService>();
         final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 5));
         clientId = json['client_id'] as String?;
         if (mounted && clientId != null) {
@@ -96,7 +149,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (idToken == null) {
         throw Exception('Failed to get Google ID token');
       }
-      await context.read<AuthService>().loginWithGoogle(idToken);
+      await authService.loginWithGoogle(idToken);
     } on ApiException catch (e) {
       if (mounted) {
         setState(() => _error = e.statusCode == 404
@@ -104,7 +157,7 @@ class _LoginScreenState extends State<LoginScreen> {
             : 'Server error (${e.statusCode})');
       }
     } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = _friendlyError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -133,6 +186,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 Text(
                   'Pilot Companion',
                   style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _appVersion ?? '',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                 ),
                 const SizedBox(height: 40),
                 TextField(
