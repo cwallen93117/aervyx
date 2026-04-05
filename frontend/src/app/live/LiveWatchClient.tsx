@@ -345,15 +345,15 @@ export function LiveWatchClient() {
           ) : null}
         </div>
 
-        {/* Pilot sidebar */}
-        {activePilotIds.length > 0 ? (
-          <div className="live-sidebar">
-            <div className="live-sidebar-header">
-              <strong>All active devices</strong>
-              <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div className="live-pilot-list">
-              {activePilotIds.map((pilotId) => {
+        {/* Pilot sidebar — always mounted so layout is stable from first frame */}
+        <div className="live-sidebar">
+          <div className="live-sidebar-header">
+            <strong>All active devices</strong>
+            <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
+          </div>
+          <div className="live-pilot-list">
+            {activePilotIds.length > 0 ? (
+              activePilotIds.map((pilotId) => {
                 const pos = livePositionsByPilot.get(pilotId);
                 const name = pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`;
                 const color = colorForPilot(pilotId, activePilotIds);
@@ -370,10 +370,14 @@ export function LiveWatchClient() {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+              })
+            ) : (
+              <div className="live-pilot-empty">
+                {loading ? "Connecting…" : "Waiting for pilots…"}
+              </div>
+            )}
           </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );
