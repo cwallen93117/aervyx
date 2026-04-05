@@ -4707,6 +4707,29 @@ button[type="submit"]:hover,
 .aervyx-auth-google-btn {
   display: flex;
   justify-content: center;
+  min-height: 44px;
+}
+.aervyx-auth-google-skeleton {
+  width: 320px;
+  height: 40px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 14px;
+  font-family: "Roboto", Arial, sans-serif;
+  animation: google-skeleton-pulse 1.8s ease-in-out infinite;
+  cursor: default;
+  pointer-events: none;
+  user-select: none;
+}
+@keyframes google-skeleton-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 .aervyx-auth-secondary-link {
