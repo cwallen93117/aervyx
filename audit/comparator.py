@@ -80,6 +80,8 @@ class TaskComparison:
     exact_matches: int = 0
     close_matches: int = 0
     mismatches: int = 0
+    # Task health flags
+    health_warnings: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -186,7 +188,30 @@ def _compare_task(
             tc.aervyx_avail_distance = avail.get("distance")
             tc.aervyx_avail_time = avail.get("speed")
             tc.aervyx_avail_leading = avail.get("leading")
+            # Check task health
+            stats = gap.get("task_stats", {})
+            fastest = stats.get("fastest_time_seconds")
+            if fastest is not None:
+                if fastest > 86400 * 365:  # > 1 year in seconds = epoch bug
+                    tc.health_warnings.append(
+                        f"Fastest time is a Unix epoch ({fastest:.0f}s) — start cylinder detection failure"
+                    )
+                elif fastest < 60 and fastest > 0:
+                    tc.health_warnings.append(
+                        f"Fastest time unrealistically short ({fastest:.0f}s) — likely start crossing error"
+                    )
+                elif fastest == 0:
+                    tc.health_warnings.append("Fastest time is 0 — no valid SS→ES times")
+            launched = stats.get("launched", 0)
             break
+
+    # Check for low scored ratio
+    scored_count = sum(1 for r in aervyx_results if r.get("score_points", 0) > 0)
+    total_count = len(aervyx_results)
+    if total_count > 0 and scored_count < total_count * 0.5:
+        tc.health_warnings.append(
+            f"Only {scored_count}/{total_count} pilots scored — missing track data"
+        )
 
     # Compare per pilot
     for fsdb_pr in fsdb_task.participant_results:
