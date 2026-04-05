@@ -119,6 +119,8 @@ export function LiveWatchClient() {
       source: pos.source ?? "unknown",
       color: colorForPilot(pilotId, activePilotIds),
       aircraftType: pos.aircraft_icon ?? "hang_glider",
+      profileType: pos.profile_type ?? "pilot",
+      positionSource: pos.position_source ?? "other",
     }));
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 

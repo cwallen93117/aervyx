@@ -1,7 +1,7 @@
 "use client";
 
 import { COORDINATE_SYSTEM } from "@deck.gl/core";
-import { PathLayer, PolygonLayer, TextLayer } from "@deck.gl/layers";
+import { IconLayer, PathLayer, PolygonLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -21,6 +21,8 @@ export type MapTelemetrySmoothing = {
   telemetry_glide_ratio_smoothing_seconds: number;
   max_map_pitch_degrees?: number;
 };
+export type MapLivePositionProfileType = "pilot" | "driver" | "stationary_node";
+export type MapLivePositionSource = "cellular" | "mesh" | "other";
 export type MapLivePosition = {
   id: string;
   pilotId: number | null;
@@ -35,6 +37,8 @@ export type MapLivePosition = {
   source: string | null;
   color?: string | null;
   aircraftType?: "hang_glider" | "paraglider" | "sailplane" | null;
+  profileType?: MapLivePositionProfileType | null;
+  positionSource?: MapLivePositionSource | null;
 };
 type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
@@ -72,6 +76,43 @@ const DEFAULT_MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
 const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
+
+// Inline SVG icons used for live-map role markers. Each SVG is white-fill so the
+// deck.gl IconLayer (mask: true) can tint them with the pilot's assigned color.
+const ROLE_ICON_SVGS: Record<"pilot" | "driver" | "stationary_node", string> = {
+  pilot:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#fff" d="M24 3 L27 20 L45 26 L45 30 L27 26 L27 37 L32 41 L32 44 L24 42 L16 44 L16 41 L21 37 L21 26 L3 30 L3 26 L21 20 Z"/></svg>',
+  driver:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#fff" d="M15 5 L33 5 Q38 5 38 10 L38 38 Q38 43 33 43 L15 43 Q10 43 10 38 L10 10 Q10 5 15 5 Z M13 14 L13 22 L35 22 L35 14 Z M13 26 L13 34 L35 34 L35 26 Z"/></svg>',
+  stationary_node:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#fff" d="M22 14 L26 14 L26 44 L22 44 Z M24 4 L30 14 L18 14 Z M8 24 L10 26 L22 18 L26 18 L38 26 L40 24 L28 16 L20 16 Z"/></svg>',
+};
+
+function roleIconDataUri(profileType: "pilot" | "driver" | "stationary_node"): string {
+  return `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS[profileType])}`;
+}
+
+const ROLE_ICON_DATA_URIS: Record<"pilot" | "driver" | "stationary_node", string> = {
+  pilot: roleIconDataUri("pilot"),
+  driver: roleIconDataUri("driver"),
+  stationary_node: roleIconDataUri("stationary_node"),
+};
+
+// Solid ring (cellular fix) vs. dashed ring (mesh-relayed fix) vs. faint solid ring (other/unknown).
+const RING_ICON_SVGS: Record<"cellular" | "mesh" | "other", string> = {
+  cellular:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
+  mesh:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
+  other:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20" stroke-dasharray="2 3"/></svg>',
+};
+
+const RING_ICON_DATA_URIS: Record<"cellular" | "mesh" | "other", string> = {
+  cellular: `data:image/svg+xml;utf8,${encodeURIComponent(RING_ICON_SVGS.cellular)}`,
+  mesh: `data:image/svg+xml;utf8,${encodeURIComponent(RING_ICON_SVGS.mesh)}`,
+  other: `data:image/svg+xml;utf8,${encodeURIComponent(RING_ICON_SVGS.other)}`,
+};
 
 function createBasemapStyle(basemapMode: BasemapMode) {
   const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
@@ -1160,6 +1201,8 @@ export const TaskMap = React.memo(function TaskMap({
         altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
         position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
         color: hexToRgb(String(position.color ?? "#0ea5e9")),
+        profileType: (position.profileType ?? "pilot") as "pilot" | "driver" | "stationary_node",
+        positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
       })),
     [effectiveAltitudeMultiplier, livePositions, units.altitude],
   );
@@ -1542,6 +1585,69 @@ export const TaskMap = React.memo(function TaskMap({
         );
         const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
         if (labelData.length) {
+          // Live mode only: draw a role-source ring and a role-shape icon at the pilot's
+          // current position. We keep the existing name + altitude text labels and just
+          // push them up a few pixels so the ring + icon fit beneath them.
+          if (mode === "live") {
+            type LiveLabelItem = {
+              position: [number, number, number];
+              color: [number, number, number];
+              profileType?: "pilot" | "driver" | "stationary_node";
+              positionSource?: "cellular" | "mesh" | "other";
+            };
+            layers.push(
+              new IconLayer({
+                id: `live-pilot-rings-${mode}`,
+                data: labelData as LiveLabelItem[],
+                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+                billboard: true,
+                getPosition: (item: LiveLabelItem) => item.position,
+                getIcon: (item: LiveLabelItem) => {
+                  const source = item.positionSource ?? "other";
+                  return {
+                    url: RING_ICON_DATA_URIS[source],
+                    width: 48,
+                    height: 48,
+                    mask: true,
+                  };
+                },
+                getColor: (item: LiveLabelItem) => [...item.color, 255],
+                getSize: 28,
+                sizeUnits: "pixels",
+                sizeMinPixels: 20,
+                pickable: false,
+                parameters: {
+                  depthTest: false,
+                },
+              }),
+            );
+            layers.push(
+              new IconLayer({
+                id: `live-pilot-role-icons-${mode}`,
+                data: labelData as LiveLabelItem[],
+                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+                billboard: true,
+                getPosition: (item: LiveLabelItem) => item.position,
+                getIcon: (item: LiveLabelItem) => {
+                  const role = item.profileType ?? "pilot";
+                  return {
+                    url: ROLE_ICON_DATA_URIS[role],
+                    width: 48,
+                    height: 48,
+                    mask: true,
+                  };
+                },
+                getColor: (item: LiveLabelItem) => [...item.color, 255],
+                getSize: 18,
+                sizeUnits: "pixels",
+                sizeMinPixels: 12,
+                pickable: false,
+                parameters: {
+                  depthTest: false,
+                },
+              }),
+            );
+          }
           layers.push(
             new TextLayer({
               id: `pilot-name-labels-${mode}`,
@@ -1554,7 +1660,7 @@ export const TaskMap = React.memo(function TaskMap({
               getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
               sizeUnits: "pixels",
               sizeMinPixels: 12,
-              getPixelOffset: [0, -16],
+              getPixelOffset: mode === "live" ? [0, -30] : [0, -16],
               getTextAnchor: "middle",
               getAlignmentBaseline: "bottom",
               characterSet: "auto",
@@ -1580,7 +1686,7 @@ export const TaskMap = React.memo(function TaskMap({
               getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
               sizeUnits: "pixels",
               sizeMinPixels: 10,
-              getPixelOffset: [0, -3],
+              getPixelOffset: mode === "live" ? [0, -16] : [0, -3],
               getTextAnchor: "middle",
               getAlignmentBaseline: "bottom",
               characterSet: "auto",
@@ -2324,6 +2430,44 @@ export const TaskMap = React.memo(function TaskMap({
           </select>
         </label>
       </div>
+      {mode === "live" ? (
+        <div className="map-live-legend" aria-label="Live map legend">
+          <div className="map-live-legend-row">
+            <span className="map-live-legend-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2l2 8h8l-6 4.5 2.5 7.5-6.5-5-6.5 5L8 14.5 2 10h8z" />
+              </svg>
+              Pilot
+            </span>
+            <span className="map-live-legend-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" />
+              </svg>
+              Driver
+            </span>
+            <span className="map-live-legend-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z" />
+              </svg>
+              Node
+            </span>
+          </div>
+          <div className="map-live-legend-row">
+            <span className="map-live-legend-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+              Cellular
+            </span>
+            <span className="map-live-legend-item">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" />
+              </svg>
+              Mesh
+            </span>
+          </div>
+        </div>
+      ) : null}
       {replayVisible && mode === "replay" ? (
         <div className="replay-bar">
           <div className="replay-bar-main">

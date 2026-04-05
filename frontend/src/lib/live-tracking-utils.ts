@@ -2,6 +2,9 @@ import type { MapUnitPreferences, TrackCollection } from "../components/TaskMap"
 
 export const TRACK_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d", "#0f766e", "#c2410c"];
 
+export type ProfileType = "pilot" | "driver" | "stationary_node";
+export type PositionSource = "cellular" | "mesh" | "other";
+
 export type LivePositionRecord = {
   id: string;
   pilot_id: number | null;
@@ -17,6 +20,8 @@ export type LivePositionRecord = {
   device_id: string | null;
   battery_level: number | null;
   aircraft_icon: "hang_glider" | "paraglider" | "sailplane";
+  profile_type?: ProfileType | null;
+  position_source?: PositionSource | null;
 };
 
 export function resolveApiBase() {

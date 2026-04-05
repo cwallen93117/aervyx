@@ -27,6 +27,7 @@ class User(Base):
     oauth_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
+    mesh_device_id: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

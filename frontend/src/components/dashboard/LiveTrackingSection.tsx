@@ -439,6 +439,8 @@ export default function LiveTrackingSection({
       source: position.source,
       color: colorForPilot(position.pilot_id, pilotIds),
       aircraftType: position.aircraft_icon ?? "hang_glider",
+      profileType: position.profile_type ?? "pilot",
+      positionSource: position.position_source ?? "other",
     }));
   }, [livePositionsByPilot, activePilotNameById]);
 

@@ -21,11 +21,34 @@ _pilot_subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
 _global_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 logger = logging.getLogger("aervyx.tracking")
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
+VALID_PROFILE_TYPES_ALL = {"pilot", "driver", "stationary_node"}
 
 
 def _normalize_aircraft_icon(value: str | None) -> str:
     candidate = (value or "").strip().lower()
     return candidate if candidate in VALID_AIRCRAFT_ICONS else "hang_glider"
+
+
+def _normalize_profile_type(value: str | None) -> str:
+    candidate = (value or "").strip().lower()
+    return candidate if candidate in VALID_PROFILE_TYPES_ALL else "pilot"
+
+
+def normalize_position_source(raw: str | None) -> str:
+    """Map raw LivePosition.source values to a public-facing ``cellular`` / ``mesh`` / ``other`` bucket.
+
+    - ``app`` (mobile tracking app)        → ``cellular``
+    - ``mqtt_gateway`` (Meshtastic bridge) → ``mesh``
+    - anything else / unknown / ``None``   → ``other``
+    """
+    if raw is None:
+        return "other"
+    candidate = raw.strip().lower()
+    if candidate == "app":
+        return "cellular"
+    if candidate == "mqtt_gateway":
+        return "mesh"
+    return "other"
 
 
 def _aircraft_icons_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int, str]:
@@ -37,6 +60,34 @@ def _aircraft_icons_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int
         if user.pilot_id is not None and user.pilot_id not in aircraft_icons:
             aircraft_icons[user.pilot_id] = _normalize_aircraft_icon(user.aircraft_icon)
     return aircraft_icons
+
+
+def _profile_types_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int, str]:
+    """Return a map of ``pilot_id → profile_type`` (``pilot`` / ``driver``) using the User table.
+
+    Pilots without a linked User row fall through to the ``pilot`` default at call sites.
+    """
+    if not pilot_ids:
+        return {}
+    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids)).order_by(User.id.asc())).all()
+    profile_types: dict[int, str] = {}
+    for user in users:
+        if user.pilot_id is not None and user.pilot_id not in profile_types:
+            profile_types[user.pilot_id] = _normalize_profile_type(user.profile_type)
+    return profile_types
+
+
+def _stationary_node_by_device(session: Session, device_ids: list[str]) -> dict[str, User]:
+    """Return a map of ``device_id → User`` for any stationary-node users matching the given device IDs."""
+    if not device_ids:
+        return {}
+    users = session.scalars(
+        select(User).where(
+            User.mesh_device_id.in_(device_ids),
+            User.profile_type == "stationary_node",
+        )
+    ).all()
+    return {user.mesh_device_id: user for user in users if user.mesh_device_id}
 
 
 def subscribe(task_id: int) -> asyncio.Queue[dict[str, Any]]:
@@ -235,11 +286,24 @@ def store_position(
         # Resolve pilot name for display in "show all" debug view
         pilot_name: str | None = None
         aircraft_icon = "hang_glider"
+        profile_type = "pilot"
         if pilot_id is not None:
             user = session.scalar(select(User).where(User.pilot_id == pilot_id))
             if user is not None:
                 pilot_name = user.full_name
                 aircraft_icon = _normalize_aircraft_icon(user.aircraft_icon)
+                profile_type = _normalize_profile_type(user.profile_type)
+        elif device_id:
+            # No pilot attached — see if this is a registered stationary mesh node.
+            stationary = session.scalar(
+                select(User).where(
+                    User.mesh_device_id == device_id,
+                    User.profile_type == "stationary_node",
+                )
+            )
+            if stationary is not None:
+                pilot_name = stationary.full_name
+                profile_type = "stationary_node"
         message = {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,
@@ -256,6 +320,8 @@ def store_position(
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
             "aircraft_icon": aircraft_icon,
+            "profile_type": profile_type,
+            "position_source": normalize_position_source(pos.source),
         }
         if task_id is not None:
             _publish(task_id, message)
@@ -282,7 +348,9 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
 
     if not active_pilots:
         return []
-    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, [pilot_id for pilot_id in active_pilots if pilot_id is not None])
+    pilot_id_list = [pilot_id for pilot_id in active_pilots if pilot_id is not None]
+    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, pilot_id_list)
+    profile_types_by_pilot = _profile_types_by_pilot(session, pilot_id_list)
 
     # Use a subquery with ROW_NUMBER() to get latest position per pilot
     row_num = sa_func.row_number().over(
@@ -319,6 +387,8 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
             "device_id": row.device_id,
             "battery_level": row.battery_level,
             "aircraft_icon": aircraft_icons_by_pilot.get(row.pilot_id, "hang_glider"),
+            "profile_type": profile_types_by_pilot.get(row.pilot_id, "pilot"),
+            "position_source": normalize_position_source(row.source),
         }
         for row in rows
     ]
@@ -346,6 +416,7 @@ def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[st
         return []
 
     aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+    profile_types = _profile_types_by_pilot(session, pilot_ids)
 
     # Pilot names via User table
     users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all()
@@ -385,6 +456,8 @@ def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[st
             "source": row.source,
             "battery_level": row.battery_level,
             "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
+            "profile_type": profile_types.get(row.pilot_id, "pilot"),
+            "position_source": normalize_position_source(row.source),
         }
         for row in rows
     ]
@@ -407,7 +480,9 @@ def get_position_history(
     query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
 
     rows = session.scalars(query).all()
-    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, [pos.pilot_id for pos in rows if pos.pilot_id is not None])
+    pilot_id_list = [pos.pilot_id for pos in rows if pos.pilot_id is not None]
+    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, pilot_id_list)
+    profile_types_by_pilot = _profile_types_by_pilot(session, pilot_id_list)
     return [
         {
             "id": str(pos.id),
@@ -424,6 +499,8 @@ def get_position_history(
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
             "aircraft_icon": aircraft_icons_by_pilot.get(pos.pilot_id, "hang_glider"),
+            "profile_type": profile_types_by_pilot.get(pos.pilot_id, "pilot"),
+            "position_source": normalize_position_source(pos.source),
         }
         for pos in rows
     ]
@@ -441,6 +518,7 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
         return []
 
     aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+    profile_types = _profile_types_by_pilot(session, pilot_ids)
 
     row_num = sa_func.row_number().over(
         partition_by=LivePosition.pilot_id,
@@ -473,6 +551,8 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
             "device_id": row.device_id,
             "battery_level": row.battery_level,
             "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
+            "profile_type": profile_types.get(row.pilot_id, "pilot"),
+            "position_source": normalize_position_source(row.source),
         }
         for row in rows
     ]
@@ -502,6 +582,7 @@ def get_all_recent_positions(
 
     pilot_ids = [pos.pilot_id for pos in rows if pos.pilot_id is not None]
     aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+    profile_types = _profile_types_by_pilot(session, pilot_ids)
 
     pilot_names: dict[int, str] = {}
     if pilot_ids:
@@ -510,11 +591,29 @@ def get_all_recent_positions(
             if u.pilot_id is not None and u.pilot_id not in pilot_names:
                 pilot_names[u.pilot_id] = u.full_name
 
+    # Resolve stationary-node rows by device_id for unassigned positions.
+    orphan_device_ids = {pos.device_id for pos in rows if pos.pilot_id is None and pos.device_id}
+    stationary_by_device = _stationary_node_by_device(session, list(orphan_device_ids))
+
+    def _profile_for(pos: LivePosition) -> str:
+        if pos.pilot_id is not None:
+            return profile_types.get(pos.pilot_id, "pilot")
+        if pos.device_id and pos.device_id in stationary_by_device:
+            return "stationary_node"
+        return "pilot"
+
+    def _name_for(pos: LivePosition) -> str | None:
+        if pos.pilot_id is not None:
+            return pilot_names.get(pos.pilot_id)
+        if pos.device_id and pos.device_id in stationary_by_device:
+            return stationary_by_device[pos.device_id].full_name
+        return None
+
     return [
         {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,
-            "pilot_name": pilot_names.get(pos.pilot_id) if pos.pilot_id is not None else None,
+            "pilot_name": _name_for(pos),
             "task_id": pos.task_id,
             "lat": pos.lat,
             "lon": pos.lon,
@@ -527,6 +626,8 @@ def get_all_recent_positions(
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
             "aircraft_icon": aircraft_icons.get(pos.pilot_id, "hang_glider") if pos.pilot_id is not None else "hang_glider",
+            "profile_type": _profile_for(pos),
+            "position_source": normalize_position_source(pos.source),
         }
         for pos in rows
     ]
@@ -550,6 +651,7 @@ def get_position_history_for_pilots(
 
     rows = session.scalars(query).all()
     aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+    profile_types = _profile_types_by_pilot(session, pilot_ids)
     return [
         {
             "id": str(pos.id),
@@ -566,6 +668,8 @@ def get_position_history_for_pilots(
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
             "aircraft_icon": aircraft_icons.get(pos.pilot_id, "hang_glider"),
+            "profile_type": profile_types.get(pos.pilot_id, "pilot"),
+            "position_source": normalize_position_source(pos.source),
         }
         for pos in rows
     ]
