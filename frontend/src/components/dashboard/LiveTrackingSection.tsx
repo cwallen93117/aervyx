@@ -476,7 +476,6 @@ export default function LiveTrackingSection({
     <div className="section-stack">
       <SectionCard
         title="Live tracking"
-        description="Stream pilot positions for a competition task or buddy group."
       >
         <div className="stack form-block">
           <div className="participant-intake-row">

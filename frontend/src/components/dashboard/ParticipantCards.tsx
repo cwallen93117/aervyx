@@ -90,7 +90,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
   }
   return (
     <div className="participant-workspace">
-      <SectionCard title="Participant intake" description="Add a pilot manually or import a roster CSV for the selected event.">
+      <SectionCard title="Participant intake">
         {canManagePlatform ? (
           <div className="participant-intake-stack">
             <div className="participant-intake-split">
@@ -196,7 +196,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
           <p className="hint">Pilot management is available to organizers and admins. Pilots can still review the roster below.</p>
         )}
       </SectionCard>
-      <SectionCard title="Current participants" description={`${pilots.length} pilots assigned to ${selectedEvent?.name ?? "this event"}.`}>
+      <SectionCard title="Current participants">
         {canManagePlatform && selectedPilotIds.size > 0 ? (
           <div className="participant-bulk-bar">
             <span>{selectedPilotIds.size} selected</span>

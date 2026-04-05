@@ -2598,7 +2598,7 @@ export default function HomePage() {
             />
           );
         case "drivers":
-          return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
+          return <SectionCard><p className="hint">Driver logistics and tracking tools are coming soon.</p></SectionCard>;
         case "logbook":
           return (
             <LogbookSection
