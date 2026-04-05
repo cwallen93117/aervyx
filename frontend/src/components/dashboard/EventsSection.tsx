@@ -678,6 +678,11 @@ export default function EventsSection(props: EventsSectionProps) {
   const startsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const endsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const scoringTemplateOptions = events.filter((event) => event.id !== eventEditorId);
+  const sortedEvents = [...events].sort((a, b) => {
+    const da = a.starts_on ? new Date(a.starts_on).getTime() : -Infinity;
+    const db = b.starts_on ? new Date(b.starts_on).getTime() : -Infinity;
+    return db - da;
+  });
 
   const autoSaveOverlaySettings = (nextForm: EventFormState) => {
     setEventForm(nextForm);
@@ -819,7 +824,7 @@ export default function EventsSection(props: EventsSectionProps) {
             <span>Current event</span>
             <select value={selectedEventId ?? (events[0]?.id ?? "")} onChange={(event) => { const nextId = Number(event.target.value); const nextEvent = events.find((candidate) => candidate.id === nextId); if (nextEvent) void selectEvent(nextEvent); }}>
               {events.length === 0 ? <option value="">No events yet</option> : null}
-              {events.map((event) => (
+              {sortedEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.location ? `${event.name} - ${event.location}` : event.name}
                 </option>

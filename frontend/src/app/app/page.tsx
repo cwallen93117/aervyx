@@ -76,10 +76,11 @@ export default function AppDownloadPage() {
         {/* hero */}
         <div style={styles.hero}>
           <div style={styles.iconWrap}>
-            <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="#00e5ff" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M12 2L2 22h20L12 2z" />
-              <path d="M12 10v4" />
-              <circle cx="12" cy="17" r="0.5" fill="#00e5ff" />
+            <svg width="60" height="60" viewBox="0 0 30 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M15 3L27 25L15 19L3 25Z" stroke="#00e5ff" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
+              <path d="M15 3L15 19" stroke="#00e5ff" strokeWidth="1" opacity=".4"/>
+              <circle cx="15" cy="15" r="2.2" fill="#00e5ff" opacity=".85"/>
+              <circle cx="15" cy="15" r="5" stroke="#00e5ff" strokeWidth=".5" fill="none" opacity=".22"/>
             </svg>
           </div>
           <h1 style={styles.title}>Aervyx</h1>
