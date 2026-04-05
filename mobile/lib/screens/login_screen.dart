@@ -285,7 +285,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         width: 18,
                         errorBuilder: (_, __, ___) => const Icon(Icons.login, size: 18),
                       ),
-                      label: const Text('Sign in with Google'),
+                      label: const Text('Continue with Google'),
                     ),
                   ),
                 ],

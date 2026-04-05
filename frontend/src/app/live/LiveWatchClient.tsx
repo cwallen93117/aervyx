@@ -10,7 +10,6 @@ import {
   type MapUnitPreferences,
 } from "../../components/TaskMap";
 import {
-  TRACK_COLORS,
   type LivePositionRecord,
   resolveApiBase,
   formatRelativeTime,
@@ -21,6 +20,16 @@ import {
   mergePositionGroup,
 } from "../../lib/live-tracking-utils";
 
+// ---------------------------------------------------------------------------
+// DEBUG MODE — "show all" live tracking
+// ---------------------------------------------------------------------------
+// The competition-task and buddy-group filters are temporarily disabled so
+// every device sending positions shows up on the public Watch Live page.
+// To restore the competition/buddy filter UI, un-comment every block tagged
+// with "FILTER:" below and swap the SSE URL back to the source-specific
+// endpoints.
+
+/* FILTER: (restore-path types)
 type PublicEventSource = {
   id: number;
   name: string;
@@ -52,38 +61,42 @@ type SelectedSource =
   | { type: "task"; taskId: number; eventName: string }
   | { type: "buddies"; groupId: number; groupName: string }
   | null;
+*/
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
 
 export function LiveWatchClient() {
-  const [sources, setSources] = useState<PublicSources | null>(null);
-  const [selected, setSelected] = useState<SelectedSource>(null);
+  // FILTER: dropdown-driven source selection (competition / buddy group)
+  // const [sources, setSources] = useState<PublicSources | null>(null);
+  // const [selected, setSelected] = useState<SelectedSource>(null);
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
   const [pilotNameById, setPilotNameById] = useState<Map<number, string>>(new Map());
-  const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
-  const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
+  // turnpoints/taskPoints were populated from the task-info endpoint in the
+  // competition filter flow. They stay empty in SHOW_ALL debug mode.
+  const [turnpoints] = useState<MapTurnpoint[]>([]);
+  const [taskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [error] = useState("");
   const sseControllerRef = useRef<AbortController | null>(null);
 
   const apiBase = useMemo(() => resolveApiBase(), []);
 
-  // Fetch available public sources on mount
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const response = await fetch(`${apiBase}/api/public/live/sources`, { cache: "no-store" });
-        if (response.ok && !cancelled) {
-          setSources(await response.json());
-        }
-      } catch {
-        if (!cancelled) setError("Unable to load live sources");
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [apiBase]);
+  // FILTER: Fetch available public sources on mount (events + buddy groups)
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   (async () => {
+  //     try {
+  //       const response = await fetch(`${apiBase}/api/public/live/sources`, { cache: "no-store" });
+  //       if (response.ok && !cancelled) {
+  //         setSources(await response.json());
+  //       }
+  //     } catch {
+  //       if (!cancelled) setError("Unable to load live sources");
+  //     }
+  //   })();
+  //   return () => { cancelled = true; };
+  // }, [apiBase]);
 
   // Derived: active pilot IDs sorted for consistent coloring
   const activePilotIds = useMemo(() => {
@@ -123,55 +136,32 @@ export function LiveWatchClient() {
     setLivePositionsByPilot(latest);
   }, [positionsByPilot]);
 
-  // Connect SSE when source changes
-  const connectSSE = useCallback((source: SelectedSource) => {
+  // Connect SSE — SHOW_ALL mode always connects to the global "show all" stream
+  const connectSSE = useCallback(() => {
     sseControllerRef.current?.abort();
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
     setPilotNameById(new Map());
-    setTurnpoints([]);
-    setTaskPoints([]);
-    setError("");
-
-    if (!source) return;
 
     const controller = new AbortController();
     sseControllerRef.current = controller;
     setLoading(true);
 
-    const sseUrl = source.type === "task"
-      ? `${apiBase}/api/public/live/task/${source.taskId}`
-      : `${apiBase}/api/public/live/buddies/${source.groupId}`;
+    // FILTER: Source-specific URLs (competition task OR buddy group)
+    // const sseUrl = source.type === "task"
+    //   ? `${apiBase}/api/public/live/task/${source.taskId}`
+    //   : `${apiBase}/api/public/live/buddies/${source.groupId}`;
+    // const historyUrl = source.type === "task"
+    //   ? `${apiBase}/api/public/live/task/${source.taskId}/positions`
+    //   : `${apiBase}/api/public/live/buddies/${source.groupId}/positions`;
+    const sseUrl = `${apiBase}/api/public/live/all`;
+    const historyUrl = `${apiBase}/api/public/live/all/positions?minutes=60`;
 
-    const historyUrl = source.type === "task"
-      ? `${apiBase}/api/public/live/task/${source.taskId}/positions`
-      : `${apiBase}/api/public/live/buddies/${source.groupId}/positions`;
-
-    // Fetch task info for turnpoints
-    if (source.type === "task") {
-      fetch(`${apiBase}/api/public/live/task/${source.taskId}/info`, { cache: "no-store", signal: controller.signal })
-        .then((r) => r.ok ? r.json() : null)
-        .then((info: TaskInfoResponse | null) => {
-          if (info && !controller.signal.aborted) {
-            setTurnpoints(info.turnpoints.map((tp) => ({
-              id: tp.position,
-              name: tp.name,
-              code: "",
-              latitude: tp.latitude,
-              longitude: tp.longitude,
-            })));
-            setTaskPoints(info.turnpoints.map((tp) => ({
-              position: tp.position,
-              point_type: tp.point_type,
-              radius_m: tp.radius_m,
-              name: tp.name,
-              latitude: tp.latitude,
-              longitude: tp.longitude,
-            })));
-          }
-        })
-        .catch(() => {});
-    }
+    // FILTER: Fetch task info for turnpoints (only applies to task filter)
+    // if (source.type === "task") {
+    //   fetch(`${apiBase}/api/public/live/task/${source.taskId}/info`, ...)
+    //     .then(...);
+    // }
 
     // Fetch position history
     fetch(historyUrl, { cache: "no-store", signal: controller.signal })
@@ -179,7 +169,6 @@ export function LiveWatchClient() {
       .then((positions: LivePositionRecord[]) => {
         if (!controller.signal.aborted && positions.length) {
           setPositionsByPilot((current) => mergePositionGroup(current, positions));
-          // Build pilot name map from position data
           const names = new Map<number, string>();
           for (const pos of positions) {
             const pid = pos.pilot_id ?? 0;
@@ -245,7 +234,7 @@ export function LiveWatchClient() {
               }
             }
           }
-        } catch (err) {
+        } catch {
           if (controller.signal.aborted) break;
           retryCount++;
           setLoading(false);
@@ -260,33 +249,25 @@ export function LiveWatchClient() {
     };
   }, [apiBase]);
 
-  // Reconnect when selection changes
+  // Open SSE on mount (SHOW_ALL mode — no dropdown change needed)
   useEffect(() => {
-    const cleanup = connectSSE(selected);
+    const cleanup = connectSSE();
     return cleanup;
-  }, [selected, connectSSE]);
+  }, [connectSSE]);
 
-  // Handle dropdown change
-  function handleSourceChange(value: string) {
-    if (!value) {
-      setSelected(null);
-      return;
-    }
-    if (value.startsWith("task:")) {
-      const taskId = Number(value.slice(5));
-      const event = sources?.events.find((e) => e.tasks.some((t) => t.id === taskId));
-      setSelected({ type: "task", taskId, eventName: event?.name ?? "Event" });
-    } else if (value.startsWith("buddies:")) {
-      const groupId = Number(value.slice(8));
-      const group = sources?.buddy_groups.find((g) => g.id === groupId);
-      setSelected({ type: "buddies", groupId, groupName: group?.name ?? "Group" });
-    }
-  }
-
-  const hasAnySources = (sources?.events.length ?? 0) > 0 || (sources?.buddy_groups.length ?? 0) > 0;
-  const dropdownValue = selected
-    ? selected.type === "task" ? `task:${selected.taskId}` : `buddies:${selected.groupId}`
-    : "";
+  // FILTER: Dropdown change handler (competition task / buddy group)
+  // function handleSourceChange(value: string) {
+  //   if (!value) { setSelected(null); return; }
+  //   if (value.startsWith("task:")) {
+  //     const taskId = Number(value.slice(5));
+  //     const event = sources?.events.find((e) => e.tasks.some((t) => t.id === taskId));
+  //     setSelected({ type: "task", taskId, eventName: event?.name ?? "Event" });
+  //   } else if (value.startsWith("buddies:")) {
+  //     const groupId = Number(value.slice(8));
+  //     const group = sources?.buddy_groups.find((g) => g.id === groupId);
+  //     setSelected({ type: "buddies", groupId, groupName: group?.name ?? "Group" });
+  //   }
+  // }
 
   return (
     <div className="live-page">
@@ -299,6 +280,10 @@ export function LiveWatchClient() {
           </svg>
         </a>
         <span className="live-title">Watch Live</span>
+        <span className="live-status" style={{ marginLeft: 12, opacity: 0.7 }}>
+          Debug: showing all devices
+        </span>
+        {/* FILTER: Source selection dropdown (competition task / buddy group)
         <div className="live-source-picker">
           <select value={dropdownValue} onChange={(e) => handleSourceChange(e.target.value)}>
             <option value="">Select a source...</option>
@@ -316,49 +301,55 @@ export function LiveWatchClient() {
             ))}
           </select>
         </div>
+        */}
         {loading ? <span className="live-status">Connecting...</span> : null}
         {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 
       {/* Body */}
       <div className="live-body">
-        <div className="live-map">
-          {selected ? (
-            <TaskMap
-              turnpoints={turnpoints}
-              taskPoints={taskPoints}
-              livePositions={livePositions}
-              track={track}
-              mode="live"
-              units={defaultUnits}
-              editable={false}
-              showGpsButton
-            />
-          ) : (
-            <div className="live-empty">
-              <svg viewBox="0 0 48 48" width="48" height="48" fill="none" style={{ opacity: 0.3, marginBottom: 12 }}>
-                <path d="M24 4L44 40L24 32L4 40Z" stroke="currentColor" strokeWidth="2" fill="none" strokeLinejoin="round"/>
-                <circle cx="24" cy="24" r="3" fill="currentColor" opacity=".6"/>
-              </svg>
-              {hasAnySources ? (
-                <p>Select an event or buddy group above to watch live tracking.</p>
-              ) : sources ? (
-                <>
-                  <p>No public live tracking sources are currently available.</p>
-                  <p style={{ fontSize: "0.8125rem", marginTop: 8, opacity: 0.6 }}>Event organizers can enable public tracking in their event settings.</p>
-                </>
-              ) : (
-                <p>Loading...</p>
-              )}
+        <div className="live-map" style={{ position: "relative" }}>
+          <TaskMap
+            turnpoints={turnpoints}
+            taskPoints={taskPoints}
+            livePositions={livePositions}
+            track={track}
+            mode="live"
+            units={defaultUnits}
+            editable={false}
+            showGpsButton
+          />
+          {activePilotIds.length === 0 && !loading ? (
+            <div
+              style={{
+                position: "absolute",
+                inset: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                pointerEvents: "none",
+              }}
+            >
+              <p
+                style={{
+                  background: "rgba(0,0,0,0.6)",
+                  padding: "8px 14px",
+                  borderRadius: 6,
+                  color: "#fff",
+                  margin: 0,
+                }}
+              >
+                Waiting for live positions…
+              </p>
             </div>
-          )}
+          ) : null}
         </div>
 
         {/* Pilot sidebar */}
-        {selected && activePilotIds.length > 0 ? (
+        {activePilotIds.length > 0 ? (
           <div className="live-sidebar">
             <div className="live-sidebar-header">
-              <strong>{selected.type === "task" ? selected.eventName : selected.groupName}</strong>
+              <strong>All active devices</strong>
               <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
             </div>
             <div className="live-pilot-list">

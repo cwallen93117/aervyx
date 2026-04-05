@@ -77,10 +77,16 @@ class TrackingService extends ChangeNotifier {
   Timer? _adaptiveTimer;
   Timer? _flightResetTimer;
   Timer? _monitoringTimer;
+  Timer? _positionHeartbeatTimer;
   int _positionCount = 0;
   String? _error;
   bool _backendConnected = false;
   Timer? _heartbeatTimer;
+
+  // ── Stationary heartbeat ──
+  /// Timestamp of the last position received from the GPS stream.
+  /// Used by the heartbeat timer to decide when to re-send a synthesised fix.
+  DateTime _lastStreamPositionAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   // ── Offline position buffer ──
   final List<Map<String, dynamic>> _positionBuffer = [];
@@ -255,8 +261,17 @@ class TrackingService extends ChangeNotifier {
   }
 
   /// Enable/disable debug mode — skips flight detection, sends every position.
+  ///
+  /// If tracking is already active, restarts the GPS stream (to pick up the
+  /// new distanceFilter) and restarts the heartbeat timer (to use the new
+  /// 1 s / 5 s cadence) so the change takes effect without a full restart.
   void setDebugMode(bool enabled) {
     _debugMode = enabled;
+    if (_trackingState == TrackingState.preFlight ||
+        _trackingState == TrackingState.inFlight) {
+      _startGpsStream();
+      _startPositionHeartbeat();
+    }
     notifyListeners();
   }
 
@@ -381,6 +396,10 @@ class TrackingService extends ChangeNotifier {
     // Start GPS stream
     _startGpsStream();
 
+    // Heartbeat: sends a synthesised fix every 5 s when the GPS stream is
+    // silent (stationary pilot at launch, slow thermalling, ground testing)
+    _startPositionHeartbeat();
+
     // Start background foreground service (keeps GPS alive when app is backgrounded)
     try {
       await BackgroundTrackingService.start();
@@ -425,6 +444,8 @@ class TrackingService extends ChangeNotifier {
     _flightTimer = null;
     _monitoringTimer?.cancel();
     _monitoringTimer = null;
+    _positionHeartbeatTimer?.cancel();
+    _positionHeartbeatTimer = null;
     _landingCountdownActive = false;
     _landingCountdownStart = null;
 
@@ -485,6 +506,15 @@ class TrackingService extends ChangeNotifier {
       _locationSubscription =
           Geolocator.getPositionStream(locationSettings: settings)
               .listen(_onPositionUpdate, onError: _onLocationError);
+    } else if (_debugMode) {
+      // Debug mode — fire on every GPS sample regardless of movement
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+      );
+      _locationSubscription =
+          Geolocator.getPositionStream(locationSettings: settings)
+              .listen(_onPositionUpdate, onError: _onLocationError);
     } else {
       // Free-flight — high accuracy, 5m filter
       const settings = LocationSettings(
@@ -517,6 +547,55 @@ class TrackingService extends ChangeNotifier {
     );
   }
 
+  /// Start a position heartbeat that synthesises a position update when the
+  /// GPS stream is silent.
+  ///
+  /// Normal mode: fires every 5 s, skipped if the GPS stream emitted within
+  /// the last 5 s (pilot is moving — stream is already delivering points).
+  ///
+  /// Debug mode: fires every 1 s with NO freshness guard so at least one
+  /// position is always sent per second, even when the GPS stream is active.
+  /// This guarantees a continuous flow for pipeline testing.
+  void _startPositionHeartbeat() {
+    _positionHeartbeatTimer?.cancel();
+    final interval = _debugMode
+        ? const Duration(seconds: 1)
+        : const Duration(seconds: 5);
+    _positionHeartbeatTimer = Timer.periodic(interval, (_) async {
+      if (_trackingState != TrackingState.preFlight &&
+          _trackingState != TrackingState.inFlight) {
+        return;
+      }
+      if (!_debugMode) {
+        // Normal mode: skip if the GPS stream fired recently
+        final silentFor = DateTime.now().difference(_lastStreamPositionAt);
+        if (silentFor.inSeconds < 5) {
+          return;
+        }
+      }
+      if (_lastPosition == null) return;
+
+      // Build a synthetic Geolocator Position from the last known fix,
+      // with a fresh timestamp so the server records the current time.
+      // Nullable fields in the model are coalesced to 0.0 — the same
+      // sentinel value Geolocator uses when a measurement is unavailable.
+      final last = _lastPosition!;
+      final synthetic = Position(
+        latitude: last.lat,
+        longitude: last.lon,
+        altitude: last.alt ?? 0.0,
+        altitudeAccuracy: 0.0,
+        speed: last.speed ?? 0.0,
+        heading: last.heading ?? 0.0,
+        accuracy: last.accuracy ?? 0.0,
+        headingAccuracy: 0.0,
+        speedAccuracy: 0.0,
+        timestamp: DateTime.now().toUtc(),
+      );
+      await _onPositionUpdate(synthetic);
+    });
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Position Handling — unified callback
   // ═══════════════════════════════════════════════════════════════════════════
@@ -525,6 +604,10 @@ class TrackingService extends ChangeNotifier {
   DateTime _lastSendTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<void> _onPositionUpdate(Position geoPos) async {
+    // Record when the GPS stream last fired — heartbeat uses this to avoid
+    // double-sending when the device is actually moving.
+    _lastStreamPositionAt = DateTime.now();
+
     // Update UI position regardless of state
     _updateLastPosition(geoPos);
 
@@ -615,11 +698,13 @@ class TrackingService extends ChangeNotifier {
       _takeoffLon = _lastPosition!.lon;
     }
 
-    // Flush pre-flight buffer into IGC recording
+    // Flush pre-flight buffer into IGC recording.
+    // Note: these points are written to the IGC file but NOT sent to the
+    // server, so we deliberately do NOT increment _positionCount here.
+    // The counter reflects points actually sent to the server.
     for (final pos in _preFlightBuffer) {
       _igc.addTrackPoint(pos);
     }
-    _positionCount += _preFlightBuffer.length;
     _preFlightBuffer.clear();
 
     // Start flight timer
@@ -770,6 +855,9 @@ class TrackingService extends ChangeNotifier {
     // Save the flight
     _flightTimer?.cancel();
     _flightTimer = null;
+    // Heartbeat no longer needed once we leave inFlight
+    _positionHeartbeatTimer?.cancel();
+    _positionHeartbeatTimer = null;
     await _saveCurrentFlight();
 
     // Check if we should enter monitoring mode

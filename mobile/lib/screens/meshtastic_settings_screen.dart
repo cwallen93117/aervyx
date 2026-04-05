@@ -34,9 +34,11 @@ class MeshtasticSettingsScreen extends StatelessWidget {
             ),
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      body: Builder(
+        builder: (context) => ListView(
+          padding: EdgeInsets.fromLTRB(
+              16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
+          children: [
           // ── BLE Connection ──
           _BleConnectionSection(),
 
@@ -93,6 +95,7 @@ class MeshtasticSettingsScreen extends StatelessWidget {
             const SizedBox(height: 32),
           ],
         ],
+        ),
       ),
     );
   }

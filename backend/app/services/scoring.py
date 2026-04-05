@@ -107,37 +107,21 @@ def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: 
 
 
 def _find_exit_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: float, cursor: int = 0, earliest_at: datetime | None = None, latest_at: datetime | None = None) -> tuple[int, datetime] | None:
-    def _scan(ea: datetime | None, la: datetime | None, find_last: bool = False) -> tuple[int, datetime] | None:
-        previous_inside: bool | None = None
-        last_hit: tuple[int, datetime] | None = None
-        for idx in range(cursor, len(trackpoints)):
-            trackpoint = trackpoints[idx]
-            inside = _distance_to_task_point(trackpoint, point) <= radius_km
-            if ea is not None and trackpoint.recorded_at < ea:
-                previous_inside = inside
-                continue
-            if la is not None and trackpoint.recorded_at > la:
-                break
-            if previous_inside is None:
-                previous_inside = inside
-                continue
-            if previous_inside and not inside:
-                if not find_last:
-                    return idx, trackpoint.recorded_at
-                last_hit = (idx, trackpoint.recorded_at)
+    previous_inside: bool | None = None
+    for idx in range(cursor, len(trackpoints)):
+        trackpoint = trackpoints[idx]
+        inside = _distance_to_task_point(trackpoint, point) <= radius_km
+        if earliest_at is not None and trackpoint.recorded_at < earliest_at:
             previous_inside = inside
-        return last_hit
-
-    hit = _scan(earliest_at, latest_at)
-    if hit is not None:
-        return hit
-    # Fallback: if the time window filtered out all valid transitions
-    # (e.g., mis-imported task times in the wrong timezone), retry without
-    # the window. Use the LAST exit rather than the first — pilots often
-    # circle the start cylinder before the real start, so the last exit is
-    # the most likely "official" task start.
-    if earliest_at is not None or latest_at is not None:
-        return _scan(None, None, find_last=True)
+            continue
+        if latest_at is not None and trackpoint.recorded_at > latest_at:
+            break
+        if previous_inside is None:
+            previous_inside = inside
+            continue
+        if previous_inside and not inside:
+            return idx, trackpoint.recorded_at
+        previous_inside = inside
     return None
 
 

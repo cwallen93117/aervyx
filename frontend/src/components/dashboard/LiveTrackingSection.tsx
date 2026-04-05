@@ -34,7 +34,10 @@ type MeshConfigRecord = {
 type TrackingSource =
   | { type: "task"; taskId: number }
   | { type: "buddy_group"; groupId: number }
+  | { type: "all_users" }
   | null;
+
+type LivePositionWithName = LivePositionRecord & { pilot_name?: string | null };
 
 function formatTime(value: string | null | undefined) {
   if (!value) return "-";
@@ -78,6 +81,7 @@ export default function LiveTrackingSection({
   const [meshConfig, setMeshConfig] = useState<MeshConfigRecord | null>(null);
   const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
   const [trackingSource, setTrackingSource] = useState<TrackingSource>(null);
+  const [allUsersNameById, setAllUsersNameById] = useState<Map<number, string>>(new Map());
 
   // Fetch buddy groups on mount
   useEffect(() => {
@@ -104,14 +108,18 @@ export default function LiveTrackingSection({
     }
   }, [selectedTaskId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Build pilot name map for buddy group mode
+  // Build pilot name map for buddy group / all-users mode
   const activePilotNameById = useMemo(() => {
     if (trackingSource?.type === "buddy_group") {
       const group = buddyGroups.find((g) => g.id === trackingSource.groupId);
       return new Map((group?.members ?? []).map((m) => [m.pilot_id, `${m.first_name} ${m.last_name}`]));
     }
+    if (trackingSource?.type === "all_users") {
+      // Merge SSE-derived names with any known names from parent context
+      return new Map<number, string>([...pilotNameById, ...allUsersNameById]);
+    }
     return pilotNameById;
-  }, [trackingSource, buddyGroups, pilotNameById]);
+  }, [trackingSource, buddyGroups, pilotNameById, allUsersNameById]);
 
   // Derive active pilot IDs for buddy group
   const buddyPilotIds = useMemo(() => {
@@ -124,6 +132,10 @@ export default function LiveTrackingSection({
   const handleSourceChange = useCallback((value: string) => {
     if (!value) {
       setTrackingSource(null);
+      return;
+    }
+    if (value === "all_users") {
+      setTrackingSource({ type: "all_users" });
       return;
     }
     if (value.startsWith("task:")) {
@@ -180,6 +192,7 @@ export default function LiveTrackingSection({
   const sourceDropdownValue = useMemo(() => {
     if (!trackingSource) return "";
     if (trackingSource.type === "task") return `task:${trackingSource.taskId}`;
+    if (trackingSource.type === "all_users") return "all_users";
     return `buddy:${trackingSource.groupId}`;
   }, [trackingSource]);
 
@@ -217,6 +230,7 @@ export default function LiveTrackingSection({
       setPositionsByPilot(new Map());
       setLivePositionsByPilot(new Map());
       setIgcTracksByPilot(new Map());
+      setAllUsersNameById(new Map());
       setLiveError("");
       return;
     }
@@ -228,6 +242,18 @@ export default function LiveTrackingSection({
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
     setIgcTracksByPilot(new Map());
+    setAllUsersNameById(new Map());
+
+    const collectNames = (positions: LivePositionWithName[]): Map<number, string> => {
+      const names = new Map<number, string>();
+      for (const pos of positions) {
+        const pid = pos.pilot_id;
+        if (pid != null && pos.pilot_name) {
+          names.set(pid, pos.pilot_name);
+        }
+      }
+      return names;
+    };
 
     const handleSnapshot = (positions: LivePositionRecord[]) => {
       if (!active) return;
@@ -239,6 +265,10 @@ export default function LiveTrackingSection({
         }
         return next;
       });
+      const names = collectNames(positions as LivePositionWithName[]);
+      if (names.size) {
+        setAllUsersNameById((prev) => new Map([...prev, ...names]));
+      }
     };
 
     const handlePosition = (position: LivePositionRecord) => {
@@ -249,6 +279,10 @@ export default function LiveTrackingSection({
         next.set(position.pilot_id ?? 0, position);
         return next;
       });
+      const names = collectNames([position as LivePositionWithName]);
+      if (names.size) {
+        setAllUsersNameById((prev) => new Map([...prev, ...names]));
+      }
     };
 
     const readSse = async () => {
@@ -256,10 +290,16 @@ export default function LiveTrackingSection({
         // Determine endpoints based on source
         let historyUrl: string;
         let sseUrl: string;
+        let useAuth = true;
 
         if (trackingSource.type === "task") {
           historyUrl = `${resolveApiBase()}/api/track/positions/${trackingSource.taskId}?limit=10000`;
           sseUrl = `${resolveApiBase()}/api/track/live/${trackingSource.taskId}`;
+        } else if (trackingSource.type === "all_users") {
+          // Reuse the public "show all" endpoints (no auth needed)
+          historyUrl = `${resolveApiBase()}/api/public/live/all/positions?minutes=60&limit=10000`;
+          sseUrl = `${resolveApiBase()}/api/public/live/all`;
+          useAuth = false;
         } else {
           const ids = buddyPilotIds.join(",");
           if (!ids) {
@@ -271,7 +311,7 @@ export default function LiveTrackingSection({
         }
 
         const historyResponse = await fetch(historyUrl, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: useAuth ? { Authorization: `Bearer ${token}` } : undefined,
           cache: "no-store",
           signal: controller.signal,
         });
@@ -281,7 +321,9 @@ export default function LiveTrackingSection({
         }
 
         const response = await fetch(sseUrl, {
-          headers: { Authorization: `Bearer ${token}`, Accept: "text/event-stream" },
+          headers: useAuth
+            ? { Authorization: `Bearer ${token}`, Accept: "text/event-stream" }
+            : { Accept: "text/event-stream" },
           cache: "no-store",
           signal: controller.signal,
         });
@@ -418,13 +460,15 @@ export default function LiveTrackingSection({
       const task = tasks.find((t) => t.id === trackingSource.taskId);
       return task ? task.name : `Task ${trackingSource.taskId}`;
     }
+    if (trackingSource.type === "all_users") {
+      return "All users";
+    }
     const group = buddyGroups.find((g) => g.id === trackingSource.groupId);
     return group ? group.name : "Buddy group";
   }, [trackingSource, tasks, buddyGroups]);
 
   const isSourceActive = trackingSource !== null;
   const showTaskMap = trackingSource?.type === "task" && selectedTask;
-  const showBuddyMap = trackingSource?.type === "buddy_group";
 
   return (
     <div className="section-stack">
@@ -438,6 +482,7 @@ export default function LiveTrackingSection({
               <span>Tracking source</span>
               <select value={sourceDropdownValue} onChange={(e) => handleSourceChange(e.target.value)}>
                 <option value="">Select a source</option>
+                <option value="all_users">All users</option>
                 {tasks.length > 0 ? (
                   <optgroup label="Competition tasks">
                     {tasks.map((task) => (
@@ -474,6 +519,8 @@ export default function LiveTrackingSection({
             <p className="hint">Select or create an event, or create buddy groups in Settings to get started.</p>
           ) : null}
 
+          {/* FILTER: Meshtastic mesh config card — hidden while we're in
+              "show all devices" debug mode. Un-comment to restore.
           {meshConfig && canManagePlatform ? (
             <div className="live-tracking-mesh-card">
               <div>
@@ -492,6 +539,7 @@ export default function LiveTrackingSection({
               </div>
             </div>
           ) : null}
+          */}
 
           {isSourceActive ? (
             <div className="results-task-map-layout live-tracking-layout">
@@ -522,7 +570,13 @@ export default function LiveTrackingSection({
                     ))
                   ) : (
                     <div className="results-task-map-empty">
-                      {loading ? "Connecting to the live position stream..." : trackingSource?.type === "buddy_group" ? "No recent positions from buddy group pilots." : "No active pilot tracking for this task yet."}
+                      {loading
+                        ? "Connecting to the live position stream..."
+                        : trackingSource?.type === "buddy_group"
+                          ? "No recent positions from buddy group pilots."
+                          : trackingSource?.type === "all_users"
+                            ? "No recent positions from any pilot in the last hour."
+                            : "No active pilot tracking for this task yet."}
                     </div>
                   )}
                 </div>
@@ -538,7 +592,13 @@ export default function LiveTrackingSection({
                   editable={false}
                   mode="live"
                   units={units}
-                  fitKey={trackingSource.type === "task" ? `live-${trackingSource.taskId}` : `live-buddy-${trackingSource.groupId}`}
+                  fitKey={
+                    trackingSource.type === "task"
+                      ? `live-${trackingSource.taskId}`
+                      : trackingSource.type === "all_users"
+                        ? "live-all-users"
+                        : `live-buddy-${trackingSource.groupId}`
+                  }
                 />
               </div>
             </div>
