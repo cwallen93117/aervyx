@@ -13,7 +13,8 @@ class BlePairingScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Meshtastic BLE')),
-      body: Padding(
+      body: SafeArea(
+        child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -130,6 +131,7 @@ class BlePairingScreen extends StatelessWidget {
             ),
           ],
         ),
+      ),
       ),
     );
   }

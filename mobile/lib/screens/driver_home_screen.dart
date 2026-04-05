@@ -174,7 +174,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         )
                       : ListView.builder(
                           itemCount: pilots.length,
-                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          padding: EdgeInsets.only(
+                            top: 4,
+                            bottom: 4 + MediaQuery.of(context).padding.bottom,
+                          ),
                           itemBuilder: (context, index) {
                             final pilot = pilots[index];
                             final isSelected =
