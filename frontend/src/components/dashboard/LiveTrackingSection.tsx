@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SectionCard } from "../SectionCard";
+import { PilotRoleBadge } from "../PilotRoleBadge";
 import {
   TaskMap,
   type MapAirspaceRegion,
@@ -554,7 +555,7 @@ export default function LiveTrackingSection({
                     livePilotRows.map((pilot) => (
                       <div key={pilot.id} className="results-task-map-pilot-item live-tracking-pilot-item">
                         <span className="results-task-map-pilot-rank">
-                          <span className="live-tracking-dot" style={{ backgroundColor: pilot.color ?? "#2563eb" }} />
+                          <PilotRoleBadge profileType={pilot.profileType} color={pilot.color ?? "#2563eb"} size={16} />
                         </span>
                         <span className="results-task-map-pilot-copy">
                           <strong style={{ color: pilot.color ?? "#2563eb" }}>{pilot.pilotName}</strong>
@@ -628,7 +629,7 @@ export default function LiveTrackingSection({
                     <tr key={`table-${pilot.id}`}>
                       <td>
                         <span className="live-tracking-table-pilot">
-                          <span className="live-tracking-dot" style={{ backgroundColor: pilot.color ?? "#2563eb" }} />
+                          <PilotRoleBadge profileType={pilot.profileType} color={pilot.color ?? "#2563eb"} size={14} />
                           <strong style={{ color: pilot.color ?? "#2563eb" }}>{pilot.pilotName}</strong>
                         </span>
                       </td>

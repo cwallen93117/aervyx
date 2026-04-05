@@ -3832,6 +3832,15 @@ button[type="submit"]:hover,
   flex-shrink: 0;
 }
 
+.live-pilot-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+}
+
 .live-pilot-info {
   min-width: 0;
 }
