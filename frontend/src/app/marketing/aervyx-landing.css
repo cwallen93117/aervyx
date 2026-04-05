@@ -327,4 +327,25 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .logbook-features{grid-template-columns:1fr}
   .driver-info{border-left:none;border-top:1px solid var(--border)}
   .oss-grid{grid-template-columns:1fr}.sf-2c{grid-template-columns:1fr}.footer-inner{grid-template-columns:1fr}
+  /* Nav: hide secondary buttons, keep Watch Live + CTA */
+  .nav-gh{display:none}
+  .nav-right{gap:.4rem}
+}
+@media(max-width:560px){
+  /* Nav: shorten login text, tighten Watch Live + CTA to fit alongside brand */
+  .nav-cta-long{display:none}
+  .nav-live{font-size:.78rem;padding:.42rem .72rem;gap:.38rem}
+  .nav-cta{font-size:.8rem;padding:.42rem .82rem}
+  .nav-right{gap:.35rem}
+  /* Get Started section CTA: prevent oversized button overflow */
+  .btn-primary{width:100%;justify-content:center;padding:.86rem 1.2rem;font-size:.9rem}
+  .section{padding:4rem 1.25rem}
+}
+@media(max-width:380px){
+  /* Nav: tighten brand for very small screens */
+  .nav-brand{gap:.32rem}
+  .nav-wordmark{font-size:1rem}
+  .nav-icon svg{width:24px;height:24px}
+  .nav-live{font-size:.72rem;padding:.36rem .6rem}
+  .nav-cta{font-size:.76rem;padding:.36rem .7rem}
 }
