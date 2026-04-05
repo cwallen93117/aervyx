@@ -556,7 +556,12 @@ export default function LiveTrackingSection({
                     livePilotRows.map((pilot) => (
                       <div key={pilot.id} className="results-task-map-pilot-item live-tracking-pilot-item">
                         <span className="results-task-map-pilot-rank">
-                          <PilotRoleBadge profileType={pilot.profileType} color={pilot.color ?? "#2563eb"} size={16} />
+                          <PilotRoleBadge
+                            profileType={pilot.profileType}
+                            aircraftType={pilot.aircraftType}
+                            color={pilot.color ?? "#2563eb"}
+                            size={16}
+                          />
                         </span>
                         <span className="results-task-map-pilot-copy">
                           <strong style={{ color: pilot.color ?? "#2563eb" }}>{pilot.pilotName}</strong>
@@ -630,7 +635,12 @@ export default function LiveTrackingSection({
                     <tr key={`table-${pilot.id}`}>
                       <td>
                         <span className="live-tracking-table-pilot">
-                          <PilotRoleBadge profileType={pilot.profileType} color={pilot.color ?? "#2563eb"} size={14} />
+                          <PilotRoleBadge
+                            profileType={pilot.profileType}
+                            aircraftType={pilot.aircraftType}
+                            color={pilot.color ?? "#2563eb"}
+                            size={14}
+                          />
                           <strong style={{ color: pilot.color ?? "#2563eb" }}>{pilot.pilotName}</strong>
                         </span>
                       </td>

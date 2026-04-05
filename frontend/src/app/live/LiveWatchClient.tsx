@@ -363,7 +363,12 @@ export function LiveWatchClient() {
                 return (
                   <div key={pilotId} className="live-pilot-row">
                     <span className="live-pilot-badge" style={{ color }}>
-                      <PilotRoleBadge profileType={pos?.profile_type} color={color} size={16} />
+                      <PilotRoleBadge
+                        profileType={pos?.profile_type}
+                        aircraftType={pos?.aircraft_icon}
+                        color={color}
+                        size={16}
+                      />
                     </span>
                     <div className="live-pilot-info">
                       <strong>{name}</strong>
@@ -385,10 +390,6 @@ export function LiveWatchClient() {
           <div className="live-sidebar-legend" aria-label="Map legend">
             <div className="live-sidebar-legend-title">Legend</div>
             <div className="live-sidebar-legend-row">
-              <span className="live-sidebar-legend-item">
-                <PilotRoleBadge profileType="pilot" color="#cbd5e1" size={14} />
-                Pilot
-              </span>
               <span className="live-sidebar-legend-item">
                 <PilotRoleBadge profileType="driver" color="#cbd5e1" size={14} />
                 Driver
