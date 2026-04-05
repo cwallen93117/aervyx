@@ -4722,6 +4722,14 @@ button[type="submit"]:hover,
   50% { opacity: 0.35; }
 }
 
+.aervyx-auth-google-hint {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: rgba(148, 163, 184, 0.9);
+  text-align: center;
+}
+
 .aervyx-auth-secondary-link {
   margin-top: 6px;
   font-size: 0.84rem;
