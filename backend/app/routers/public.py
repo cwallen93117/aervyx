@@ -27,11 +27,14 @@ from app.routers.tasks import _task_response
 from app.schemas import EventResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse
 from app.services.scoring import build_result_payload
 from app.services.tracking import (
+    get_all_recent_positions,
     get_live_positions,
     get_live_positions_for_pilots,
     subscribe,
+    subscribe_global,
     subscribe_pilots,
     unsubscribe,
+    unsubscribe_global,
     unsubscribe_pilots,
 )
 
@@ -74,6 +77,7 @@ class PublicLiveSourcesResponse(BaseModel):
 class PublicPositionResponse(BaseModel):
     id: str
     pilot_id: int | None
+    pilot_name: str | None = None
     task_id: int | None
     lat: float
     lon: float
@@ -465,3 +469,58 @@ def public_buddy_group_positions(
         )
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# DEBUG "show all" live tracking endpoints
+# ---------------------------------------------------------------------------
+# These endpoints bypass event/buddy-group filters and expose EVERY device
+# that sends location updates. Intended for debug/testing only; remove or
+# gate behind auth before going fully live with competition filtering.
+
+@router.get("/live/all")
+async def public_all_live_sse() -> StreamingResponse:
+    """SSE stream of ALL live positions from every device (debug mode)."""
+    queue = subscribe_global()
+
+    async def event_stream():
+        try:
+            # Intentionally no snapshot event here — clients should call
+            # /api/public/live/all/positions separately to backfill history.
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event_type = (
+                        message.pop("event", "position")
+                        if isinstance(message, dict)
+                        else "position"
+                    )
+                    yield f"event: {event_type}\ndata: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            unsubscribe_global(queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/live/all/positions", response_model=list[PublicPositionResponse])
+def public_all_positions(
+    minutes: int = 60,
+    limit: int = 10000,
+    session: Session = Depends(get_session),
+) -> list[PublicPositionResponse]:
+    """Return every position record in the last `minutes` minutes across all pilots/tasks."""
+    # Clamp inputs to sane ranges
+    minutes = max(1, min(minutes, 24 * 60))
+    limit = max(1, min(limit, 10000))
+    rows = get_all_recent_positions(session, minutes=minutes, limit=limit)
+    return [PublicPositionResponse(**row) for row in rows]

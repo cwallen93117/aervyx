@@ -18,6 +18,7 @@ from app.models import LivePosition, TrackingSession, User
 
 _subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
 _pilot_subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
+_global_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 logger = logging.getLogger("aervyx.tracking")
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 
@@ -117,6 +118,39 @@ def _publish_to_pilot_subscribers(pilot_id: int, message: dict[str, Any]) -> Non
 
 
 # ---------------------------------------------------------------------------
+# Global pub/sub (debug mode — broadcasts every position to every subscriber)
+# ---------------------------------------------------------------------------
+
+def subscribe_global() -> asyncio.Queue[dict[str, Any]]:
+    """Register a new SSE subscriber that receives EVERY incoming position."""
+    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=512)
+    _global_subscribers.add(queue)
+    return queue
+
+
+def unsubscribe_global(queue: asyncio.Queue[dict[str, Any]]) -> None:
+    """Remove a global SSE subscriber queue."""
+    _global_subscribers.discard(queue)
+
+
+def _publish_global(message: dict[str, Any]) -> None:
+    """Fan out a message to all global SSE subscribers."""
+    if not _global_subscribers:
+        return
+    dead: list[asyncio.Queue[dict[str, Any]]] = []
+    for queue in _global_subscribers:
+        try:
+            queue.put_nowait(message)
+        except asyncio.QueueFull:
+            dead.append(queue)
+        except Exception:
+            logger.warning("Dropping failed global subscriber", exc_info=True)
+            dead.append(queue)
+    for queue in dead:
+        _global_subscribers.discard(queue)
+
+
+# ---------------------------------------------------------------------------
 # Core tracking functions
 # ---------------------------------------------------------------------------
 
@@ -191,11 +225,25 @@ def store_position(
 
     session.flush()
 
-    # Build SSE message once for both fan-out paths ----------------------------
-    if task_id is not None or (pilot_id is not None and pilot_id in _pilot_subscribers):
+    # Build SSE message once for all fan-out paths -----------------------------
+    has_any_subscribers = (
+        (task_id is not None and task_id in _subscribers)
+        or (pilot_id is not None and pilot_id in _pilot_subscribers)
+        or bool(_global_subscribers)
+    )
+    if has_any_subscribers:
+        # Resolve pilot name for display in "show all" debug view
+        pilot_name: str | None = None
+        aircraft_icon = "hang_glider"
+        if pilot_id is not None:
+            user = session.scalar(select(User).where(User.pilot_id == pilot_id))
+            if user is not None:
+                pilot_name = user.full_name
+                aircraft_icon = _normalize_aircraft_icon(user.aircraft_icon)
         message = {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,
+            "pilot_name": pilot_name,
             "task_id": pos.task_id,
             "lat": pos.lat,
             "lon": pos.lon,
@@ -207,12 +255,13 @@ def store_position(
             "source": pos.source,
             "device_id": pos.device_id,
             "battery_level": pos.battery_level,
-            "aircraft_icon": _aircraft_icons_by_pilot(session, [pilot_id]).get(pilot_id, "hang_glider") if pilot_id is not None else "hang_glider",
+            "aircraft_icon": aircraft_icon,
         }
         if task_id is not None:
             _publish(task_id, message)
         if pilot_id is not None:
             _publish_to_pilot_subscribers(pilot_id, message)
+        _publish_global(message)
 
     return pos
 
@@ -426,6 +475,60 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
             "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
         }
         for row in rows
+    ]
+
+
+def get_all_recent_positions(
+    session: Session,
+    *,
+    minutes: int = 60,
+    limit: int = 10000,
+) -> list[dict[str, Any]]:
+    """Return every position record from the last `minutes` minutes (all pilots, all tasks).
+
+    Used by the debug "show all" live tracking view. Intended to include free-flight
+    positions as well (task_id IS NULL). Returned newest-first, limited to `limit` rows.
+    """
+    from datetime import timedelta
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+
+    rows = session.scalars(
+        select(LivePosition)
+        .where(LivePosition.timestamp >= cutoff)
+        .order_by(LivePosition.timestamp.desc())
+        .limit(limit)
+    ).all()
+
+    pilot_ids = [pos.pilot_id for pos in rows if pos.pilot_id is not None]
+    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
+
+    pilot_names: dict[int, str] = {}
+    if pilot_ids:
+        users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all()
+        for u in users:
+            if u.pilot_id is not None and u.pilot_id not in pilot_names:
+                pilot_names[u.pilot_id] = u.full_name
+
+    return [
+        {
+            "id": str(pos.id),
+            "pilot_id": pos.pilot_id,
+            "pilot_name": pilot_names.get(pos.pilot_id) if pos.pilot_id is not None else None,
+            "task_id": pos.task_id,
+            "lat": pos.lat,
+            "lon": pos.lon,
+            "alt": pos.alt,
+            "speed": pos.speed,
+            "heading": pos.heading,
+            "accuracy": pos.accuracy,
+            "timestamp": pos.timestamp.isoformat(),
+            "source": pos.source,
+            "device_id": pos.device_id,
+            "battery_level": pos.battery_level,
+            "aircraft_icon": aircraft_icons.get(pos.pilot_id, "hang_glider") if pos.pilot_id is not None else "hang_glider",
+        }
+        for pos in rows
     ]
 
 

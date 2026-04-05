@@ -474,6 +474,8 @@ export default function LiveTrackingSection({
             <p className="hint">Select or create an event, or create buddy groups in Settings to get started.</p>
           ) : null}
 
+          {/* FILTER: Meshtastic mesh config card — hidden while we're in
+              "show all devices" debug mode. Un-comment to restore.
           {meshConfig && canManagePlatform ? (
             <div className="live-tracking-mesh-card">
               <div>
@@ -492,6 +494,7 @@ export default function LiveTrackingSection({
               </div>
             </div>
           ) : null}
+          */}
 
           {isSourceActive ? (
             <div className="results-task-map-layout live-tracking-layout">
