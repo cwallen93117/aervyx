@@ -336,10 +336,17 @@ export function LiveWatchClient() {
             />
           ) : (
             <div className="live-empty">
+              <svg viewBox="0 0 48 48" width="48" height="48" fill="none" style={{ opacity: 0.3, marginBottom: 12 }}>
+                <path d="M24 4L44 40L24 32L4 40Z" stroke="currentColor" strokeWidth="2" fill="none" strokeLinejoin="round"/>
+                <circle cx="24" cy="24" r="3" fill="currentColor" opacity=".6"/>
+              </svg>
               {hasAnySources ? (
                 <p>Select an event or buddy group above to watch live tracking.</p>
               ) : sources ? (
-                <p>No public live tracking sources are currently available.</p>
+                <>
+                  <p>No public live tracking sources are currently available.</p>
+                  <p style={{ fontSize: "0.8125rem", marginTop: 8, opacity: 0.6 }}>Event organizers can enable public tracking in their event settings.</p>
+                </>
               ) : (
                 <p>Loading...</p>
               )}
