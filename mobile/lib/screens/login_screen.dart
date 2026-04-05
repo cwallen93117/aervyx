@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../config/api_config.dart';
@@ -46,6 +47,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _showPassword = false;
   String? _error;
   String? _googleClientId;
+  String? _appVersion;
   // Only hidden when the backend explicitly says Google is not configured (404).
   // Network errors or timeouts leave it visible so the user can still try.
   bool _googleNotConfigured = false;
@@ -53,7 +55,13 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    _loadVersion();
     _fetchGoogleClientId();
+  }
+
+  Future<void> _loadVersion() async {
+    final info = await PackageInfo.fromPlatform();
+    if (mounted) setState(() => _appVersion = 'v${info.version}');
   }
 
   Future<void> _fetchGoogleClientId() async {
@@ -178,6 +186,11 @@ class _LoginScreenState extends State<LoginScreen> {
                 Text(
                   'Pilot Companion',
                   style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _appVersion ?? '',
+                  style: TextStyle(fontSize: 12, color: Colors.grey[700]),
                 ),
                 const SizedBox(height: 40),
                 TextField(
