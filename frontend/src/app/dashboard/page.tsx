@@ -1540,6 +1540,16 @@ export default function HomePage() {
     }
   }
 
+  async function updateUserCredentials(userId: number, payload: { username?: string; password?: string }) {
+    if (!token) return;
+    const updated = await apiFetch<AdminUserRecord>(`/api/auth/users/${userId}/credentials`, token, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    setAdminUsers((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+    setAdminFeedback({ type: "success", text: `Updated credentials for ${updated.full_name || updated.username}.` });
+  }
+
   async function saveSiteSettings() {
     if (!token) return;
     setSiteSettingsFeedback(null);
@@ -1841,6 +1851,22 @@ export default function HomePage() {
     await loadEvent(token, selectedEventId);
     await refreshPilotDirectory(token);
     await refreshEvents(token);
+  }
+
+  async function updatePilot(pilotId: number, payload: { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string }) {
+    if (!token) return;
+    const body = {
+      first_name: payload.first_name,
+      last_name: payload.last_name,
+      email: payload.email || null,
+      nation: payload.nation || null,
+      competition_number: payload.competition_number || null,
+      civl_id: payload.civl_id || null,
+    };
+    const updated = await apiFetch<PilotRecord>(`/api/pilots/${pilotId}`, token, { method: "PUT", body: JSON.stringify(body) });
+    setMessage(`Updated ${updated.first_name} ${updated.last_name}.`);
+    if (selectedEventId) await loadEvent(token, selectedEventId);
+    await refreshPilotDirectory(token);
   }
 
   async function uploadFile<T>(path: string, file: File): Promise<T> {
@@ -2340,9 +2366,11 @@ export default function HomePage() {
         pilotForm={pilotForm}
         setPilotForm={setPilotForm}
         canManagePlatform={canManagePlatform ?? false}
+        isAdmin={isAdmin}
         assignExistingPilot={assignExistingPilot}
         createPilot={createPilot}
         removePilot={removePilot}
+        updatePilot={updatePilot}
         uploadFile={uploadFile}
         loadEvent={(t, id) => loadEvent(t, id)}
         refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
@@ -2632,6 +2660,7 @@ export default function HomePage() {
               adminFeedback={adminFeedback}
               saveAdminUser={saveAdminUser}
               deleteAdminUser={deleteAdminUser}
+              updateUserCredentials={updateUserCredentials}
               adminSites={adminSites}
               setAdminSites={setAdminSites}
               adminSitesFeedback={adminSitesFeedback}

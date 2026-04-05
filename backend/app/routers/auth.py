@@ -14,6 +14,7 @@ from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import Pilot, User, UserEmail
 from app.schemas import (
+    AdminUserCredentialsUpdate,
     AdminUserResponse,
     AdminUserUpdate,
     AccountSettingsResponse,
@@ -674,6 +675,45 @@ def update_user_account(
     target.role = role
     target.profile_type = profile_type
     target.is_active = payload.is_active
+    session.add(target)
+    session.commit()
+    session.refresh(target)
+    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
+    return AdminUserResponse(
+        id=target.id,
+        username=target.username,
+        full_name=target.full_name,
+        first_name=pilot.first_name if pilot else None,
+        last_name=pilot.last_name if pilot else None,
+        role=target.role,
+        profile_type=target.profile_type,
+        pilot_id=target.pilot_id,
+        email=pilot.email if pilot else None,
+        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
+        competition_number=pilot.competition_number if pilot else None,
+        is_active=target.is_active,
+        created_at=target.created_at,
+    )
+
+
+@router.patch("/users/{user_id}/credentials", response_model=AdminUserResponse)
+def update_user_credentials(
+    user_id: int,
+    payload: AdminUserCredentialsUpdate,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if payload.username and payload.username.strip() and payload.username.strip() != target.username:
+        new_username = payload.username.strip()
+        conflict = session.scalar(select(User).where(User.username == new_username, User.id != target.id))
+        if conflict is not None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already taken")
+        target.username = new_username
+    if payload.password and payload.password.strip():
+        target.password_hash = hash_password(payload.password.strip())
     session.add(target)
     session.commit()
     session.refresh(target)

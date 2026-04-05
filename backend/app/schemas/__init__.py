@@ -149,6 +149,11 @@ class AdminUserUpdate(BaseModel):
     is_active: bool = True
 
 
+class AdminUserCredentialsUpdate(BaseModel):
+    username: str | None = None
+    password: str | None = None
+
+
 class SiteSettingsResponse(BaseModel):
     telemetry_vario_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
@@ -296,6 +301,7 @@ class PilotResponse(BaseModel):
     competition_number: str | None
     civl_id: str | None
     portal_username: str | None = None
+    is_claimed: bool = False
     temp_password: str | None = None
 
 

@@ -4,18 +4,22 @@ import { type FormEvent, useMemo, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import type { EventRecord, PilotRecord } from "./types";
 
+export type PilotEditForm = { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string };
+
 export interface ParticipantCardsProps {
   selectedEventId: number | null;
   selectedEvent: EventRecord | null;
   pilots: PilotRecord[];
   sitePilots: PilotRecord[];
   availableDirectoryPilots: PilotRecord[];
-  pilotForm: { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string };
-  setPilotForm: (form: { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string }) => void;
+  pilotForm: PilotEditForm;
+  setPilotForm: (form: PilotEditForm) => void;
   canManagePlatform: boolean;
+  isAdmin: boolean;
   assignExistingPilot: (pilotId: number | null) => void;
   createPilot: (event: FormEvent<HTMLFormElement>) => void;
   removePilot: (pilot: PilotRecord) => void;
+  updatePilot: (pilotId: number, payload: PilotEditForm) => Promise<void>;
   uploadFile: <T>(path: string, file: File) => Promise<T>;
   loadEvent: (activeToken: string, eventId: number) => Promise<void>;
   refreshPilotDirectory: (activeToken: string) => Promise<PilotRecord[]>;
@@ -34,9 +38,11 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
     pilotForm,
     setPilotForm,
     canManagePlatform,
+    isAdmin,
     assignExistingPilot,
     createPilot,
     removePilot,
+    updatePilot,
     uploadFile,
     loadEvent,
     refreshPilotDirectory,
@@ -47,6 +53,9 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
   const [directorySearch, setDirectorySearch] = useState("");
   const [selectedPilotIds, setSelectedPilotIds] = useState<Set<number>>(new Set());
   const [confirmRemove, setConfirmRemove] = useState<PilotRecord[] | null>(null);
+  const [editingPilot, setEditingPilot] = useState<PilotRecord | null>(null);
+  const [editForm, setEditForm] = useState<PilotEditForm>({ first_name: "", last_name: "", email: "", nation: "", competition_number: "", civl_id: "" });
+  const [editSaving, setEditSaving] = useState(false);
   const assignedPilotIds = useMemo(() => new Set(pilots.map((pilot) => pilot.id)), [pilots]);
   const normalizedDirectorySearch = directorySearch.trim().toLowerCase();
   const searchableDirectoryPilots = useMemo(() => {
@@ -254,7 +263,28 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                     <td>{pilot.portal_username ?? "No portal user"}</td>
                     {canManagePlatform ? (
                       <td className="participant-table-actions">
-                        <button type="button" className="ghost-button danger-button" onClick={() => setConfirmRemove([pilot])}>Remove</button>
+                        <div className="compact-slot-actions">
+                          <button
+                            type="button"
+                            className="ghost-button"
+                            disabled={Boolean(pilot.is_claimed) && !isAdmin}
+                            title={Boolean(pilot.is_claimed) && !isAdmin ? "Account claimed — contact admin to edit" : "Edit pilot"}
+                            onClick={() => {
+                              setEditingPilot(pilot);
+                              setEditForm({
+                                first_name: pilot.first_name ?? "",
+                                last_name: pilot.last_name ?? "",
+                                email: pilot.email ?? "",
+                                nation: pilot.nation ?? "",
+                                competition_number: pilot.competition_number ?? "",
+                                civl_id: pilot.civl_id ?? "",
+                              });
+                            }}
+                          >
+                            {Boolean(pilot.is_claimed) && !isAdmin ? "🔒 Edit" : "Edit"}
+                          </button>
+                          <button type="button" className="ghost-button danger-button" onClick={() => setConfirmRemove([pilot])}>Remove</button>
+                        </div>
                       </td>
                     ) : null}
                   </tr>
@@ -267,6 +297,62 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
             </tbody>
           </table>
         </div>
+        {editingPilot ? (
+          <div className="confirm-overlay" onClick={() => { if (!editSaving) setEditingPilot(null); }}>
+            <div className="confirm-dialog confirm-dialog-wide" onClick={(e) => e.stopPropagation()}>
+              <strong>Edit {editingPilot.first_name} {editingPilot.last_name}</strong>
+              <div className="participant-intake-grid participant-intake-grid--two">
+                <label className="stack compact">
+                  <span>First name</span>
+                  <input value={editForm.first_name} onChange={(event) => setEditForm({ ...editForm, first_name: event.target.value })} />
+                </label>
+                <label className="stack compact">
+                  <span>Last name</span>
+                  <input value={editForm.last_name} onChange={(event) => setEditForm({ ...editForm, last_name: event.target.value })} />
+                </label>
+              </div>
+              <div className="participant-intake-grid participant-intake-grid--two">
+                <label className="stack compact">
+                  <span>Email</span>
+                  <input type="email" value={editForm.email} onChange={(event) => setEditForm({ ...editForm, email: event.target.value })} />
+                </label>
+                <label className="stack compact">
+                  <span>Nation</span>
+                  <input value={editForm.nation} onChange={(event) => setEditForm({ ...editForm, nation: event.target.value })} />
+                </label>
+                <label className="stack compact">
+                  <span>Competition #</span>
+                  <input value={editForm.competition_number} onChange={(event) => setEditForm({ ...editForm, competition_number: event.target.value })} />
+                </label>
+                <label className="stack compact">
+                  <span>CIVL ID</span>
+                  <input value={editForm.civl_id} onChange={(event) => setEditForm({ ...editForm, civl_id: event.target.value })} />
+                </label>
+              </div>
+              <div className="confirm-actions">
+                <button type="button" className="ghost-button" disabled={editSaving} onClick={() => setEditingPilot(null)}>Cancel</button>
+                <button
+                  type="button"
+                  disabled={editSaving}
+                  onClick={async () => {
+                    if (!editingPilot) return;
+                    setEditSaving(true);
+                    try {
+                      await updatePilot(editingPilot.id, editForm);
+                      setEditingPilot(null);
+                    } catch (caught) {
+                      setMessage(caught instanceof Error ? caught.message : "Could not update pilot.");
+                    } finally {
+                      setEditSaving(false);
+                    }
+                  }}
+                >
+                  {editSaving ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {confirmRemove ? (
           <div className="confirm-overlay" onClick={() => setConfirmRemove(null)}>
             <div className="confirm-dialog" onClick={(e) => e.stopPropagation()}>

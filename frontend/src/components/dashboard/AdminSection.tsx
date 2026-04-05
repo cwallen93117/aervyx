@@ -17,6 +17,7 @@ export interface AdminSectionProps {
   adminFeedback: { type: "success" | "error"; text: string } | null;
   saveAdminUser: (userRecord: AdminUserRecord) => void;
   deleteAdminUser: (userRecord: AdminUserRecord) => void;
+  updateUserCredentials: (userId: number, payload: { username?: string; password?: string }) => Promise<void>;
   adminSites: AdminSiteRecord[];
   setAdminSites: (sites: AdminSiteRecord[] | ((current: AdminSiteRecord[]) => AdminSiteRecord[])) => void;
   adminSitesFeedback: { type: "success" | "error" | "pending"; text: string } | null;
@@ -40,6 +41,7 @@ export default function AdminSection(props: AdminSectionProps) {
     adminFeedback,
     saveAdminUser,
     deleteAdminUser,
+    updateUserCredentials,
     adminSites,
     setAdminSites,
     adminSitesFeedback,
@@ -59,6 +61,11 @@ export default function AdminSection(props: AdminSectionProps) {
   const [userSortField, setUserSortField] = useState<UserSortField>("last_name");
   const [userSortDir, setUserSortDir] = useState<SortDir>("asc");
   const [selectedUserIds, setSelectedUserIds] = useState<Record<number, boolean>>({});
+  const [editingCredentials, setEditingCredentials] = useState<AdminUserRecord | null>(null);
+  const [credentialsUsername, setCredentialsUsername] = useState("");
+  const [credentialsPassword, setCredentialsPassword] = useState("");
+  const [credentialsSaving, setCredentialsSaving] = useState(false);
+  const [credentialsError, setCredentialsError] = useState<string | null>(null);
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -349,6 +356,18 @@ export default function AdminSection(props: AdminSectionProps) {
                           <div className="compact-slot-actions">
                             <button
                               type="button"
+                              className="ghost-button"
+                              onClick={() => {
+                                setEditingCredentials(account);
+                                setCredentialsUsername(account.username);
+                                setCredentialsPassword("");
+                                setCredentialsError(null);
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
                               className="ghost-button danger-button"
                               disabled={account.id === user?.id}
                               onClick={() => {
@@ -370,6 +389,52 @@ export default function AdminSection(props: AdminSectionProps) {
                 </tbody>
               </table>
             </div>
+            {editingCredentials ? (
+              <div className="confirm-overlay" onClick={() => { if (!credentialsSaving) setEditingCredentials(null); }}>
+                <div className="confirm-dialog confirm-dialog-wide" onClick={(e) => e.stopPropagation()}>
+                  <strong>Edit credentials — {editingCredentials.full_name || editingCredentials.username}</strong>
+                  <label className="stack compact">
+                    <span>Username</span>
+                    <input value={credentialsUsername} onChange={(event) => setCredentialsUsername(event.target.value)} />
+                  </label>
+                  <label className="stack compact">
+                    <span>New password (leave blank to keep current)</span>
+                    <input type="password" value={credentialsPassword} onChange={(event) => setCredentialsPassword(event.target.value)} autoComplete="new-password" />
+                  </label>
+                  {credentialsError ? <div className="status-chip error">{credentialsError}</div> : null}
+                  <div className="confirm-actions">
+                    <button type="button" className="ghost-button" disabled={credentialsSaving} onClick={() => setEditingCredentials(null)}>Cancel</button>
+                    <button
+                      type="button"
+                      disabled={credentialsSaving}
+                      onClick={async () => {
+                        if (!editingCredentials) return;
+                        setCredentialsSaving(true);
+                        setCredentialsError(null);
+                        try {
+                          const payload: { username?: string; password?: string } = {};
+                          const nextUsername = credentialsUsername.trim();
+                          if (nextUsername && nextUsername !== editingCredentials.username) payload.username = nextUsername;
+                          if (credentialsPassword.trim()) payload.password = credentialsPassword.trim();
+                          if (Object.keys(payload).length === 0) {
+                            setEditingCredentials(null);
+                            return;
+                          }
+                          await updateUserCredentials(editingCredentials.id, payload);
+                          setEditingCredentials(null);
+                        } catch (caught) {
+                          setCredentialsError(caught instanceof Error ? caught.message : "Could not update credentials.");
+                        } finally {
+                          setCredentialsSaving(false);
+                        }
+                      }}
+                    >
+                      {credentialsSaving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
         </SectionCard>
       ) : activeTab === "sites_database" ? (

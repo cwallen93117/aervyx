@@ -2307,6 +2307,10 @@ button[type="submit"]:hover,
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
 }
 
+.confirm-dialog.confirm-dialog-wide {
+  max-width: 560px;
+}
+
 .confirm-dialog strong {
   font-size: 1rem;
   color: var(--ink);
