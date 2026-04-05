@@ -1057,6 +1057,9 @@ export const TaskMap = React.memo(function TaskMap({
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPerspective3D, setIsPerspective3D] = useState(false);
+  // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
+  // flat on the map plane; in 3D they scale by the user-selected multiplier.
+  const effectiveAltitudeMultiplier = isPerspective3D ? altitudeMultiplier : 0;
   const [isReplaying, setIsReplaying] = useState(false);
   const [replayIndex, setReplayIndex] = useState(0);
   const [replaySpeed, setReplaySpeed] = useState(10);
@@ -1155,10 +1158,10 @@ export const TaskMap = React.memo(function TaskMap({
       livePositions.map((position) => ({
         nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
         altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
-        position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * altitudeMultiplier] as [number, number, number],
+        position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
         color: hexToRgb(String(position.color ?? "#0ea5e9")),
       })),
-    [altitudeMultiplier, livePositions, units.altitude],
+    [effectiveAltitudeMultiplier, livePositions, units.altitude],
   );
   const airspaceData = useMemo(() => ({
     type: "FeatureCollection",
@@ -1311,11 +1314,11 @@ export const TaskMap = React.memo(function TaskMap({
       .filter((feature) => feature.geometry.type === "LineString")
       .map((feature, featureIndex) => ({
         uploadId: Number(feature.properties?.upload_id ?? 0),
-        path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, altitudeMultiplier) as [number, number, number]),
+        path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
         color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
         highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
       }));
-  }, [altitudeMultiplier, highlightedTrackUploadId, track]);
+  }, [effectiveAltitudeMultiplier, highlightedTrackUploadId, track]);
   const displayTrack = useMemo<TrackCollection | null>(() => {
     if (!track) {
       return null;
@@ -1381,7 +1384,7 @@ export const TaskMap = React.memo(function TaskMap({
           },
           geometry: {
             type: "Point",
-            coordinates: scaleTrackPosition(coordinate, altitudeMultiplier),
+            coordinates: scaleTrackPosition(coordinate, effectiveAltitudeMultiplier),
           },
         },
       ];
@@ -1390,7 +1393,7 @@ export const TaskMap = React.memo(function TaskMap({
       type: "FeatureCollection",
       features,
     };
-  }, [altitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, track, trackFeatureTimelines, units.altitude]);
+  }, [effectiveAltitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, track, trackFeatureTimelines, units.altitude]);
   const replayPilotLabelData = useMemo(
     () =>
       (replayMarkerData.features as Array<{ geometry?: { coordinates?: [number, number, number] | [number, number] }; properties?: Record<string, unknown> }>)
