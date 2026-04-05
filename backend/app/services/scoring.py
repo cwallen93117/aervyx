@@ -496,6 +496,25 @@ def evaluate_task(
 
 # ---------- formula builder: maps Event/Task fields → AirScore formula dict ----------
 
+
+def _resolve_nondist_weights(penalties: dict, leading_weight_factor: float) -> dict:
+    """Return weightspeed / weightstart / weightarrival for the formula dict.
+
+    When *leading_weight_factor* is set (≠ 1.0), it replaces the legacy
+    weightstart (1.4/8 = 0.175) as the fraction of non-distance points for
+    leading.  The three weights must always sum to 1.0 so that
+    ``points_weight()`` distributes all non-distance points exactly.
+    """
+    wa = float(penalties.get("weightarrival", 1.0 / 8.0))
+    if leading_weight_factor != 1.0 and leading_weight_factor > 0:
+        ws = leading_weight_factor
+        sp = max(1.0 - ws - wa, 0.0)
+    else:
+        ws = float(penalties.get("weightstart", 1.4 / 8.0))
+        sp = float(penalties.get("weightspeed", 5.6 / 8.0))
+    return {"weightspeed": sp, "weightstart": ws, "weightarrival": wa}
+
+
 def _build_formula(task: Task, event: Event | None = None) -> dict:
     """
     Build the AirScore-compatible formula dict from Aervyx Event + Task models.
@@ -575,9 +594,9 @@ def _build_formula(task: Task, event: Event | None = None) -> dict:
         "sspenalty": _clamp(float(_ev("goal_ss_penalty", penalties.get("sspenalty", 1.0)) or 1.0), 0.0, 1.0),
         "lineardist": _clamp(float(penalties.get("lineardist", 0.5)), 0.0, 1.0),
         "weightdist": penalties.get("weightdist", "post2014"),
-        "weightspeed": float(penalties.get("weightspeed", 5.6 / 8.0)),
-        "weightstart": float(penalties.get("weightstart", 1.4 / 8.0)),
-        "weightarrival": float(penalties.get("weightarrival", 1.0 / 8.0)),
+        # GAP2021+: leading_weight_factor overrides legacy weightstart (1.4/8).
+        # Adjust all non-distance weights so they sum to 1.0.
+        **_resolve_nondist_weights(penalties, float(_ev("leading_weight_factor", 1.0) or 1.0)),
         "speedcalc": speedcalc,
         "arrival": arrival_mode,
         "departure_mode": departure_mode,
