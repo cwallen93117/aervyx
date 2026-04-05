@@ -3734,7 +3734,7 @@ button[type="submit"]:hover,
 }
 
 .live-sidebar {
-  width: 300px;
+  width: 225px;
   overflow-y: auto;
   background: rgba(6, 9, 15, 0.95);
   border-right: 1px solid rgba(255, 255, 255, 0.08);
@@ -3774,6 +3774,13 @@ button[type="submit"]:hover,
 
 .live-pilot-row:hover {
   background: rgba(255, 255, 255, 0.04);
+}
+
+.live-pilot-empty {
+  padding: 20px 14px;
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
 }
 
 .live-pilot-dot {
