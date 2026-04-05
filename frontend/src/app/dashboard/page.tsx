@@ -425,14 +425,34 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+function parseContentDispositionFilename(disposition: string | null): string | null {
+  if (!disposition) return null;
+  // Prefer RFC 5987 encoded filename* (supports non-ASCII + reserved chars like "#")
+  // e.g. `attachment; filename*=UTF-8''Charles-2026-04-05-%231.igc`
+  const extMatch = disposition.match(/filename\*=(?:([\w-]+)'[^']*')?([^;]+)/i);
+  if (extMatch && extMatch[2]) {
+    const raw = extMatch[2].trim().replace(/^"|"$/g, "");
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  // Fallback to plain `filename="..."` / `filename=...`
+  const plain = disposition.match(/filename=("([^"\\]*(?:\\.[^"\\]*)*)"|([^;]+))/i);
+  if (plain) {
+    return (plain[2] ?? plain[3] ?? "").trim();
+  }
+  return null;
+}
+
 async function apiFetchBlob(path: string, token: string, init: RequestInit = {}): Promise<{ blob: Blob; filename: string | null }> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
-  const disposition = response.headers.get("content-disposition");
-  const match = disposition?.match(/filename="?([^"]+)"?/i);
-  return { blob: await response.blob(), filename: match?.[1] ?? null };
+  const filename = parseContentDispositionFilename(response.headers.get("content-disposition"));
+  return { blob: await response.blob(), filename };
 }
 
 function logbookImportFileKey(file: File) {
