@@ -3250,7 +3250,7 @@ button[type="submit"]:hover,
 
 .results-table-compact thead th,
 .results-table-compact tbody td {
-  padding: 9px 12px;
+  padding: 5px 10px;
 }
 
 .results-header-stack {
@@ -5171,7 +5171,7 @@ details[open] > summary {
 
 .scoring-ops-table th,
 .scoring-ops-table td {
-  padding: 9px 12px;
+  padding: 5px 10px;
   border-bottom: 1px solid #efefed;
   font-size: 0.75rem;
   vertical-align: middle;
