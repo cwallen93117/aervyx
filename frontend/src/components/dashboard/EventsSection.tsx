@@ -818,7 +818,7 @@ export default function EventsSection(props: EventsSectionProps) {
 
   return (
     <div className="section-stack">
-      <SectionCard title="Event selection" description="Choose an event from the database or start a new one. Everything below follows the currently selected event.">
+      <SectionCard title="Event selection">
         <div className="event-selector-bar">
           <label className="stack compact event-selector-field">
             <span>Current event</span>
@@ -850,7 +850,7 @@ export default function EventsSection(props: EventsSectionProps) {
       </div>
       <div className="event-workspace-grid event-workspace-stack">
         {eventTab === "details" ? (
-        <SectionCard title={eventEditorId ? "Event details" : "Create event"} description="Keep the active event compact and quick to edit.">
+        <SectionCard>
           <form className="stack form-block compact-event-form compact-clusters" onSubmit={saveEvent}>
             <div className="fieldset-grid two-up">
               <fieldset className="fieldset-cluster">
@@ -863,10 +863,6 @@ export default function EventsSection(props: EventsSectionProps) {
                   <label className="stack compact">
                     <span>Location</span>
                     <input placeholder="Enter location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
-                  </label>
-                  <label className="stack compact">
-                    <span>Timezone</span>
-                    <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
                   </label>
                   <label className="task-advanced-toggle">
                     <input type="checkbox" checked={eventForm.is_public_tracking ?? false} onChange={(event) => setEventForm({ ...eventForm, is_public_tracking: event.target.checked })} />
@@ -940,6 +936,10 @@ export default function EventsSection(props: EventsSectionProps) {
                         />
                       </span>
                     </label>
+                    <label className="stack compact">
+                      <span>Timezone</span>
+                      <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+                    </label>
                   </div>
                 </fieldset>
             </div>
@@ -948,7 +948,7 @@ export default function EventsSection(props: EventsSectionProps) {
         ) : null}
         {eventTab === "scoring" ? (
         <>
-        <SectionCard title="Scoring parameters" description="Event-level GAP defaults.">
+        <SectionCard title="Scoring parameters">
           {eventEditorId ? (
             <form className="stack form-block compact-scoring-form compact-clusters" onSubmit={saveEvent}>
               <div className="scoring-import-strip">
@@ -1239,7 +1239,7 @@ export default function EventsSection(props: EventsSectionProps) {
             <p className="hint">Create or select an event to define its scoring defaults.</p>
           )}
         </SectionCard>
-        <SectionCard title="Penalty presets" description="Manage the quick penalty buttons used in Scoring operations for this event.">
+        <SectionCard title="Penalty presets">
           {eventEditorId ? (
             <div className="stack form-block">
               {presetFeedback ? <div className={`status-chip ${presetFeedback.type}`}>{presetFeedback.text}</div> : null}
@@ -1321,7 +1321,7 @@ export default function EventsSection(props: EventsSectionProps) {
         </>
         ) : null}
         {eventTab === "turnpoints" ? (
-        <SectionCard title="Turnpoint files" description="Upload as many waypoint files as you need for the event, then control which ones are visible on the map.">
+        <SectionCard title="Turnpoint files">
           {eventEditorId ? (
             <div className="stack form-block">
               {canManagePlatform ? (
@@ -1408,7 +1408,7 @@ export default function EventsSection(props: EventsSectionProps) {
         ) : null}
       {eventTab === "airspace" ? (
         <>
-          <SectionCard title="Overlay settings" description="Choose which overlays appear on the task map for this event.">
+          <SectionCard title="Overlay settings">
             {eventEditorId ? (
               <div className="stack form-block">
                 <div className="event-airspace-settings-row">
@@ -1450,7 +1450,7 @@ export default function EventsSection(props: EventsSectionProps) {
               <p className="hint">Create or select an event to configure airspace overlays.</p>
             )}
           </SectionCard>
-          <SectionCard title="Overlay files" description="Upload OpenAir or GeoJSON overlay files, then control which ones are visible on the map.">
+          <SectionCard title="Overlay files">
             <div className="stack form-block">
               {eventEditorId ? (
                 canManagePlatform ? (

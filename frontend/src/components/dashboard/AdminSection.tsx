@@ -232,7 +232,7 @@ export default function AdminSection(props: AdminSectionProps) {
         </button>
       </div>
       {activeTab === "platform_users" ? (
-        <SectionCard title="Platform users" description="Admins can manage organizer and pilot accounts for the entire platform here.">
+        <SectionCard title="Platform users">
           <div className="stack form-block">
             {adminFeedback ? <div className={`status-chip ${adminFeedback.type}`}>{adminFeedback.text}</div> : null}
             <div className="admin-users-search-row">
@@ -373,7 +373,7 @@ export default function AdminSection(props: AdminSectionProps) {
           </div>
         </SectionCard>
       ) : activeTab === "sites_database" ? (
-        <SectionCard title="Flying Sites" description="Maintain the flying sites catalog used by logbook site matching and future same-site flight discovery.">
+        <SectionCard title="Flying Sites">
           <div className="stack form-block compact-clusters">
             {adminSitesFeedback ? <div className={`status-chip ${adminSitesFeedback.type}`}>{adminSitesFeedback.text}</div> : null}
             {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
@@ -541,7 +541,7 @@ export default function AdminSection(props: AdminSectionProps) {
       ) : activeTab === "debugging" ? (
         <DebugTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} />
       ) : (
-        <SectionCard title="Site settings" description="These admin-only settings control replay smoothing and map behavior across the dashboard.">
+        <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">
             {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
             <div className="fieldset-grid two-up">
@@ -695,7 +695,7 @@ function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange"
 function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./types").DebugStatusResponse | null; refreshDebugStatus: () => void }) {
   if (!debugStatus) {
     return (
-      <SectionCard title="Debugging" description="Live tracking system diagnostics and connected device status.">
+      <SectionCard title="Debugging">
         <div className="stack form-block">
           <div className="status-chip pending">Loading debug status...</div>
         </div>
