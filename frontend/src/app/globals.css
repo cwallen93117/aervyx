@@ -3710,6 +3710,16 @@ button[type="submit"]:hover,
 .live-map {
   flex: 1;
   position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.live-map .map-shell,
+.live-map .map-card {
+  height: 100%;
+  min-height: 0;
+  border-radius: 0;
+  border: none;
 }
 
 .live-empty {
@@ -3727,8 +3737,9 @@ button[type="submit"]:hover,
   width: 300px;
   overflow-y: auto;
   background: rgba(6, 9, 15, 0.95);
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
   flex-shrink: 0;
+  order: -1;
 }
 
 .live-sidebar-header {
@@ -3800,8 +3811,9 @@ button[type="submit"]:hover,
   .live-sidebar {
     width: 100%;
     max-height: 35vh;
-    border-left: none;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    order: -1;
   }
   .live-source-picker select {
     min-width: 140px;
