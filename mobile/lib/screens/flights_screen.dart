@@ -187,7 +187,8 @@ class _FlightsScreenState extends State<FlightsScreen> {
               ),
             )
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(
+                  16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
               children: [
                 for (final entry in grouped.entries) ...[
                   _YearHeader(

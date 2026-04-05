@@ -198,11 +198,11 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
             onChanged: (style) => setState(() => _mapStyle = style),
           ),
         ),
-        // Altitude legend — above the info bar
+        // Altitude legend — above the info bar (accounts for nav bar inset)
         if (_minAlt != null && _maxAlt != null)
           Positioned(
             right: 12,
-            bottom: 56,
+            bottom: 56 + MediaQuery.of(context).padding.bottom,
             child: _AltitudeLegend(minAlt: _minAlt!, maxAlt: _maxAlt!),
           ),
         // Flight info bar
