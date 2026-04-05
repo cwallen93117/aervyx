@@ -95,11 +95,15 @@
 <div class="info-box">
   <strong>Audit Methodology:</strong> Competitions were imported from CIVLCOMPS and Airtribune with their original IGC track files and scoring parameters, then scored independently using the Aervyx GAP engine. Results are compared against the official published scores from each platform.
   <br><br>
-  <strong>Known Differences:</strong>
+  <strong>Weight Allocation Fix (2026-04-04):</strong> Corrected the leading weight allocation from the legacy AirScore value (0.175) to the GAP2023 PG standard (0.26) for events 12&ndash;16. Available leading points now match FS reference values (e.g., task 53: Aervyx 165.3 vs FS 157.1).
+  <br><br>
+  <strong>Known Issues Affecting Comparison:</strong>
   <ul style="margin: 4px 0 0 20px; font-size: 13px;">
-    <li><strong>Available points weight allocation:</strong> The distribution of 1000 points between distance, speed, and leading categories uses different calculation methods. This is reflected in the &ldquo;Avail Dist/Time/Lead&rdquo; rows per task.</li>
-    <li><strong>Leading coefficient:</strong> The leading coefficient implementation differs between FS and Aervyx, causing systematic differences in leading points per pilot.</li>
-    <li><strong>Route optimization:</strong> Minor differences in shortest-path distance calculation may cause small distance point differences.</li>
+    <li><strong style="color: var(--red-text);">Start cylinder detection failures:</strong> Many tasks show <code>started_at=None</code> for most pilots despite reaching ESS/goal. This causes fastest_time_seconds to be stored as Unix epochs (&gt;1 billion) or near-zero, breaking speed and leading point calculations. Affected tasks show quality &lt; 1.0 or inflated fastest times.</li>
+    <li><strong style="color: var(--red-text);">Missing track data:</strong> Some tasks have very few pilots with uploaded/processed tracks (e.g., US Open Task 1: 7 of 126 pilots).</li>
+    <li><strong>Leading coefficient:</strong> The leading coefficient distribution algorithm differs between FS and Aervyx, causing systematic per-pilot leading point differences even when available points match.</li>
+    <li><strong>Route distance:</strong> Aervyx computes ~0.4 km shorter distances consistently (likely different geodesic calculation), causing small distance point differences.</li>
+    <li><strong>Speed scoring:</strong> Per-pilot speed point differences of 5&ndash;35 pts on healthy tasks, likely from different SSS/ESS crossing time interpolation.</li>
     <li><strong>Adjusted Diff</strong> removes leading points from both sides to isolate distance+speed accuracy.</li>
   </ul>
 </div>
@@ -132,6 +136,14 @@
 
     {% for tc in comp.tasks %}
     <h3>{{ tc.task_name }}</h3>
+
+    {% if tc.health_warnings %}
+    <div style="background: var(--red); border-left: 4px solid #dc3545; padding: 8px 12px; margin-bottom: 8px; border-radius: 4px; font-size: 13px;">
+      {% for w in tc.health_warnings %}
+      <div style="color: var(--red-text);">&#9888; {{ w }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
 
     <div class="stats-row">
       <div class="stat">
