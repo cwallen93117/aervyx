@@ -261,8 +261,17 @@ class TrackingService extends ChangeNotifier {
   }
 
   /// Enable/disable debug mode — skips flight detection, sends every position.
+  ///
+  /// If tracking is already active, restarts the GPS stream (to pick up the
+  /// new distanceFilter) and restarts the heartbeat timer (to use the new
+  /// 1 s / 5 s cadence) so the change takes effect without a full restart.
   void setDebugMode(bool enabled) {
     _debugMode = enabled;
+    if (_trackingState == TrackingState.preFlight ||
+        _trackingState == TrackingState.inFlight) {
+      _startGpsStream();
+      _startPositionHeartbeat();
+    }
     notifyListeners();
   }
 
@@ -497,6 +506,15 @@ class TrackingService extends ChangeNotifier {
       _locationSubscription =
           Geolocator.getPositionStream(locationSettings: settings)
               .listen(_onPositionUpdate, onError: _onLocationError);
+    } else if (_debugMode) {
+      // Debug mode — fire on every GPS sample regardless of movement
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+      );
+      _locationSubscription =
+          Geolocator.getPositionStream(locationSettings: settings)
+              .listen(_onPositionUpdate, onError: _onLocationError);
     } else {
       // Free-flight — high accuracy, 5m filter
       const settings = LocationSettings(
@@ -529,48 +547,53 @@ class TrackingService extends ChangeNotifier {
     );
   }
 
-  /// Start a 5-second heartbeat that synthesises a position update when the
-  /// GPS stream is silent (e.g. the pilot is stationary at launch or on the
-  /// ground after landing).  The heartbeat only fires when:
-  ///   • tracking state is preFlight or inFlight
-  ///   • the GPS stream has not emitted for >= 5 seconds
-  ///   • a last-known position is available
+  /// Start a position heartbeat that synthesises a position update when the
+  /// GPS stream is silent.
+  ///
+  /// Normal mode: fires every 5 s, skipped if the GPS stream emitted within
+  /// the last 5 s (pilot is moving — stream is already delivering points).
+  ///
+  /// Debug mode: fires every 1 s with NO freshness guard so at least one
+  /// position is always sent per second, even when the GPS stream is active.
+  /// This guarantees a continuous flow for pipeline testing.
   void _startPositionHeartbeat() {
     _positionHeartbeatTimer?.cancel();
-    _positionHeartbeatTimer = Timer.periodic(
-      const Duration(seconds: 5),
-      (_) async {
-        if (_trackingState != TrackingState.preFlight &&
-            _trackingState != TrackingState.inFlight) {
-          return;
-        }
+    final interval = _debugMode
+        ? const Duration(seconds: 1)
+        : const Duration(seconds: 5);
+    _positionHeartbeatTimer = Timer.periodic(interval, (_) async {
+      if (_trackingState != TrackingState.preFlight &&
+          _trackingState != TrackingState.inFlight) {
+        return;
+      }
+      if (!_debugMode) {
+        // Normal mode: skip if the GPS stream fired recently
         final silentFor = DateTime.now().difference(_lastStreamPositionAt);
         if (silentFor.inSeconds < 5) {
-          // Stream is active — nothing to do
           return;
         }
-        if (_lastPosition == null) return;
+      }
+      if (_lastPosition == null) return;
 
-        // Build a synthetic Geolocator Position from the last known fix,
-        // with a fresh timestamp so the server records the current time.
-        // Nullable fields in the model are coalesced to 0.0 — the same
-        // sentinel value Geolocator uses when a measurement is unavailable.
-        final last = _lastPosition!;
-        final synthetic = Position(
-          latitude: last.lat,
-          longitude: last.lon,
-          altitude: last.alt ?? 0.0,
-          altitudeAccuracy: 0.0,
-          speed: last.speed ?? 0.0,
-          heading: last.heading ?? 0.0,
-          accuracy: last.accuracy ?? 0.0,
-          headingAccuracy: 0.0,
-          speedAccuracy: 0.0,
-          timestamp: DateTime.now().toUtc(),
-        );
-        await _onPositionUpdate(synthetic);
-      },
-    );
+      // Build a synthetic Geolocator Position from the last known fix,
+      // with a fresh timestamp so the server records the current time.
+      // Nullable fields in the model are coalesced to 0.0 — the same
+      // sentinel value Geolocator uses when a measurement is unavailable.
+      final last = _lastPosition!;
+      final synthetic = Position(
+        latitude: last.lat,
+        longitude: last.lon,
+        altitude: last.alt ?? 0.0,
+        altitudeAccuracy: 0.0,
+        speed: last.speed ?? 0.0,
+        heading: last.heading ?? 0.0,
+        accuracy: last.accuracy ?? 0.0,
+        headingAccuracy: 0.0,
+        speedAccuracy: 0.0,
+        timestamp: DateTime.now().toUtc(),
+      );
+      await _onPositionUpdate(synthetic);
+    });
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
