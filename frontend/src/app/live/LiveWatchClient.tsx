@@ -382,6 +382,37 @@ export function LiveWatchClient() {
               </div>
             )}
           </div>
+          <div className="live-sidebar-legend" aria-label="Map legend">
+            <div className="live-sidebar-legend-title">Legend</div>
+            <div className="live-sidebar-legend-row">
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="pilot" color="#cbd5e1" size={14} />
+                Pilot
+              </span>
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="driver" color="#cbd5e1" size={14} />
+                Driver
+              </span>
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="stationary_node" color="#cbd5e1" size={14} />
+                Node
+              </span>
+            </div>
+            <div className="live-sidebar-legend-row">
+              <span className="live-sidebar-legend-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                Cellular
+              </span>
+              <span className="live-sidebar-legend-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                Mesh
+              </span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

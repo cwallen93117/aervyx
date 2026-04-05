@@ -2430,44 +2430,6 @@ export const TaskMap = React.memo(function TaskMap({
           </select>
         </label>
       </div>
-      {mode === "live" ? (
-        <div className="map-live-legend" aria-label="Live map legend">
-          <div className="map-live-legend-row">
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2l2 8h8l-6 4.5 2.5 7.5-6.5-5-6.5 5L8 14.5 2 10h8z" />
-              </svg>
-              Pilot
-            </span>
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" />
-              </svg>
-              Driver
-            </span>
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z" />
-              </svg>
-              Node
-            </span>
-          </div>
-          <div className="map-live-legend-row">
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-              Cellular
-            </span>
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-              Mesh
-            </span>
-          </div>
-        </div>
-      ) : null}
       {replayVisible && mode === "replay" ? (
         <div className="replay-bar">
           <div className="replay-bar-main">
