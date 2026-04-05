@@ -968,7 +968,7 @@ export default function EventsSection(props: EventsSectionProps) {
                       ))}
                     </select>
                   </label>
-                  <button type="button" className="secondary scoring-import-button" onClick={() => void loadScoringTemplate()} disabled={!scoringTemplateEventId}>
+                  <button type="button" className="ghost-button scoring-import-button" onClick={() => void loadScoringTemplate()} disabled={!scoringTemplateEventId}>
                     Load scoring parameters
                   </button>
                 </div>

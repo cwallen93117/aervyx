@@ -1205,28 +1205,6 @@ button[type="submit"]:hover,
   background: var(--accent-hover);
 }
 
-.button-row .secondary,
-.secondary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 8px 16px;
-  border-radius: var(--r-md);
-  font-size: 0.8125rem;
-  font-weight: 500;
-  background: var(--panel);
-  color: var(--ink-secondary);
-  border: 1px solid var(--line-strong);
-  height: 38px;
-  transition: all 150ms ease;
-}
-
-.button-row .secondary:hover,
-.secondary:hover {
-  background: var(--wash-alt);
-  border-color: var(--ink-muted);
-  color: var(--ink);
-}
 
 .ghost-button {
   display: inline-flex;
