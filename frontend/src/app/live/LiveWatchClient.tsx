@@ -363,7 +363,12 @@ export function LiveWatchClient() {
                 return (
                   <div key={pilotId} className="live-pilot-row">
                     <span className="live-pilot-badge" style={{ color }}>
-                      <PilotRoleBadge profileType={pos?.profile_type} color={color} size={16} />
+                      <PilotRoleBadge
+                        profileType={pos?.profile_type}
+                        aircraftType={pos?.aircraft_icon}
+                        color={color}
+                        size={16}
+                      />
                     </span>
                     <div className="live-pilot-info">
                       <strong>{name}</strong>
@@ -381,6 +386,33 @@ export function LiveWatchClient() {
                 {loading ? "Connecting…" : "Waiting for pilots…"}
               </div>
             )}
+          </div>
+          <div className="live-sidebar-legend" aria-label="Map legend">
+            <div className="live-sidebar-legend-title">Legend</div>
+            <div className="live-sidebar-legend-row">
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="driver" color="#cbd5e1" size={14} />
+                Driver
+              </span>
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="stationary_node" color="#cbd5e1" size={14} />
+                Node
+              </span>
+            </div>
+            <div className="live-sidebar-legend-row">
+              <span className="live-sidebar-legend-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                Cellular
+              </span>
+              <span className="live-sidebar-legend-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                Mesh
+              </span>
+            </div>
           </div>
         </div>
       </div>

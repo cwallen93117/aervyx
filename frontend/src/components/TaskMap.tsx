@@ -79,24 +79,39 @@ const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom
 
 // Inline SVG icons used for live-map role markers. Each SVG is white-fill so the
 // deck.gl IconLayer (mask: true) can tint them with the pilot's assigned color.
-const ROLE_ICON_SVGS: Record<"pilot" | "driver" | "stationary_node", string> = {
-  pilot:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#fff" d="M24 3 L27 20 L45 26 L45 30 L27 26 L27 37 L32 41 L32 44 L24 42 L16 44 L16 41 L21 37 L21 26 L3 30 L3 26 L21 20 Z"/></svg>',
+// Pilots get an aircraft-type-specific glyph (HG / PG / sailplane); drivers and
+// stationary nodes get their dedicated glyphs.
+type LiveMapIconKey = "hang_glider" | "paraglider" | "sailplane" | "driver" | "stationary_node";
+
+const ROLE_ICON_SVGS: Record<LiveMapIconKey, string> = {
+  hang_glider:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 4 L22 20 L12 16 L2 20 Z"/></svg>',
+  paraglider:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M2 12 Q12 4 22 12 L20 13 Q12 6 4 13 Z M11 15 L13 15 L13 20 L11 20 Z"/></svg>',
+  sailplane:
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M2 11 L11 11 L11 3 L13 3 L13 11 L22 11 L22 13 L13 13 L13 18 L16 18 L16 20 L8 20 L8 18 L11 18 L11 13 L2 13 Z"/></svg>',
   driver:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#fff" d="M15 5 L33 5 Q38 5 38 10 L38 38 Q38 43 33 43 L15 43 Q10 43 10 38 L10 10 Q10 5 15 5 Z M13 14 L13 22 L35 22 L35 14 Z M13 26 L13 34 L35 34 L35 26 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z"/></svg>',
   stationary_node:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#fff" d="M22 14 L26 14 L26 44 L22 44 Z M24 4 L30 14 L18 14 Z M8 24 L10 26 L22 18 L26 18 L38 26 L40 24 L28 16 L20 16 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z"/></svg>',
 };
 
-function roleIconDataUri(profileType: "pilot" | "driver" | "stationary_node"): string {
-  return `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS[profileType])}`;
+const ROLE_ICON_DATA_URIS: Record<LiveMapIconKey, string> = {
+  hang_glider: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.hang_glider)}`,
+  paraglider: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.paraglider)}`,
+  sailplane: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.sailplane)}`,
+  driver: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.driver)}`,
+  stationary_node: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.stationary_node)}`,
+};
+
+function resolveLiveMapIconKey(
+  profileType: "pilot" | "driver" | "stationary_node" | undefined,
+  aircraftType: "hang_glider" | "paraglider" | "sailplane" | undefined,
+): LiveMapIconKey {
+  if (profileType === "driver") return "driver";
+  if (profileType === "stationary_node") return "stationary_node";
+  return aircraftType ?? "hang_glider";
 }
-
-const ROLE_ICON_DATA_URIS: Record<"pilot" | "driver" | "stationary_node", string> = {
-  pilot: roleIconDataUri("pilot"),
-  driver: roleIconDataUri("driver"),
-  stationary_node: roleIconDataUri("stationary_node"),
-};
 
 // Solid ring (cellular fix) vs. dashed ring (mesh-relayed fix) vs. faint solid ring (other/unknown).
 const RING_ICON_SVGS: Record<"cellular" | "mesh" | "other", string> = {
@@ -1203,6 +1218,7 @@ export const TaskMap = React.memo(function TaskMap({
         color: hexToRgb(String(position.color ?? "#0ea5e9")),
         profileType: (position.profileType ?? "pilot") as "pilot" | "driver" | "stationary_node",
         positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
+        aircraftType: normalizeAircraftIcon(position.aircraftType),
       })),
     [effectiveAltitudeMultiplier, livePositions, units.altitude],
   );
@@ -1594,6 +1610,7 @@ export const TaskMap = React.memo(function TaskMap({
               color: [number, number, number];
               profileType?: "pilot" | "driver" | "stationary_node";
               positionSource?: "cellular" | "mesh" | "other";
+              aircraftType?: "hang_glider" | "paraglider" | "sailplane";
             };
             layers.push(
               new IconLayer({
@@ -1629,9 +1646,9 @@ export const TaskMap = React.memo(function TaskMap({
                 billboard: true,
                 getPosition: (item: LiveLabelItem) => item.position,
                 getIcon: (item: LiveLabelItem) => {
-                  const role = item.profileType ?? "pilot";
+                  const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
                   return {
-                    url: ROLE_ICON_DATA_URIS[role],
+                    url: ROLE_ICON_DATA_URIS[iconKey],
                     width: 48,
                     height: 48,
                     mask: true,
@@ -2430,44 +2447,6 @@ export const TaskMap = React.memo(function TaskMap({
           </select>
         </label>
       </div>
-      {mode === "live" ? (
-        <div className="map-live-legend" aria-label="Live map legend">
-          <div className="map-live-legend-row">
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2l2 8h8l-6 4.5 2.5 7.5-6.5-5-6.5 5L8 14.5 2 10h8z" />
-              </svg>
-              Pilot
-            </span>
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z" />
-              </svg>
-              Driver
-            </span>
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z" />
-              </svg>
-              Node
-            </span>
-          </div>
-          <div className="map-live-legend-row">
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-              Cellular
-            </span>
-            <span className="map-live-legend-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
-                <circle cx="12" cy="12" r="9" />
-              </svg>
-              Mesh
-            </span>
-          </div>
-        </div>
-      ) : null}
       {replayVisible && mode === "replay" ? (
         <div className="replay-bar">
           <div className="replay-bar-main">
