@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../models/meshtastic_protobufs.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
 import '../services/tracking_service.dart';
@@ -193,14 +192,6 @@ class HomeScreen extends StatelessWidget {
                     ? Colors.green
                     : Colors.red,
                 expandedContent: _ServerDetails(tracking: tracking),
-              ),
-              const SizedBox(height: 4),
-              _StatusRow(
-                icon: Icons.bluetooth,
-                label: 'Mesh Radio',
-                statusText: ble.isConnected ? 'Paired' : 'Not Paired',
-                ledColor: ble.isConnected ? Colors.green : Colors.grey,
-                expandedContent: _MeshDetails(ble: ble),
               ),
 
               const SizedBox(height: 12),
@@ -703,152 +694,6 @@ class _ServerDetails extends StatelessWidget {
                     ? 'Competition'
                     : 'Free Flight',
               ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-// ── Mesh Details (expanded content) ──
-
-class _MeshDetails extends StatelessWidget {
-  final BleService ble;
-
-  const _MeshDetails({required this.ble});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    if (!ble.isConnected) {
-      return Row(
-        children: [
-          Icon(Icons.bluetooth_disabled,
-              color: theme.colorScheme.onSurfaceVariant, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'No Meshtastic device paired.\nGo to Settings to connect.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ],
-      );
-    }
-
-    final ds = ble.deviceState;
-
-    // Map Meshtastic device role to Aervyx profile name
-    String profileName;
-    IconData profileIcon;
-    switch (ds.role) {
-      case DeviceRole.tracker:
-        profileName = 'Pilot';
-        profileIcon = Icons.flight;
-        break;
-      case DeviceRole.router:
-        profileName = 'Repeater';
-        profileIcon = Icons.cell_tower;
-        break;
-      case DeviceRole.client:
-        profileName = ds.wifiEnabled ? 'Driver Wi-Fi' : 'Driver';
-        profileIcon = ds.wifiEnabled ? Icons.wifi : Icons.directions_car;
-        break;
-      default:
-        profileName = ds.role.label;
-        profileIcon = Icons.devices;
-    }
-
-    return Column(
-      children: [
-        // Device name row
-        Row(
-          children: [
-            Icon(Icons.bluetooth_connected,
-                size: 16, color: theme.colorScheme.primary),
-            const SizedBox(width: 6),
-            Text(
-              ble.deviceDisplayName,
-              style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (ds.firmwareVersion != null) ...[
-              const SizedBox(width: 8),
-              Text(
-                'v${ds.firmwareVersion}',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ],
-        ),
-        const Divider(height: 16),
-        // Mesh stats grid (Aervyx/MQTT row removed — covered by Server status)
-        Table(
-          columnWidths: const {
-            0: FlexColumnWidth(1),
-            1: FlexColumnWidth(1),
-          },
-          children: [
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: profileIcon,
-                    label: 'Profile',
-                    value: profileName,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.cell_tower,
-                    label: 'Channel',
-                    value:
-                        ds.channelName.isNotEmpty ? ds.channelName : '--',
-                  ),
-                ),
-              ],
-            ),
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.radio,
-                    label: 'Modem',
-                    value: ds.modemPreset.label,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.route,
-                    label: 'Hops',
-                    value: '${ds.hopLimit}',
-                  ),
-                ),
-              ],
-            ),
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.gps_fixed,
-                    label: 'GPS',
-                    value: ds.gpsMode.label,
-                  ),
-                ),
-                const SizedBox.shrink(),
-              ],
             ),
           ],
         ),
