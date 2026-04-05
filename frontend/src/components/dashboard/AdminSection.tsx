@@ -221,7 +221,7 @@ export default function AdminSection(props: AdminSectionProps) {
           className={activeTab === "sites_database" ? "tab-button active" : "tab-button"}
           onClick={() => setActiveTab("sites_database")}
         >
-          Sites database
+          Flying Sites
         </button>
         <button
           type="button"
@@ -373,7 +373,7 @@ export default function AdminSection(props: AdminSectionProps) {
           </div>
         </SectionCard>
       ) : activeTab === "sites_database" ? (
-        <SectionCard title="Sites database" description="Maintain the site catalog used by logbook site matching and future same-site flight discovery.">
+        <SectionCard title="Flying Sites" description="Maintain the flying sites catalog used by logbook site matching and future same-site flight discovery.">
           <div className="stack form-block compact-clusters">
             {adminSitesFeedback ? <div className={`status-chip ${adminSitesFeedback.type}`}>{adminSitesFeedback.text}</div> : null}
             {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
@@ -498,7 +498,7 @@ export default function AdminSection(props: AdminSectionProps) {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={4} className="participant-table-empty">No sites in the database yet.</td>
+                        <td colSpan={4} className="participant-table-empty">No flying sites yet.</td>
                       </tr>
                     )}
                   </tbody>
