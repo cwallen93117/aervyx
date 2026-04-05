@@ -71,18 +71,36 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   }
 
   /// Get the user's current GPS position for map centering.
+  /// First tries last-known for speed, then falls back to a live fix request.
   Future<void> _getUserPosition() async {
     try {
-      final pos = await Geolocator.getLastKnownPosition();
-      if (pos != null && mounted) {
-        setState(() => _userPosition = LatLng(pos.latitude, pos.longitude));
+      // Fast path: last known position (may be stale but gives us something quickly)
+      Position? pos = await Geolocator.getLastKnownPosition();
+
+      if (pos == null) {
+        // Slow path: request a fresh fix (needed on first boot or after long idle)
+        final permission = await Geolocator.checkPermission();
+        if (permission == LocationPermission.denied ||
+            permission == LocationPermission.deniedForever) {
+          return;
+        }
+        pos = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 10),
+          ),
+        );
+      }
+
+      if (mounted) {
+        setState(() => _userPosition = LatLng(pos!.latitude, pos.longitude));
         if (!_initialCenterDone) {
           _initialCenterDone = true;
           _mapController.move(_userPosition!, 13);
         }
       }
     } catch (_) {
-      // GPS unavailable — use default center
+      // GPS unavailable or timed out — use default center
     }
   }
 
@@ -229,7 +247,6 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   @override
   Widget build(BuildContext context) {
     final tracking = context.watch<TrackingService>();
-    final theme = Theme.of(context);
 
     // Use tracking position if available, otherwise our own GPS fix
     final trackPos = tracking.lastPosition;
@@ -319,22 +336,32 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             ),
           ),
 
-          // Re-center button
+          // Re-center button — bottom offset accounts for system nav bar inset
           Positioned(
-            bottom: 16,
+            bottom: 16 + MediaQuery.of(context).padding.bottom,
             right: 16,
             child: FloatingActionButton.small(
               onPressed: () {
+                final LatLng? target;
                 if (trackPos != null) {
-                  _mapController.move(
-                    LatLng(trackPos.lat, trackPos.lon),
-                    _mapController.camera.zoom,
-                  );
+                  target = LatLng(trackPos.lat, trackPos.lon);
                 } else if (_userPosition != null) {
-                  _mapController.move(
-                    _userPosition!,
-                    _mapController.camera.zoom,
+                  target = _userPosition;
+                } else {
+                  target = null;
+                }
+
+                if (target != null) {
+                  _mapController.move(target, _mapController.camera.zoom);
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('No GPS fix yet — waiting for location'),
+                      duration: Duration(seconds: 2),
+                    ),
                   );
+                  // Kick off a fresh position request so next tap will work
+                  _getUserPosition();
                 }
               },
               child: const Icon(Icons.my_location),
