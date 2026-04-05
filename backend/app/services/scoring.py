@@ -107,21 +107,32 @@ def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: 
 
 
 def _find_exit_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: float, cursor: int = 0, earliest_at: datetime | None = None, latest_at: datetime | None = None) -> tuple[int, datetime] | None:
-    previous_inside: bool | None = None
-    for idx in range(cursor, len(trackpoints)):
-        trackpoint = trackpoints[idx]
-        inside = _distance_to_task_point(trackpoint, point) <= radius_km
-        if earliest_at is not None and trackpoint.recorded_at < earliest_at:
+    def _scan(ea: datetime | None, la: datetime | None) -> tuple[int, datetime] | None:
+        previous_inside: bool | None = None
+        for idx in range(cursor, len(trackpoints)):
+            trackpoint = trackpoints[idx]
+            inside = _distance_to_task_point(trackpoint, point) <= radius_km
+            if ea is not None and trackpoint.recorded_at < ea:
+                previous_inside = inside
+                continue
+            if la is not None and trackpoint.recorded_at > la:
+                break
+            if previous_inside is None:
+                previous_inside = inside
+                continue
+            if previous_inside and not inside:
+                return idx, trackpoint.recorded_at
             previous_inside = inside
-            continue
-        if latest_at is not None and trackpoint.recorded_at > latest_at:
-            break
-        if previous_inside is None:
-            previous_inside = inside
-            continue
-        if previous_inside and not inside:
-            return idx, trackpoint.recorded_at
-        previous_inside = inside
+        return None
+
+    hit = _scan(earliest_at, latest_at)
+    if hit is not None:
+        return hit
+    # Fallback: if the time window filtered out all valid transitions
+    # (e.g., mis-imported task times in the wrong timezone), retry without
+    # the window so pilots who clearly flew still get a start time.
+    if earliest_at is not None or latest_at is not None:
+        return _scan(None, None)
     return None
 
 
@@ -661,6 +672,13 @@ def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: f
         end_ss = ess_at.timestamp()
     elif goal_at is not None:
         end_ss = goal_at.timestamp()
+
+    # Guard: if start wasn't detected (start_ss=0) but ESS was, zero end_ss too.
+    # AirScore's gap.py computes time as (endSS - startSS) directly, so leaving
+    # an epoch value in end_ss would yield ~1.7 billion seconds, poisoning
+    # fastest_time_seconds, time validity, and all speed/leading calculations.
+    if start_ss <= 0:
+        end_ss = 0
 
     time_val = end_ss - start_ss if (start_ss > 0 and end_ss > 0) else 0
     if time_val < 0:

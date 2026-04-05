@@ -135,6 +135,36 @@ def test_start_time_uses_exit_of_start_cylinder_after_open_time() -> None:
     assert result["goal_at"] == track_points[3].recorded_at
 
 
+def test_start_detection_falls_back_when_time_window_excludes_all_points() -> None:
+    """If task.start_open_time is mis-configured (wrong timezone, bad import)
+    such that the entire track falls outside the time window, start detection
+    should fall back to a window-free scan rather than silently dropping the
+    started_at timestamp."""
+    task = _task()
+    # Configure start_open_time far in the future so every trackpoint falls
+    # before it — this simulates an import where times are stored in the
+    # wrong timezone.
+    task.start_open_time = "23:59:59"
+    task.start_close_time = "23:59:59"
+    task.task_start_time = "23:59:59"
+    task.task_finish_time = "23:59:59"
+    task_points = [
+        _task_point(1, 1, "start", 39.09639, -75.89061, 5000),
+        _task_point(2, 2, "goal", 38.68586, -75.07051, 400),
+    ]
+    # Pilot flies at 18:22 UTC — before the 23:59 UTC start_open.
+    track_points = [
+        _track_point_at(1, datetime(2025, 6, 2, 18, 22, 23, tzinfo=UTC), 39.09703, -75.89203),
+        _track_point_at(2, datetime(2025, 6, 2, 18, 30, 0, tzinfo=UTC), 39.096, -75.94),
+        _track_point_at(3, datetime(2025, 6, 2, 18, 33, 53, tzinfo=UTC), 39.05, -75.96),
+        _track_point_at(4, datetime(2025, 6, 2, 20, 46, 11, tzinfo=UTC), 38.68586, -75.07051),
+    ]
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+    # Fallback scan should still find the exit of the start cylinder.
+    assert result["started_at"] is not None
+    assert result["goal_at"] == track_points[3].recorded_at
+
+
 def test_launch_validity_saturates_at_one_for_well_launched_day() -> None:
     task = _task(nominal_time_hours=0.05)
     winning_track = [
