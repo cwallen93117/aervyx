@@ -4,7 +4,6 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState, useCallback } from "react";
 import styles from "./SoaringForecastMap.module.css";
-import { SkewTDiagram, type SoundingLevel } from "./SkewTDiagram";
 
 type Units = { altitude: "ft" | "m"; vario: "fpm" | "ms" };
 
@@ -36,22 +35,17 @@ const MODEL_IDS = ["hrrr", "rap", "gfs", "nam", "nbm"] as const;
 type ModelId = (typeof MODEL_IDS)[number];
 
 const MODEL_LABELS: Record<ModelId, { label: string; sub: string }> = {
-  hrrr: { label: "HRRR", sub: "3km · CONUS" },
-  rap:  { label: "RAP",  sub: "13km · N. America" },
-  gfs:  { label: "GFS",  sub: "25km · Global" },
-  nam:  { label: "NAM",  sub: "3-12km · N. America" },
-  nbm:  { label: "NBM",  sub: "2.5km · CONUS" },
+  hrrr: { label: "HRRR", sub: "3km \u00b7 CONUS" },
+  rap:  { label: "RAP",  sub: "13km \u00b7 N. America" },
+  gfs:  { label: "GFS",  sub: "25km \u00b7 Global" },
+  nam:  { label: "NAM",  sub: "3-12km \u00b7 N. America" },
+  nbm:  { label: "NBM",  sub: "2.5km \u00b7 CONUS" },
 };
 
 /* Open-Meteo model IDs for sounding (pressure-level point forecast) */
 const SOUNDING_MODEL: Record<ModelId, string | null> = {
-  hrrr: "hrrr",
-  rap: null,
-  gfs: "gfs_seamless",
-  nam: "nam_conus",
-  nbm: null,
+  hrrr: "hrrr", rap: null, gfs: "gfs_seamless", nam: "nam_conus", nbm: null,
 };
-
 const SOUNDING_PRESSURES = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
 
 function dewpointFromRH(t: number, rh: number): number {
@@ -66,11 +60,11 @@ type OverlayDef = {
   unit: string;
   unitType: "altitude" | "vario" | "none" | "percent" | "mm" | "speed" | "jkg";
   group: string;
-  variable: string; // backend variable name
+  variable: string;
   legendMinVal: number;
   legendMaxVal: number;
   gradient: string;
-  colors: [string, string, string, string]; // 4-stop for map interpolation
+  colors: [string, string, string, string];
 };
 
 const OVERLAYS: OverlayDef[] = [
@@ -80,7 +74,6 @@ const OVERLAYS: OverlayDef[] = [
   { id: "boundary_layer_height", label: "Boundary Layer Height",   unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "boundary_layer_height",    legendMinVal: 0,   legendMaxVal: 3500, gradient: "linear-gradient(to right,#ef4444,#eab308,#22c55e,#3b82f6)", colors: ["#ef4444","#eab308","#22c55e","#3b82f6"] },
   { id: "lifted_index",          label: "Lifted Index",            unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "lifted_index",             legendMinVal: -8,  legendMaxVal: 4,    gradient: "linear-gradient(to right,#ef4444,#f97316,#22c55e,#3b82f6)", colors: ["#ef4444","#f97316","#22c55e","#3b82f6"] },
   { id: "cloud_cover",           label: "Cloud Cover",             unit: "%",    unitType: "percent",  group: "Cloud / Weather", variable: "cloud_cover",              legendMinVal: 0,   legendMaxVal: 100,  gradient: "linear-gradient(to right,#f8fafc,#94a3b8,#1e293b,#0f172a)", colors: ["#f8fafc","#94a3b8","#1e293b","#0f172a"] },
-  { id: "convective_cloud_base", label: "Cumulus Cloud Base",      unit: "m",    unitType: "altitude", group: "Cloud / Weather", variable: "convective_cloud_base",    legendMinVal: 0,   legendMaxVal: 3000, gradient: "linear-gradient(to right,#22c55e,#3b82f6,#3b82f6,#7c3aed)", colors: ["#22c55e","#3b82f6","#3b82f6","#7c3aed"] },
   { id: "precipitation",         label: "Precipitation",           unit: "mm",   unitType: "mm",       group: "Cloud / Weather", variable: "precipitation",            legendMinVal: 0,   legendMaxVal: 20,   gradient: "linear-gradient(to right,#f8fafc,#3b82f6,#7c3aed,#7c3aed)", colors: ["#f8fafc","#3b82f6","#7c3aed","#7c3aed"] },
   { id: "wind_surface",          label: "Surface Wind",            unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_10m",           legendMinVal: 0,   legendMaxVal: 60,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"] },
   { id: "wind_850",              label: "Wind ~1500m (850hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_850hPa",        legendMinVal: 0,   legendMaxVal: 60,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"] },
@@ -95,18 +88,6 @@ function displayUnit(ov: OverlayDef, units: Units): string {
   if (ov.unitType === "altitude") return units.altitude === "ft" ? "ft" : "m";
   if (ov.unitType === "vario") return units.vario === "fpm" ? "ft/min" : "m/s";
   return ov.unit;
-}
-
-// Backend returns display-ready values (m/s for vario, m for altitude, m/s for wind).
-// This function only handles unit preference conversion (m→ft, m/s→ft/min, m/s→kt).
-function convertValue(val: number, ov: OverlayDef, units: Units): number {
-  if (ov.unitType === "vario") {
-    if (units.vario === "fpm") return Math.round(val * 196.85);
-    return Math.round(val * 10) / 10;
-  }
-  if (ov.unitType === "altitude" && units.altitude === "ft") return Math.round(val * 3.28084);
-  if (ov.unitType === "speed") return Math.round(val * 1.944); // m/s -> kt
-  return Math.round(val);
 }
 
 function legendValue(val: number, ov: OverlayDef, units: Units): string {
@@ -135,6 +116,111 @@ function safeRemove(map: maplibregl.Map) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Mini Skew-T drawing (imperative, for popup canvas)                  */
+/* ------------------------------------------------------------------ */
+type SLevel = { pressure: number; temperature: number; dewpoint: number; windSpeed: number; windDirection: number; height: number };
+
+const SK_W = 240, SK_H = 260;
+const SK_PAD = { t: 24, b: 20, l: 32, r: 8 };
+const SK_PW = SK_W - SK_PAD.l - SK_PAD.r;
+const SK_PH = SK_H - SK_PAD.t - SK_PAD.b;
+const SK_PTOP = 200, SK_PBOT = 1050;
+const SK_TMIN = -40, SK_TMAX = 50, SK_SKEW = 0.85;
+
+function skPtoY(p: number) { return SK_PAD.t + SK_PH * (Math.log(p) - Math.log(SK_PTOP)) / (Math.log(SK_PBOT) - Math.log(SK_PTOP)); }
+function skYtoP(y: number) { return Math.exp(Math.log(SK_PTOP) + ((y - SK_PAD.t) / SK_PH) * (Math.log(SK_PBOT) - Math.log(SK_PTOP))); }
+function skTtoX(t: number, p: number) {
+  const yf = (skPtoY(p) - SK_PAD.t) / SK_PH;
+  return SK_PAD.l + ((t - SK_TMIN) / (SK_TMAX - SK_TMIN) + SK_SKEW * (1 - yf)) * SK_PW / (1 + SK_SKEW);
+}
+function skDryT(theta: number, p: number) { return (theta + 273.15) * Math.pow(p / 1000, 0.286) - 273.15; }
+function skInterp(sorted: SLevel[], p: number, f: "temperature" | "dewpoint" | "height"): number | null {
+  for (let i = 0; i < sorted.length - 1; i++) {
+    if (p <= sorted[i].pressure && p >= sorted[i + 1].pressure) {
+      const frac = (Math.log(p) - Math.log(sorted[i].pressure)) / (Math.log(sorted[i + 1].pressure) - Math.log(sorted[i].pressure));
+      return (sorted[i][f] as number) + frac * ((sorted[i + 1][f] as number) - (sorted[i][f] as number));
+    }
+  }
+  return null;
+}
+
+function drawMiniSkewT(ctx: CanvasRenderingContext2D, sorted: SLevel[], useF: boolean, cursorY: number | null) {
+  const dT = (c: number) => useF ? Math.round(c * 9 / 5 + 32) : Math.round(c);
+  const tU = useF ? "\u00b0F" : "\u00b0C";
+
+  ctx.clearRect(0, 0, SK_W, SK_H);
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, SK_W, SK_H);
+
+  // Clip
+  ctx.save();
+  ctx.beginPath(); ctx.rect(SK_PAD.l, SK_PAD.t, SK_PW, SK_PH); ctx.clip();
+
+  // Isotherms
+  for (let t = SK_TMIN; t <= SK_TMAX; t += 10) {
+    ctx.strokeStyle = t === 0 ? "#94a3b8" : "#e2e8f0";
+    ctx.lineWidth = t === 0 ? 0.8 : 0.4;
+    ctx.beginPath(); ctx.moveTo(skTtoX(t, SK_PBOT), skPtoY(SK_PBOT)); ctx.lineTo(skTtoX(t, SK_PTOP), skPtoY(SK_PTOP)); ctx.stroke();
+  }
+
+  // Dry adiabats
+  ctx.strokeStyle = "rgba(234,179,8,0.2)"; ctx.lineWidth = 0.5;
+  for (let th = -30; th <= 80; th += 10) {
+    ctx.beginPath(); let first = true;
+    for (let p = SK_PBOT; p >= SK_PTOP; p -= 15) {
+      const x = skTtoX(skDryT(th, p), p), y = skPtoY(p);
+      first ? ctx.moveTo(x, y) : ctx.lineTo(x, y); first = false;
+    }
+    ctx.stroke();
+  }
+
+  // Profiles
+  if (sorted.length > 1) {
+    // Temperature
+    ctx.strokeStyle = "#ef4444"; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.beginPath();
+    sorted.forEach((l, i) => { const x = skTtoX(l.temperature, l.pressure), y = skPtoY(l.pressure); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+    ctx.stroke();
+    // Dew point
+    ctx.strokeStyle = "#16a34a"; ctx.lineWidth = 2; ctx.beginPath();
+    sorted.forEach((l, i) => { const x = skTtoX(l.dewpoint, l.pressure), y = skPtoY(l.pressure); i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); });
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // Isobars + labels
+  ctx.font = "9px system-ui,sans-serif"; ctx.fillStyle = "#64748b"; ctx.textAlign = "right";
+  for (const p of [1000, 850, 700, 500, 300]) {
+    const y = skPtoY(p);
+    ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 0.4; ctx.beginPath(); ctx.moveTo(SK_PAD.l, y); ctx.lineTo(SK_PAD.l + SK_PW, y); ctx.stroke();
+    ctx.fillText(`${p}`, SK_PAD.l - 3, y + 3);
+  }
+
+  // Cursor
+  if (cursorY !== null && cursorY >= SK_PAD.t && cursorY <= SK_PAD.t + SK_PH) {
+    const p = skYtoP(cursorY);
+    ctx.strokeStyle = "rgba(15,23,42,0.3)"; ctx.lineWidth = 1; ctx.setLineDash([3, 2]);
+    ctx.beginPath(); ctx.moveTo(SK_PAD.l, cursorY); ctx.lineTo(SK_PAD.l + SK_PW, cursorY); ctx.stroke();
+    ctx.setLineDash([]);
+    const tV = skInterp(sorted, p, "temperature"), tdV = skInterp(sorted, p, "dewpoint");
+    if (tV !== null && tdV !== null) {
+      const tX = skTtoX(tV, p), tdX = skTtoX(tdV, p);
+      ctx.fillStyle = "#ef4444"; ctx.beginPath(); ctx.arc(tX, cursorY, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = "#16a34a"; ctx.beginPath(); ctx.arc(tdX, cursorY, 3, 0, Math.PI * 2); ctx.fill();
+      ctx.font = "bold 9px system-ui,sans-serif";
+      ctx.fillStyle = "#ef4444"; ctx.textAlign = "left"; ctx.fillText(`${dT(tV)}${tU}`, tX + 5, cursorY - 3);
+      ctx.fillStyle = "#16a34a"; ctx.textAlign = "right"; ctx.fillText(`${dT(tdV)}${tU}`, tdX - 5, cursorY - 3);
+    }
+  }
+
+  // Title
+  ctx.fillStyle = "#64748b"; ctx.font = "9px system-ui,sans-serif"; ctx.textAlign = "left";
+  ctx.fillText("Temp", SK_PAD.l + 2, 12);
+  ctx.fillStyle = "#ef4444"; ctx.fillRect(SK_PAD.l + 30, 8, 10, 2);
+  ctx.fillStyle = "#64748b"; ctx.fillText("Dew", SK_PAD.l + 46, 12);
+  ctx.fillStyle = "#16a34a"; ctx.fillRect(SK_PAD.l + 68, 8, 10, 2);
+}
+
+/* ------------------------------------------------------------------ */
 /* Types from backend                                                  */
 /* ------------------------------------------------------------------ */
 type RunInfo = { date: string; hour: string; valid_times: string[]; max_fxx: number; fxx_step: number };
@@ -156,12 +242,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [opacity, setOpacity] = useState(70);
   const [gridLoading, setGridLoading] = useState(false);
   const [, setMapReady] = useState(0);
-
-  // Sounding / Skew-T state
-  const [soundingPoint, setSoundingPoint] = useState<{ lat: number; lon: number } | null>(null);
-  const [soundingLevels, setSoundingLevels] = useState<SoundingLevel[] | null>(null);
-  const [soundingLoading, setSoundingLoading] = useState(false);
-  const [soundingError, setSoundingError] = useState<string | null>(null);
 
   const validTimes = activeRun?.valid_times ?? [];
 
@@ -193,7 +273,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d: { model: string; runs: RunInfo[] }) => {
         if (d.runs.length === 0) { setMetaError("No runs available"); return; }
-        setActiveRun(d.runs[0]); // most recent run
+        setActiveRun(d.runs[0]);
       })
       .catch((e: unknown) => setMetaError(String(e)))
       .finally(() => setMetaLoading(false));
@@ -206,11 +286,9 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     const vt = validTimes[selectedTimeIdx];
     if (!vt) return;
-
     const ov = OVERLAYS.find(o => o.id === activeOverlay);
     if (!ov) return;
 
-    // Compute forecast hour from run time and valid time
     const runDt = new Date(`${activeRun.date.slice(0,4)}-${activeRun.date.slice(4,6)}-${activeRun.date.slice(6,8)}T${activeRun.hour}:00:00Z`);
     const vtDt = new Date(vt);
     const fh = Math.round((vtDt.getTime() - runDt.getTime()) / 3600000);
@@ -227,26 +305,31 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         if (cancelled || !mapLoaded.current) return;
         safeRemove(map);
 
-        // Use requestAnimationFrame to ensure removal is processed
         requestAnimationFrame(() => {
           if (cancelled) return;
           try {
             map.addSource(OVERLAY_SRC, { type: "geojson", data: geojson });
             map.addLayer({
               id: OVERLAY_LAYER,
-              type: "circle",
+              type: "heatmap",
               source: OVERLAY_SRC,
               paint: {
-                "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 3, 6, 7, 9, 14, 12, 24],
-                "circle-color": [
+                "heatmap-weight": [
                   "interpolate", ["linear"], ["get", "value"],
-                  ov.legendMinVal, ov.colors[0],
-                  ov.legendMinVal + (ov.legendMaxVal - ov.legendMinVal) * 0.33, ov.colors[1],
-                  ov.legendMinVal + (ov.legendMaxVal - ov.legendMinVal) * 0.66, ov.colors[2],
-                  ov.legendMaxVal, ov.colors[3],
+                  ov.legendMinVal, 0,
+                  ov.legendMaxVal, 1,
                 ] as unknown as maplibregl.ExpressionSpecification,
-                "circle-opacity": opacity / 100,
-                "circle-blur": 0.6,
+                "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 5, 1.2, 8, 2.5] as unknown as maplibregl.ExpressionSpecification,
+                "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 2, 4, 4, 8, 6, 14, 8, 22, 10, 35] as unknown as maplibregl.ExpressionSpecification,
+                "heatmap-opacity": opacity / 100,
+                "heatmap-color": [
+                  "interpolate", ["linear"], ["heatmap-density"],
+                  0, "rgba(0,0,0,0)",
+                  0.1, ov.colors[0],
+                  0.35, ov.colors[1],
+                  0.65, ov.colors[2],
+                  1.0, ov.colors[3],
+                ] as unknown as maplibregl.ExpressionSpecification,
               },
             });
           } catch (err) {
@@ -257,23 +340,49 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       .catch(err => console.warn("[SoaringForecast] grid fetch error:", err))
       .finally(() => { if (!cancelled) setGridLoading(false); });
 
-    return () => {
-      cancelled = true;
-      safeRemove(map);
-    };
+    return () => { cancelled = true; safeRemove(map); };
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes]);
 
-  // Fetch sounding data from Open-Meteo when point or model changes
-  const fetchSounding = useCallback((lat: number, lon: number) => {
+  // Click handler — open popup with Skew-T
+  const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const { lat, lng } = e.lngLat;
+    const useF = units.altitude === "ft";
+
+    // Build popup container: info left + skew-t right
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "display:flex;gap:0;min-height:260px";
+
+    // Left: info
+    const info = document.createElement("div");
+    info.style.cssText = "width:130px;padding:8px 10px;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:center";
+    info.innerHTML =
+      `<strong style="font-size:0.82rem">${MODEL_LABELS[activeModel].label}</strong>` +
+      `<p style="font-size:0.68rem;color:#64748b;margin:3px 0">${lat.toFixed(3)}\u00b0N<br>${Math.abs(lng).toFixed(3)}\u00b0${lng < 0 ? "W" : "E"}</p>` +
+      `<p style="font-size:0.68rem;color:#64748b;margin:3px 0">${formatVT(validTimes[selectedTimeIdx] || "")}</p>` +
+      `<p class="sounding-status" style="font-size:0.65rem;color:#94a3b8;margin:8px 0 0">Loading sounding\u2026</p>`;
+    wrap.appendChild(info);
+
+    // Right: canvas
+    const cvs = document.createElement("canvas");
+    const dpr = window.devicePixelRatio || 1;
+    cvs.width = SK_W * dpr; cvs.height = SK_H * dpr;
+    cvs.style.cssText = `width:${SK_W}px;height:${SK_H}px;cursor:crosshair;display:block`;
+    wrap.appendChild(cvs);
+
+    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "420px" })
+      .setLngLat([lng, lat])
+      .setDOMContent(wrap)
+      .addTo(map);
+
+    // Fetch sounding
     const omModel = SOUNDING_MODEL[activeModel];
     if (!omModel) {
-      setSoundingLevels(null);
-      setSoundingError(`Sounding unavailable for ${MODEL_LABELS[activeModel].label}`);
+      const st = info.querySelector(".sounding-status") as HTMLElement;
+      if (st) st.textContent = "Sounding unavailable for " + MODEL_LABELS[activeModel].label;
       return;
     }
-
-    setSoundingLoading(true);
-    setSoundingError(null);
 
     const tVars = SOUNDING_PRESSURES.map(p => `temperature_${p}hPa`).join(",");
     const rhVars = SOUNDING_PRESSURES.map(p => `relative_humidity_${p}hPa`).join(",");
@@ -282,25 +391,22 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const ghVars = SOUNDING_PRESSURES.map(p => `geopotential_height_${p}hPa`).join(",");
     const hourly = [tVars, rhVars, wsVars, wdVars, ghVars].join(",");
 
-    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=${hourly}&models=${omModel}&forecast_days=3&timezone=auto`)
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=${hourly}&models=${omModel}&forecast_days=3&timezone=auto`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: { hourly?: Record<string, (number | null)[]>; hourly_units?: Record<string, string> }) => {
-        if (!d.hourly) { setSoundingError("No data"); return; }
+      .then((d: { hourly?: Record<string, (number | null)[]> }) => {
+        if (!d.hourly) throw new Error("No data");
 
-        // Find the time index closest to the selected valid time
+        // Find closest time index
         const vt = validTimes[selectedTimeIdx];
-        const times: string[] = d.hourly.time as unknown as string[];
+        const times = d.hourly.time as unknown as string[];
         let timeIdx = 0;
         if (vt && times) {
           const vtMs = new Date(vt).getTime();
-          let bestDiff = Infinity;
-          times.forEach((t, i) => {
-            const diff = Math.abs(new Date(t).getTime() - vtMs);
-            if (diff < bestDiff) { bestDiff = diff; timeIdx = i; }
-          });
+          let best = Infinity;
+          times.forEach((t, i) => { const diff = Math.abs(new Date(t).getTime() - vtMs); if (diff < best) { best = diff; timeIdx = i; } });
         }
 
-        const levels: SoundingLevel[] = [];
+        const levels: SLevel[] = [];
         for (const p of SOUNDING_PRESSURES) {
           const t = d.hourly[`temperature_${p}hPa`]?.[timeIdx];
           const rh = d.hourly[`relative_humidity_${p}hPa`]?.[timeIdx];
@@ -308,38 +414,48 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           const wd = d.hourly[`winddirection_${p}hPa`]?.[timeIdx];
           const gh = d.hourly[`geopotential_height_${p}hPa`]?.[timeIdx];
           if (t == null || rh == null) continue;
-          levels.push({
-            pressure: p,
-            temperature: t,
-            dewpoint: dewpointFromRH(t, rh),
-            windSpeed: ws != null ? ws / 3.6 : 0, // km/h → m/s
-            windDirection: wd ?? 0,
-            height: gh ?? 0,
-          });
+          levels.push({ pressure: p, temperature: t, dewpoint: dewpointFromRH(t, rh), windSpeed: ws != null ? ws / 3.6 : 0, windDirection: wd ?? 0, height: gh ?? 0 });
         }
-        setSoundingLevels(levels.length > 2 ? levels : null);
-        if (levels.length <= 2) setSoundingError("Insufficient pressure level data");
+
+        const sorted = levels.sort((a, b) => b.pressure - a.pressure);
+
+        const st = info.querySelector(".sounding-status") as HTMLElement;
+        if (sorted.length < 3) { if (st) st.textContent = "Insufficient data"; return; }
+        if (st) st.textContent = "Hover chart for values";
+
+        // Draw
+        const ctx = cvs.getContext("2d")!;
+        ctx.scale(dpr, dpr);
+        drawMiniSkewT(ctx, sorted, useF, null);
+
+        // Interactive cursor
+        cvs.addEventListener("mousemove", (me) => {
+          const rect = cvs.getBoundingClientRect();
+          const cy = (me.clientY - rect.top) * (SK_H / rect.height);
+          const c2 = cvs.getContext("2d")!;
+          c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+          drawMiniSkewT(c2, sorted, useF, cy);
+        });
+        cvs.addEventListener("mouseleave", () => {
+          const c2 = cvs.getContext("2d")!;
+          c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+          drawMiniSkewT(c2, sorted, useF, null);
+        });
       })
-      .catch((e: unknown) => setSoundingError(String(e)))
-      .finally(() => setSoundingLoading(false));
-  }, [activeModel, selectedTimeIdx, validTimes]);
+      .catch(() => {
+        const st = info.querySelector(".sounding-status") as HTMLElement;
+        if (st) st.textContent = "Sounding fetch failed";
+      });
 
-  // Re-fetch sounding when model or time changes (if a point is selected)
-  useEffect(() => {
-    if (soundingPoint) fetchSounding(soundingPoint.lat, soundingPoint.lon);
-  }, [activeModel, selectedTimeIdx, soundingPoint, fetchSounding]);
-
-  // Click handler — open Skew-T panel
-  const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
-    const { lat, lng } = e.lngLat;
-    setSoundingPoint({ lat, lon: lng });
-  }, []);
+    // Clean up popup ref (MapLibre handles DOM removal)
+    popup.on("close", () => { /* no-op */ });
+  }, [activeModel, selectedTimeIdx, validTimes, units]);
 
   // Bind click handler
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-    const handler = (e: maplibregl.MapMouseEvent) => { void handleMapClick(e); };
+    const handler = (e: maplibregl.MapMouseEvent) => { handleMapClick(e); };
     map.on("click", handler);
     return () => { map.off("click", handler); };
   }, [handleMapClick]);
@@ -377,7 +493,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         {/* Forecast time slider */}
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Forecast Time</p>
-          {metaLoading && <div className={styles.loadingState}>Loading model data…</div>}
+          {metaLoading && <div className={styles.loadingState}>Loading model data\u2026</div>}
           {metaError && <div className={styles.errorBadge}>{metaError}</div>}
           {validTimes.length > 0 && (
             <>
@@ -427,12 +543,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         {/* Loading indicator */}
         {gridLoading && (
           <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(15,23,42,0.85)", color: "#e2e8f0", padding: "6px 18px", borderRadius: 8, fontSize: "0.8rem", zIndex: 10 }}>
-            Loading {MODEL_LABELS[activeModel].label} data…
+            Loading {MODEL_LABELS[activeModel].label} data\u2026
           </div>
         )}
 
         {/* Legend */}
-        {activeOv && !soundingPoint && (
+        {activeOv && (
           <div className={styles.mapLegend}>
             <p className={styles.mapLegendTitle}>{activeOv.label}</p>
             <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
@@ -440,31 +556,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               <span>{legendValue(activeOv.legendMinVal, activeOv, units)}</span>
               <span>{legendValue(activeOv.legendMaxVal, activeOv, units)}</span>
             </div>
-          </div>
-        )}
-
-        {/* Skew-T sounding panel */}
-        {soundingPoint && (
-          <div style={{ position: "absolute", top: 8, right: 8, background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,0.18)", zIndex: 10, overflow: "hidden" }}>
-            {soundingLoading && (
-              <div style={{ padding: 40, textAlign: "center", fontSize: "0.8rem", color: "#64748b" }}>
-                Loading sounding for {soundingPoint.lat.toFixed(2)}&deg;N {Math.abs(soundingPoint.lon).toFixed(2)}&deg;{soundingPoint.lon < 0 ? "W" : "E"}…
-              </div>
-            )}
-            {soundingError && !soundingLoading && (
-              <div style={{ padding: 20, textAlign: "center" }}>
-                <p style={{ fontSize: "0.8rem", color: "#ef4444", margin: "0 0 8px" }}>{soundingError}</p>
-                <button onClick={() => setSoundingPoint(null)} style={{ fontSize: "0.75rem", color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}>Close</button>
-              </div>
-            )}
-            {soundingLevels && !soundingLoading && (
-              <SkewTDiagram
-                levels={soundingLevels}
-                units={units}
-                title={`${MODEL_LABELS[activeModel].label}: ${validTimes[selectedTimeIdx] ? formatVT(validTimes[selectedTimeIdx]) : ""}`}
-                onClose={() => setSoundingPoint(null)}
-              />
-            )}
           </div>
         )}
       </div>
