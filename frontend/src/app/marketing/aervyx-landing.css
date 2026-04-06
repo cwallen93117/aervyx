@@ -152,7 +152,7 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 .cap h3{font-family:'Exo 2',sans-serif;font-size:.98rem;font-weight:800;color:var(--white);margin-bottom:.48rem;letter-spacing:-.01em}
 .cap p{font-size:.83rem;color:var(--muted);line-height:1.65}
 .cap-badge{display:inline-block;margin-top:.75rem;font-family:'JetBrains Mono',monospace;font-size:.61rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:.17rem .52rem;border-radius:4px}
-.cb-live{background:rgba(0,230,118,.1);color:var(--green)}.cb-auto{background:rgba(0,229,255,.09);color:var(--cyan)}.cb-smart{background:rgba(255,107,53,.1);color:var(--orange)}.cb-core{background:rgba(167,139,250,.1);color:var(--purple)}.cb-soon{background:rgba(255,255,255,.05);color:var(--dim)}
+.cb-live{background:rgba(0,230,118,.1);color:var(--green)}.cb-auto{background:rgba(0,229,255,.09);color:var(--cyan)}.cb-smart{background:rgba(255,107,53,.1);color:var(--orange)}.cb-core{background:rgba(167,139,250,.1);color:var(--purple)}.cb-soon{background:rgba(255,255,255,.05);color:var(--dim)}.cb-safety{background:rgba(255,59,48,.1);color:#ff3b30}
 
 /* LOGBOOK */
 .logbook-wrap{display:grid;grid-template-columns:1fr 1fr;gap:2.2rem;align-items:start}
