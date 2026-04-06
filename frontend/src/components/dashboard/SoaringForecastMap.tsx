@@ -243,6 +243,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [opacity, setOpacity] = useState(85);
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);
+  const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; p2: number; p98: number; scale_min: number; scale_max: number } | null>(null);
+  const [showDebugLabels, setShowDebugLabels] = useState(false);
 
   const validTimes = activeRun?.valid_times ?? [];
 
@@ -302,9 +304,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown> }) => {
+      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; p2: number; p98: number; scale_min: number; scale_max: number }; debug_labels?: { lat: number; lon: number; val: number }[] }) => {
         if (cancelled) return;
         safeRemove(map, blobUrlRef);
+
+        // Store data range for legend
+        if (data.data_range) setDataRange(data.data_range);
 
         // Convert base64 data URI to blob URL for MapLibre compatibility
         const b64 = (data.image as string).split(",")[1];
@@ -341,6 +346,46 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               "raster-fade-duration": 0,
             },
           });
+
+          // Debug labels: add as a GeoJSON source + symbol layer
+          const DEBUG_SRC = "soaring-debug-labels-src";
+          const DEBUG_LAYER = "soaring-debug-labels-layer";
+          try { if (map.getLayer(DEBUG_LAYER)) map.removeLayer(DEBUG_LAYER); } catch { /* */ }
+          try { if (map.getSource(DEBUG_SRC)) map.removeSource(DEBUG_SRC); } catch { /* */ }
+
+          if (data.debug_labels && data.debug_labels.length > 0) {
+            map.addSource(DEBUG_SRC, {
+              type: "geojson",
+              data: {
+                type: "FeatureCollection",
+                features: data.debug_labels.map(lb => ({
+                  type: "Feature" as const,
+                  geometry: { type: "Point" as const, coordinates: [lb.lon, lb.lat] },
+                  properties: { label: String(lb.val) },
+                })),
+              },
+            });
+            map.addLayer({
+              id: DEBUG_LAYER,
+              type: "symbol",
+              source: DEBUG_SRC,
+              layout: {
+                "text-field": ["get", "label"],
+                "text-size": 11,
+                "text-allow-overlap": true,
+                "text-ignore-placement": true,
+              },
+              paint: {
+                "text-color": "#0f172a",
+                "text-halo-color": "#ffffff",
+                "text-halo-width": 1.5,
+              },
+              minzoom: 0,
+              maxzoom: 24,
+            });
+            // Visibility based on debug toggle
+            map.setLayoutProperty(DEBUG_LAYER, "visibility", "visible");
+          }
         } catch (err) {
           console.warn("[SoaringForecast] raster layer error:", err);
           URL.revokeObjectURL(blobUrl);
@@ -352,6 +397,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes, mapReady]);
+
+  // Toggle debug label visibility
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    const DEBUG_LAYER = "soaring-debug-labels-layer";
+    try {
+      if (map.getLayer(DEBUG_LAYER)) {
+        map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
+      }
+    } catch { /* layer may not exist yet */ }
+  }, [showDebugLabels, mapReady]);
 
   // Click handler — open popup with Skew-T
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
@@ -544,6 +601,14 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             <span className={styles.opacityVal}>{opacity}%</span>
           </div>
         </div>
+
+        {/* Debug toggle */}
+        <div className={styles.section}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "var(--muted)", cursor: "pointer" }}>
+            <input type="checkbox" checked={showDebugLabels} onChange={e => setShowDebugLabels(e.target.checked)} />
+            Show values on map
+          </label>
+        </div>
       </div>
 
       {/* Map */}
@@ -563,9 +628,14 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             <p className={styles.mapLegendTitle}>{activeOv.label}</p>
             <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
             <div className={styles.legendLabels}>
-              <span>{legendValue(activeOv.legendMinVal, activeOv, units)}</span>
-              <span>{legendValue(activeOv.legendMaxVal, activeOv, units)}</span>
+              <span>{legendValue(dataRange ? dataRange.scale_min : activeOv.legendMinVal, activeOv, units)}</span>
+              <span>{legendValue(dataRange ? dataRange.scale_max : activeOv.legendMaxVal, activeOv, units)}</span>
             </div>
+            {dataRange && (
+              <p style={{ margin: "2px 0 0", fontSize: "0.6rem", color: "#94a3b8" }}>
+                data: {dataRange.min.toFixed(2)}–{dataRange.max.toFixed(2)} (mean {dataRange.mean.toFixed(2)})
+              </p>
+            )}
           </div>
         )}
       </div>
