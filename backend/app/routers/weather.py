@@ -235,6 +235,12 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
             raise RuntimeError("No data variable in dataset")
 
         arr = ds[var_names[0]].values
+
+        # Unit conversions so frontend gets display-ready values
+        if variable == "vertical_velocity_700hPa":
+            # Pa/s → m/s (positive = lift). At 700 hPa, ~−1 Pa/s ≈ +0.1 m/s
+            arr = -arr / 10.0
+
         lats = ds.latitude.values
         lons = ds.longitude.values
         features = _build_geojson(lats, lons, arr, step)
