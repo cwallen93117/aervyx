@@ -32,7 +32,7 @@ type OverlayDef = {
   id: string;
   label: string;
   unit: string;
-  unitType: "altitude" | "none" | "percent" | "mm" | "speed" | "jkg";
+  unitType: "altitude" | "vario" | "none" | "percent" | "mm" | "speed" | "jkg";
   group: string;
   omVar: string;
   tileVar: string;
@@ -42,7 +42,8 @@ type OverlayDef = {
 };
 
 const OVERLAYS: OverlayDef[] = [
-  { id: "cape",                  label: "Thermal Strength (CAPE)", unit: "J/kg", unitType: "jkg",     group: "Thermal / Lift",  omVar: "cape",                    tileVar: "cape",                    legendMinVal: 0,    legendMaxVal: 2000, gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)" },
+  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  omVar: "vertical_velocity_700hPa", tileVar: "vertical_velocity_700hPa", legendMinVal: 0,   legendMaxVal: 5,    gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)" },
+  { id: "cape",                  label: "CAPE",                    unit: "J/kg", unitType: "jkg",      group: "Thermal / Lift",  omVar: "cape",                     tileVar: "cape",                     legendMinVal: 0,   legendMaxVal: 2000, gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)" },
   { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  omVar: "convective_cloud_top",    tileVar: "convective_cloud_top",    legendMinVal: 0,    legendMaxVal: 4000, gradient: "linear-gradient(to right,#ef4444,#eab308,#22c55e,#3b82f6)" },
   { id: "boundary_layer_height", label: "Boundary Layer Height",   unit: "m",    unitType: "altitude", group: "Thermal / Lift",  omVar: "boundary_layer_height",   tileVar: "boundary_layer_height",   legendMinVal: 0,    legendMaxVal: 3500, gradient: "linear-gradient(to right,#ef4444,#eab308,#22c55e)" },
   { id: "lifted_index",          label: "Lifted Index",            unit: "",     unitType: "none",     group: "Thermal / Lift",  omVar: "lifted_index",            tileVar: "lifted_index",            legendMinVal: -8,   legendMaxVal: 4,    gradient: "linear-gradient(to right,#ef4444,#f97316,#22c55e,#3b82f6)" },
@@ -57,22 +58,31 @@ const OVERLAYS: OverlayDef[] = [
 
 function displayUnit(ov: OverlayDef, units: Units): string {
   if (ov.unitType === "altitude") return units.altitude === "ft" ? "ft" : "m";
+  if (ov.unitType === "vario") return units.vario === "fpm" ? "ft/min" : "m/s";
   return ov.unit;
 }
 
+// Open-Meteo vertical_velocity is in Pa/s (pressure coords).
+// Negative Pa/s = upward motion. At 700 hPa, ≈ -1 Pa/s ≈ +0.1 m/s upward.
+// We negate and divide by ~10 to get approximate m/s lift.
 function convertValue(val: number, ov: OverlayDef, units: Units): number {
+  if (ov.unitType === "vario") {
+    // Pa/s → m/s (approximate: divide by -10, so positive = lift)
+    const ms = -val / 10;
+    if (units.vario === "fpm") return Math.round(ms * 196.85);
+    return Math.round(ms * 10) / 10;
+  }
   if (ov.unitType === "altitude" && units.altitude === "ft") return Math.round(val * 3.28084);
   return Math.round(val);
 }
 
-function legendMin(ov: OverlayDef, units: Units): string {
-  const v = convertValue(ov.legendMinVal, ov, units);
-  const u = displayUnit(ov, units);
-  return u ? `${v} ${u}` : String(v);
-}
-
-function legendMax(ov: OverlayDef, units: Units): string {
-  const v = convertValue(ov.legendMaxVal, ov, units);
+function legendValue(val: number, ov: OverlayDef, units: Units): string {
+  // Legend values are already in display-friendly units (m/s for vario, m for altitude)
+  // so we only need unit conversion, not the Pa/s→m/s transform
+  let v = val;
+  if (ov.unitType === "vario" && units.vario === "fpm") v = Math.round(val * 196.85);
+  else if (ov.unitType === "altitude" && units.altitude === "ft") v = Math.round(val * 3.28084);
+  else v = Math.round(val);
   const u = displayUnit(ov, units);
   return u ? `${v} ${u}` : String(v);
 }
@@ -129,7 +139,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [metaError, setMetaError] = useState<string | null>(null);
   const [modelAvail, setModelAvail] = useState<Record<string, boolean>>({});
   const [selectedTimeIdx, setSelectedTimeIdx] = useState(0);
-  const [activeOverlay, setActiveOverlay] = useState<string>("cape");
+  const [activeOverlay, setActiveOverlay] = useState<string>("thermal_strength");
   const [opacity, setOpacity] = useState(70);
   const [showWindArrows, setShowWindArrows] = useState(false);
   // Counter to force re-render when map finishes loading
@@ -421,7 +431,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           <div className={styles.mapLegend}>
             <p className={styles.mapLegendTitle}>{activeOv.label}</p>
             <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
-            <div className={styles.legendLabels}><span>{legendMin(activeOv, units)}</span><span>{legendMax(activeOv, units)}</span></div>
+            <div className={styles.legendLabels}><span>{legendValue(activeOv.legendMinVal, activeOv, units)}</span><span>{legendValue(activeOv.legendMaxVal, activeOv, units)}</span></div>
           </div>
         )}
       </div>
