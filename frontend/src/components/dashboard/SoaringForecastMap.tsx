@@ -319,7 +319,9 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    const url = `${api}/api/weather/raster?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}`;
+    const bounds = map.getBounds();
+    const bboxParam = `${bounds.getWest().toFixed(2)},${bounds.getSouth().toFixed(2)},${bounds.getEast().toFixed(2)},${bounds.getNorth().toFixed(2)}`;
+    const url = `${api}/api/weather/raster?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&bbox=${bboxParam}`;
 
     let cancelled = false;
 

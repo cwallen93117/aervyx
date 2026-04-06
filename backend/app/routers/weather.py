@@ -1040,6 +1040,7 @@ async def weather_raster(
     hour: str = Query(..., description="Run hour e.g. 12"),
     fh: int = Query(..., description="Forecast hour"),
     variable: str = Query(..., description="Variable name"),
+    bbox: str = Query("", description="Visible bounds: west,south,east,north"),
 ):
     """Fetch a model grid via Herbie and return a PNG raster with color mapping.
 
@@ -1064,10 +1065,31 @@ async def weather_raster(
     _RASTER_VERSION = "v5"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
+    # Parse optional viewport bounds for filtering debug dots
+    bbox_bounds = None
+    if bbox:
+        try:
+            parts = [float(x) for x in bbox.split(",")]
+            if len(parts) == 4:
+                bbox_bounds = (parts[0], parts[1], parts[2], parts[3])  # w, s, e, n
+        except ValueError:
+            pass
+
+    def _filter_dots(resp: dict) -> dict:
+        """Filter debug_labels to visible viewport — avoids sending 1.9M dots."""
+        if bbox_bounds is None or "debug_labels" not in resp:
+            return resp
+        w, s, e, n = bbox_bounds
+        filtered = [
+            lb for lb in resp["debug_labels"]
+            if w <= lb["lon"] <= e and s <= lb["lat"] <= n
+        ]
+        return {**resp, "debug_labels": filtered}
+
     # Check persistent cache first
     cached = get_cached_raster(cache_key)
     if cached is not None:
-        return JSONResponse(cached)
+        return JSONResponse(_filter_dots(cached))
 
     loop = asyncio.get_event_loop()
     try:
@@ -1079,14 +1101,14 @@ async def weather_raster(
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}")
 
-    # Store in persistent cache (non-blocking failure is OK)
+    # Store in persistent cache with ALL dots (non-blocking failure is OK)
     try:
         store_raster(cache_key, model, date, hour, fh, variable, result)
     except Exception:
         import logging
         logging.getLogger(__name__).warning("Cache store failed for %s", cache_key, exc_info=True)
 
-    return JSONResponse(result)
+    return JSONResponse(_filter_dots(result))
 
 
 @router.get("/variables")
