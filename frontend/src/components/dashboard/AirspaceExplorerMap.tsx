@@ -579,7 +579,13 @@ export default function AirspaceExplorerMap() {
           </div>
         </div>
 
-        {/* Legend */}
+      </div>
+
+      {/* Map */}
+      <div className={styles.mapContainer}>
+        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+
+        {/* Legend — floating overlay on map, bottom-right */}
         <div className={styles.legend}>
           <div className={styles.legendTitle}>Legend</div>
           {ALL_CATEGORIES.filter((c) => visibleCategories.has(c)).map((cat) => (
@@ -589,11 +595,6 @@ export default function AirspaceExplorerMap() {
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Map */}
-      <div className={styles.mapContainer}>
-        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
         {/* Loading indicator — matches weather map pattern */}
         {(loading || tfrLoading) && (
