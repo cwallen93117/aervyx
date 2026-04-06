@@ -259,6 +259,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);
   const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; scale_min: number; scale_max: number } | null>(null);
+  const [tiers, setTiers] = useState<{ value: number; color: string }[] | null>(null);
   const [showDebugLabels, setShowDebugLabels] = useState(false);
 
   const validTimes = activeRun?.valid_times ?? [];
@@ -319,12 +320,13 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; scale_min: number; scale_max: number }; debug_labels?: { lat: number; lon: number; val: number }[] }) => {
+      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; scale_min: number; scale_max: number }; tiers?: { value: number; color: string }[]; debug_labels?: { lat: number; lon: number; val: number }[] }) => {
         if (cancelled) return;
         safeRemove(map, blobUrlRef);
 
-        // Store data range for legend
+        // Store data range and tier info for legend
         if (data.data_range) setDataRange(data.data_range);
+        if (data.tiers) setTiers(data.tiers);
 
         // Convert base64 data URI to blob URL for MapLibre compatibility
         const b64 = (data.image as string).split(",")[1];
@@ -649,15 +651,45 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           </div>
         )}
 
-        {/* Legend */}
+        {/* Legend — discrete tier blocks with value labels */}
         {activeOv && (
           <div className={styles.mapLegend}>
-            <p className={styles.mapLegendTitle}>{activeOv.label}</p>
-            <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
-            <div className={styles.legendLabels}>
-              <span>{legendValue(dataRange ? dataRange.scale_min : activeOv.legendMinVal, activeOv, units)}</span>
-              <span>{legendValue(dataRange ? dataRange.scale_max : activeOv.legendMaxVal, activeOv, units)}</span>
-            </div>
+            <p className={styles.mapLegendTitle}>{activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}</p>
+            {tiers && tiers.length > 1 ? (
+              <>
+                {/* Tier color blocks */}
+                <div style={{ display: "flex", width: "100%", height: 14, borderRadius: 3, overflow: "hidden" }}>
+                  {tiers.slice(0, -1).map((tier, i) => {
+                    const next = tiers[i + 1];
+                    const totalRange = tiers[tiers.length - 1].value - tiers[0].value;
+                    const widthPct = totalRange > 0 ? ((next.value - tier.value) / totalRange) * 100 : 100 / (tiers.length - 1);
+                    return <div key={i} style={{ width: `${widthPct}%`, background: tier.color, minWidth: 2 }} />;
+                  })}
+                </div>
+                {/* Value labels at tier boundaries */}
+                <div style={{ display: "flex", justifyContent: "space-between", width: "100%", marginTop: 2 }}>
+                  {tiers.map((tier, i) => {
+                    // Show first, last, and evenly spaced intermediate labels
+                    const n = tiers.length;
+                    const showLabel = i === 0 || i === n - 1 || (n > 5 ? i % Math.ceil(n / 5) === 0 : true);
+                    if (!showLabel) return <span key={i} style={{ flex: 1 }} />;
+                    return (
+                      <span key={i} style={{ fontSize: "0.6rem", color: "#94a3b8", textAlign: i === 0 ? "left" : i === n - 1 ? "right" : "center", flex: i === 0 || i === n - 1 ? "0 0 auto" : 1, whiteSpace: "nowrap" }}>
+                        {legendValue(tier.value, activeOv, units)}
+                      </span>
+                    );
+                  })}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
+                <div className={styles.legendLabels}>
+                  <span>{legendValue(dataRange ? dataRange.scale_min : activeOv.legendMinVal, activeOv, units)}</span>
+                  <span>{legendValue(dataRange ? dataRange.scale_max : activeOv.legendMaxVal, activeOv, units)}</span>
+                </div>
+              </>
+            )}
             {dataRange && (
               <p style={{ margin: "2px 0 0", fontSize: "0.6rem", color: "#94a3b8" }}>
                 data: {dataRange.min.toFixed(2)}–{dataRange.max.toFixed(2)} (mean {dataRange.mean.toFixed(2)})

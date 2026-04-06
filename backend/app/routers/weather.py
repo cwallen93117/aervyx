@@ -648,6 +648,14 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         [round(w_lon, 4), round(s_lat, 4)],
     ]
 
+    # Build tier info for frontend legend: each tier's value boundary + color
+    tiers = []
+    for i, (val, r_, g_, b_, a_) in enumerate(stops):
+        tiers.append({
+            "value": round(val, 4),
+            "color": f"rgba({int(r_)},{int(g_)},{int(b_)},{round(a_/255,2)})",
+        })
+
     return {
         "image": data_uri,
         "coordinates": coordinates,
@@ -658,6 +666,7 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
             "scale_min": round(scale_min, 4),
             "scale_max": round(scale_max, 4),
         },
+        "tiers": tiers,
         "debug_labels": debug_labels,
         "meta": {
             "model": model,
