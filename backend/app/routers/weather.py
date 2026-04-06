@@ -233,21 +233,71 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
     ],
 }
 
-# Map each variable to: (ramp_name, fixed_min_or_None, fixed_max_or_None)
-# If min/max are None, dynamic percentile-based scaling is used
-_VAR_RAMP: dict[str, tuple[str, float | None, float | None]] = {
-    "vertical_velocity_700hPa": ("thermal", None, None),  # dynamic
-    "cape":                     ("thermal", 0.0, None),    # floor at 0, dynamic max
-    "convective_cloud_top":     ("height", None, None),
-    "convective_cloud_base":    ("height", None, None),
-    "boundary_layer_height":    ("height", 0.0, None),
-    "lifted_index":             ("instability", None, None),
-    "cloud_cover":              ("cloud", 0.0, 100.0),    # always 0-100%
-    "precipitation":            ("precip", 0.0, None),
-    "wind_speed_10m":           ("wind", 0.0, None),
-    "wind_speed_850hPa":        ("wind", 0.0, None),
-    "wind_speed_700hPa":        ("wind", 0.0, None),
-    "wind_speed_500hPa":        ("wind", 0.0, None),
+# Map each variable to scaling config:
+#   ramp_name:     color ramp to use
+#   fixed_min:     hard floor for scale (None = use data p2)
+#   max_cap:       maximum allowed scale ceiling
+#   clamp_neg:     if True, clamp data values < 0 to 0 before scaling
+#   adaptive_max:  if True, use min(data_p98 * 1.5, max_cap) as the ceiling
+#                  if False, always use max_cap
+_VAR_SCALE: dict[str, dict] = {
+    # Thermal strength: always 0+, adapt upper to data, cap at 10 m/s (~2000 fpm)
+    "vertical_velocity_700hPa": {
+        "ramp": "thermal", "fixed_min": 0.0, "max_cap": 10.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    # CAPE: always 0+, adapt upper, cap at 4000 J/kg
+    "cape": {
+        "ramp": "thermal", "fixed_min": 0.0, "max_cap": 4000.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    # Cloud top height: always 0+, cap at 5500 m (~18000 ft)
+    "convective_cloud_top": {
+        "ramp": "height", "fixed_min": 0.0, "max_cap": 5500.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    # Cloud base height: always 0+, cap at 5500 m
+    "convective_cloud_base": {
+        "ramp": "height", "fixed_min": 0.0, "max_cap": 5500.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    # Boundary layer height: always 0+, cap at 5500 m (~18000 ft)
+    "boundary_layer_height": {
+        "ramp": "height", "fixed_min": 0.0, "max_cap": 5500.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    # Lifted index: -8 to +4, fixed range (well-known meteorological scale)
+    "lifted_index": {
+        "ramp": "instability", "fixed_min": -8.0, "max_cap": 4.0,
+        "clamp_neg": False, "adaptive_max": False,
+    },
+    # Cloud cover: always 0-100%, fixed
+    "cloud_cover": {
+        "ramp": "cloud", "fixed_min": 0.0, "max_cap": 100.0,
+        "clamp_neg": False, "adaptive_max": False,
+    },
+    # Precipitation: 0+, adapt upper, cap at 50 mm
+    "precipitation": {
+        "ramp": "precip", "fixed_min": 0.0, "max_cap": 50.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    # Winds: 0+, adapt upper, cap at sensible per level
+    "wind_speed_10m": {
+        "ramp": "wind", "fixed_min": 0.0, "max_cap": 30.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    "wind_speed_850hPa": {
+        "ramp": "wind", "fixed_min": 0.0, "max_cap": 40.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    "wind_speed_700hPa": {
+        "ramp": "wind", "fixed_min": 0.0, "max_cap": 50.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
+    "wind_speed_500hPa": {
+        "ramp": "wind", "fixed_min": 0.0, "max_cap": 60.0,
+        "clamp_neg": True, "adaptive_max": True,
+    },
 }
 
 
@@ -441,7 +491,17 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         if lats_1d[0] < lats_1d[-1]:
             data_sub = np.flipud(data_sub)
 
-    # --- Dynamic color scaling based on actual data percentiles ---
+    # --- Color scaling with sensible soaring-friendly ranges ---
+    vcfg = _VAR_SCALE.get(variable, {
+        "ramp": "thermal", "fixed_min": None, "max_cap": None,
+        "clamp_neg": False, "adaptive_max": True,
+    })
+    ramp = _COLOR_RAMPS.get(vcfg["ramp"], _COLOR_RAMPS["thermal"])
+
+    # Clamp negative values to zero for positive-only variables (thermals, heights)
+    if vcfg["clamp_neg"]:
+        data_sub = np.where(np.isnan(data_sub), data_sub, np.maximum(data_sub, 0.0))
+
     valid_data = data_sub[~np.isnan(data_sub)]
     if valid_data.size == 0:
         raise RuntimeError("No valid data in grid")
@@ -452,13 +512,20 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     data_max = float(np.nanmax(valid_data))
     data_mean = float(np.nanmean(valid_data))
 
-    # Get ramp config for this variable
-    ramp_name, fixed_min, fixed_max = _VAR_RAMP.get(variable, ("thermal", None, None))
-    ramp = _COLOR_RAMPS.get(ramp_name, _COLOR_RAMPS["thermal"])
+    # Scale min: use fixed_min if set, else data p2
+    scale_min = vcfg["fixed_min"] if vcfg["fixed_min"] is not None else data_p2
 
-    # Determine scale endpoints: use fixed if specified, else percentile-based
-    scale_min = fixed_min if fixed_min is not None else data_p2
-    scale_max = fixed_max if fixed_max is not None else data_p98
+    # Scale max: adaptive (stretch to data but capped) or fixed
+    max_cap = vcfg["max_cap"]
+    if vcfg["adaptive_max"] and max_cap is not None:
+        # Use p98 * 1.5 (round up nicely), but cap at max_cap, floor at 10% of max_cap
+        adaptive_ceil = max(data_p98 * 1.5, max_cap * 0.05)
+        scale_max = min(adaptive_ceil, max_cap)
+    elif max_cap is not None:
+        scale_max = max_cap
+    else:
+        scale_max = data_p98
+
     # Ensure some spread
     if scale_max - scale_min < 0.01:
         scale_max = scale_min + 1.0
