@@ -506,12 +506,6 @@ export default function AirspaceExplorerMap() {
     <div className={styles.shell}>
       {/* Left sidebar controls */}
       <div className={styles.leftPanel}>
-        {/* Status */}
-        <div className={styles.statusRow}>
-          <span className={`${styles.dot} ${loading || tfrLoading ? styles.dotLoading : error ? styles.dotError : styles.dotReady}`} />
-          {loading ? "Loading airspace..." : error ? error : `${featureCount} features loaded`}
-        </div>
-
         {/* Controlled airspace */}
         <div className={styles.section}>
           <div className={styles.sectionLabel}>Controlled Airspace</div>
@@ -601,6 +595,13 @@ export default function AirspaceExplorerMap() {
       <div className={styles.mapContainer}>
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
+        {/* Loading indicator — matches weather map pattern */}
+        {(loading || tfrLoading) && (
+          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(15,23,42,0.85)", color: "#e2e8f0", padding: "6px 18px", borderRadius: 8, fontSize: "0.8rem", zIndex: 10 }}>
+            Loading airspace data…
+          </div>
+        )}
+
         {/* 3D toggle button — bottom-left of map */}
         <button
           type="button"
@@ -638,22 +639,20 @@ function buildColorMatch(prop: string): maplibregl.ExpressionSpecification {
   return ["match", ["get", prop], ...entries, "#94a3b8"] as any;
 }
 
-/** Extrusion base: lowerVal (feet) converted to meters */
+/** Extrusion base: lowerVal (feet) → meters (absolute altitude of bottom) */
 function extrusionBase(): maplibregl.ExpressionSpecification {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ["max", 0, ["*", ["coalesce", ["get", "lowerVal"], 0], FT_TO_M]] as any;
 }
 
-/** Extrusion height: upperVal (feet) converted to meters, fallback to lower+1500m */
+/** Extrusion height: upperVal (feet) → meters (absolute altitude of top).
+ *  If upperVal is missing, default to lowerVal + 4921ft (~1500m). */
 function extrusionHeight(): maplibregl.ExpressionSpecification {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return [
     "max", 50,
     ["*",
-      ["-",
-        ["coalesce", ["get", "upperVal"], ["+", ["coalesce", ["get", "lowerVal"], 0], 4921]],
-        ["coalesce", ["get", "lowerVal"], 0],
-      ],
+      ["coalesce", ["get", "upperVal"], ["+", ["coalesce", ["get", "lowerVal"], 0], 4921]],
       FT_TO_M,
     ],
   ] as any;
