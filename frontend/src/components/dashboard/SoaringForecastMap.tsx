@@ -82,6 +82,7 @@ function steppedGradient(colors: string[]): string {
 }
 
 const OVERLAYS: OverlayDef[] = [
+  { id: "soaring_quality",       label: "Soaring Quality",         unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "soaring_quality",          legendMinVal: 0,   legendMaxVal: 10,   gradient: steppedGradient(["#b4b4b4","#c86450","#dca028","#d2d232","#64c850","#32aaDC","#1e50c8"]), colors: ["#b4b4b4","#dca028","#64c850","#1e50c8"], excludeModels: ["nbm"] },
   { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "thermal_updraft",          legendMinVal: 0,   legendMaxVal: 6.0,  gradient: steppedGradient(["rgb(180,230,235)","rgb(150,220,200)","rgb(110,200,130)","rgb(170,215,70)","rgb(210,225,45)","rgb(235,175,25)","rgb(220,45,20)"]), colors: ["#b4e6eb","#6ec882","#d2e12d","#dc2d14"], excludeModels: ["nbm"] },
   { id: "cape",                  label: "CAPE",                    unit: "J/kg", unitType: "jkg",      group: "Thermal / Lift",  variable: "cape",                     legendMinVal: 0,   legendMaxVal: 4000, gradient: steppedGradient(["rgba(180,230,235,0.47)","rgb(150,220,200)","rgb(110,200,130)","rgb(170,215,70)","rgb(210,225,45)","rgb(235,175,25)","rgb(220,45,20)"]), colors: ["#b4e6eb","#6ec882","#d2e12d","#dc2d14"] },
   { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 5500, gradient: steppedGradient(["#9ca3af","#22c55e","#60a5fa","#a78bfa","#ec4899"]), colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"], excludeModels: ["nbm"] },
@@ -253,7 +254,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [selectedTimeIdx, setSelectedTimeIdx] = useState(0);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
-  const [activeOverlay, setActiveOverlay] = useState<string>("thermal_strength");
+  const [activeOverlay, setActiveOverlay] = useState<string>("soaring_quality");
   const [opacity, setOpacity] = useState(85);
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);

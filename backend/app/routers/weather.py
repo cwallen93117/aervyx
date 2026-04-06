@@ -112,15 +112,33 @@ VARIABLES: dict[str, dict[str, Any]] = {
         "exclude_models": ["nbm"],
     },
     # Derived updraft velocity — convective velocity scale W*
-    # Uses sensible heat flux + BLH: W* = (g/T * zi * Hs/(rho*cp))^(1/3)
-    # Falls back to CAPE+BLH if SHTFL unavailable
+    # Uses SHTFL + BLH + T2m + Td2m + cloud cover for full derivation
+    # Falls back to CAPE+BLH if SHTFL unavailable (e.g. fh=0)
     "thermal_updraft": {
         "search": ":SHTFL:surface:",
         "search_blh": ":HPBL:surface:",
         "search_cape": ":CAPE:surface:",
+        "search_t2m": ":TMP:2 m above ground:",
+        "search_td2m": ":DPT:2 m above ground:",
+        "search_tcdc": ":TCDC:entire atmosphere:",
         "product_overrides": {},
         "exclude_models": ["nbm"],
         "derived": "shtfl_blh_updraft",
+    },
+    # Composite soaring quality index (0–10 scale)
+    # Blends thermal strength, BL height, cloud cover, and surface wind
+    "soaring_quality": {
+        "search": ":SHTFL:surface:",
+        "search_blh": ":HPBL:surface:",
+        "search_cape": ":CAPE:surface:",
+        "search_t2m": ":TMP:2 m above ground:",
+        "search_td2m": ":DPT:2 m above ground:",
+        "search_tcdc": ":TCDC:entire atmosphere:",
+        "search_wind_u": ":UGRD:10 m above ground:",
+        "search_wind_v": ":VGRD:10 m above ground:",
+        "product_overrides": {},
+        "exclude_models": ["nbm"],
+        "derived": "soaring_composite",
     },
     "convective_cloud_top": {
         "search": ":HGT:cloud top:",
@@ -244,6 +262,16 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
         (0.85, 220, 60,  20,  230),
         (1.0,  200, 20,  20,  235),
     ],
+    # soaring quality: red(bad)→orange→yellow→green→blue(great)
+    "soaring": [
+        (0.0,  180, 180, 180, 100),  # gray — no soaring
+        (0.15, 200, 100, 80,  160),  # dull red
+        (0.3,  220, 160, 40,  190),  # orange
+        (0.5,  210, 210, 50,  210),  # yellow
+        (0.7,  100, 200, 80,  225),  # green
+        (0.85, 50,  170, 220, 235),  # blue
+        (1.0,  30,  80,  200, 245),  # deep blue — epic day
+    ],
 }
 
 # Fixed scale config per variable — NO adaptive scaling.
@@ -258,9 +286,13 @@ _VAR_SCALE: dict[str, dict] = {
         "ramp": "thermal", "scale_min": 0.0, "scale_max": 1.5, "clamp_neg": True,
     },
     # Derived thermal updraft: 0 to 6 m/s (~1200 fpm)
-    # CAPE-based: W* = 0.12 * sqrt(2*CAPE)
+    # W* from SHTFL+BLH with moisture/cloud corrections
     "thermal_updraft": {
         "ramp": "thermal", "scale_min": 0.0, "scale_max": 6.0, "clamp_neg": True,
+    },
+    # Composite soaring quality: 0 to 10
+    "soaring_quality": {
+        "ramp": "soaring", "scale_min": 0.0, "scale_max": 10.0, "clamp_neg": True,
     },
     # CAPE: 0 to 4000 J/kg
     "cape": {
@@ -444,40 +476,58 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         arr = ds[var_names[0]].values
         if variable == "vertical_velocity_700hPa":
             arr = -arr / 10.0
-        elif variable == "thermal_updraft":
-            # Convective velocity scale: W* = (g/T * zi * Hs/(rho*cp))^(1/3)
-            # SHTFL is an averaged forecast field — may not exist at fh=0.
-            # Strategy: try SHTFL+BLH first, fall back to CAPE+BLH.
-            blh_arr = None
-            try:
-                ds_blh = H.xarray(vdef["search_blh"])
-                blh_arr = np.maximum(ds_blh[list(ds_blh.data_vars)[0]].values, 10.0)
-            except Exception:
-                pass
+        elif variable in ("thermal_updraft", "soaring_quality"):
+            from app.services.soaring_derivation import (
+                compute_wstar,
+                compute_wstar_cape_fallback,
+                compute_soaring_quality,
+            )
+
+            # Fetch auxiliary fields from same Herbie object
+            def _safe_fetch(key: str) -> np.ndarray | None:
+                try:
+                    _ds = H.xarray(vdef[key])
+                    return _ds[list(_ds.data_vars)[0]].values
+                except Exception:
+                    return None
+
+            blh_arr = _safe_fetch("search_blh")
+            t2m_arr = _safe_fetch("search_t2m")
+            td2m_arr = _safe_fetch("search_td2m")
+            tcdc_arr = _safe_fetch("search_tcdc")
+            cape_arr = _safe_fetch("search_cape")
 
             shtfl = np.maximum(arr, 0.0)
             shtfl_ok = float(np.nanmax(shtfl)) > 0.01
 
-            if shtfl_ok and blh_arr is not None:
-                # Primary: W* from sensible heat flux + BLH
-                # g=9.81, T~288K, rho*cp~1200 → g/(T*rho*cp) ≈ 2.84e-5
-                arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
-            elif blh_arr is not None:
-                # Fallback: CAPE+BLH when SHTFL is zero/missing (e.g. fh=0)
-                try:
-                    ds_cape = H.xarray(vdef["search_cape"])
-                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
-                    arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
-                except Exception:
-                    arr = np.zeros_like(shtfl)
+            # Defaults for missing fields
+            if t2m_arr is None:
+                t2m_arr = np.full_like(shtfl, 288.0)
+            if td2m_arr is None:
+                td2m_arr = t2m_arr - 10.0  # assume 10K dewpoint depression
+            if tcdc_arr is None:
+                tcdc_arr = np.zeros_like(shtfl)
+            if blh_arr is None:
+                blh_arr = np.full_like(shtfl, 1000.0)
+
+            if shtfl_ok:
+                wstar = compute_wstar(shtfl, blh_arr, t2m_arr, td2m_arr, tcdc_arr)
+            elif cape_arr is not None:
+                wstar = compute_wstar_cape_fallback(cape_arr, blh_arr, t2m_arr, td2m_arr, tcdc_arr)
             else:
-                # Last resort: CAPE-only approximation
-                try:
-                    ds_cape = H.xarray(vdef["search_cape"])
-                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
-                    arr = 0.12 * np.sqrt(2.0 * cape_arr)
-                except Exception:
-                    arr = np.zeros_like(shtfl)
+                wstar = np.zeros_like(shtfl)
+
+            if variable == "soaring_quality":
+                # Also need surface wind for composite
+                wind_sfc = None
+                if "search_wind_u" in vdef:
+                    u_arr = _safe_fetch("search_wind_u")
+                    v_arr = _safe_fetch("search_wind_v")
+                    if u_arr is not None and v_arr is not None:
+                        wind_sfc = np.sqrt(u_arr ** 2 + v_arr ** 2)
+                arr = compute_soaring_quality(wstar, blh_arr, tcdc_arr, wind_sfc)
+            else:
+                arr = wstar
         lats = ds.latitude.values
         lons = ds.longitude.values
 
@@ -709,33 +759,55 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
         if variable == "vertical_velocity_700hPa":
             # Pa/s → m/s (positive = lift). At 700 hPa, ~−1 Pa/s ≈ +0.1 m/s
             arr = -arr / 10.0
-        elif variable == "thermal_updraft":
-            blh_arr = None
-            try:
-                ds_blh = H.xarray(vdef["search_blh"])
-                blh_arr = np.maximum(ds_blh[list(ds_blh.data_vars)[0]].values, 10.0)
-            except Exception:
-                pass
+        elif variable in ("thermal_updraft", "soaring_quality"):
+            from app.services.soaring_derivation import (
+                compute_wstar,
+                compute_wstar_cape_fallback,
+                compute_soaring_quality,
+            )
+
+            def _safe_fetch_gj(key: str) -> np.ndarray | None:
+                try:
+                    _ds = H.xarray(vdef[key])
+                    return _ds[list(_ds.data_vars)[0]].values
+                except Exception:
+                    return None
+
+            blh_arr = _safe_fetch_gj("search_blh")
+            t2m_arr = _safe_fetch_gj("search_t2m")
+            td2m_arr = _safe_fetch_gj("search_td2m")
+            tcdc_arr = _safe_fetch_gj("search_tcdc")
+            cape_arr = _safe_fetch_gj("search_cape")
 
             shtfl = np.maximum(arr, 0.0)
             shtfl_ok = float(np.nanmax(shtfl)) > 0.01
 
-            if shtfl_ok and blh_arr is not None:
-                arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
-            elif blh_arr is not None:
-                try:
-                    ds_cape = H.xarray(vdef["search_cape"])
-                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
-                    arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
-                except Exception:
-                    arr = np.zeros_like(shtfl)
+            if t2m_arr is None:
+                t2m_arr = np.full_like(shtfl, 288.0)
+            if td2m_arr is None:
+                td2m_arr = t2m_arr - 10.0
+            if tcdc_arr is None:
+                tcdc_arr = np.zeros_like(shtfl)
+            if blh_arr is None:
+                blh_arr = np.full_like(shtfl, 1000.0)
+
+            if shtfl_ok:
+                wstar = compute_wstar(shtfl, blh_arr, t2m_arr, td2m_arr, tcdc_arr)
+            elif cape_arr is not None:
+                wstar = compute_wstar_cape_fallback(cape_arr, blh_arr, t2m_arr, td2m_arr, tcdc_arr)
             else:
-                try:
-                    ds_cape = H.xarray(vdef["search_cape"])
-                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
-                    arr = 0.12 * np.sqrt(2.0 * cape_arr)
-                except Exception:
-                    arr = np.zeros_like(shtfl)
+                wstar = np.zeros_like(shtfl)
+
+            if variable == "soaring_quality":
+                wind_sfc = None
+                if "search_wind_u" in vdef:
+                    u_arr = _safe_fetch_gj("search_wind_u")
+                    v_arr = _safe_fetch_gj("search_wind_v")
+                    if u_arr is not None and v_arr is not None:
+                        wind_sfc = np.sqrt(u_arr ** 2 + v_arr ** 2)
+                arr = compute_soaring_quality(wstar, blh_arr, tcdc_arr, wind_sfc)
+            else:
+                arr = wstar
 
         lats = ds.latitude.values
         lons = ds.longitude.values
