@@ -64,7 +64,7 @@ type OverlayDef = {
   legendMinVal: number;
   legendMaxVal: number;
   gradient: string;
-  colors: [string, string, string, string];
+  colors: string[];
   excludeModels?: string[];
 };
 
