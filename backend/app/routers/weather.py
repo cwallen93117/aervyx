@@ -56,7 +56,7 @@ MODEL_CONFIG: dict[str, dict[str, Any]] = {
     },
     "nam": {
         "label": "NAM",
-        "resolution": "3-12km",
+        "resolution": "12km",
         "coverage": "N. America",
         "herbie_model": "nam",
         "default_product": None,

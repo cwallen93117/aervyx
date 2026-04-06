@@ -38,7 +38,7 @@ const MODEL_LABELS: Record<ModelId, { label: string; sub: string }> = {
   hrrr: { label: "HRRR", sub: "3km \u00b7 CONUS" },
   rap:  { label: "RAP",  sub: "13km \u00b7 N. America" },
   gfs:  { label: "GFS",  sub: "25km \u00b7 Global" },
-  nam:  { label: "NAM",  sub: "3-12km \u00b7 N. America" },
+  nam:  { label: "NAM",  sub: "12km \u00b7 N. America" },
   nbm:  { label: "NBM",  sub: "2.5km \u00b7 CONUS" },
 };
 
