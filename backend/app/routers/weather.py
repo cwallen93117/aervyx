@@ -216,15 +216,14 @@ SUBSAMPLE: dict[str, int] = {
     "nbm": 15,
 }
 
-# Subsample steps for raster image — keep close to native resolution
-# Target: ~500-800px wide image for CONUS viewport
+# Subsample steps for raster image — use full native resolution
 RASTER_SUBSAMPLE: dict[str, int] = {
-    "gfs": 1,       # 25km native → ~280 pts across CONUS, no subsample needed
-    "nam3km": 3,     # 3km native → ~800 pts at step 3
-    "nam": 2,        # 12km native → ~300 pts at step 2
-    "rap": 2,        # 13km native → ~270 pts at step 2
-    "hrrr": 3,       # 3km native → ~800 pts at step 3
-    "nbm": 3,        # 2.5km native → ~800 pts at step 3
+    "gfs": 1,       # 25km native
+    "nam3km": 1,     # 3km native
+    "nam": 1,        # 12km native
+    "rap": 1,        # 13km native
+    "hrrr": 1,       # 3km native
+    "nbm": 1,        # 2.5km native
 }
 
 # Raster cache: key -> (json_dict, timestamp)
