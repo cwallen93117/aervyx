@@ -255,7 +255,7 @@ export default function TasksSection(props: TasksSectionProps) {
             <>
               <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
               <button type="button" className="ghost-button" onClick={duplicateTask} disabled={!taskDraft.id}>Duplicate</button>
-              <button type="button" onClick={saveTask}>Save task</button>
+              <button type="button" className="primary-button" onClick={saveTask}>Save task</button>
               <button
                 type="button"
                 className={`scoring-ops-footer-btn task-state-toggle ${taskIsPublished ? "state-official" : "state-unofficial"}`}
@@ -311,24 +311,24 @@ export default function TasksSection(props: TasksSectionProps) {
                   </div>
                   <div className="cluster-stack">
                     <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start gates</span>
-                      <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
                       <span>Gate interval (min)</span>
                       <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
                     </label>
-                    {startGateLabels.length ? (
-                      <div className="task-gate-times" aria-label="Start gate times">
-                        <strong>Start gate times</strong>
-                        <div className="task-gate-time-list">
-                          {startGateLabels.map((label) => (
-                            <span key={label} className="task-gate-time-chip">{label}</span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
+                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
+                      <span>Start gates</span>
+                      <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
+                    </label>
                   </div>
+                  {startGateLabels.length ? (
+                    <div className="task-gate-times" aria-label="Start gate times">
+                      <strong>Start gate times</strong>
+                      <div className="task-gate-time-list">
+                        {startGateLabels.map((label) => (
+                          <span key={label} className="task-gate-time-chip">{label}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <>
