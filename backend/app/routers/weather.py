@@ -684,14 +684,10 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     _display_round = 0 if variable == "thermal_updraft" else 1  # integers for fpm
 
     debug_labels: list[dict] = []
-    # Show every native grid point for small grids (GFS/NAM12/RAP ≤50K points).
-    # For high-res grids (NAM3km/HRRR ~1.9M points), target ~200K dots.
-    # NAM3km: step=3 → every 9km, ~212K dots. Circles are cheap in MapLibre.
-    total_pixels = height_px * width_px
-    if total_pixels <= 50_000:
-        label_step = 1  # every native grid point
-    else:
-        label_step = max(2, int(np.sqrt(total_pixels / 200_000)))
+    # Show every native grid point as a dot — circles are cheap in MapLibre.
+    # NAM3km 1799×1059 = ~1.9M dots, HRRR similar. MapLibre handles this
+    # as circle layers far better than text symbols.
+    label_step = 1
     for r in range(0, height_px, label_step):
         for c in range(0, width_px, label_step):
             val = float(data_sub[r, c]) if not np.isnan(data_sub[r, c]) else None
@@ -1065,7 +1061,7 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v4"
+    _RASTER_VERSION = "v5"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
     # Check persistent cache first
