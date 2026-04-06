@@ -498,12 +498,24 @@ export default function AirspaceExplorerMap() {
   // -------------------------------------------------------------------
 
   function handleExport() {
+    const map = mapRef.current;
+    const bounds = map?.getBounds();
+
     const allFeatures = [
       ...(airspaceData?.features ?? []),
       ...(visibleCategories.has("TFR") ? tfrData?.features ?? [] : []),
     ].filter((f) => {
       const cat = (f.properties as { category: AirspaceCategory }).category;
-      return visibleCategories.has(cat);
+      if (!visibleCategories.has(cat)) return false;
+      // Only include features that intersect the current viewport
+      if (bounds && f.geometry) {
+        const bbox = featureBBox(f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon);
+        if (bbox[2] < bounds.getWest() || bbox[0] > bounds.getEast() ||
+            bbox[3] < bounds.getSouth() || bbox[1] > bounds.getNorth()) {
+          return false;
+        }
+      }
+      return true;
     });
 
     if (allFeatures.length === 0) return;
@@ -668,6 +680,21 @@ function extrusionHeight(): maplibregl.ExpressionSpecification {
       FT_TO_M,
     ],
   ] as any;
+}
+
+/** Compute [minLon, minLat, maxLon, maxLat] for a polygon/multipolygon */
+function featureBBox(geom: GeoJSON.Polygon | GeoJSON.MultiPolygon): [number, number, number, number] {
+  const rings = geom.type === "Polygon" ? geom.coordinates : geom.coordinates.flatMap((p) => p);
+  let minLon = 180, minLat = 90, maxLon = -180, maxLat = -90;
+  for (const ring of rings) {
+    for (const [lon, lat] of ring) {
+      if (lon < minLon) minLon = lon;
+      if (lon > maxLon) maxLon = lon;
+      if (lat < minLat) minLat = lat;
+      if (lat > maxLat) maxLat = lat;
+    }
+  }
+  return [minLon, minLat, maxLon, maxLat];
 }
 
 /** Fast stable hash of geometry coordinates for deduplication */
