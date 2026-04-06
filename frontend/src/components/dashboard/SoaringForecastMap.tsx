@@ -83,7 +83,7 @@ function steppedGradient(colors: string[]): string {
 
 const OVERLAYS: OverlayDef[] = [
   { id: "soaring_quality",       label: "Soaring Quality",         unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "soaring_quality",          legendMinVal: 0,   legendMaxVal: 10,   gradient: steppedGradient(["#b4b4b4","#c86450","#dca028","#d2d232","#64c850","#32aaDC","#1e50c8"]), colors: ["#b4b4b4","#dca028","#64c850","#1e50c8"], excludeModels: ["nbm"] },
-  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "thermal_updraft",          legendMinVal: 0,   legendMaxVal: 6.0,  gradient: steppedGradient(["rgb(180,230,235)","rgb(150,220,200)","rgb(110,200,130)","rgb(170,215,70)","rgb(210,225,45)","rgb(235,175,25)","rgb(220,45,20)"]), colors: ["#b4e6eb","#6ec882","#d2e12d","#dc2d14"], excludeModels: ["nbm"] },
+  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "thermal_updraft",          legendMinVal: 0,   legendMaxVal: 6.0,  gradient: steppedGradient(["rgb(200,220,255)","rgb(130,180,240)","rgb(60,160,220)","rgb(40,180,140)","rgb(80,190,60)","rgb(180,210,40)","rgb(240,190,30)","rgb(230,110,20)","rgb(210,30,30)"]), colors: ["#c8dcff","#82b4f0","#3ca0dc","#28b48c","#50be3c","#b4d228","#f0be1e","#e66e14","#d21e1e"], excludeModels: ["nbm"] },
   { id: "cape",                  label: "CAPE",                    unit: "J/kg", unitType: "jkg",      group: "Thermal / Lift",  variable: "cape",                     legendMinVal: 0,   legendMaxVal: 4000, gradient: steppedGradient(["rgba(180,230,235,0.47)","rgb(150,220,200)","rgb(110,200,130)","rgb(170,215,70)","rgb(210,225,45)","rgb(235,175,25)","rgb(220,45,20)"]), colors: ["#b4e6eb","#6ec882","#d2e12d","#dc2d14"] },
   { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 5500, gradient: steppedGradient(["#9ca3af","#22c55e","#60a5fa","#a78bfa","#ec4899"]), colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"], excludeModels: ["nbm"] },
   { id: "boundary_layer_height", label: "Boundary Layer Height",   unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "boundary_layer_height",    legendMinVal: 0,   legendMaxVal: 5500, gradient: steppedGradient(["#9ca3af","#22c55e","#60a5fa","#a78bfa","#ec4899"]), colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"], excludeModels: ["nbm"] },
@@ -652,49 +652,64 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           </div>
         )}
 
-        {/* Legend — discrete tier blocks with value labels */}
+        {/* Legend — vertical bar on the right side of the map */}
         {activeOv && (
-          <div className={styles.mapLegend}>
-            <p className={styles.mapLegendTitle}>{activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}</p>
-            {tiers && tiers.length > 1 ? (
-              <>
-                {/* Tier color blocks */}
-                <div style={{ display: "flex", width: "100%", height: 14, borderRadius: 3, overflow: "hidden" }}>
-                  {tiers.slice(0, -1).map((tier, i) => {
-                    const next = tiers[i + 1];
-                    const totalRange = tiers[tiers.length - 1].value - tiers[0].value;
-                    const widthPct = totalRange > 0 ? ((next.value - tier.value) / totalRange) * 100 : 100 / (tiers.length - 1);
-                    return <div key={i} style={{ width: `${widthPct}%`, background: tier.color, minWidth: 2 }} />;
-                  })}
+          <div className={styles.mapLegendVertical}>
+            <p className={styles.mapLegendVerticalTitle}>
+              {activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}
+            </p>
+            {tiers && tiers.length > 1 ? (() => {
+              const totalRange = tiers[tiers.length - 1].value - tiers[0].value;
+              // Bands rendered top-to-bottom: highest band first
+              const bands = tiers.slice(0, -1).map((tier, i) => {
+                const next = tiers[i + 1];
+                const heightPct = totalRange > 0 ? ((next.value - tier.value) / totalRange) * 100 : 100 / (tiers.length - 1);
+                return { color: tier.color, heightPct, lowerVal: tier.value, upperVal: next.value };
+              }).reverse(); // reverse so highest band is at top
+              // Label stops: top label = max value, then each lower boundary going down
+              const labelStops = [...tiers].reverse(); // [max, ..., min]
+              return (
+                <div className={styles.mapLegendVerticalInner}>
+                  {/* Labels column */}
+                  <div className={styles.mapLegendVerticalLabelsCol}>
+                    {labelStops.map((tier, i) => {
+                      let v = tier.value;
+                      if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
+                      else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
+                      else v = Math.round(v);
+                      // Each label sits at the top of its corresponding band
+                      const bandAbove = i < bands.length ? bands[i] : null;
+                      const heightPct = bandAbove ? bandAbove.heightPct : 0;
+                      return (
+                        <div key={i} className={styles.mapLegendVerticalLabelSlot}
+                          style={{ flexBasis: i < bands.length ? `${heightPct}%` : "0%", flexGrow: i < bands.length ? 0 : 0 }}>
+                          <span className={styles.mapLegendVerticalLabel}>{v}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {/* Color bar column */}
+                  <div className={styles.mapLegendVerticalBar}>
+                    {bands.map((band, i) => (
+                      <div key={i} style={{ height: `${band.heightPct}%`, background: band.color, minHeight: 2 }} />
+                    ))}
+                  </div>
                 </div>
-                {/* Value labels at tier boundaries */}
-                <div style={{ display: "flex", justifyContent: "space-between", width: "100%", marginTop: 2 }}>
-                  {tiers.map((tier, i) => {
-                    // Show first, last, and evenly spaced intermediate labels
-                    const n = tiers.length;
-                    const showLabel = i === 0 || i === n - 1 || (n > 5 ? i % Math.ceil(n / 5) === 0 : true);
-                    if (!showLabel) return <span key={i} style={{ flex: 1 }} />;
-                    return (
-                      <span key={i} style={{ fontSize: "0.6rem", color: "#94a3b8", textAlign: i === 0 ? "left" : i === n - 1 ? "right" : "center", flex: i === 0 || i === n - 1 ? "0 0 auto" : 1, whiteSpace: "nowrap" }}>
-                        {legendValue(tier.value, activeOv, units)}
-                      </span>
-                    );
-                  })}
+              );
+            })() : (
+              // Fallback gradient bar when no tiers
+              <div className={styles.mapLegendVerticalInner}>
+                <div className={styles.mapLegendVerticalBar}
+                  style={{ background: activeOv.gradient, height: "100%", transform: "rotate(180deg)" }} />
+                <div className={styles.mapLegendVerticalLabelsCol} style={{ justifyContent: "space-between" }}>
+                  <span className={styles.mapLegendVerticalLabel}>
+                    {legendValue(dataRange ? dataRange.scale_max : activeOv.legendMaxVal, activeOv, units)}
+                  </span>
+                  <span className={styles.mapLegendVerticalLabel}>
+                    {legendValue(dataRange ? dataRange.scale_min : activeOv.legendMinVal, activeOv, units)}
+                  </span>
                 </div>
-              </>
-            ) : (
-              <>
-                <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
-                <div className={styles.legendLabels}>
-                  <span>{legendValue(dataRange ? dataRange.scale_min : activeOv.legendMinVal, activeOv, units)}</span>
-                  <span>{legendValue(dataRange ? dataRange.scale_max : activeOv.legendMaxVal, activeOv, units)}</span>
-                </div>
-              </>
-            )}
-            {dataRange && (
-              <p style={{ margin: "2px 0 0", fontSize: "0.6rem", color: "#94a3b8" }}>
-                data: {dataRange.min.toFixed(2)}–{dataRange.max.toFixed(2)} (mean {dataRange.mean.toFixed(2)})
-              </p>
+              </div>
             )}
           </div>
         )}

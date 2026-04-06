@@ -32,3 +32,12 @@
 .errorBadge { margin: 8px 14px; padding: 8px 10px; background: rgba(239,68,68,0.08); border-radius: var(--r-sm); font-size: 0.78rem; color: #ef4444; }
 .mapLegend { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md); padding: 6px 14px 8px; min-width: 200px; max-width: 320px; pointer-events: none; z-index: 2; }
 .mapLegendTitle { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin: 0 0 4px; text-align: center; }
+
+/* Vertical legend — XC Skies style, right side of map */
+.mapLegendVertical { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; z-index: 2; height: 260px; max-height: 60%; }
+.mapLegendVerticalTitle { font-size: 0.6rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin: 0; text-align: right; white-space: nowrap; background: rgba(15,23,42,0.7); padding: 2px 4px; border-radius: 3px; }
+.mapLegendVerticalInner { display: flex; flex-direction: row; align-items: stretch; flex: 1; min-height: 0; gap: 0; }
+.mapLegendVerticalLabelsCol { display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-start; padding-right: 3px; min-width: 28px; }
+.mapLegendVerticalLabelSlot { display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-start; width: 100%; }
+.mapLegendVerticalLabel { font-size: 0.575rem; color: #cbd5e1; white-space: nowrap; line-height: 1; background: rgba(15,23,42,0.55); padding: 0 2px; border-radius: 2px; }
+.mapLegendVerticalBar { width: 22px; flex-shrink: 0; display: flex; flex-direction: column; border-radius: 3px; overflow: hidden; }
