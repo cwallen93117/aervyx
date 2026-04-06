@@ -111,6 +111,14 @@ VARIABLES: dict[str, dict[str, Any]] = {
         "product_overrides": {"hrrr": "prs"},
         "exclude_models": ["nbm"],
     },
+    # Derived updraft velocity — uses CAPE to estimate thermal strength
+    # W* ≈ 0.12 * sqrt(2 * CAPE).  Produces XC Skies-comparable fpm values.
+    "thermal_updraft": {
+        "search": ":CAPE:surface:",
+        "product_overrides": {},
+        "exclude_models": ["nbm"],
+        "derived": "cape_to_updraft",
+    },
     "convective_cloud_top": {
         "search": ":HGT:cloud top:",
         "product_overrides": {"hrrr": "prs"},
@@ -242,10 +250,14 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
 #   scale_max:  hard ceiling for color scale
 #   clamp_neg:  if True, clamp data values < 0 to 0 before color mapping
 _VAR_SCALE: dict[str, dict] = {
-    # Thermal strength (700 hPa omega): 0 to ~300 fpm (1.5 m/s)
-    # GFS omega realistic range; strong days peak ~1.0-1.5 m/s
+    # Raw omega (700 hPa) — kept for reference but not primary overlay
     "vertical_velocity_700hPa": {
         "ramp": "thermal", "scale_min": 0.0, "scale_max": 1.5, "clamp_neg": True,
+    },
+    # Derived thermal updraft: 0 to 6 m/s (~1200 fpm)
+    # CAPE-based: W* = 0.12 * sqrt(2*CAPE)
+    "thermal_updraft": {
+        "ramp": "thermal", "scale_min": 0.0, "scale_max": 6.0, "clamp_neg": True,
     },
     # CAPE: 0 to 4000 J/kg
     "cape": {
@@ -421,6 +433,10 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         arr = ds[var_names[0]].values
         if variable == "vertical_velocity_700hPa":
             arr = -arr / 10.0
+        elif variable == "thermal_updraft":
+            # Derive updraft velocity from CAPE: W* ≈ 0.12 * sqrt(2 * CAPE)
+            arr = np.maximum(arr, 0.0)
+            arr = 0.12 * np.sqrt(2.0 * arr)
         lats = ds.latitude.values
         lons = ds.longitude.values
 
@@ -652,6 +668,9 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
         if variable == "vertical_velocity_700hPa":
             # Pa/s → m/s (positive = lift). At 700 hPa, ~−1 Pa/s ≈ +0.1 m/s
             arr = -arr / 10.0
+        elif variable == "thermal_updraft":
+            arr = np.maximum(arr, 0.0)
+            arr = 0.12 * np.sqrt(2.0 * arr)
 
         lats = ds.latitude.values
         lons = ds.longitude.values
