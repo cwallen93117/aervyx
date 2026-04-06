@@ -311,25 +311,20 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             map.addSource(OVERLAY_SRC, { type: "geojson", data: geojson });
             map.addLayer({
               id: OVERLAY_LAYER,
-              type: "heatmap",
+              type: "circle",
               source: OVERLAY_SRC,
               paint: {
-                "heatmap-weight": [
+                "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 3, 5, 6, 7, 12, 9, 24, 11, 48] as unknown as maplibregl.ExpressionSpecification,
+                "circle-color": [
                   "interpolate", ["linear"], ["get", "value"],
-                  ov.legendMinVal, 0,
-                  ov.legendMaxVal, 1,
+                  ov.legendMinVal, ov.colors[0],
+                  ov.legendMinVal + (ov.legendMaxVal - ov.legendMinVal) * 0.33, ov.colors[1],
+                  ov.legendMinVal + (ov.legendMaxVal - ov.legendMinVal) * 0.66, ov.colors[2],
+                  ov.legendMaxVal, ov.colors[3],
                 ] as unknown as maplibregl.ExpressionSpecification,
-                "heatmap-intensity": ["interpolate", ["linear"], ["zoom"], 2, 0.6, 5, 1.2, 8, 2.5] as unknown as maplibregl.ExpressionSpecification,
-                "heatmap-radius": ["interpolate", ["linear"], ["zoom"], 2, 4, 4, 8, 6, 14, 8, 22, 10, 35] as unknown as maplibregl.ExpressionSpecification,
-                "heatmap-opacity": opacity / 100,
-                "heatmap-color": [
-                  "interpolate", ["linear"], ["heatmap-density"],
-                  0, "rgba(0,0,0,0)",
-                  0.1, ov.colors[0],
-                  0.35, ov.colors[1],
-                  0.65, ov.colors[2],
-                  1.0, ov.colors[3],
-                ] as unknown as maplibregl.ExpressionSpecification,
+                "circle-opacity": opacity / 100,
+                "circle-stroke-width": 0,
+                "circle-blur": 0.6,
               },
             });
           } catch (err) {
