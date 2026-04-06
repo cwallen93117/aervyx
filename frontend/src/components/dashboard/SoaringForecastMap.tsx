@@ -110,9 +110,10 @@ function formatVT(iso: string) {
 const OVERLAY_LAYER = "soaring-overlay-layer";
 const OVERLAY_SRC = "soaring-overlay-src";
 
-function safeRemove(map: maplibregl.Map) {
+function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string | null>) {
   try { if (map.getLayer(OVERLAY_LAYER)) map.removeLayer(OVERLAY_LAYER); } catch { /* */ }
   try { if (map.getSource(OVERLAY_SRC)) map.removeSource(OVERLAY_SRC); } catch { /* */ }
+  if (blobRef?.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -232,6 +233,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const mapLoaded = useRef(false);
+  const blobUrlRef = useRef<string | null>(null);
 
   const [activeModel, setActiveModel] = useState<ModelId>("hrrr");
   const [activeRun, setActiveRun] = useState<RunInfo | null>(null);
@@ -301,37 +303,54 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown> }) => {
+      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown> }) => {
         if (cancelled || !mapLoaded.current) return;
-        safeRemove(map);
+        safeRemove(map, blobUrlRef);
 
-        requestAnimationFrame(() => {
-          if (cancelled) return;
-          try {
-            const coords = data.coordinates as [[number, number], [number, number], [number, number], [number, number]];
-            map.addSource(OVERLAY_SRC, {
-              type: "image",
-              url: data.image,
-              coordinates: coords,
-            });
-            map.addLayer({
-              id: OVERLAY_LAYER,
-              type: "raster",
-              source: OVERLAY_SRC,
-              paint: {
-                "raster-opacity": opacity / 100,
-                "raster-fade-duration": 0,
-              },
-            });
-          } catch (err) {
-            console.warn("[SoaringForecast] raster layer error:", err);
-          }
+        // Convert base64 data URI to blob URL for MapLibre compatibility
+        const b64 = (data.image as string).split(",")[1];
+        const bin = atob(b64);
+        const bytes = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "image/png" });
+        const blobUrl = URL.createObjectURL(blob);
+
+        // Wait for the image to actually load before adding to map
+        await new Promise<void>((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve();
+          img.onerror = () => reject(new Error("Image load failed"));
+          img.src = blobUrl;
         });
+
+        if (cancelled) { URL.revokeObjectURL(blobUrl); return; }
+
+        blobUrlRef.current = blobUrl;
+        try {
+          const coords = data.coordinates as [[number, number], [number, number], [number, number], [number, number]];
+          map.addSource(OVERLAY_SRC, {
+            type: "image",
+            url: blobUrl,
+            coordinates: coords,
+          });
+          map.addLayer({
+            id: OVERLAY_LAYER,
+            type: "raster",
+            source: OVERLAY_SRC,
+            paint: {
+              "raster-opacity": opacity / 100,
+              "raster-fade-duration": 0,
+            },
+          });
+        } catch (err) {
+          console.warn("[SoaringForecast] raster layer error:", err);
+          URL.revokeObjectURL(blobUrl);
+        }
       })
       .catch(err => console.warn("[SoaringForecast] raster fetch error:", err))
       .finally(() => { if (!cancelled) setGridLoading(false); });
 
-    return () => { cancelled = true; safeRemove(map); };
+    return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes]);
 
   // Click handler — open popup with Skew-T
