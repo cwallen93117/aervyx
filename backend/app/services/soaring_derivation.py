@@ -260,9 +260,9 @@ def compute_wstar_cape_fallback(
 
     # Approximate W* from CAPE:
     # W* ≈ scaling × (CAPE × g / Tv)^(1/3)
-    # The 0.4 factor is a rough calibration; CAPE-based W* should be treated
-    # as indicative only.
-    wstar = 0.4 * np.power(np.maximum(cape * G / t_virtual, 0.0), 1.0 / 3.0)
+    # The 0.65 factor calibrated against SHTFL-based W* for afternoon CONUS.
+    # CAPE-based W* should still be treated as indicative only.
+    wstar = 0.65 * np.power(np.maximum(cape * G / t_virtual, 0.0), 1.0 / 3.0)
 
     # Cap at reasonable maximum
     wstar = np.minimum(wstar, 8.0)
