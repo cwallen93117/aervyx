@@ -79,13 +79,12 @@ function displayUnit(ov: OverlayDef, units: Units): string {
   return ov.unit;
 }
 
-// Backend returns raw model values. Convert for display.
-// vertical_velocity_700hPa is in Pa/s (negative = upward).
+// Backend returns display-ready values (m/s for vario, m for altitude, m/s for wind).
+// This function only handles unit preference conversion (m→ft, m/s→ft/min, m/s→kt).
 function convertValue(val: number, ov: OverlayDef, units: Units): number {
   if (ov.unitType === "vario") {
-    const ms = -val / 10; // Pa/s -> m/s (approx at 700hPa)
-    if (units.vario === "fpm") return Math.round(ms * 196.85);
-    return Math.round(ms * 10) / 10;
+    if (units.vario === "fpm") return Math.round(val * 196.85);
+    return Math.round(val * 10) / 10;
   }
   if (ov.unitType === "altitude" && units.altitude === "ft") return Math.round(val * 3.28084);
   if (ov.unitType === "speed") return Math.round(val * 1.944); // m/s -> kt
@@ -131,8 +130,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const mapLoaded = useRef(false);
 
   const [activeModel, setActiveModel] = useState<ModelId>("hrrr");
-  const [runs, setRuns] = useState<RunInfo[]>([]);
-  const [selectedRunIdx, setSelectedRunIdx] = useState(0);
+  const [activeRun, setActiveRun] = useState<RunInfo | null>(null);
   const [selectedTimeIdx, setSelectedTimeIdx] = useState(0);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -141,7 +139,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [gridLoading, setGridLoading] = useState(false);
   const [, setMapReady] = useState(0);
 
-  const activeRun = runs[selectedRunIdx] ?? null;
   const validTimes = activeRun?.valid_times ?? [];
 
   // Init map
@@ -162,17 +159,17 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { map.remove(); mapRef.current = null; mapLoaded.current = false; };
   }, []);
 
-  // Fetch available runs when model changes
+  // Fetch available runs when model changes — auto-select most recent
   useEffect(() => {
-    setRuns([]); setSelectedRunIdx(0); setSelectedTimeIdx(0);
+    setActiveRun(null); setSelectedTimeIdx(0);
     setMetaError(null); setMetaLoading(true);
 
     const api = resolveApiBase();
     fetch(`${api}/api/weather/available?model=${activeModel}`)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d: { model: string; runs: RunInfo[] }) => {
-        setRuns(d.runs);
-        if (d.runs.length === 0) setMetaError("No runs available");
+        if (d.runs.length === 0) { setMetaError("No runs available"); return; }
+        setActiveRun(d.runs[0]); // most recent run
       })
       .catch((e: unknown) => setMetaError(String(e)))
       .finally(() => setMetaLoading(false));
@@ -240,7 +237,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       cancelled = true;
       safeRemove(map);
     };
-  }, [activeModel, activeOverlay, selectedTimeIdx, selectedRunIdx, opacity, activeRun, validTimes]);
+  }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes]);
 
   // Click handler — compare all models at a point
   const handleMapClick = useCallback(async (e: maplibregl.MapMouseEvent) => {
@@ -330,19 +327,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           </div>
         </div>
 
-        {/* Run selector */}
-        {runs.length > 1 && (
-          <div className={styles.section}>
-            <p className={styles.sectionLabel}>Model Run</p>
-            <select
-              style={{ width: "100%", padding: "4px 8px", fontSize: "0.8rem", background: "var(--panel)", color: "var(--ink)", border: "1px solid var(--line)", borderRadius: "var(--r-sm)" }}
-              value={selectedRunIdx}
-              onChange={e => { setSelectedRunIdx(Number(e.target.value)); setSelectedTimeIdx(0); }}
-            >
-              {runs.map((r, i) => (
-                <option key={i} value={i}>{r.date} {r.hour}Z</option>
-              ))}
-            </select>
+        {/* Run info */}
+        {activeRun && (
+          <div className={styles.section} style={{ paddingTop: 6, paddingBottom: 6 }}>
+            <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--muted)" }}>
+              Run: {activeRun.date} {activeRun.hour}Z &middot; {activeRun.fxx_step}h steps &middot; {validTimes.length} forecasts
+            </p>
           </div>
         )}
 
