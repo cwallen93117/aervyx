@@ -180,14 +180,16 @@ _raster_cache: dict[str, tuple[dict, float]] = {}
 # ---------------------------------------------------------------------------
 # Ramp: position fraction (0-1) → (R, G, B, A)
 _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
-    # thermal / lift: blue→cyan→green→yellow→orange→red
+    # thermal / updraft: light cyan→green→yellow-green→yellow→orange→red
+    # Matches XC Skies style — light/transparent at low, opaque at high
     "thermal": [
-        (0.0,  60,  80,  180, 160),
-        (0.15, 40,  140, 210, 185),
-        (0.35, 40,  200, 120, 200),
-        (0.55, 140, 220, 40,  215),
-        (0.75, 220, 180, 0,   225),
-        (1.0,  220, 40,  20,  235),
+        (0.0,  180, 230, 235, 50),   # very light cyan, nearly transparent
+        (0.08, 150, 220, 200, 100),  # light teal
+        (0.2,  110, 200, 130, 155),  # green
+        (0.35, 170, 215, 70,  185),  # yellow-green
+        (0.5,  210, 225, 45,  210),  # yellow
+        (0.7,  235, 175, 25,  225),  # orange
+        (1.0,  220, 45,  20,  240),  # red
     ],
     # instability: red(unstable)→orange→yellow→green→blue(stable)
     "instability": [
