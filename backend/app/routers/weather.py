@@ -111,14 +111,16 @@ VARIABLES: dict[str, dict[str, Any]] = {
         "product_overrides": {"hrrr": "prs"},
         "exclude_models": ["nbm"],
     },
-    # Derived updraft velocity — combines CAPE + BLH for spatial accuracy
-    # W* = 0.05 * (BLH * max(CAPE,0))^(1/3)  — convective velocity scale
+    # Derived updraft velocity — convective velocity scale W*
+    # Uses sensible heat flux + BLH: W* = (g/T * zi * Hs/(rho*cp))^(1/3)
+    # Falls back to CAPE+BLH if SHTFL unavailable
     "thermal_updraft": {
-        "search": ":CAPE:surface:",
+        "search": ":SHTFL:surface:",
         "search_blh": ":HPBL:surface:",
+        "search_cape": ":CAPE:surface:",
         "product_overrides": {},
         "exclude_models": ["nbm"],
-        "derived": "cape_blh_updraft",
+        "derived": "shtfl_blh_updraft",
     },
     "convective_cloud_top": {
         "search": ":HGT:cloud top:",
@@ -435,16 +437,23 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         if variable == "vertical_velocity_700hPa":
             arr = -arr / 10.0
         elif variable == "thermal_updraft":
-            # Derive updraft from CAPE + BLH: W* = 0.05 * (BLH * CAPE)^(1/3)
-            cape_arr = np.maximum(arr, 0.0)
+            # Convective velocity scale: W* = (g/T * zi * Hs/(rho*cp))^(1/3)
+            # arr = SHTFL (W/m²), positive = upward heat flux
+            shtfl = np.maximum(arr, 0.0)
             try:
                 ds_blh = H.xarray(vdef["search_blh"])
                 blh_arr = ds_blh[list(ds_blh.data_vars)[0]].values
-                blh_arr = np.maximum(blh_arr, 0.0)
-                arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
+                blh_arr = np.maximum(blh_arr, 10.0)  # floor at 10m
+                # g=9.81, T~288K, rho*cp~1200 → g/(T*rho*cp) ≈ 2.84e-5
+                arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
             except Exception:
-                # Fallback: CAPE-only if BLH fetch fails
-                arr = 0.12 * np.sqrt(2.0 * cape_arr)
+                # Fallback: CAPE-based if BLH fetch fails
+                try:
+                    ds_cape = H.xarray(vdef["search_cape"])
+                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
+                    arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
+                except Exception:
+                    arr = np.zeros_like(shtfl)
         lats = ds.latitude.values
         lons = ds.longitude.values
 
@@ -677,14 +686,14 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
             # Pa/s → m/s (positive = lift). At 700 hPa, ~−1 Pa/s ≈ +0.1 m/s
             arr = -arr / 10.0
         elif variable == "thermal_updraft":
-            cape_arr = np.maximum(arr, 0.0)
+            shtfl = np.maximum(arr, 0.0)
             try:
                 ds_blh = H.xarray(vdef["search_blh"])
                 blh_arr = ds_blh[list(ds_blh.data_vars)[0]].values
-                blh_arr = np.maximum(blh_arr, 0.0)
-                arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
+                blh_arr = np.maximum(blh_arr, 10.0)
+                arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
             except Exception:
-                arr = 0.12 * np.sqrt(2.0 * cape_arr)
+                arr = np.zeros_like(shtfl)
 
         lats = ds.latitude.values
         lons = ds.longitude.values
