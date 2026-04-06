@@ -985,13 +985,6 @@ class BleService extends ChangeNotifier {
         screenOnSecs: config.displayTimeoutSecs,
       ));
 
-      // Bluetooth config
-      _statusMessage = 'Setting Bluetooth...';
-      notifyListeners();
-      await _writeAdmin(buildSetBluetoothConfig(
-        enabled: config.bluetoothEnabled,
-      ));
-
       // Network/Wi-Fi
       await _writeAdmin(buildSetNetworkConfig(
         wifiEnabled: config.wifiEnabled,
@@ -1033,6 +1026,17 @@ class BleService extends ChangeNotifier {
         downlinkEnabled: true,
       ));
 
+      // Bluetooth config — MUST be last before commit so that profiles which
+      // disable BLE (repeater, driver-wifi) don't kill the connection before
+      // all other config writes have been sent to the device.
+      if (!config.bluetoothEnabled) {
+        _statusMessage = 'Finalizing (BLE will be disabled on reboot)...';
+        notifyListeners();
+      }
+      await _writeAdmin(buildSetBluetoothConfig(
+        enabled: config.bluetoothEnabled,
+      ));
+
       // Commit batch edit (device reboots)
       _statusMessage = 'Committing settings (device will reboot)...';
       notifyListeners();
@@ -1057,8 +1061,20 @@ class BleService extends ChangeNotifier {
 
       _statusMessage = '${profile.label} profile applied. Device rebooting...';
     } catch (e) {
-      _error = 'Profile apply failed: $e';
-      _statusMessage = null;
+      // If the error happens during or after commit, the device is rebooting
+      // and the BLE disconnect is expected — not an error.
+      final msg = e.toString().toLowerCase();
+      final isDisconnect = msg.contains('disconnect') ||
+          msg.contains('not connected') ||
+          msg.contains('closed') ||
+          msg.contains('gatt');
+      if (isDisconnect) {
+        _statusMessage =
+            '${profile.label} profile applied. Device rebooted (BLE disconnected).';
+      } else {
+        _error = 'Profile apply failed: $e';
+        _statusMessage = null;
+      }
     }
 
     _isPushingConfig = false;
