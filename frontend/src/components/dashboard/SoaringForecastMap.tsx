@@ -65,6 +65,9 @@ type OverlayDef = {
   legendMaxVal: number;
   gradient: string;
   colors: string[];
+  /** Fixed tier boundary values in display units (e.g. fpm for vario).
+   *  One label per color band (length = colors.length). */
+  tierValues?: number[];
   excludeModels?: string[];
 };
 
@@ -82,9 +85,9 @@ function steppedGradient(colors: string[]): string {
 }
 
 const OVERLAYS: OverlayDef[] = [
-  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 5500, gradient: steppedGradient(["#9ca3af","#22c55e","#60a5fa","#a78bfa","#ec4899"]), colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"], excludeModels: ["nbm"] },
-  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "thermal_updraft",          legendMinVal: 0,   legendMaxVal: 6.096, gradient: steppedGradient(["rgb(200,220,255)","rgb(130,180,240)","rgb(60,160,220)","rgb(40,180,140)","rgb(80,190,60)","rgb(180,210,40)","rgb(240,190,30)","rgb(230,110,20)","rgb(210,30,30)"]), colors: ["#c8dcff","#82b4f0","#3ca0dc","#28b48c","#50be3c","#b4d228","#f0be1e","#e66e14","#d21e1e"], excludeModels: ["nbm"] },
-  { id: "bsratio",               label: "B:S Ratio",               unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "bsratio",                  legendMinVal: 0,   legendMaxVal: 20,   gradient: steppedGradient(["#dc3c3c","#e68c28","#dcc828","#78c83c","#3cb48c","#2878c8"]), colors: ["#dc3c3c","#e68c28","#dcc828","#78c83c","#3cb48c","#2878c8"], excludeModels: ["nbm"] },
+  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 5500, gradient: steppedGradient(["#9ca3af","#22c55e","#60a5fa","#a78bfa","#ec4899"]), colors: ["#9ca3af","#22c55e","#60a5fa","#a78bfa","#ec4899"], tierValues: [0, 1000, 2000, 3000, 4000, 5500], excludeModels: ["nbm"] },
+  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "thermal_updraft",          legendMinVal: 0,   legendMaxVal: 6.096, gradient: steppedGradient(["rgb(200,220,255)","rgb(130,180,240)","rgb(60,160,220)","rgb(40,180,140)","rgb(80,190,60)","rgb(180,210,40)","rgb(240,190,30)","rgb(230,110,20)","rgb(210,30,30)"]), colors: ["#c8dcff","#82b4f0","#3ca0dc","#28b48c","#50be3c","#b4d228","#f0be1e","#e66e14","#d21e1e"], tierValues: [0, 100, 200, 300, 400, 500, 700, 900, 1200], excludeModels: ["nbm"] },
+  { id: "bsratio",               label: "B:S Ratio",               unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "bsratio",                  legendMinVal: 0,   legendMaxVal: 20,   gradient: steppedGradient(["#dc3c3c","#e68c28","#dcc828","#78c83c","#3cb48c","#2878c8"]), colors: ["#dc3c3c","#e68c28","#dcc828","#78c83c","#3cb48c","#2878c8"], tierValues: [0, 3, 5, 7, 10, 15, 20], excludeModels: ["nbm"] },
   { id: "cloud_cover",           label: "Cloud Cover",             unit: "%",    unitType: "percent",  group: "Cloud / Weather", variable: "cloud_cover",              legendMinVal: 0,   legendMaxVal: 100,  gradient: steppedGradient(["#f8fafc","#cbd5e1","#94a3b8","#475569","#1e293b","#0f172a"]), colors: ["#f8fafc","#94a3b8","#1e293b","#0f172a"], excludeModels: ["nbm"] },
   { id: "precipitation",         label: "Precipitation",           unit: "mm",   unitType: "mm",       group: "Cloud / Weather", variable: "precipitation",            legendMinVal: 0,   legendMaxVal: 20,   gradient: steppedGradient(["#f8fafc","#93c5fd","#3b82f6","#7c3aed"]), colors: ["#f8fafc","#3b82f6","#7c3aed","#7c3aed"] },
   { id: "wind_surface",          label: "Surface Wind",            unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_10m",           legendMinVal: 0,   legendMaxVal: 60,   gradient: steppedGradient(["#22c55e","#84cc16","#eab308","#f97316","#ef4444"]), colors: ["#22c55e","#eab308","#ef4444","#ef4444"], excludeModels: ["nbm"] },
@@ -651,12 +654,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
         {/* Legend — vertical bar on the right side of the map */}
         {activeOv && (() => {
-          // Build bands + labels from tiers (backend) or overlay colors (fallback)
+          // Build bands + labels from tierValues or tiers or evenly-spaced fallback
+          // bandColors: highest-first (top of legend), labelVals: one per band (highest-first)
           let bandColors: string[];
           let labelVals: number[];
-          if (tiers && tiers.length > 1) {
-            // Backend tiers: one band per adjacent pair, labels at each boundary
-            bandColors = tiers.slice(0, -1).map(t => t.color).reverse();
+
+          if (activeOv.tierValues && activeOv.tierValues.length === activeOv.colors.length) {
+            // Preferred: use predefined tier values (already in display units like fpm)
+            bandColors = [...activeOv.colors].reverse();
+            labelVals = [...activeOv.tierValues].reverse();
+          } else if (tiers && tiers.length > 1) {
+            // Backend tiers: convert physical values to display units
+            bandColors = tiers.map(t => t.color).reverse();
             labelVals = [...tiers].reverse().map(tier => {
               let v = tier.value;
               if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
@@ -665,43 +674,43 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               return v;
             });
           } else {
-            // Fallback: use overlay's colors array, evenly-spaced labels
+            // Last resort: evenly-spaced
             bandColors = [...activeOv.colors].reverse();
             const n = activeOv.colors.length;
             const minV = dataRange ? dataRange.scale_min : activeOv.legendMinVal;
             const maxV = dataRange ? dataRange.scale_max : activeOv.legendMaxVal;
-            // n bands → n+1 boundary labels
             labelVals = [];
-            for (let i = n; i >= 0; i--) {
-              let v = minV + (i / n) * (maxV - minV);
+            for (let i = n - 1; i >= 0; i--) {
+              let v = minV + (i / (n - 1)) * (maxV - minV);
               if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
               else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
               else v = Math.round(v);
               labelVals.push(v);
             }
           }
+
           return (
             <div className={styles.mapLegendVertical}>
-              <p className={styles.mapLegendVerticalTitle}>
-                {activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}
-              </p>
               <div className={styles.mapLegendVerticalInner}>
-                {/* Color bar on left */}
+                {/* Color bar */}
                 <div className={styles.mapLegendVerticalBar}>
                   {bandColors.map((c, i) => (
                     <div key={i} style={{ flex: 1, background: c }} />
                   ))}
                 </div>
-                {/* Labels on right — positioned at boundaries */}
+                {/* Labels — one per band, right-aligned to band center */}
                 <div className={styles.mapLegendVerticalLabelsCol}>
                   {labelVals.map((v, i) => (
-                    <div key={i} className={styles.mapLegendVerticalLabelSlot}
-                      style={{ flex: i < bandColors.length ? 1 : 0 }}>
+                    <div key={i} className={styles.mapLegendVerticalLabelSlot} style={{ flex: 1 }}>
                       <span className={styles.mapLegendVerticalLabel}>{v}</span>
                     </div>
                   ))}
                 </div>
               </div>
+              {/* Title — rotated vertically */}
+              <p className={styles.mapLegendVerticalTitle}>
+                {activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}
+              </p>
             </div>
           );
         })()}
