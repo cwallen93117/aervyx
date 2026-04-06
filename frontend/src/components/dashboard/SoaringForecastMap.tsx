@@ -240,7 +240,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [activeOverlay, setActiveOverlay] = useState<string>("thermal_strength");
-  const [opacity, setOpacity] = useState(70);
+  const [opacity, setOpacity] = useState(85);
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);
 
