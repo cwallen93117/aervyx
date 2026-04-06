@@ -276,6 +276,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       center: [-98, 39], zoom: 4,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 200, unit: "metric" }), "bottom-left");
     map.on("load", () => setMapReady(1));
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; setMapReady(0); };
