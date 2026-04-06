@@ -279,9 +279,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               initialZoom: 13,
               onMapEvent: (event) {
                 if (!_userPanned &&
-                    (event.source == MapEventSource.dragGesture ||
-                     event.source == MapEventSource.multiFingerGesture ||
-                     event.source == MapEventSource.flingAnimation)) {
+                    (event.source == MapEventSource.onDrag ||
+                     event.source == MapEventSource.onMultiFinger ||
+                     event.source == MapEventSource.flingAnimationController)) {
                   _userPanned = true;
                 }
               },
