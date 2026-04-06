@@ -35,6 +35,11 @@ except ImportError:
     driver_routing = None
 
 try:
+    from app.routers import weather
+except ImportError:
+    weather = None
+
+try:
     from app.services.mqtt_subscriber import start_mqtt_subscriber
 except ImportError:
     start_mqtt_subscriber = None
@@ -109,6 +114,8 @@ if admin_debug is not None:
     app.include_router(admin_debug.router)
 if driver_routing is not None:
     app.include_router(driver_routing.router)
+if weather is not None:
+    app.include_router(weather.router)
 
 
 @app.get('/health')

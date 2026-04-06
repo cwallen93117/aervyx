@@ -1,6 +1,6 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 
-export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "settings" | "admin";
+export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "weather" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
