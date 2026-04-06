@@ -650,64 +650,61 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         )}
 
         {/* Legend — vertical bar on the right side of the map */}
-        {activeOv && (
-          <div className={styles.mapLegendVertical}>
-            <p className={styles.mapLegendVerticalTitle}>
-              {activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}
-            </p>
-            {tiers && tiers.length > 1 ? (() => {
-              // Bands: one per adjacent tier pair, reversed so highest is at top
-              const bands = tiers.slice(0, -1).map((tier, i) => ({
-                color: tier.color,
-                lowerVal: tier.value,
-                upperVal: tiers[i + 1].value,
-              })).reverse();
-
-              // Label values at each tier boundary, highest first
-              const labelVals = [...tiers].reverse().map(tier => {
-                let v = tier.value;
-                if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
-                else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
-                else v = Math.round(v);
-                return v;
-              });
-
-              return (
-                <div className={styles.mapLegendVerticalInner}>
-                  {/* Color bar on left */}
-                  <div className={styles.mapLegendVerticalBar}>
-                    {bands.map((band, i) => (
-                      <div key={i} style={{ flex: 1, background: band.color }} />
-                    ))}
-                  </div>
-                  {/* Labels on right — positioned at boundaries */}
-                  <div className={styles.mapLegendVerticalLabelsCol}>
-                    {labelVals.map((v, i) => (
-                      <div key={i} className={styles.mapLegendVerticalLabelSlot}
-                        style={{ flex: i < bands.length ? 1 : 0 }}>
-                        <span className={styles.mapLegendVerticalLabel}>{v}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })() : (
-              // Fallback gradient bar when no tiers
+        {activeOv && (() => {
+          // Build bands + labels from tiers (backend) or overlay colors (fallback)
+          let bandColors: string[];
+          let labelVals: number[];
+          if (tiers && tiers.length > 1) {
+            // Backend tiers: one band per adjacent pair, labels at each boundary
+            bandColors = tiers.slice(0, -1).map(t => t.color).reverse();
+            labelVals = [...tiers].reverse().map(tier => {
+              let v = tier.value;
+              if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
+              else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
+              else v = Math.round(v);
+              return v;
+            });
+          } else {
+            // Fallback: use overlay's colors array, evenly-spaced labels
+            bandColors = [...activeOv.colors].reverse();
+            const n = activeOv.colors.length;
+            const minV = dataRange ? dataRange.scale_min : activeOv.legendMinVal;
+            const maxV = dataRange ? dataRange.scale_max : activeOv.legendMaxVal;
+            // n bands → n+1 boundary labels
+            labelVals = [];
+            for (let i = n; i >= 0; i--) {
+              let v = minV + (i / n) * (maxV - minV);
+              if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
+              else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
+              else v = Math.round(v);
+              labelVals.push(v);
+            }
+          }
+          return (
+            <div className={styles.mapLegendVertical}>
+              <p className={styles.mapLegendVerticalTitle}>
+                {activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}
+              </p>
               <div className={styles.mapLegendVerticalInner}>
-                <div className={styles.mapLegendVerticalBar}
-                  style={{ background: activeOv.gradient, height: "100%", transform: "rotate(180deg)" }} />
-                <div className={styles.mapLegendVerticalLabelsCol} style={{ justifyContent: "space-between" }}>
-                  <span className={styles.mapLegendVerticalLabel}>
-                    {legendValue(dataRange ? dataRange.scale_max : activeOv.legendMaxVal, activeOv, units)}
-                  </span>
-                  <span className={styles.mapLegendVerticalLabel}>
-                    {legendValue(dataRange ? dataRange.scale_min : activeOv.legendMinVal, activeOv, units)}
-                  </span>
+                {/* Color bar on left */}
+                <div className={styles.mapLegendVerticalBar}>
+                  {bandColors.map((c, i) => (
+                    <div key={i} style={{ flex: 1, background: c }} />
+                  ))}
+                </div>
+                {/* Labels on right — positioned at boundaries */}
+                <div className={styles.mapLegendVerticalLabelsCol}>
+                  {labelVals.map((v, i) => (
+                    <div key={i} className={styles.mapLegendVerticalLabelSlot}
+                      style={{ flex: i < bandColors.length ? 1 : 0 }}>
+                      <span className={styles.mapLegendVerticalLabel}>{v}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
