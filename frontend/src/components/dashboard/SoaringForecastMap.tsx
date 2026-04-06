@@ -361,6 +361,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             paint: {
               "raster-opacity": opacity / 100,
               "raster-fade-duration": 0,
+              "raster-resampling": "nearest",
             },
           });
 
