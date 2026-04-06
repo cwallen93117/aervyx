@@ -90,14 +90,17 @@ VARIABLES: dict[str, dict[str, Any]] = {
     "boundary_layer_height": {
         "search": ":HPBL:surface:",
         "product_overrides": {},
+        "exclude_models": ["nbm"],
     },
     "lifted_index": {
         "search": ":4LFTX:",
         "product_overrides": {},
+        "exclude_models": ["nbm"],
     },
     "cloud_cover": {
         "search": ":TCDC:entire atmosphere:",
         "product_overrides": {},
+        "exclude_models": ["nbm"],
     },
     "precipitation": {
         "search": ":APCP:surface:",
@@ -123,6 +126,7 @@ VARIABLES: dict[str, dict[str, Any]] = {
         "search_v": ":VGRD:10 m above ground:",
         "is_wind_speed": True,
         "product_overrides": {},
+        "exclude_models": ["nbm"],
     },
     "wind_speed_850hPa": {
         "search": ":UGRD:850 mb:",
