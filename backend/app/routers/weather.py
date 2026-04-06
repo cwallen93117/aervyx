@@ -163,106 +163,92 @@ RASTER_SUBSAMPLE: dict[str, int] = {
 _raster_cache: dict[str, tuple[dict, float]] = {}
 
 # ---------------------------------------------------------------------------
-# Color scale definitions for soaring weather visualization
-# Each entry: (value, R, G, B, A) — values are linearly interpolated
+# Color ramp definitions for soaring weather visualization
+# Each entry: list of (fraction, R, G, B, A) where fraction is 0.0-1.0.
+# The actual value range is computed dynamically from data percentiles,
+# so the ramp only defines the *shape* of the color progression.
 # ---------------------------------------------------------------------------
-_COLOR_SCALES: dict[str, list[tuple[float, int, int, int, int]]] = {
-    # thermal strength 0-5 m/s: blue→cyan→green→yellow→red
-    "vertical_velocity_700hPa": [
-        (0.0,  60,  80,  180, 140),
-        (0.5,  40,  120, 200, 170),
-        (1.5,  40,  190, 100, 190),
-        (2.5,  120, 210, 40,  210),
-        (3.5,  210, 190, 0,   220),
-        (5.0,  210, 40,  20,  230),
+# Ramp: position fraction (0-1) → (R, G, B, A)
+_COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
+    # thermal / lift: blue→cyan→green→yellow→orange→red
+    "thermal": [
+        (0.0,  60,  80,  180, 160),
+        (0.15, 40,  140, 210, 185),
+        (0.35, 40,  200, 120, 200),
+        (0.55, 140, 220, 40,  215),
+        (0.75, 220, 180, 0,   225),
+        (1.0,  220, 40,  20,  235),
     ],
-    # CAPE 0-2000 J/kg: blue→cyan→green→yellow→red
-    "cape": [
-        (0.0,   60,  80,  170, 130),
-        (100.0, 40,  100, 200, 160),
-        (500.0, 40,  190, 80,  190),
-        (1000.0,170, 210, 30,  210),
-        (1500.0,210, 150, 20,  220),
-        (2000.0,210, 40,  20,  230),
+    # instability: red(unstable)→orange→yellow→green→blue(stable)
+    "instability": [
+        (0.0,  220, 30,  20,  230),
+        (0.25, 220, 140, 20,  215),
+        (0.45, 210, 210, 40,  200),
+        (0.6,  70,  200, 70,  190),
+        (0.8,  40,  140, 220, 170),
+        (1.0,  40,  60,  180, 155),
     ],
-    # cloud top height 0-7000 m: gray→green→blue→purple→magenta
-    "convective_cloud_top": [
-        (0.0,    140, 140, 140, 130),
-        (1000.0, 70,  180, 70,  170),
-        (2500.0, 80,  170, 210, 195),
-        (4500.0, 150, 80,  200, 210),
-        (7000.0, 210, 60,  190, 225),
+    # height: gray→green→blue→purple→magenta
+    "height": [
+        (0.0,  140, 140, 140, 150),
+        (0.25, 70,  190, 70,  180),
+        (0.5,  80,  180, 220, 200),
+        (0.75, 160, 80,  210, 215),
+        (1.0,  220, 60,  200, 230),
     ],
-    # boundary layer height 0-3500 m: gray→green→blue→purple→magenta
-    "boundary_layer_height": [
-        (0.0,    140, 140, 140, 130),
-        (500.0,  70,  180, 70,  170),
-        (1500.0, 80,  170, 210, 195),
-        (2500.0, 150, 80,  200, 210),
-        (3500.0, 210, 60,  190, 225),
+    # cloud: clear→gray→dark
+    "cloud": [
+        (0.0,  230, 230, 230, 50),
+        (0.2,  200, 205, 210, 130),
+        (0.5,  150, 155, 160, 175),
+        (0.8,  80,  85,  90,  215),
+        (1.0,  35,  40,  45,  235),
     ],
-    # lifted index -8 to +4: red(unstable)→orange→yellow→green→blue(stable)
-    "lifted_index": [
-        (-8.0, 210, 30,  20,  225),
-        (-4.0, 210, 130, 20,  210),
-        (-1.0, 200, 200, 40,  195),
-        (0.0,  70,  190, 70,  180),
-        (2.0,  40,  130, 210, 160),
-        (4.0,  40,  60,  180, 140),
+    # precipitation: light blue→blue→indigo→purple
+    "precip": [
+        (0.0,  160, 210, 240, 70),
+        (0.15, 80,  160, 230, 160),
+        (0.4,  40,  90,  210, 200),
+        (0.7,  110, 40,  190, 220),
+        (1.0,  140, 20,  160, 235),
     ],
-    # cloud cover 0-100%: clear→light gray→medium gray→dark gray→near-black
-    "cloud_cover": [
-        (0.0,   230, 230, 230, 60),
-        (20.0,  190, 195, 200, 130),
-        (50.0,  140, 145, 150, 175),
-        (80.0,  80,  85,  90,  210),
-        (100.0, 35,  40,  45,  230),
-    ],
-    # precipitation 0-20 mm: light blue→blue→indigo→purple
-    "precipitation": [
-        (0.0,   160, 210, 240, 80),
-        (1.0,   80,  150, 220, 160),
-        (5.0,   40,  80,  200, 195),
-        (10.0,  100, 40,  180, 215),
-        (20.0,  130, 20,  150, 230),
-    ],
-    # wind 10m 0-30 m/s: green→yellow→orange→red
-    "wind_speed_10m": [
-        (0.0,   50,  170, 80,  130),
-        (5.0,   80,  200, 70,  170),
-        (10.0,  190, 210, 40,  195),
-        (18.0,  210, 130, 30,  215),
-        (24.0,  210, 60,  20,  225),
-        (30.0,  190, 20,  20,  230),
-    ],
-    # wind 850 hPa 0-30 m/s: green→yellow→orange→red
-    "wind_speed_850hPa": [
-        (0.0,   50,  170, 80,  130),
-        (5.0,   80,  200, 70,  170),
-        (10.0,  190, 210, 40,  195),
-        (18.0,  210, 130, 30,  215),
-        (24.0,  210, 60,  20,  225),
-        (30.0,  190, 20,  20,  230),
-    ],
-    # wind 700 hPa 0-40 m/s: green→yellow→orange→red
-    "wind_speed_700hPa": [
-        (0.0,   50,  170, 80,  130),
-        (5.0,   80,  200, 70,  170),
-        (15.0,  190, 210, 40,  195),
-        (25.0,  210, 130, 30,  215),
-        (32.0,  210, 60,  20,  225),
-        (40.0,  190, 20,  20,  230),
-    ],
-    # wind 500 hPa 0-50 m/s: green→yellow→orange→red
-    "wind_speed_500hPa": [
-        (0.0,   50,  170, 80,  130),
-        (8.0,   80,  200, 70,  170),
-        (20.0,  190, 210, 40,  195),
-        (32.0,  210, 130, 30,  215),
-        (42.0,  210, 60,  20,  225),
-        (50.0,  190, 20,  20,  230),
+    # wind: green→yellow→orange→red
+    "wind": [
+        (0.0,  50,  180, 80,  150),
+        (0.2,  80,  210, 70,  180),
+        (0.4,  200, 220, 40,  200),
+        (0.65, 220, 140, 30,  220),
+        (0.85, 220, 60,  20,  230),
+        (1.0,  200, 20,  20,  235),
     ],
 }
+
+# Map each variable to: (ramp_name, fixed_min_or_None, fixed_max_or_None)
+# If min/max are None, dynamic percentile-based scaling is used
+_VAR_RAMP: dict[str, tuple[str, float | None, float | None]] = {
+    "vertical_velocity_700hPa": ("thermal", None, None),  # dynamic
+    "cape":                     ("thermal", 0.0, None),    # floor at 0, dynamic max
+    "convective_cloud_top":     ("height", None, None),
+    "convective_cloud_base":    ("height", None, None),
+    "boundary_layer_height":    ("height", 0.0, None),
+    "lifted_index":             ("instability", None, None),
+    "cloud_cover":              ("cloud", 0.0, 100.0),    # always 0-100%
+    "precipitation":            ("precip", 0.0, None),
+    "wind_speed_10m":           ("wind", 0.0, None),
+    "wind_speed_850hPa":        ("wind", 0.0, None),
+    "wind_speed_700hPa":        ("wind", 0.0, None),
+    "wind_speed_500hPa":        ("wind", 0.0, None),
+}
+
+
+def _build_color_stops(
+    ramp: list[tuple[float, int, int, int, int]],
+    vmin: float,
+    vmax: float,
+) -> list[tuple[float, int, int, int, int]]:
+    """Expand a fractional ramp into absolute-value color stops."""
+    span = vmax - vmin if vmax != vmin else 1.0
+    return [(vmin + frac * span, r, g, b, a) for frac, r, g, b, a in ramp]
 
 
 def _colorize_array(
@@ -433,21 +419,55 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         if lats_1d[0] < lats_1d[-1]:
             data_sub = np.flipud(data_sub)
 
-    # Retrieve color stops for this variable (fall back to a neutral gray scale)
-    stops = _COLOR_SCALES.get(variable)
-    if stops is None:
-        vmin = float(np.nanmin(data_sub))
-        vmax = float(np.nanmax(data_sub))
-        vmax = vmax if vmax != vmin else vmin + 1
-        stops = [
-            (vmin, 200, 200, 200, 30),
-            (vmax, 60, 60, 60, 200),
-        ]
+    # --- Dynamic color scaling based on actual data percentiles ---
+    valid_data = data_sub[~np.isnan(data_sub)]
+    if valid_data.size == 0:
+        raise RuntimeError("No valid data in grid")
+
+    data_p2 = float(np.percentile(valid_data, 2))
+    data_p98 = float(np.percentile(valid_data, 98))
+    data_min = float(np.nanmin(valid_data))
+    data_max = float(np.nanmax(valid_data))
+    data_mean = float(np.nanmean(valid_data))
+
+    # Get ramp config for this variable
+    ramp_name, fixed_min, fixed_max = _VAR_RAMP.get(variable, ("thermal", None, None))
+    ramp = _COLOR_RAMPS.get(ramp_name, _COLOR_RAMPS["thermal"])
+
+    # Determine scale endpoints: use fixed if specified, else percentile-based
+    scale_min = fixed_min if fixed_min is not None else data_p2
+    scale_max = fixed_max if fixed_max is not None else data_p98
+    # Ensure some spread
+    if scale_max - scale_min < 0.01:
+        scale_max = scale_min + 1.0
+
+    stops = _build_color_stops(ramp, scale_min, scale_max)
 
     # Vectorized color mapping
     rgba_bytes = _colorize_array(data_sub, stops)
     png_bytes = _make_png(width_px, height_px, rgba_bytes)
     data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
+
+    # --- Debug value labels: sparse grid of text values for sanity check ---
+    debug_labels: list[dict] = []
+    label_step = max(1, min(height_px, width_px) // 8)  # ~8x8 grid of labels
+    for r in range(0, height_px, label_step):
+        for c in range(0, width_px, label_step):
+            val = float(data_sub[r, c]) if not np.isnan(data_sub[r, c]) else None
+            if val is None:
+                continue
+            if is_2d:
+                lat_v = float(lats_sub[r, c])
+                lon_v = float(lons_sub[r, c])
+            else:
+                lat_v = float(lats_1d[r]) if r < len(lats_1d) else None
+                lon_v = float(lons_1d[c]) if c < len(lons_1d) else None
+            if lat_v is not None and lon_v is not None:
+                debug_labels.append({
+                    "lat": round(lat_v, 2),
+                    "lon": round(lon_v, 2),
+                    "val": round(val, 3),
+                })
 
     # MapLibre image source coordinates: [[w,n],[e,n],[e,s],[w,s]]
     coordinates = [
@@ -460,6 +480,16 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     return {
         "image": data_uri,
         "coordinates": coordinates,
+        "data_range": {
+            "min": round(data_min, 4),
+            "max": round(data_max, 4),
+            "mean": round(data_mean, 4),
+            "p2": round(data_p2, 4),
+            "p98": round(data_p98, 4),
+            "scale_min": round(scale_min, 4),
+            "scale_max": round(scale_max, 4),
+        },
+        "debug_labels": debug_labels,
         "meta": {
             "model": model,
             "variable": variable,
