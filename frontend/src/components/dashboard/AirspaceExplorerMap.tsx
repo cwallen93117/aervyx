@@ -60,7 +60,7 @@ export default function AirspaceExplorerMap() {
   const [showSUA, setShowSUA] = useState(true);
   const [showTFRs, setShowTFRs] = useState(true);
 
-  // Data state
+  // Data state — accumulated across pan/zoom, never cleared
   const [airspaceData, setAirspaceData] = useState<GeoJSON.FeatureCollection | null>(null);
   const [tfrData, setTfrData] = useState<GeoJSON.FeatureCollection | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,43 +68,73 @@ export default function AirspaceExplorerMap() {
   const [featureCount, setFeatureCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
+  // Track which bounds have already been loaded so we don't re-fetch
+  const loadedBoundsRef = useRef<{ west: number; south: number; east: number; north: number } | null>(null);
+  // Accumulated feature map keyed by a stable ID to deduplicate
+  const featureMapRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
+
   // -------------------------------------------------------------------
-  // Fetch airspace for current viewport
+  // Fetch airspace for current viewport (accumulates, never replaces)
   // -------------------------------------------------------------------
 
   const fetchViewportAirspace = useCallback(async (map: maplibregl.Map) => {
-    abortRef.current?.abort();
-    const ctrl = new AbortController();
-    abortRef.current = ctrl;
-
     const b = map.getBounds();
-    const bounds = {
+    const viewBounds = {
       west: b.getWest(),
       south: b.getSouth(),
       east: b.getEast(),
       north: b.getNorth(),
     };
 
+    // Skip if current viewport is fully inside already-loaded bounds
+    const lb = loadedBoundsRef.current;
+    if (lb && viewBounds.west >= lb.west && viewBounds.south >= lb.south &&
+        viewBounds.east <= lb.east && viewBounds.north <= lb.north) {
+      return;
+    }
+
+    abortRef.current?.abort();
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
+
     setLoading(true);
     setError(null);
 
     try {
       const [classData, suaData] = await Promise.all([
-        fetchClassAirspace(bounds, ctrl.signal),
-        fetchSpecialUseAirspace(bounds, ctrl.signal),
+        fetchClassAirspace(viewBounds, ctrl.signal),
+        fetchSpecialUseAirspace(viewBounds, ctrl.signal),
       ]);
 
       if (ctrl.signal.aborted) return;
 
+      // Merge new features into the accumulated map (deduplicate by name+category+bounds key)
+      for (const f of [...classData.features, ...suaData.features]) {
+        const p = f.properties as { name: string; category: string; lowerVal: number | null; upperVal: number | null };
+        const key = `${p.category}:${p.name}:${p.lowerVal}:${p.upperVal}:${hashGeometry(f.geometry)}`;
+        featureMapRef.current.set(key, f);
+      }
+
+      // Expand loaded bounds to cover both old and new areas
+      if (lb) {
+        loadedBoundsRef.current = {
+          west: Math.min(lb.west, viewBounds.west),
+          south: Math.min(lb.south, viewBounds.south),
+          east: Math.max(lb.east, viewBounds.east),
+          north: Math.max(lb.north, viewBounds.north),
+        };
+      } else {
+        loadedBoundsRef.current = { ...viewBounds };
+      }
+
       const merged: GeoJSON.FeatureCollection = {
         type: "FeatureCollection",
-        features: [...classData.features, ...suaData.features],
+        features: Array.from(featureMapRef.current.values()),
       };
 
       setAirspaceData(merged);
       setFeatureCount(merged.features.length);
 
-      // Update map source
       const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
       if (src) {
         src.setData(merged);
@@ -507,4 +537,18 @@ function buildColorMatch(prop: string): maplibregl.ExpressionSpecification {
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ["match", ["get", prop], ...entries, "#94a3b8"] as any;
+}
+
+/** Fast stable hash of geometry coordinates for deduplication */
+function hashGeometry(geom: GeoJSON.Geometry): string {
+  // Use first and last coordinate + type as a cheap fingerprint
+  const coords = geom.type === "Polygon"
+    ? geom.coordinates[0]
+    : geom.type === "MultiPolygon"
+      ? geom.coordinates[0]?.[0] ?? []
+      : [];
+  if (coords.length === 0) return "empty";
+  const first = coords[0];
+  const last = coords[coords.length - 1];
+  return `${coords.length}:${first[0].toFixed(4)},${first[1].toFixed(4)}:${last[0].toFixed(4)},${last[1].toFixed(4)}`;
 }
