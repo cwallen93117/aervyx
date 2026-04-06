@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/driver_service.dart';
+import 'driver_navigation_screen.dart';
 
 /// Home screen for driver-profile users.
 ///
@@ -94,6 +95,22 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ),
         ],
       ),
+      floatingActionButton: driver.pilotsAwaitingPickup > 0 && driver.connected
+          ? FloatingActionButton.extended(
+              icon: const Icon(Icons.route),
+              label: Text('Route (${driver.pilotsAwaitingPickup})'),
+              onPressed: () {
+                final taskId = driver.taskId;
+                if (taskId != null) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => DriverNavigationScreen(taskId: taskId),
+                    ),
+                  );
+                }
+              },
+            )
+          : null,
       body: driver.error != null && pilots.isEmpty
           ? Center(
               child: Padding(
@@ -209,9 +226,22 @@ class _DriverPilotMarker extends StatelessWidget {
 
   const _DriverPilotMarker({required this.pilot, required this.isSelected});
 
+  Color get _statusColor {
+    switch (pilot.status) {
+      case 'ready':
+        return Colors.green;
+      case 'landed':
+        return Colors.orange;
+      case 'picked_up':
+        return Colors.blue;
+      default: // flying
+        return pilot.assigned ? Colors.blue : Colors.grey;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final color = pilot.assigned ? Colors.blue : Colors.grey;
+    final color = _statusColor;
     final borderColor = isSelected ? Colors.orange : color;
 
     return Column(
@@ -314,6 +344,9 @@ class _DriverPilotCard extends StatelessWidget {
                     const SizedBox(height: 2),
                     Row(
                       children: [
+                        // Status badge
+                        _PilotStatusBadge(pilot: pilot),
+                        const SizedBox(width: 8),
                         if (pilot.alt != null) ...[
                           Text(
                             '${pilot.alt!.toStringAsFixed(0)} m',
@@ -343,7 +376,7 @@ class _DriverPilotCard extends StatelessWidget {
                   ],
                 ),
               ),
-              // Navigate button
+              // Navigate button (single pilot Google Maps fallback)
               FilledButton.icon(
                 icon: const Icon(Icons.navigation, size: 18),
                 label: const Text('Navigate'),
@@ -356,6 +389,58 @@ class _DriverPilotCard extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Pilot status badge (flying / landed / ready / picked up)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _PilotStatusBadge extends StatelessWidget {
+  final DriverPilot pilot;
+
+  const _PilotStatusBadge({required this.pilot});
+
+  @override
+  Widget build(BuildContext context) {
+    Color color;
+    String label;
+
+    switch (pilot.status) {
+      case 'landed':
+        color = Colors.orange;
+        final mins = pilot.minutesUntilReady;
+        label = mins > 0 ? 'Landed (${mins}m)' : 'Ready';
+        break;
+      case 'ready':
+        color = Colors.green;
+        label = 'Ready';
+        break;
+      case 'picked_up':
+        color = Colors.blue;
+        label = 'Picked up';
+        break;
+      default:
+        color = Colors.grey;
+        label = 'Flying';
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: color.withAlpha(30),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withAlpha(80)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10,
+          fontWeight: FontWeight.w600,
+          color: color,
         ),
       ),
     );

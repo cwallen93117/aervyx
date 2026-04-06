@@ -47,4 +47,22 @@ class ApiConfig {
   // Driver — assigned pilot list for a task
   static String driverAssignedPilotsPath(int taskId) =>
       '/api/driver/assigned-pilots/$taskId';
+
+  // Driver routing — optimized multi-stop pickup route
+  static String driverRoutePath(int taskId) => '/api/driver/route/$taskId';
+
+  // Driver position reporting
+  static const String driverPositionPath = '/api/driver/position';
+
+  // Driver landings — all pilot landings for a task
+  static String driverLandingsPath(int taskId) =>
+      '/api/driver/landings/$taskId';
+
+  // Driver pickup — mark pilot as picked up
+  static String driverPickupPath(int landingId) =>
+      '/api/driver/pickup/$landingId';
+
+  // Driver cancel pickup
+  static String driverCancelPickupPath(int landingId) =>
+      '/api/driver/cancel-pickup/$landingId';
 }

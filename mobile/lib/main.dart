@@ -8,6 +8,7 @@ import 'services/background_service.dart';
 import 'services/ble_service.dart';
 import 'services/igc_service.dart';
 import 'services/driver_service.dart';
+import 'services/routing_service.dart';
 import 'services/tracking_service.dart';
 
 void main() async {
@@ -45,6 +46,9 @@ void main() async {
         ),
         ChangeNotifierProvider<DriverService>(
           create: (_) => DriverService(apiService),
+        ),
+        ChangeNotifierProvider<RoutingService>(
+          create: (_) => RoutingService(apiService),
         ),
       ],
       child: const AervyxApp(),

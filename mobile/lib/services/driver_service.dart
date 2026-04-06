@@ -19,6 +19,12 @@ class DriverPilot {
   final bool assigned; // true if this pilot is assigned to this driver
   DateTime lastSeen;
 
+  // Landing/pickup status
+  String status; // flying | landed | ready | picked_up
+  DateTime? landedAt;
+  DateTime? readyAt;
+  int? landingId;
+
   DriverPilot({
     required this.pilotId,
     required this.name,
@@ -29,8 +35,25 @@ class DriverPilot {
     this.aircraftIcon,
     this.compNumber,
     this.assigned = false,
+    this.status = 'flying',
+    this.landedAt,
+    this.readyAt,
+    this.landingId,
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
+
+  /// Minutes until pilot is ready for pickup.
+  int get minutesUntilReady {
+    if (readyAt == null) return 0;
+    final diff = readyAt!.difference(DateTime.now().toUtc()).inMinutes;
+    return diff > 0 ? diff : 0;
+  }
+
+  bool get isReady =>
+      readyAt != null && DateTime.now().toUtc().isAfter(readyAt!);
+
+  /// True if this pilot has landed and needs pickup.
+  bool get needsPickup => status == 'landed' || status == 'ready';
 }
 
 /// Service for drivers to view and navigate to assigned pilots.
@@ -47,6 +70,7 @@ class DriverService extends ChangeNotifier {
 
   Map<int, DriverPilot> get pilots => Map.unmodifiable(_pilots);
   String? get taskName => _taskName;
+  int? get taskId => _taskId;
   String? get error => _error;
   bool get connected => _connected;
   bool get showAllPilots => _showAllPilots;
@@ -163,6 +187,10 @@ class DriverService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Number of pilots awaiting pickup (landed or ready).
+  int get pilotsAwaitingPickup =>
+      _pilots.values.where((p) => p.needsPickup).length;
+
   void _processEvent(String? event, String data) {
     try {
       if (event == 'snapshot') {
@@ -176,8 +204,38 @@ class DriverService extends ChangeNotifier {
       } else if (event == 'position') {
         final json = jsonDecode(data) as Map<String, dynamic>;
         final pilot = _parsePilot(json);
+        // Preserve landing status from existing pilot data
+        final existing = _pilots[pilot.pilotId];
+        if (existing != null && existing.needsPickup) {
+          pilot.status = existing.status;
+          pilot.landedAt = existing.landedAt;
+          pilot.readyAt = existing.readyAt;
+          pilot.landingId = existing.landingId;
+        }
         _pilots[pilot.pilotId] = pilot;
         notifyListeners();
+      } else if (event == 'landing') {
+        final json = jsonDecode(data) as Map<String, dynamic>;
+        final pilotId = json['pilot_id'] as int;
+        final pilot = _pilots[pilotId];
+        if (pilot != null) {
+          pilot.status = 'landed';
+          pilot.landedAt = DateTime.parse(json['landed_at'] as String);
+          pilot.readyAt = DateTime.parse(json['ready_at'] as String);
+          pilot.landingId = json['landing_id'] as int?;
+          notifyListeners();
+        }
+      } else if (event == 'landing_cancelled') {
+        final json = jsonDecode(data) as Map<String, dynamic>;
+        final pilotId = json['pilot_id'] as int;
+        final pilot = _pilots[pilotId];
+        if (pilot != null) {
+          pilot.status = 'flying';
+          pilot.landedAt = null;
+          pilot.readyAt = null;
+          pilot.landingId = null;
+          notifyListeners();
+        }
       }
     } catch (_) {
       // Malformed SSE data — skip

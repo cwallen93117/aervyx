@@ -263,6 +263,26 @@ def store_position(
             _publish_to_pilot_subscribers(pilot_id, message)
         _publish_global(message)
 
+    # Server-side landing detection
+    if pilot_id is not None and task_id is not None:
+        try:
+            from app.services.routing.landing_detector import check_landing
+
+            landing_event = check_landing(
+                session,
+                task_id=task_id,
+                pilot_id=pilot_id,
+                lat=pos.lat,
+                lon=pos.lon,
+                alt=pos.alt,
+                speed=pos.speed,
+                timestamp=ts,
+            )
+            if landing_event is not None and task_id in _subscribers:
+                _publish(task_id, landing_event)
+        except Exception:
+            logging.getLogger(__name__).debug("Landing detection error", exc_info=True)
+
     return pos
 
 

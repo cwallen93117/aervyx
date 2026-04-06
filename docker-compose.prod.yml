@@ -18,6 +18,20 @@ services:
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
 
+  valhalla:
+    image: ghcr.io/gis-ops/docker-valhalla/valhalla:latest
+    restart: unless-stopped
+    environment:
+      tile_urls: ${VALHALLA_TILE_URL:-https://download.geofabrik.de/europe/alps-latest.osm.pbf}
+      use_tiles_ignore_pbf: "False"
+      build_elevation: "True"
+      build_admins: "True"
+      build_time_zones: "True"
+      serve_tiles: "True"
+      force_rebuild: "False"
+    volumes:
+      - valhalla_tiles:/custom_files
+
   backend:
     build:
       context: ./backend
@@ -25,6 +39,7 @@ services:
     depends_on:
       - db
       - mosquitto
+      - valhalla
     env_file:
       - ./backend/.env.production
     environment:
@@ -70,3 +85,4 @@ volumes:
   backend_apks:
   mosquitto_data:
   mosquitto_log:
+  valhalla_tiles:
