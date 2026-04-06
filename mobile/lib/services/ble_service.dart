@@ -1026,13 +1026,8 @@ class BleService extends ChangeNotifier {
         downlinkEnabled: true,
       ));
 
-      // Bluetooth config — MUST be last before commit so that profiles which
-      // disable BLE (repeater, driver-wifi) don't kill the connection before
-      // all other config writes have been sent to the device.
-      if (!config.bluetoothEnabled) {
-        _statusMessage = 'Finalizing (BLE will be disabled on reboot)...';
-        notifyListeners();
-      }
+      // Bluetooth config — kept last before commit as defense-in-depth.
+      // All profiles now keep BLE on so the device remains reachable.
       await _writeAdmin(buildSetBluetoothConfig(
         enabled: config.bluetoothEnabled,
       ));
@@ -1061,20 +1056,8 @@ class BleService extends ChangeNotifier {
 
       _statusMessage = '${profile.label} profile applied. Device rebooting...';
     } catch (e) {
-      // If the error happens during or after commit, the device is rebooting
-      // and the BLE disconnect is expected — not an error.
-      final msg = e.toString().toLowerCase();
-      final isDisconnect = msg.contains('disconnect') ||
-          msg.contains('not connected') ||
-          msg.contains('closed') ||
-          msg.contains('gatt');
-      if (isDisconnect) {
-        _statusMessage =
-            '${profile.label} profile applied. Device rebooted (BLE disconnected).';
-      } else {
-        _error = 'Profile apply failed: $e';
-        _statusMessage = null;
-      }
+      _error = 'Profile apply failed: $e';
+      _statusMessage = null;
     }
 
     _isPushingConfig = false;

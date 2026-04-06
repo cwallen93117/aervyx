@@ -314,7 +314,7 @@ class ProfileConfig {
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
-      bluetoothEnabled: false,
+      bluetoothEnabled: true, // Keep BLE on so device can be reconfigured
       wifiEnabled: true,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 60,
@@ -331,7 +331,7 @@ class ProfileConfig {
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
-      bluetoothEnabled: false,
+      bluetoothEnabled: true, // Keep BLE on so device can be reconfigured
       wifiEnabled: true,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 0, // screen off
