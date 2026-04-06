@@ -24,14 +24,34 @@ GRID_TTL = 900  # 15 min
 # Model configuration
 # ---------------------------------------------------------------------------
 MODEL_CONFIG: dict[str, dict[str, Any]] = {
-    "hrrr": {
-        "label": "HRRR",
+    "gfs": {
+        "label": "GFS",
+        "resolution": "25km",
+        "coverage": "Global",
+        "herbie_model": "gfs",
+        "default_product": "pgrb2.0p25",
+        "run_hours": [0, 6, 12, 18],
+        "max_fxx": 120,
+        "fxx_step": 3,
+    },
+    "nam3km": {
+        "label": "NAM 3km",
         "resolution": "3km",
         "coverage": "CONUS",
-        "herbie_model": "hrrr",
-        "default_product": "sfc",
-        "run_hours": list(range(24)),
-        "max_fxx": 18,
+        "herbie_model": "nam",
+        "default_product": "conusnest.hiresf",
+        "run_hours": [0, 6, 12, 18],
+        "max_fxx": 60,
+        "fxx_step": 1,
+    },
+    "nam": {
+        "label": "NAM",
+        "resolution": "12km",
+        "coverage": "N. America",
+        "herbie_model": "nam",
+        "default_product": None,
+        "run_hours": [0, 6, 12, 18],
+        "max_fxx": 60,
         "fxx_step": 1,
     },
     "rap": {
@@ -44,24 +64,14 @@ MODEL_CONFIG: dict[str, dict[str, Any]] = {
         "max_fxx": 21,
         "fxx_step": 1,
     },
-    "gfs": {
-        "label": "GFS",
-        "resolution": "25km",
-        "coverage": "Global",
-        "herbie_model": "gfs",
-        "default_product": "pgrb2.0p25",
-        "run_hours": [0, 6, 12, 18],
-        "max_fxx": 120,
-        "fxx_step": 3,
-    },
-    "nam": {
-        "label": "NAM",
-        "resolution": "12km",
-        "coverage": "N. America",
-        "herbie_model": "nam",
-        "default_product": None,
-        "run_hours": [0, 6, 12, 18],
-        "max_fxx": 60,
+    "hrrr": {
+        "label": "HRRR",
+        "resolution": "3km",
+        "coverage": "CONUS",
+        "herbie_model": "hrrr",
+        "default_product": "sfc",
+        "run_hours": list(range(24)),
+        "max_fxx": 18,
         "fxx_step": 1,
     },
     "nbm": {
@@ -198,19 +208,21 @@ VARIABLES: dict[str, dict[str, Any]] = {
 
 # Subsample step per model to keep GeoJSON ~2000-5000 points
 SUBSAMPLE: dict[str, int] = {
-    "hrrr": 20,
-    "rap": 8,
     "gfs": 10,
+    "nam3km": 20,
     "nam": 12,
+    "rap": 8,
+    "hrrr": 20,
     "nbm": 15,
 }
 
 # Finer subsample steps for raster image (more pixels = better quality)
 RASTER_SUBSAMPLE: dict[str, int] = {
-    "hrrr": 8,
-    "rap": 4,
     "gfs": 3,
+    "nam3km": 8,
     "nam": 5,
+    "rap": 4,
+    "hrrr": 8,
     "nbm": 6,
 }
 

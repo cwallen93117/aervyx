@@ -31,20 +31,21 @@ function resolveApiBase(): string {
 /* ------------------------------------------------------------------ */
 /* Model + overlay definitions                                         */
 /* ------------------------------------------------------------------ */
-const MODEL_IDS = ["hrrr", "rap", "gfs", "nam", "nbm"] as const;
+const MODEL_IDS = ["gfs", "nam3km", "nam", "rap", "hrrr", "nbm"] as const;
 type ModelId = (typeof MODEL_IDS)[number];
 
 const MODEL_LABELS: Record<ModelId, { label: string; sub: string }> = {
-  hrrr: { label: "HRRR", sub: "3km \u00b7 CONUS" },
-  rap:  { label: "RAP",  sub: "13km \u00b7 N. America" },
-  gfs:  { label: "GFS",  sub: "25km \u00b7 Global" },
-  nam:  { label: "NAM",  sub: "12km \u00b7 N. America" },
-  nbm:  { label: "NBM",  sub: "2.5km \u00b7 CONUS" },
+  gfs:    { label: "GFS",     sub: "25km \u00b7 Global" },
+  nam3km: { label: "NAM 3km", sub: "3km \u00b7 CONUS" },
+  nam:    { label: "NAM",     sub: "12km \u00b7 N. America" },
+  rap:    { label: "RAP",     sub: "13km \u00b7 N. America" },
+  hrrr:   { label: "HRRR",    sub: "3km \u00b7 CONUS" },
+  nbm:    { label: "NBM",     sub: "2.5km \u00b7 CONUS" },
 };
 
 /* Open-Meteo model IDs for sounding (pressure-level point forecast) */
 const SOUNDING_MODEL: Record<ModelId, string | null> = {
-  hrrr: "hrrr", rap: null, gfs: "gfs_seamless", nam: "nam_conus", nbm: null,
+  gfs: "gfs_seamless", nam3km: "nam_conus", nam: "nam_conus", rap: null, hrrr: "hrrr", nbm: null,
 };
 const SOUNDING_PRESSURES = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
 
