@@ -106,14 +106,17 @@ VARIABLES: dict[str, dict[str, Any]] = {
     "vertical_velocity_700hPa": {
         "search": ":VVEL:700 mb:",
         "product_overrides": {"hrrr": "prs"},
+        "exclude_models": ["nbm"],
     },
     "convective_cloud_top": {
         "search": ":HGT:cloud top:",
         "product_overrides": {"hrrr": "prs"},
+        "exclude_models": ["nbm"],
     },
     "convective_cloud_base": {
         "search": ":HGT:cloud base:",
         "product_overrides": {"hrrr": "prs"},
+        "exclude_models": ["nbm"],
     },
     "wind_speed_10m": {
         "search": ":UGRD:10 m above ground:",
@@ -126,18 +129,21 @@ VARIABLES: dict[str, dict[str, Any]] = {
         "search_v": ":VGRD:850 mb:",
         "is_wind_speed": True,
         "product_overrides": {"hrrr": "prs"},
+        "exclude_models": ["nbm"],
     },
     "wind_speed_700hPa": {
         "search": ":UGRD:700 mb:",
         "search_v": ":VGRD:700 mb:",
         "is_wind_speed": True,
         "product_overrides": {"hrrr": "prs"},
+        "exclude_models": ["nbm"],
     },
     "wind_speed_500hPa": {
         "search": ":UGRD:500 mb:",
         "search_v": ":VGRD:500 mb:",
         "is_wind_speed": True,
         "product_overrides": {"hrrr": "prs"},
+        "exclude_models": ["nbm"],
     },
 }
 
@@ -407,6 +413,18 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         lats_1d = lats[lat_idx]
         lons_1d = lons[lon_idx]
         data_sub = arr[np.ix_(lat_idx, lon_idx)] if arr.ndim == 2 else arr[lat_idx]
+
+        # Clip global grids (e.g. GFS) to CONUS bounds to avoid MapLibre
+        # projection errors with full-globe coordinates
+        CONUS_LAT = (20.0, 55.0)
+        CONUS_LON = (-130.0, -60.0)
+        if float(lats_1d.min()) < CONUS_LAT[0] or float(lats_1d.max()) > CONUS_LAT[1]:
+            lat_mask = (lats_1d >= CONUS_LAT[0]) & (lats_1d <= CONUS_LAT[1])
+            lon_mask = (lons_1d >= CONUS_LON[0]) & (lons_1d <= CONUS_LON[1])
+            lats_1d = lats_1d[lat_mask]
+            lons_1d = lons_1d[lon_mask]
+            data_sub = data_sub[np.ix_(np.where(lat_mask)[0], np.where(lon_mask)[0])]
+
         height_px = len(lats_1d)
         width_px = len(lons_1d)
 
@@ -679,6 +697,8 @@ async def weather_grid(
         raise HTTPException(400, f"Unknown model: {model}")
     if variable not in VARIABLES:
         raise HTTPException(400, f"Unknown variable: {variable}")
+    if model in VARIABLES[variable].get("exclude_models", []):
+        raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     cache_key = f"{model}:{date}:{hour}:{fh}:{variable}"
     now = time.time()
@@ -732,6 +752,8 @@ async def weather_raster(
         raise HTTPException(400, f"Unknown model: {model}")
     if variable not in VARIABLES:
         raise HTTPException(400, f"Unknown variable: {variable}")
+    if model in VARIABLES[variable].get("exclude_models", []):
+        raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     cache_key = f"raster:{model}:{date}:{hour}:{fh}:{variable}"
     now = time.time()
@@ -766,7 +788,11 @@ async def weather_variables():
     """List available overlay variables."""
     return JSONResponse({
         "variables": [
-            {"id": k, "is_wind_speed": v.get("is_wind_speed", False)}
+            {
+                "id": k,
+                "is_wind_speed": v.get("is_wind_speed", False),
+                "exclude_models": v.get("exclude_models", []),
+            }
             for k, v in VARIABLES.items()
         ]
     })

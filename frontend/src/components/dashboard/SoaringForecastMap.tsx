@@ -65,20 +65,21 @@ type OverlayDef = {
   legendMaxVal: number;
   gradient: string;
   colors: [string, string, string, string];
+  excludeModels?: string[];
 };
 
 const OVERLAYS: OverlayDef[] = [
-  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "vertical_velocity_700hPa", legendMinVal: 0,   legendMaxVal: 5,    gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)", colors: ["#3b82f6","#22c55e","#eab308","#ef4444"] },
+  { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "vertical_velocity_700hPa", legendMinVal: 0,   legendMaxVal: 5,    gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)", colors: ["#3b82f6","#22c55e","#eab308","#ef4444"], excludeModels: ["nbm"] },
   { id: "cape",                  label: "CAPE",                    unit: "J/kg", unitType: "jkg",      group: "Thermal / Lift",  variable: "cape",                     legendMinVal: 0,   legendMaxVal: 2000, gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)", colors: ["#3b82f6","#22c55e","#eab308","#ef4444"] },
-  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 7000, gradient: "linear-gradient(to right,#9ca3af,#22c55e,#60a5fa,#a78bfa,#ec4899)", colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"] },
+  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 7000, gradient: "linear-gradient(to right,#9ca3af,#22c55e,#60a5fa,#a78bfa,#ec4899)", colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"], excludeModels: ["nbm"] },
   { id: "boundary_layer_height", label: "Boundary Layer Height",   unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "boundary_layer_height",    legendMinVal: 0,   legendMaxVal: 5000, gradient: "linear-gradient(to right,#9ca3af,#22c55e,#60a5fa,#a78bfa,#ec4899)", colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"] },
   { id: "lifted_index",          label: "Lifted Index",            unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "lifted_index",             legendMinVal: -8,  legendMaxVal: 4,    gradient: "linear-gradient(to right,#ef4444,#f97316,#22c55e,#3b82f6)", colors: ["#ef4444","#f97316","#22c55e","#3b82f6"] },
   { id: "cloud_cover",           label: "Cloud Cover",             unit: "%",    unitType: "percent",  group: "Cloud / Weather", variable: "cloud_cover",              legendMinVal: 0,   legendMaxVal: 100,  gradient: "linear-gradient(to right,#f8fafc,#94a3b8,#1e293b,#0f172a)", colors: ["#f8fafc","#94a3b8","#1e293b","#0f172a"] },
   { id: "precipitation",         label: "Precipitation",           unit: "mm",   unitType: "mm",       group: "Cloud / Weather", variable: "precipitation",            legendMinVal: 0,   legendMaxVal: 20,   gradient: "linear-gradient(to right,#f8fafc,#3b82f6,#7c3aed,#7c3aed)", colors: ["#f8fafc","#3b82f6","#7c3aed","#7c3aed"] },
   { id: "wind_surface",          label: "Surface Wind",            unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_10m",           legendMinVal: 0,   legendMaxVal: 60,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"] },
-  { id: "wind_850",              label: "Wind ~1500m (850hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_850hPa",        legendMinVal: 0,   legendMaxVal: 60,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"] },
-  { id: "wind_700",              label: "Wind ~3000m (700hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_700hPa",        legendMinVal: 0,   legendMaxVal: 80,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"] },
-  { id: "wind_500",              label: "Wind ~5500m (500hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_500hPa",        legendMinVal: 0,   legendMaxVal: 100,  gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"] },
+  { id: "wind_850",              label: "Wind ~1500m (850hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_850hPa",        legendMinVal: 0,   legendMaxVal: 60,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"], excludeModels: ["nbm"] },
+  { id: "wind_700",              label: "Wind ~3000m (700hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_700hPa",        legendMinVal: 0,   legendMaxVal: 80,   gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"], excludeModels: ["nbm"] },
+  { id: "wind_500",              label: "Wind ~5500m (500hPa)",    unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_500hPa",        legendMinVal: 0,   legendMaxVal: 100,  gradient: "linear-gradient(to right,#22c55e,#eab308,#ef4444,#ef4444)", colors: ["#22c55e","#eab308","#ef4444","#ef4444"], excludeModels: ["nbm"] },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -540,7 +541,15 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             {MODEL_IDS.map((id) => (
               <button key={id}
                 className={[styles.pill, id === activeModel ? styles.pillActive : ""].join(" ")}
-                onClick={() => setActiveModel(id)}
+                onClick={() => {
+                  setActiveModel(id);
+                  // If current overlay is excluded for the new model, switch to first available
+                  const curOv = OVERLAYS.find(o => o.id === activeOverlay);
+                  if (curOv?.excludeModels?.includes(id)) {
+                    const fallback = OVERLAYS.find(o => !o.excludeModels?.includes(id));
+                    if (fallback) setActiveOverlay(fallback.id);
+                  }
+                }}
               >
                 {MODEL_LABELS[id].label}<span className={styles.pillSub}>{MODEL_LABELS[id].sub}</span>
               </button>
@@ -580,15 +589,19 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           {groups.map(group => (
             <div key={group}>
               <p className={styles.groupHeader}>{group}</p>
-              {OVERLAYS.filter(o => o.group === group).map(ov => (
+              {OVERLAYS.filter(o => o.group === group).map(ov => {
+                const excluded = ov.excludeModels?.includes(activeModel) ?? false;
+                return (
                 <div key={ov.id}
                   className={[styles.overlayRow, ov.id === activeOverlay ? styles.overlayRowActive : ""].join(" ")}
-                  onClick={() => setActiveOverlay(ov.id)}
+                  onClick={() => { if (!excluded) setActiveOverlay(ov.id); }}
+                  style={excluded ? { opacity: 0.35, pointerEvents: "none" } : undefined}
                 >
                   <span>{ov.label}</span>
                   <span className={styles.overlayUnit}>{displayUnit(ov, units)}</span>
                 </div>
-              ))}
+                );
+              })}
             </div>
           ))}
         </div>
