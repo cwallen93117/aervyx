@@ -60,10 +60,12 @@ export default function AirspaceExplorerMap() {
   const [visibleCategories, setVisibleCategories] = useState<Set<AirspaceCategory>>(
     () => new Set(ALL_CATEGORIES),
   );
-  const [showClassAirspace, setShowClassAirspace] = useState(true);
-  const [showSUA, setShowSUA] = useState(true);
-  const [showTFRs, setShowTFRs] = useState(true);
   const [is3D, setIs3D] = useState(false);
+
+  // Derived "show all" states
+  const allClassVisible = CLASS_CATEGORIES.every((c) => visibleCategories.has(c));
+  const allSUAVisible = SUA_CATEGORIES.every((c) => visibleCategories.has(c));
+  const anyTFRVisible = visibleCategories.has("TFR");
 
   // Data state — accumulated across pan/zoom, never cleared
   const [airspaceData, setAirspaceData] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -405,8 +407,8 @@ export default function AirspaceExplorerMap() {
     if (!map || !map.isStyleLoaded()) return;
 
     // Build a filter for the airspace source based on visible categories
-    const classVisible = showClassAirspace ? CLASS_CATEGORIES.filter((c) => visibleCategories.has(c)) : [];
-    const suaVisible = showSUA ? SUA_CATEGORIES.filter((c) => visibleCategories.has(c)) : [];
+    const classVisible = CLASS_CATEGORIES.filter((c) => visibleCategories.has(c));
+    const suaVisible = SUA_CATEGORIES.filter((c) => visibleCategories.has(c));
     const allVisible = [...classVisible, ...suaVisible];
 
     const airspaceFilter: maplibregl.FilterSpecification = allVisible.length === 0
@@ -419,8 +421,8 @@ export default function AirspaceExplorerMap() {
     map.setFilter(LYR_AIRSPACE_LINE, airspaceFilter);
     map.setFilter(LYR_AIRSPACE_LABEL, airspaceFilter);
 
-    // TFR visibility — respect both master toggle and 3D layer swapping
-    const tfrVisible = showTFRs && visibleCategories.has("TFR");
+    // TFR visibility
+    const tfrVisible = visibleCategories.has("TFR");
     if (is3D) {
       map.setLayoutProperty(LYR_TFR_FILL, "visibility", "none");
       map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", tfrVisible ? "visible" : "none");
@@ -430,7 +432,7 @@ export default function AirspaceExplorerMap() {
     }
     map.setLayoutProperty(LYR_TFR_LINE, "visibility", tfrVisible ? "visible" : "none");
     map.setLayoutProperty(LYR_TFR_LABEL, "visibility", tfrVisible ? "visible" : "none");
-  }, [visibleCategories, showClassAirspace, showSUA, showTFRs, is3D]);
+  }, [visibleCategories, is3D]);
 
   // -------------------------------------------------------------------
   // Popup helper
@@ -480,6 +482,17 @@ export default function AirspaceExplorerMap() {
     });
   }
 
+  function toggleGroup(cats: AirspaceCategory[], allOn: boolean) {
+    setVisibleCategories((prev) => {
+      const next = new Set(prev);
+      for (const c of cats) {
+        if (allOn) next.delete(c);
+        else next.add(c);
+      }
+      return next;
+    });
+  }
+
   // -------------------------------------------------------------------
   // Export handler
   // -------------------------------------------------------------------
@@ -487,7 +500,7 @@ export default function AirspaceExplorerMap() {
   function handleExport() {
     const allFeatures = [
       ...(airspaceData?.features ?? []),
-      ...(showTFRs ? tfrData?.features ?? [] : []),
+      ...(visibleCategories.has("TFR") ? tfrData?.features ?? [] : []),
     ].filter((f) => {
       const cat = (f.properties as { category: AirspaceCategory }).category;
       return visibleCategories.has(cat);
@@ -510,16 +523,15 @@ export default function AirspaceExplorerMap() {
         <div className={styles.section}>
           <div className={styles.sectionLabel}>Controlled Airspace</div>
           <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
-            <input type="checkbox" checked={showClassAirspace} onChange={() => setShowClassAirspace((v) => !v)} />
+            <input type="checkbox" checked={allClassVisible} onChange={() => toggleGroup(CLASS_CATEGORIES, allClassVisible)} />
             Show All
           </label>
           {CLASS_CATEGORIES.map((cat) => (
             <label key={cat} className={styles.categoryRow}>
               <input
                 type="checkbox"
-                checked={visibleCategories.has(cat) && showClassAirspace}
+                checked={visibleCategories.has(cat)}
                 onChange={() => toggleCategory(cat)}
-                disabled={!showClassAirspace}
               />
               <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
               {CATEGORY_LABELS[cat]}
@@ -531,16 +543,15 @@ export default function AirspaceExplorerMap() {
         <div className={styles.section}>
           <div className={styles.sectionLabel}>Special Use Airspace</div>
           <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
-            <input type="checkbox" checked={showSUA} onChange={() => setShowSUA((v) => !v)} />
+            <input type="checkbox" checked={allSUAVisible} onChange={() => toggleGroup(SUA_CATEGORIES, allSUAVisible)} />
             Show All
           </label>
           {SUA_CATEGORIES.map((cat) => (
             <label key={cat} className={styles.categoryRow}>
               <input
                 type="checkbox"
-                checked={visibleCategories.has(cat) && showSUA}
+                checked={visibleCategories.has(cat)}
                 onChange={() => toggleCategory(cat)}
-                disabled={!showSUA}
               />
               <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
               {CATEGORY_LABELS[cat]}
@@ -552,7 +563,7 @@ export default function AirspaceExplorerMap() {
         <div className={styles.section}>
           <div className={styles.sectionLabel}>Temporary Flight Restrictions</div>
           <label className={styles.categoryRow}>
-            <input type="checkbox" checked={showTFRs} onChange={() => setShowTFRs((v) => !v)} />
+            <input type="checkbox" checked={anyTFRVisible} onChange={() => toggleCategory("TFR")} />
             <span className={styles.swatch} style={{ background: CATEGORY_COLORS.TFR }} />
             Active TFRs
           </label>
@@ -588,13 +599,7 @@ export default function AirspaceExplorerMap() {
         {/* Legend — floating overlay on map, bottom-right */}
         <div className={styles.legend}>
           <div className={styles.legendTitle}>Legend</div>
-          {ALL_CATEGORIES.filter((c) => {
-            if (!visibleCategories.has(c)) return false;
-            if (CLASS_CATEGORIES.includes(c) && !showClassAirspace) return false;
-            if (SUA_CATEGORIES.includes(c) && !showSUA) return false;
-            if (TFR_CATEGORIES.includes(c) && !showTFRs) return false;
-            return true;
-          }).map((cat) => (
+          {ALL_CATEGORIES.filter((c) => visibleCategories.has(c)).map((cat) => (
             <div key={cat} className={styles.legendItem}>
               <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
               {CATEGORY_LABELS[cat]}
