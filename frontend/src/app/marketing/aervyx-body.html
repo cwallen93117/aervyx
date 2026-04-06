@@ -20,9 +20,12 @@
   </a>
   <ul class="nav-links">
     <li><a href="#features">Features</a></li>
+    <li><a href="#airspace">Airspace</a></li>
+    <li><a href="#forecast">Forecast</a></li>
     <li><a href="#logbook">Logbook</a></li>
-    <li><a href="#tracking">Intelligent Tracking</a></li>
-    <li><a href="#scoring">Task Planning &amp; Scoring</a></li>
+    <li><a href="#tracking">Tracking</a></li>
+    <li><a href="#scoring">Scoring</a></li>
+    <li><a href="#mobile">Mobile</a></li>
     <li><a href="#opensource">Open Source</a></li>
   </ul>
   <div class="nav-right">
@@ -50,7 +53,7 @@
   <div class="hero-content">
     <div class="hero-pill"><span class="pdot"></span>Public beta · Live cellular + mesh tracking · Open source</div>
     <h1>Software<span class="h1-accent">built for the air.</span></h1>
-    <p class="hero-sub">Aervyx is the <strong>open-source competition platform, logbook, and live tracker</strong> for hang gliding and paragliding — cellular and Meshtastic mesh coverage, automatic GAP scoring, smart driver routing, and real-time spectator views. Fully managed in the cloud. Free to self-host.</p>
+    <p class="hero-sub">Aervyx is the <strong>open-source competition platform, logbook, and live tracker</strong> for hang gliding and paragliding — soaring forecasts, live airspace overlays, cellular and Meshtastic mesh coverage, automatic GAP scoring, smart driver routing, and real-time spectator views. Fully managed in the cloud. Free to self-host.</p>
     <div class="hero-actions">
 <a href="/login" class="btn-primary">Log in / Create account <span>→</span></a>
       <a href="https://github.com/cwallen93117/aervyx" class="btn-ghost">
@@ -67,8 +70,8 @@
 
 <!-- TICKER -->
 <div class="ticker"><div class="ticker-inner">
-  <span>Live GPS tracking</span><span>Cellular + Meshtastic mesh</span><span>Auto GAP scoring</span><span>Driver routing</span><span>Spectator live view</span><span>Apache 2.0 open source</span><span>IGC evidence chain</span><span>SHA-256 integrity</span><span>Task builder</span><span>Pilot portal</span><span>Real-time leaderboard</span><span>Flutter mobile app</span>
-  <span>Live GPS tracking</span><span>Cellular + Meshtastic mesh</span><span>Auto GAP scoring</span><span>Driver routing</span><span>Spectator live view</span><span>Apache 2.0 open source</span><span>IGC evidence chain</span><span>SHA-256 integrity</span><span>Task builder</span><span>Pilot portal</span><span>Real-time leaderboard</span><span>Flutter mobile app</span>
+  <span>Live GPS tracking</span><span>Cellular + Meshtastic mesh</span><span>Auto GAP scoring</span><span>Driver routing</span><span>Spectator live view</span><span>Apache 2.0 open source</span><span>IGC evidence chain</span><span>SHA-256 integrity</span><span>Task builder</span><span>Pilot portal</span><span>Real-time leaderboard</span><span>Flutter mobile app</span><span>Soaring forecast</span><span>FAA airspace overlays</span><span>NOTAMs &amp; TFRs</span><span>OpenAir export</span><span>Auto-upload on landing</span><span>Turnpoint libraries</span><span>Public results</span><span>Multi-event FTV</span>
+  <span>Live GPS tracking</span><span>Cellular + Meshtastic mesh</span><span>Auto GAP scoring</span><span>Driver routing</span><span>Spectator live view</span><span>Apache 2.0 open source</span><span>IGC evidence chain</span><span>SHA-256 integrity</span><span>Task builder</span><span>Pilot portal</span><span>Real-time leaderboard</span><span>Flutter mobile app</span><span>Soaring forecast</span><span>FAA airspace overlays</span><span>NOTAMs &amp; TFRs</span><span>OpenAir export</span><span>Auto-upload on landing</span><span>Turnpoint libraries</span><span>Public results</span><span>Multi-event FTV</span>
 </div></div>
 
 <!-- SHOWCASE -->
@@ -142,6 +145,7 @@
             <text x="134" y="370" font-size="6" fill="#ff6b35" font-family="JetBrains Mono,monospace">DRIVER</text>
           </svg>
           <div class="online-chip"><span style="width:6px;height:6px;border-radius:50%;background:var(--green);display:inline-block"></span>14 / 14 online</div>
+          <div class="weather-chip">HRRR 3km</div>
           <div class="map-legend">
             <div class="ml-row"><span class="ml-dot" style="background:#fbbf24"></span>Leading pilot</div>
             <div class="ml-row"><span class="ml-dot" style="background:#00e5ff"></span>Task route</div>
@@ -163,6 +167,7 @@
             <div class="sc-tab active">Rankings</div>
             <div class="sc-tab">Signal</div>
             <div class="sc-tab">Driver</div>
+            <div class="sc-tab">Wx</div>
           </div>
           <div class="sc-list">
             <div class="pr"><div class="pr-pos p1">1</div><div style="flex:1;min-width:0"><div class="pr-name">M. Kovačević</div><div class="pr-nat">CRO · #23 · 41.2km</div></div><div><div class="pr-score">897</div><div class="pr-dist">pts</div></div><div class="sig s4g">4G</div></div>
@@ -193,15 +198,181 @@
       <div class="cap" style="--cg:rgba(0,230,118,.06)"><div class="cap-n">01</div><span class="cap-ico">📡</span><h3>Live Tracking</h3><p>Pilot positions updated every few seconds via 4G/LTE cellular or Meshtastic LoRa mesh. Track competition tasks or free-flight buddy groups — one unified view.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.06)"><div class="cap-n">02</div><span class="cap-ico">🏅</span><h3>Auto Scoring</h3><p>GAP-aligned scoring runs automatically as pilots land. Live provisional rankings update in real time throughout the task.</p><span class="cap-badge cb-auto">Automatic</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.06)"><div class="cap-n">03</div><span class="cap-ico">🚗</span><h3>Driver Routing</h3><p>Optimal retrieve routes calculated from live pilot positions — adapts every 30 seconds as pilots move toward their LZ.</p><span class="cap-badge cb-smart">Smart</span></div>
-      <div class="cap" style="--cg:rgba(167,139,250,.06)"><div class="cap-n">04</div><span class="cap-ico">🗺️</span><h3>Task Builder</h3><p>Draw tasks on an interactive map. Upload turnpoint libraries in CUP, DAT, or GeoJSON. Set cylinder radii and publish.</p><span class="cap-badge cb-core">Core</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.06)"><div class="cap-n">04</div><span class="cap-ico">🗺️</span><h3>Task Builder</h3><p>Draw Race to Goal, Elapsed Time, or Open Distance tasks on an interactive map. Import CUP/DAT turnpoint libraries, set cylinder radii, configure start gates, and publish with one click — with live airspace overlays to keep the route clear.</p><span class="cap-badge cb-core">Core</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.05)"><div class="cap-n">05</div><span class="cap-ico">📁</span><h3>IGC Evidence</h3><p>Every IGC file is SHA-256 fingerprinted on upload and stored immutably. Full audit trail for all scoring actions.</p><span class="cap-badge cb-auto">Tamper-proof</span></div>
       <div class="cap" style="--cg:rgba(0,230,118,.05)"><div class="cap-n">06</div><span class="cap-ico">🌐</span><h3>Spectator View</h3><p>Public live-tracking links for spectators and media. No account needed — share a URL and watch the task.</p><span class="cap-badge cb-live">Public</span></div>
-      <div class="cap" style="--cg:rgba(255,107,53,.05)"><div class="cap-n">07</div><span class="cap-ico">👥</span><h3>Event & Pilot Management</h3><p>Multi-day events, CIVL pilot rosters with comp numbers, and auto-generated portal credentials.</p><span class="cap-badge cb-core">Core</span></div>
-      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. Live position streaming, driver mode with retrieve routing, and Meshtastic device configuration over Bluetooth.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(255,107,53,.05)"><div class="cap-n">07</div><span class="cap-ico">👥</span><h3>Event &amp; Pilot Management</h3><p>Multi-day events with CIVL pilot rosters, comp numbers, and CSV bulk import. Pilots self-claim via portal credentials. Multiple email addresses per pilot, federation ID linking, and auto-generated login credentials on import.</p><span class="cap-badge cb-core">Core</span></div>
+      <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">📱</span><h3>Mobile App</h3><p>Flutter app for iOS and Android. Automatic flight detection triggers on GPS velocity + altitude, auto-uploads IGC on landing, and scoring begins immediately. Driver mode provides Valhalla turn-by-turn retrieve routing with live pilot positions.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">🔄</span><h3>3D Flight Replay</h3><p>Replay any flight over 3D terrain with turnpoint cylinders, altitude profiles, speed overlays, and full scrub control.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">📓</span><h3>Pilot Logbook</h3><p>Personal flight logbook with bulk IGC upload, automatic site matching, climb stats, flight duration, and 3D replay for every track.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.04)"><div class="cap-n">11</div><span class="cap-ico">👥</span><h3>Buddy Groups</h3><p>Create groups of pilots to follow in real time — free-flight tracking without a competition context. See friends on the map wherever they fly.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(167,139,250,.04)"><div class="cap-n">12</div><span class="cap-ico">📊</span><h3>Flight Statistics</h3><p>Altitude, ground speed, best climb rate, total distance, and time-in-thermals vs glide breakdown — derived automatically from every IGC track.</p><span class="cap-badge cb-auto">Automatic</span></div>
+      <div class="cap" style="--cg:rgba(0,229,255,.06)"><div class="cap-n">13</div><span class="cap-ico">🛡️</span><h3>FAA Airspace</h3><p>Live Class B, C, and D airspace boundaries auto-loaded from ArcGIS feature services. Special Use Airspace, prohibited zones, and MOAs displayed with altitude limits. One-click OpenAir export for GPS devices.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(255,107,53,.06)"><div class="cap-n">14</div><span class="cap-ico">⚠️</span><h3>NOTAMs</h3><p>Automated NOTAM fetch for the task area and active TFR monitoring refreshed every 5 minutes. Critical airspace changes surfaced before launch — directly on the task map.</p><span class="cap-badge cb-soon">Coming Soon</span></div>
+      <div class="cap" style="--cg:rgba(251,191,36,.06)"><div class="cap-n">15</div><span class="cap-ico">🌤️</span><h3>Soaring Forecast</h3><p>HRRR 3km, GFS 25km, ICON 11km, and NAM 3km overlays on the task map. Thermal potential, boundary layer height, cloudbase, and wind-at-altitude layers. Powered by Open-Meteo.</p><span class="cap-badge" style="background:rgba(251,191,36,.1);color:var(--gold)">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.06)"><div class="cap-n">16</div><span class="cap-ico">🌍</span><h3>Public Results</h3><p>Shareable per-event results portal — no login required. Live provisional scores update throughout the task. Directors confirm official results and the public link stays live permanently.</p><span class="cap-badge cb-live">Public</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- AIRSPACE & NOTAMs -->
+<section class="section dark-section" id="airspace">
+  <div class="inner">
+    <div class="eyebrow">Airspace intelligence</div>
+    <h2 class="section-title">See the sky before you fly.</h2>
+    <p class="section-body">Live FAA airspace overlays and NOTAMs on every map — with one-click export to your GPS.</p>
+    <div class="airspace-wrap reveal">
+      <div class="airspace-map">
+        <svg viewBox="0 0 480 360" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <radialGradient id="ag1" cx="40%" cy="65%" r="50%"><stop offset="0%" stop-color="#1a3d1a" stop-opacity=".9"/><stop offset="100%" stop-color="#0d200e" stop-opacity="0"/></radialGradient>
+            <pattern id="hazard" patternUnits="userSpaceOnUse" width="10" height="10" patternTransform="rotate(45)">
+              <rect width="5" height="10" fill="rgba(255,59,48,0.18)"/>
+            </pattern>
+          </defs>
+          <rect width="480" height="360" fill="#0a1510"/>
+          <ellipse cx="200" cy="240" rx="200" ry="130" fill="url(#ag1)"/>
+          <!-- Grid -->
+          <line x1="0" y1="120" x2="480" y2="120" stroke="#162816" stroke-width=".5"/>
+          <line x1="0" y1="240" x2="480" y2="240" stroke="#162816" stroke-width=".5"/>
+          <line x1="160" y1="0" x2="160" y2="360" stroke="#162816" stroke-width=".5"/>
+          <line x1="320" y1="0" x2="320" y2="360" stroke="#162816" stroke-width=".5"/>
+          <!-- Class B outer ring -->
+          <circle cx="240" cy="180" r="130" fill="rgba(0,100,255,0.06)" stroke="rgba(30,144,255,0.5)" stroke-width="1.5"/>
+          <!-- Class B inner ring -->
+          <circle cx="240" cy="180" r="85" fill="rgba(0,80,200,0.07)" stroke="rgba(30,144,255,0.65)" stroke-width="1.5"/>
+          <!-- Class C -->
+          <circle cx="240" cy="180" r="55" fill="rgba(200,0,180,0.05)" stroke="rgba(200,100,255,0.55)" stroke-width="1.2"/>
+          <!-- Class D dashed -->
+          <circle cx="240" cy="180" r="30" fill="rgba(30,100,255,0.04)" stroke="rgba(100,180,255,0.5)" stroke-width="1" stroke-dasharray="5,4"/>
+          <!-- TFR polygon -->
+          <polygon points="340,80 390,110 380,160 330,170 310,130" fill="url(#hazard)" stroke="#ff3b30" stroke-width="1.5" opacity=".85"/>
+          <text x="340" y="128" font-size="7.5" fill="#ff3b30" font-family="JetBrains Mono,monospace" font-weight="700" text-anchor="middle">TFR</text>
+          <!-- Task route threading between zones -->
+          <polyline points="60,290 130,240 185,210 250,150 290,108 350,75" fill="none" stroke="#00e5ff" stroke-width="1.8" stroke-dasharray="8,5" opacity=".65"/>
+          <!-- Launch / goal markers -->
+          <circle cx="60" cy="290" r="5" fill="#ff6b35"/>
+          <text x="70" y="292" font-size="7" fill="#ff6b35" font-family="JetBrains Mono,monospace" font-weight="600">LAUNCH</text>
+          <circle cx="350" cy="75" r="5" fill="#00e676"/>
+          <text x="360" y="77" font-size="7" fill="#00e676" font-family="JetBrains Mono,monospace" font-weight="600">GOAL</text>
+          <!-- Airspace labels -->
+          <text x="240" y="82" font-size="7.5" fill="rgba(30,144,255,0.7)" font-family="JetBrains Mono,monospace" text-anchor="middle">Class B</text>
+          <text x="240" y="130" font-size="7" fill="rgba(200,100,255,0.7)" font-family="JetBrains Mono,monospace" text-anchor="middle">Class C</text>
+          <text x="240" y="160" font-size="6.5" fill="rgba(100,180,255,0.65)" font-family="JetBrains Mono,monospace" text-anchor="middle">Class D</text>
+          <!-- Overlay chip -->
+          <rect x="10" y="10" width="148" height="22" rx="5" fill="rgba(6,9,15,0.88)" stroke="rgba(30,144,255,0.4)" stroke-width="1"/>
+          <text x="18" y="25" font-size="7.5" fill="rgba(30,144,255,0.85)" font-family="JetBrains Mono,monospace" font-weight="600">FAA Class B · SFC–10,000ft</text>
+        </svg>
+        <div class="as-toggles">
+          <label class="as-toggle active"><input type="checkbox" checked disabled/><span class="as-tb as-tb-b">B</span> Class B/C/D</label>
+          <label class="as-toggle"><input type="checkbox" disabled/><span class="as-tb as-tb-s">SU</span> Special Use</label>
+          <label class="as-toggle active"><input type="checkbox" checked disabled/><span class="as-tb as-tb-t">TFR</span> TFRs</label>
+          <label class="as-toggle"><input type="checkbox" disabled/><span class="as-tb as-tb-n">N</span> NOTAMs</label>
+        </div>
+      </div>
+      <div class="as-cards">
+        <div class="as-card">
+          <h4>Live FAA Data</h4>
+          <p>Class B, C, and D airspace boundaries auto-loaded from ArcGIS feature services, refreshed on pan/zoom. No API key needed.</p>
+        </div>
+        <div class="as-card">
+          <h4>Special Use Airspace</h4>
+          <p>Prohibited, Restricted, MOA, Warning, and Alert zones with altitude limits displayed directly on the task map.</p>
+        </div>
+        <div class="as-card">
+          <h4>TFR Monitoring</h4>
+          <p>National Defense Airspace TFR areas refresh every 5 minutes. Active TFRs shown in red with effective dates and altitude blocks.</p>
+        </div>
+        <div class="as-card">
+          <h4>NOTAMs on the Map <span class="coming-soon">Coming Soon</span></h4>
+          <p>Automated NOTAM fetch for task area and flight path. Critical airspace changes surfaced before launch — without leaving the app.</p>
+        </div>
+        <div class="as-card">
+          <h4>Export to OpenAir</h4>
+          <p>One-click export of visible airspace to <code>.txt</code> OpenAir format for flight computers and GPS devices.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SOARING FORECAST -->
+<section class="section" id="forecast">
+  <div class="inner">
+    <div class="eyebrow ey-gold">Soaring forecast</div>
+    <h2 class="section-title">Weather intelligence on<br/>the task map.</h2>
+    <p class="section-body">Four weather models, thermal overlays, and wind-at-altitude layers — all without leaving your browser.</p>
+    <div class="forecast-wrap reveal">
+      <div class="forecast-map">
+        <svg viewBox="0 0 480 320" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <radialGradient id="fg1" cx="38%" cy="62%" r="48%"><stop offset="0%" stop-color="#1a3d1a" stop-opacity=".85"/><stop offset="100%" stop-color="#0d200e" stop-opacity="0"/></radialGradient>
+            <radialGradient id="th1" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ff6b35" stop-opacity=".28"/><stop offset="100%" stop-color="#ff6b35" stop-opacity="0"/></radialGradient>
+            <radialGradient id="th2" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fbbf24" stop-opacity=".22"/><stop offset="100%" stop-color="#fbbf24" stop-opacity="0"/></radialGradient>
+            <radialGradient id="th3" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ff6b35" stop-opacity=".2"/><stop offset="100%" stop-color="#ff6b35" stop-opacity="0"/></radialGradient>
+          </defs>
+          <rect width="480" height="320" fill="#0a1510"/>
+          <ellipse cx="200" cy="210" rx="200" ry="120" fill="url(#fg1)"/>
+          <!-- Grid -->
+          <line x1="0" y1="107" x2="480" y2="107" stroke="#162816" stroke-width=".5"/>
+          <line x1="0" y1="214" x2="480" y2="214" stroke="#162816" stroke-width=".5"/>
+          <line x1="160" y1="0" x2="160" y2="320" stroke="#162816" stroke-width=".5"/>
+          <line x1="320" y1="0" x2="320" y2="320" stroke="#162816" stroke-width=".5"/>
+          <!-- Thermal blobs -->
+          <ellipse cx="150" cy="200" rx="60" ry="45" fill="url(#th1)"/>
+          <ellipse cx="280" cy="140" rx="50" ry="38" fill="url(#th2)"/>
+          <ellipse cx="390" cy="200" rx="45" ry="35" fill="url(#th3)"/>
+          <!-- Thermal labels -->
+          <text x="150" y="198" font-size="7" fill="#ff6b35" font-family="JetBrains Mono,monospace" font-weight="600" text-anchor="middle">+4.2 m/s</text>
+          <text x="280" y="138" font-size="7" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-weight="600" text-anchor="middle">+3.7 m/s</text>
+          <text x="390" y="198" font-size="7" fill="#ff6b35" font-family="JetBrains Mono,monospace" font-weight="600" text-anchor="middle">+3.1 m/s</text>
+          <!-- Wind barbs at multiple positions -->
+          <line x1="80" y1="100" x2="110" y2="100" stroke="rgba(251,191,36,0.6)" stroke-width="1.5"/>
+          <line x1="110" y1="100" x2="104" y2="93" stroke="rgba(251,191,36,0.6)" stroke-width="1.2"/>
+          <line x1="110" y1="100" x2="104" y2="107" stroke="rgba(251,191,36,0.6)" stroke-width="1.2"/>
+          <line x1="200" y1="80" x2="230" y2="80" stroke="rgba(251,191,36,0.6)" stroke-width="1.5"/>
+          <line x1="230" y1="80" x2="224" y2="73" stroke="rgba(251,191,36,0.6)" stroke-width="1.2"/>
+          <line x1="230" y1="80" x2="224" y2="87" stroke="rgba(251,191,36,0.6)" stroke-width="1.2"/>
+          <line x1="330" y1="90" x2="360" y2="90" stroke="rgba(251,191,36,0.6)" stroke-width="1.5"/>
+          <line x1="360" y1="90" x2="354" y2="83" stroke="rgba(251,191,36,0.6)" stroke-width="1.2"/>
+          <line x1="360" y1="90" x2="354" y2="97" stroke="rgba(251,191,36,0.6)" stroke-width="1.2"/>
+          <line x1="80" y1="250" x2="110" y2="250" stroke="rgba(251,191,36,0.5)" stroke-width="1.5"/>
+          <line x1="110" y1="250" x2="104" y2="243" stroke="rgba(251,191,36,0.5)" stroke-width="1.2"/>
+          <line x1="400" y1="260" x2="430" y2="260" stroke="rgba(251,191,36,0.5)" stroke-width="1.5"/>
+          <line x1="430" y1="260" x2="424" y2="253" stroke="rgba(251,191,36,0.5)" stroke-width="1.2"/>
+          <!-- Task route -->
+          <polyline points="60,270 130,220 185,175 250,120 300,95 360,70" fill="none" stroke="#00e5ff" stroke-width="1.8" stroke-dasharray="8,5" opacity=".65"/>
+          <circle cx="60" cy="270" r="5" fill="#ff6b35"/>
+          <circle cx="360" cy="70" r="5" fill="#00e676"/>
+          <!-- Model chip -->
+          <rect x="10" y="10" width="135" height="22" rx="5" fill="rgba(6,9,15,0.9)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/>
+          <text x="18" y="25" font-size="7.5" fill="rgba(251,191,36,0.9)" font-family="JetBrains Mono,monospace" font-weight="600">HRRR 3km / 14:00Z</text>
+        </svg>
+        <div class="forecast-models">
+          <button class="fm-btn fm-active">HRRR</button>
+          <button class="fm-btn">GFS</button>
+          <button class="fm-btn">ICON</button>
+          <button class="fm-btn">NAM</button>
+        </div>
+      </div>
+      <div class="fc-cards">
+        <div class="fc-card">
+          <h4>Four Weather Models</h4>
+          <p>HRRR 3km CONUS, GFS 25km global, ICON 11km Europe, and NAM 3km. Switch models in one click to cross-reference forecasts.</p>
+        </div>
+        <div class="fc-card">
+          <h4>Thermal Forecast Overlay</h4>
+          <p>Convective potential, boundary layer height, and estimated cloudbase rendered as a colour-coded overlay directly on the task map.</p>
+        </div>
+        <div class="fc-card">
+          <h4>Wind at Altitude</h4>
+          <p>Configurable altitude layers show wind speed and direction. Identify ridge lift alignment and cross-wind legs before task set.</p>
+        </div>
+        <div class="fc-card">
+          <h4>Powered by Open-Meteo</h4>
+          <p>Free and open-source weather data via Open-Meteo API. No API keys, no subscription costs, no rate limits for competition use.</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -278,6 +449,86 @@
           <span class="lf-ico">⭐</span>
           <h3>Star &amp; Organise</h3>
           <p>Star your best flights, add notes, select by year, and bulk-delete old records. Your logbook, your way — with per-year selection and full export support.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- MOBILE APP & AUTO-FLIGHT -->
+<section class="section dark-section" id="mobile">
+  <div class="inner">
+    <div class="eyebrow ey-orange">Mobile app</div>
+    <h2 class="section-title">Your flight deck in<br/>your pocket.</h2>
+    <p class="section-body">Auto-flight detection, IGC upload on landing, and driver navigation — all in one Flutter app.</p>
+    <div style="display:flex;flex-direction:column;align-items:center;gap:3rem" class="reveal">
+      <div class="phone-mock">
+        <div class="phone-screen">
+          <svg viewBox="0 0 220 400" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="pmg1" cx="40%" cy="60%" r="50%"><stop offset="0%" stop-color="#1a3d1a" stop-opacity=".9"/><stop offset="100%" stop-color="#0d200e" stop-opacity="0"/></radialGradient>
+            </defs>
+            <!-- Phone screen background -->
+            <rect width="220" height="400" fill="#091510"/>
+            <!-- Status bar -->
+            <rect width="220" height="24" fill="rgba(6,9,15,0.95)"/>
+            <text x="12" y="16" font-size="8" fill="rgba(255,255,255,0.6)" font-family="JetBrains Mono,monospace">9:41</text>
+            <text x="175" y="16" font-size="8" fill="rgba(255,255,255,0.6)" font-family="JetBrains Mono,monospace">4G ■</text>
+            <!-- Map content -->
+            <ellipse cx="90" cy="230" rx="100" ry="80" fill="url(#pmg1)"/>
+            <line x1="0" y1="165" x2="220" y2="165" stroke="#162816" stroke-width=".4"/>
+            <line x1="0" y1="270" x2="220" y2="270" stroke="#162816" stroke-width=".4"/>
+            <line x1="73" y1="24" x2="73" y2="370" stroke="#162816" stroke-width=".4"/>
+            <line x1="147" y1="24" x2="147" y2="370" stroke="#162816" stroke-width=".4"/>
+            <!-- Flight track -->
+            <polyline points="30,320 65,275 100,230 135,185 170,140 200,108" fill="none" stroke="#00e5ff" stroke-width="1.5" opacity=".7"/>
+            <!-- Pilot position -->
+            <circle cx="200" cy="108" r="7" fill="#fbbf24" opacity=".9"/>
+            <circle cx="200" cy="108" r="12" fill="none" stroke="#fbbf24" stroke-width="1" opacity=".38" stroke-dasharray="3,2"/>
+            <text x="170" y="104" font-size="6.5" fill="#fbbf24" font-family="JetBrains Mono,monospace">#23</text>
+            <!-- Recording chip -->
+            <rect x="14" y="34" width="142" height="20" rx="5" fill="rgba(0,230,118,0.12)" stroke="rgba(0,230,118,0.32)" stroke-width="1"/>
+            <circle cx="23" cy="44" r="3.5" fill="#00e676"/>
+            <text x="30" y="48" font-size="7.5" fill="#00e676" font-family="JetBrains Mono,monospace" font-weight="600">Recording flight… 47:22</text>
+            <!-- Bottom nav -->
+            <rect x="0" y="370" width="220" height="30" fill="rgba(6,9,15,0.96)"/>
+            <text x="20" y="389" font-size="8" fill="rgba(0,229,255,0.9)" font-family="Barlow,sans-serif" font-weight="600">Map</text>
+            <text x="72" y="389" font-size="8" fill="rgba(255,255,255,0.45)" font-family="Barlow,sans-serif">Flights</text>
+            <text x="120" y="389" font-size="8" fill="rgba(255,255,255,0.45)" font-family="Barlow,sans-serif">Driver</text>
+            <text x="168" y="389" font-size="8" fill="rgba(255,255,255,0.45)" font-family="Barlow,sans-serif">Settings</text>
+          </svg>
+        </div>
+      </div>
+      <div class="mobile-grid">
+        <div class="mob-card">
+          <span class="mob-ico">✈️</span>
+          <h4>Auto Flight Detection</h4>
+          <p>GPS velocity and altitude changes trigger recording automatically. No manual start needed — just launch and fly.</p>
+        </div>
+        <div class="mob-card">
+          <span class="mob-ico">📤</span>
+          <h4>Auto-Upload on Landing</h4>
+          <p>IGC file generated and uploaded the moment you land. Scoring begins automatically without pilot action.</p>
+        </div>
+        <div class="mob-card">
+          <span class="mob-ico">📡</span>
+          <h4>Live Position Streaming</h4>
+          <p>Cellular GPS broadcast to cloud for director and spectators. Stays live throughout the entire flight.</p>
+        </div>
+        <div class="mob-card">
+          <span class="mob-ico">🚗</span>
+          <h4>Driver Navigation</h4>
+          <p>Valhalla turn-by-turn routing with multi-stop optimization. Retrieves multiple pilots in the most efficient order.</p>
+        </div>
+        <div class="mob-card">
+          <span class="mob-ico">🔗</span>
+          <h4>Meshtastic BLE Setup</h4>
+          <p>Pair LoRa devices and configure channels over Bluetooth directly from the app. No extra software required.</p>
+        </div>
+        <div class="mob-card">
+          <span class="mob-ico">📶</span>
+          <h4>Offline-Ready</h4>
+          <p>Continues tracking without connectivity. Syncs flight data and positions automatically when signal is restored.</p>
         </div>
       </div>
     </div>
@@ -427,12 +678,156 @@
   </div>
 </section>
 
+<!-- DRIVER & RETRIEVE -->
+<section class="section" id="driver">
+  <div class="inner">
+    <div class="eyebrow ey-orange">Driver routing</div>
+    <h2 class="section-title">Retrieve teams that<br/>know where to go.</h2>
+    <p class="section-body">Valhalla multi-stop optimization routes drivers to every landed pilot — recalculated every 30 seconds as positions update.</p>
+    <div class="driver-wrap reveal">
+      <div class="driver-map">
+        <svg viewBox="0 0 480 400" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid slice">
+          <rect width="480" height="400" fill="#0d1a0d"/>
+          <!-- Road grid -->
+          <line x1="0" y1="200" x2="480" y2="200" stroke="#1e2a1e" stroke-width="4"/>
+          <line x1="0" y1="300" x2="480" y2="300" stroke="#1e2a1e" stroke-width="4"/>
+          <line x1="160" y1="0" x2="160" y2="400" stroke="#1e2a1e" stroke-width="4"/>
+          <line x1="320" y1="0" x2="320" y2="400" stroke="#1e2a1e" stroke-width="4"/>
+          <!-- Road center lines -->
+          <line x1="0" y1="200" x2="480" y2="200" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="15,12"/>
+          <line x1="160" y1="0" x2="160" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="15,12"/>
+          <line x1="320" y1="0" x2="320" y2="400" stroke="rgba(255,255,255,0.06)" stroke-width="1" stroke-dasharray="15,12"/>
+          <!-- Terrain contour hints -->
+          <path d="M0,350 Q120,310 240,290 Q360,270 480,250" fill="none" stroke="#1a3a1a" stroke-width=".7" opacity=".5"/>
+          <path d="M0,310 Q130,268 260,243 Q380,220 480,200" fill="none" stroke="#1a3a1a" stroke-width=".6" opacity=".35"/>
+          <!-- Driver route (orange dashed) -->
+          <polyline points="80,320 160,300 240,200 320,140 380,100" fill="none" stroke="#ff6b35" stroke-width="2" stroke-dasharray="10,6" opacity=".85"/>
+          <!-- Driver vehicle -->
+          <rect x="68" y="308" width="20" height="14" rx="3" fill="#ff6b35" opacity=".95"/>
+          <text x="55" y="340" font-size="7" fill="#ff6b35" font-family="JetBrains Mono,monospace" font-weight="700">DRIVER</text>
+          <!-- Pilot landing markers -->
+          <circle cx="240" cy="200" r="12" fill="rgba(251,191,36,0.12)" stroke="#fbbf24" stroke-width="1.5"/>
+          <circle cx="240" cy="200" r="5" fill="#fbbf24" opacity=".92"/>
+          <text x="255" y="196" font-size="8" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-weight="600">#23</text>
+          <text x="255" y="207" font-size="6.5" fill="rgba(255,255,255,0.45)" font-family="JetBrains Mono,monospace">landed</text>
+          <circle cx="320" cy="140" r="11" fill="rgba(148,163,184,0.12)" stroke="#94a3b8" stroke-width="1.5"/>
+          <circle cx="320" cy="140" r="5" fill="#94a3b8" opacity=".88"/>
+          <text x="335" y="136" font-size="8" fill="#94a3b8" font-family="JetBrains Mono,monospace" font-weight="600">#07</text>
+          <text x="335" y="147" font-size="6.5" fill="rgba(255,255,255,0.45)" font-family="JetBrains Mono,monospace">landed</text>
+          <circle cx="380" cy="100" r="11" fill="rgba(192,132,252,0.12)" stroke="#c084fc" stroke-width="1.5"/>
+          <circle cx="380" cy="100" r="5" fill="#c084fc" opacity=".9"/>
+          <text x="395" y="96" font-size="8" fill="#c084fc" font-family="JetBrains Mono,monospace" font-weight="600">#41</text>
+          <text x="395" y="107" font-size="6.5" fill="rgba(255,255,255,0.45)" font-family="JetBrains Mono,monospace">landed</text>
+          <!-- Time leg labels -->
+          <rect x="152" y="244" width="50" height="14" rx="3" fill="rgba(6,9,15,0.82)" stroke="rgba(255,107,53,0.3)" stroke-width="1"/>
+          <text x="158" y="254" font-size="7" fill="rgba(255,107,53,0.85)" font-family="JetBrains Mono,monospace">12 min</text>
+          <rect x="270" y="158" width="50" height="14" rx="3" fill="rgba(6,9,15,0.82)" stroke="rgba(255,107,53,0.3)" stroke-width="1"/>
+          <text x="276" y="168" font-size="7" fill="rgba(255,107,53,0.85)" font-family="JetBrains Mono,monospace">14 min</text>
+          <rect x="332" y="106" width="50" height="14" rx="3" fill="rgba(6,9,15,0.82)" stroke="rgba(255,107,53,0.3)" stroke-width="1"/>
+          <text x="338" y="116" font-size="7" fill="rgba(255,107,53,0.85)" font-family="JetBrains Mono,monospace">9 min</text>
+          <!-- Summary chip -->
+          <rect x="10" y="10" width="190" height="22" rx="5" fill="rgba(6,9,15,0.9)" stroke="rgba(255,107,53,0.35)" stroke-width="1"/>
+          <text x="18" y="25" font-size="7.5" fill="rgba(255,107,53,0.9)" font-family="JetBrains Mono,monospace" font-weight="600">3 pickups · 47 km · Est. 35 min</text>
+        </svg>
+      </div>
+      <div class="driver-info">
+        <div>
+          <div class="eyebrow ey-orange" style="margin-bottom:.42rem">How retrieve routing works</div>
+          <p style="font-size:.86rem;color:var(--muted);line-height:1.75">Landing detection triggers a pickup creation. The routing engine recalculates the optimal multi-stop route and pushes turn-by-turn directions to the driver's phone — all within 30 seconds of touchdown.</p>
+        </div>
+        <div class="rk"><div class="rk-lbl">Multi-stop optimization</div><div class="rk-val"><em>Valhalla</em> TSP</div><div class="rk-sub">Travelling salesman route across all active pickups</div></div>
+        <div class="rk"><div class="rk-lbl">Auto landing detection</div><div class="rk-val">&lt; <em>30</em> sec</div><div class="rk-sub">Pickup request created automatically on touchdown</div></div>
+        <div class="rk"><div class="rk-lbl">Turn-by-turn nav</div><div class="rk-val"><em>Mobile</em> app</div><div class="rk-sub">Live directions pushed to driver in the Aervyx mobile app</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ORGANIZER COMMAND CENTER -->
+<section class="section dark-section" id="organizer">
+  <div class="inner">
+    <div class="eyebrow ey-purple">Organizer tools</div>
+    <h2 class="section-title">Run competitions like<br/>a director should.</h2>
+    <p class="section-body">From pilot import to published results — every step of the competition workflow in one place.</p>
+    <div class="workflow-timeline reveal">
+      <div class="wf-step">
+        <div class="wf-dot">1</div>
+        <div class="wf-line"></div>
+        <div class="wf-label">Create Event</div>
+        <div class="wf-desc">Name, dates, location, scoring formula</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-dot">2</div>
+        <div class="wf-line"></div>
+        <div class="wf-label">Import Pilots</div>
+        <div class="wf-desc">CSV bulk, CIVL IDs, auto credentials</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-dot">3</div>
+        <div class="wf-line"></div>
+        <div class="wf-label">Airspace &amp; Turnpoints</div>
+        <div class="wf-desc">CUP/DAT libraries, OpenAir zones</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-dot">4</div>
+        <div class="wf-line"></div>
+        <div class="wf-label">Define Tasks</div>
+        <div class="wf-desc">RTG/ET/OD, start gates, publish</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-dot">5</div>
+        <div class="wf-line"></div>
+        <div class="wf-label">Score &amp; Review</div>
+        <div class="wf-desc">Provisional live, penalties, audit trail</div>
+      </div>
+      <div class="wf-step">
+        <div class="wf-dot">6</div>
+        <div class="wf-line"></div>
+        <div class="wf-label">Publish Results</div>
+        <div class="wf-desc">Public URL, shareable, no login needed</div>
+      </div>
+    </div>
+    <div class="org-grid reveal">
+      <div class="org-card">
+        <span class="org-ico">📋</span>
+        <h4>Event Templates</h4>
+        <p>Duplicate events to reuse scoring config, rosters, and task setups. GAP2021 and FTV presets for series management.</p>
+      </div>
+      <div class="org-card">
+        <span class="org-ico">📥</span>
+        <h4>Bulk Pilot Import</h4>
+        <p>CSV import with CIVL IDs, comp numbers, and auto-generated credentials. Pilots self-claim via the portal login link.</p>
+      </div>
+      <div class="org-card">
+        <span class="org-ico">🗺️</span>
+        <h4>Airspace &amp; Turnpoints</h4>
+        <p>OpenAir and GeoJSON airspace import. CUP and DAT turnpoint libraries. Overlay both on the task map at once.</p>
+      </div>
+      <div class="org-card">
+        <span class="org-ico">🏁</span>
+        <h4>Task Types &amp; Start Gates</h4>
+        <p>Race to Goal, Elapsed Time, Open Distance. Fixed and interval start gates. One-click publish to pilot portal.</p>
+      </div>
+      <div class="org-card">
+        <span class="org-ico">⚖️</span>
+        <h4>Penalties &amp; Day Quality</h4>
+        <p>Time, distance, and percentage penalties with audit trail. Day quality factors per task with full GAP day quality calculation.</p>
+      </div>
+      <div class="org-card">
+        <span class="org-ico">🌐</span>
+        <h4>Public Results Portal</h4>
+        <p>Shareable URL for live provisional and official results. No login required for spectators. Locked after official confirmation.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
 <!-- SCORING -->
 <section class="section" id="scoring">
   <div class="inner">
     <div class="eyebrow">Scoring engine</div>
     <h2 class="section-title">Results the moment<br/>pilots land.</h2>
-    <p class="section-body">Auto-scoring triggers as each track is received — live provisional results through the task, official results locked after the window closes.</p>
+    <p class="section-body">Auto-scoring triggers as each track is received — live provisional results through the task, official results locked after the window closes. Full GAP2021 compliance including FTV for series and FAI Cat 1 day quality.</p>
     <div class="scoring-wrap reveal">
       <div class="scoring-card">
         <div class="sc-hd"><div class="sc-hd-title">Task 3 — Live provisional</div><div class="sc-formula">GAP2021</div></div>
@@ -446,6 +841,9 @@
         <div class="score-pill sp-ct"><h4>GAP-aligned formulas</h4><p>Uses the GAP2021 formula family — the same model as FAI Cat 1 events. Configure nominal distance, time, launch, and minimum distance per task.</p></div>
         <div class="score-pill sp-gr"><h4>Provisional → Official</h4><p>Live provisional scores update as tracks arrive. Once the window closes, the director confirms official results — full audit log retained throughout.</p></div>
         <div class="score-pill sp-pu"><h4>SHA-256 evidence chain</h4><p>Every IGC upload is fingerprinted and stored immutably. Original files are never mutated — full traceability for protests and federation records.</p></div>
+        <div class="score-pill sp-gd"><h4>Fixed Total Validity (FTV)</h4><p>Pilots' best results up to a configured validity percentage count toward the series total. Protects against one bad day ruining a season — standard for multi-event series and FAI Cat 2 events.</p></div>
+        <div class="score-pill" style="background:rgba(0,229,255,.02);border-color:rgba(0,229,255,.1)"><h4>Multi-Day Events</h4><p>Per-task day quality, aggregate overall standings, and cross-day FTV calculations. Directors can score any subset of tasks and finalize day-by-day as the event progresses.</p></div>
+        <div class="score-pill sp-gr"><h4>Public Results Portal</h4><p>Shareable public URL for every event. Live provisional results visible throughout the task — no login required for spectators. Official results published after the director confirms.</p></div>
       </div>
     </div>
   </div>
@@ -593,6 +991,9 @@
         <li><a href="/login">Live tracking</a></li><li><a href="/login">Auto scoring</a></li>
         <li><a href="/login">Driver routing</a></li><li><a href="/login">Task builder</a></li>
         <li><a href="/login">Spectator view</a></li><li><a href="/login">Pilot portal</a></li>
+        <li><a href="#airspace">Airspace &amp; NOTAMs</a></li>
+        <li><a href="#forecast">Soaring forecast</a></li>
+        <li><a href="#mobile">Mobile app</a></li>
         <li><a href="/app">Android App</a></li>
       </ul>
     </div>
