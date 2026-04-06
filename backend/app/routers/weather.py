@@ -181,15 +181,15 @@ _raster_cache: dict[str, tuple[dict, float]] = {}
 # Ramp: position fraction (0-1) → (R, G, B, A)
 _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
     # thermal / updraft: light cyan→green→yellow-green→yellow→orange→red
-    # Matches XC Skies style — light/transparent at low, opaque at high
+    # Matches XC Skies style — visible even at low values
     "thermal": [
-        (0.0,  180, 230, 235, 50),   # very light cyan, nearly transparent
-        (0.08, 150, 220, 200, 100),  # light teal
-        (0.2,  110, 200, 130, 155),  # green
-        (0.35, 170, 215, 70,  185),  # yellow-green
-        (0.5,  210, 225, 45,  210),  # yellow
-        (0.7,  235, 175, 25,  225),  # orange
-        (1.0,  220, 45,  20,  240),  # red
+        (0.0,  180, 230, 235, 120),  # light cyan, visible
+        (0.08, 150, 220, 200, 155),  # light teal
+        (0.2,  110, 200, 130, 185),  # green
+        (0.35, 170, 215, 70,  205),  # yellow-green
+        (0.5,  210, 225, 45,  220),  # yellow
+        (0.7,  235, 175, 25,  235),  # orange
+        (1.0,  220, 45,  20,  245),  # red
     ],
     # instability: red(unstable)→orange→yellow→green→blue(stable)
     "instability": [
@@ -242,9 +242,10 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
 #   scale_max:  hard ceiling for color scale
 #   clamp_neg:  if True, clamp data values < 0 to 0 before color mapping
 _VAR_SCALE: dict[str, dict] = {
-    # Thermal strength: 0 to 1500 fpm (7.6 m/s)
+    # Thermal strength (700 hPa omega): 0 to ~300 fpm (1.5 m/s)
+    # GFS omega realistic range; strong days peak ~1.0-1.5 m/s
     "vertical_velocity_700hPa": {
-        "ramp": "thermal", "scale_min": 0.0, "scale_max": 7.6, "clamp_neg": True,
+        "ramp": "thermal", "scale_min": 0.0, "scale_max": 1.5, "clamp_neg": True,
     },
     # CAPE: 0 to 4000 J/kg
     "cape": {
