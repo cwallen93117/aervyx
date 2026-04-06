@@ -4,6 +4,7 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState, useCallback } from "react";
 import styles from "./SoaringForecastMap.module.css";
+import { SkewTDiagram, type SoundingLevel } from "./SkewTDiagram";
 
 type Units = { altitude: "ft" | "m"; vario: "fpm" | "ms" };
 
@@ -41,6 +42,23 @@ const MODEL_LABELS: Record<ModelId, { label: string; sub: string }> = {
   nam:  { label: "NAM",  sub: "3-12km · N. America" },
   nbm:  { label: "NBM",  sub: "2.5km · CONUS" },
 };
+
+/* Open-Meteo model IDs for sounding (pressure-level point forecast) */
+const SOUNDING_MODEL: Record<ModelId, string | null> = {
+  hrrr: "hrrr",
+  rap: null,
+  gfs: "gfs_seamless",
+  nam: "nam_conus",
+  nbm: null,
+};
+
+const SOUNDING_PRESSURES = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
+
+function dewpointFromRH(t: number, rh: number): number {
+  const a = 17.27, b = 237.7;
+  const alpha = (a * t) / (b + t) + Math.log(rh / 100);
+  return (b * alpha) / (a - alpha);
+}
 
 type OverlayDef = {
   id: string;
@@ -138,6 +156,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [opacity, setOpacity] = useState(70);
   const [gridLoading, setGridLoading] = useState(false);
   const [, setMapReady] = useState(0);
+
+  // Sounding / Skew-T state
+  const [soundingPoint, setSoundingPoint] = useState<{ lat: number; lon: number } | null>(null);
+  const [soundingLevels, setSoundingLevels] = useState<SoundingLevel[] | null>(null);
+  const [soundingLoading, setSoundingLoading] = useState(false);
+  const [soundingError, setSoundingError] = useState<string | null>(null);
 
   const validTimes = activeRun?.valid_times ?? [];
 
@@ -239,63 +263,77 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     };
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes]);
 
-  // Click handler — compare all models at a point
-  const handleMapClick = useCallback(async (e: maplibregl.MapMouseEvent) => {
-    const map = mapRef.current;
-    if (!map || !activeRun) return;
-    const { lat, lng } = e.lngLat;
-    const ov = OVERLAYS.find(o => o.id === activeOverlay);
-    if (!ov) return;
-
-    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "300px" })
-      .setLngLat([lng, lat])
-      .setHTML(`<div style="padding:6px;font-size:0.78rem;color:#64748b">Loading…</div>`)
-      .addTo(map);
-
-    // For the clicked point, show the value from the current overlay
-    const vt = validTimes[selectedTimeIdx];
-    if (!vt) return;
-
-    const runDt = new Date(`${activeRun.date.slice(0,4)}-${activeRun.date.slice(4,6)}-${activeRun.date.slice(6,8)}T${activeRun.hour}:00:00Z`);
-    const vtDt = new Date(vt);
-    const fh = Math.round((vtDt.getTime() - runDt.getTime()) / 3600000);
-
-    // Query each model for comparison
-    const api = resolveApiBase();
-    const results = await Promise.allSettled(
-      MODEL_IDS.map(async (mid) => {
-        // Use same time index — find closest run for this model
-        const resp = await fetch(`${api}/api/weather/available?model=${mid}`);
-        if (!resp.ok) throw new Error("unavailable");
-        const avail = await resp.json() as { runs: RunInfo[] };
-        const run = avail.runs[0]; // most recent
-        if (!run) throw new Error("no runs");
-        // Find forecast hour for closest valid time
-        const runDate = new Date(`${run.date.slice(0,4)}-${run.date.slice(4,6)}-${run.date.slice(6,8)}T${run.hour}:00:00Z`);
-        const targetFh = Math.round((vtDt.getTime() - runDate.getTime()) / 3600000);
-        if (targetFh < 0 || targetFh > run.max_fxx) throw new Error("out of range");
-        return { label: MODEL_LABELS[mid].label, model: mid, run, fh: targetFh };
-      })
-    );
-
-    const rows: string[] = [];
-    for (const r of results) {
-      if (r.status === "rejected") continue;
-      const { label } = r.value;
-      // Just show the model name — full grid comparison is expensive
-      // Instead show what data is available
-      rows.push(`<tr><td style="padding:3px 8px 3px 0;color:#64748b;font-size:0.78rem">${label}</td><td style="font-weight:600;font-size:0.78rem">Available</td></tr>`);
+  // Fetch sounding data from Open-Meteo when point or model changes
+  const fetchSounding = useCallback((lat: number, lon: number) => {
+    const omModel = SOUNDING_MODEL[activeModel];
+    if (!omModel) {
+      setSoundingLevels(null);
+      setSoundingError(`Sounding unavailable for ${MODEL_LABELS[activeModel].label}`);
+      return;
     }
 
-    popup.setHTML(
-      `<div style="padding:4px">` +
-      `<strong style="font-size:0.8rem">${ov.label}</strong>` +
-      `<p style="font-size:0.7rem;color:#64748b;margin:2px 0 8px">${lat.toFixed(3)}\u00b0N ${Math.abs(lng).toFixed(3)}\u00b0${lng < 0 ? "W" : "E"}</p>` +
-      `<table style="border-collapse:collapse;width:100%">${rows.join("")}</table>` +
-      `<p style="font-size:0.65rem;color:#94a3b8;margin:6px 0 0">Click a grid point on the map for exact values</p>` +
-      `</div>`
-    );
-  }, [activeOverlay, selectedTimeIdx, activeRun, validTimes]);
+    setSoundingLoading(true);
+    setSoundingError(null);
+
+    const tVars = SOUNDING_PRESSURES.map(p => `temperature_${p}hPa`).join(",");
+    const rhVars = SOUNDING_PRESSURES.map(p => `relative_humidity_${p}hPa`).join(",");
+    const wsVars = SOUNDING_PRESSURES.map(p => `windspeed_${p}hPa`).join(",");
+    const wdVars = SOUNDING_PRESSURES.map(p => `winddirection_${p}hPa`).join(",");
+    const ghVars = SOUNDING_PRESSURES.map(p => `geopotential_height_${p}hPa`).join(",");
+    const hourly = [tVars, rhVars, wsVars, wdVars, ghVars].join(",");
+
+    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=${hourly}&models=${omModel}&forecast_days=3&timezone=auto`)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((d: { hourly?: Record<string, (number | null)[]>; hourly_units?: Record<string, string> }) => {
+        if (!d.hourly) { setSoundingError("No data"); return; }
+
+        // Find the time index closest to the selected valid time
+        const vt = validTimes[selectedTimeIdx];
+        const times: string[] = d.hourly.time as unknown as string[];
+        let timeIdx = 0;
+        if (vt && times) {
+          const vtMs = new Date(vt).getTime();
+          let bestDiff = Infinity;
+          times.forEach((t, i) => {
+            const diff = Math.abs(new Date(t).getTime() - vtMs);
+            if (diff < bestDiff) { bestDiff = diff; timeIdx = i; }
+          });
+        }
+
+        const levels: SoundingLevel[] = [];
+        for (const p of SOUNDING_PRESSURES) {
+          const t = d.hourly[`temperature_${p}hPa`]?.[timeIdx];
+          const rh = d.hourly[`relative_humidity_${p}hPa`]?.[timeIdx];
+          const ws = d.hourly[`windspeed_${p}hPa`]?.[timeIdx];
+          const wd = d.hourly[`winddirection_${p}hPa`]?.[timeIdx];
+          const gh = d.hourly[`geopotential_height_${p}hPa`]?.[timeIdx];
+          if (t == null || rh == null) continue;
+          levels.push({
+            pressure: p,
+            temperature: t,
+            dewpoint: dewpointFromRH(t, rh),
+            windSpeed: ws != null ? ws / 3.6 : 0, // km/h → m/s
+            windDirection: wd ?? 0,
+            height: gh ?? 0,
+          });
+        }
+        setSoundingLevels(levels.length > 2 ? levels : null);
+        if (levels.length <= 2) setSoundingError("Insufficient pressure level data");
+      })
+      .catch((e: unknown) => setSoundingError(String(e)))
+      .finally(() => setSoundingLoading(false));
+  }, [activeModel, selectedTimeIdx, validTimes]);
+
+  // Re-fetch sounding when model or time changes (if a point is selected)
+  useEffect(() => {
+    if (soundingPoint) fetchSounding(soundingPoint.lat, soundingPoint.lon);
+  }, [activeModel, selectedTimeIdx, soundingPoint, fetchSounding]);
+
+  // Click handler — open Skew-T panel
+  const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
+    const { lat, lng } = e.lngLat;
+    setSoundingPoint({ lat, lon: lng });
+  }, []);
 
   // Bind click handler
   useEffect(() => {
@@ -394,7 +432,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         )}
 
         {/* Legend */}
-        {activeOv && (
+        {activeOv && !soundingPoint && (
           <div className={styles.mapLegend}>
             <p className={styles.mapLegendTitle}>{activeOv.label}</p>
             <div className={styles.legendBar} style={{ background: activeOv.gradient }} />
@@ -402,6 +440,31 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               <span>{legendValue(activeOv.legendMinVal, activeOv, units)}</span>
               <span>{legendValue(activeOv.legendMaxVal, activeOv, units)}</span>
             </div>
+          </div>
+        )}
+
+        {/* Skew-T sounding panel */}
+        {soundingPoint && (
+          <div style={{ position: "absolute", top: 8, right: 8, background: "#fff", borderRadius: 8, boxShadow: "0 4px 24px rgba(0,0,0,0.18)", zIndex: 10, overflow: "hidden" }}>
+            {soundingLoading && (
+              <div style={{ padding: 40, textAlign: "center", fontSize: "0.8rem", color: "#64748b" }}>
+                Loading sounding for {soundingPoint.lat.toFixed(2)}&deg;N {Math.abs(soundingPoint.lon).toFixed(2)}&deg;{soundingPoint.lon < 0 ? "W" : "E"}…
+              </div>
+            )}
+            {soundingError && !soundingLoading && (
+              <div style={{ padding: 20, textAlign: "center" }}>
+                <p style={{ fontSize: "0.8rem", color: "#ef4444", margin: "0 0 8px" }}>{soundingError}</p>
+                <button onClick={() => setSoundingPoint(null)} style={{ fontSize: "0.75rem", color: "#64748b", background: "none", border: "1px solid #e2e8f0", borderRadius: 4, padding: "4px 12px", cursor: "pointer" }}>Close</button>
+              </div>
+            )}
+            {soundingLevels && !soundingLoading && (
+              <SkewTDiagram
+                levels={soundingLevels}
+                units={units}
+                title={`${MODEL_LABELS[activeModel].label}: ${validTimes[selectedTimeIdx] ? formatVT(validTimes[selectedTimeIdx]) : ""}`}
+                onClose={() => setSoundingPoint(null)}
+              />
+            )}
           </div>
         )}
       </div>
