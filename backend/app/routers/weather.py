@@ -397,11 +397,10 @@ def _colorize_array(
     data: Any,
     stops: list[tuple[float, int, int, int, int]],
 ) -> bytes:
-    """Vectorized: map a 2-D float array to RGBA bytes via discrete color tiers.
+    """Vectorized: map a 2-D float array to RGBA bytes via smooth interpolation.
 
-    Each pixel gets the flat color of its tier (no gradient interpolation).
-    This matches the XC Skies stepped/banded visualization style, producing
-    clear boundaries between value ranges.
+    Linearly interpolates R, G, B, A between adjacent color stops, producing
+    a smooth gradient overlay like XC Skies.
     """
     flat = data.ravel().astype(np.float64)
     n = len(flat)
@@ -416,28 +415,17 @@ def _colorize_array(
     # Clamp to stop range
     vmin, vmax = stops[0][0], stops[-1][0]
     vals = np.clip(vals, vmin, vmax)
-    rv = np.empty_like(vals)
-    gv = np.empty_like(vals)
-    bv = np.empty_like(vals)
-    av = np.empty_like(vals)
-    # Initialize to last stop color
-    rv[:] = stops[-1][1]; gv[:] = stops[-1][2]; bv[:] = stops[-1][3]; av[:] = stops[-1][4]
-    # Tiered: each band gets the LOWER stop's flat color (no interpolation)
-    for i in range(len(stops) - 1):
-        lo = stops[i]
-        hi = stops[i + 1]
-        if i < len(stops) - 2:
-            mask = (vals >= lo[0]) & (vals < hi[0])
-        else:
-            # Last band includes the upper bound
-            mask = (vals >= lo[0]) & (vals <= hi[0])
-        if not np.any(mask):
-            continue
-        rv[mask] = lo[1]
-        gv[mask] = lo[2]
-        bv[mask] = lo[3]
-        av[mask] = lo[4]
-    r[valid] = rv; g[valid] = gv; b[valid] = bv; a[valid] = av
+    # Build arrays of stop positions and RGBA values for np.interp
+    positions = np.array([s[0] for s in stops], dtype=np.float64)
+    r_stops = np.array([s[1] for s in stops], dtype=np.float64)
+    g_stops = np.array([s[2] for s in stops], dtype=np.float64)
+    b_stops = np.array([s[3] for s in stops], dtype=np.float64)
+    a_stops = np.array([s[4] for s in stops], dtype=np.float64)
+    # Smooth linear interpolation between stops
+    r[valid] = np.interp(vals, positions, r_stops)
+    g[valid] = np.interp(vals, positions, g_stops)
+    b[valid] = np.interp(vals, positions, b_stops)
+    a[valid] = np.interp(vals, positions, a_stops)
     # Interleave RGBA
     rgba = np.zeros(n * 4, dtype=np.uint8)
     rgba[0::4] = np.clip(r, 0, 255).astype(np.uint8)
