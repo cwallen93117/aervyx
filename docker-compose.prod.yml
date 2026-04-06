@@ -51,6 +51,7 @@ services:
     volumes:
       - backend_uploads:/app/storage/uploads
       - backend_apks:/app/storage/apks
+      - raster_cache:/app/storage/raster_cache
 
   frontend:
     build:
@@ -85,4 +86,5 @@ volumes:
   backend_apks:
   mosquitto_data:
   mosquitto_log:
+  raster_cache:
   valhalla_tiles:

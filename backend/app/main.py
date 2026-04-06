@@ -40,6 +40,11 @@ except ImportError:
     weather = None
 
 try:
+    from app.services.raster_cache import prune_old_rasters
+except ImportError:
+    prune_old_rasters = None
+
+try:
     from app.routers import faa_airspace as faa_airspace_router
 except ImportError:
     faa_airspace_router = None
@@ -65,6 +70,17 @@ async def lifespan(app: FastAPI):
         session.commit()
     finally:
         session.close()
+    # Prune old raster cache entries on startup
+    if prune_old_rasters is not None:
+        try:
+            pruned = prune_old_rasters(keep_days=2)
+            if pruned:
+                import logging
+                logging.getLogger(__name__).info("Pruned %d old raster cache entries on startup", pruned)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning("Raster cache prune failed on startup", exc_info=True)
+
     mqtt_task = await start_mqtt_subscriber() if start_mqtt_subscriber is not None else None
     faa_task = await start_faa_airspace_refresh() if start_faa_airspace_refresh is not None else None
     yield

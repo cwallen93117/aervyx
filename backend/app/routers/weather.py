@@ -226,8 +226,8 @@ RASTER_SUBSAMPLE: dict[str, int] = {
     "nbm": 1,        # 2.5km native
 }
 
-# Raster cache: key -> (json_dict, timestamp)
-_raster_cache: dict[str, tuple[dict, float]] = {}
+# Persistent raster cache (filesystem PNGs + SQLite metadata)
+from app.services.raster_cache import get_cached_raster, store_raster
 
 # ---------------------------------------------------------------------------
 # Color ramp definitions for soaring weather visualization
@@ -1052,12 +1052,11 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     cache_key = f"raster:{model}:{date}:{hour}:{fh}:{variable}"
-    now = time.time()
 
-    if cache_key in _raster_cache:
-        data, ts = _raster_cache[cache_key]
-        if now - ts < GRID_TTL:
-            return JSONResponse(data)
+    # Check persistent cache first
+    cached = get_cached_raster(cache_key)
+    if cached is not None:
+        return JSONResponse(cached)
 
     loop = asyncio.get_event_loop()
     try:
@@ -1069,12 +1068,12 @@ async def weather_raster(
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}")
 
-    _raster_cache[cache_key] = (result, now)
-
-    # Prune stale raster cache entries
-    for k, (_, ts) in list(_raster_cache.items()):
-        if now - ts > GRID_TTL:
-            del _raster_cache[k]
+    # Store in persistent cache (non-blocking failure is OK)
+    try:
+        store_raster(cache_key, model, date, hour, fh, variable, result)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).warning("Cache store failed for %s", cache_key, exc_info=True)
 
     return JSONResponse(result)
 

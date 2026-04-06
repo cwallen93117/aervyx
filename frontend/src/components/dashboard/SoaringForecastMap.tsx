@@ -259,7 +259,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [mapReady, setMapReady] = useState(0);
   const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; scale_min: number; scale_max: number } | null>(null);
   const [tiers, setTiers] = useState<{ value: number; color: string }[] | null>(null);
-  const [showDebugLabels, setShowDebugLabels] = useState(false);
+  const [showDebugLabels, setShowDebugLabels] = useState(true);
 
   const validTimes = activeRun?.valid_times ?? [];
 
