@@ -32,14 +32,18 @@ const FILL_OPACITY = 0.18;
 const OUTLINE_WIDTH = 1.5;
 const CONUS_CENTER: [number, number] = [-98.5, 39.8];
 const INITIAL_ZOOM = 5;
+const FT_TO_M = 0.3048;
+const MAX_PITCH = 75;
 
 // Source & layer IDs
 const SRC_AIRSPACE = "faa-airspace";
 const SRC_TFR = "faa-tfr";
 const LYR_AIRSPACE_FILL = "faa-airspace-fill";
+const LYR_AIRSPACE_EXTRUSION = "faa-airspace-extrusion";
 const LYR_AIRSPACE_LINE = "faa-airspace-line";
 const LYR_AIRSPACE_LABEL = "faa-airspace-label";
 const LYR_TFR_FILL = "faa-tfr-fill";
+const LYR_TFR_EXTRUSION = "faa-tfr-extrusion";
 const LYR_TFR_LINE = "faa-tfr-line";
 const LYR_TFR_LABEL = "faa-tfr-label";
 
@@ -59,6 +63,7 @@ export default function AirspaceExplorerMap() {
   const [showClassAirspace, setShowClassAirspace] = useState(true);
   const [showSUA, setShowSUA] = useState(true);
   const [showTFRs, setShowTFRs] = useState(true);
+  const [is3D, setIs3D] = useState(false);
 
   // Data state — accumulated across pan/zoom, never cleared
   const [airspaceData, setAirspaceData] = useState<GeoJSON.FeatureCollection | null>(null);
@@ -192,6 +197,7 @@ export default function AirspaceExplorerMap() {
       },
       center: CONUS_CENTER,
       zoom: INITIAL_ZOOM,
+      maxPitch: MAX_PITCH,
       attributionControl: {},
     });
 
@@ -199,9 +205,10 @@ export default function AirspaceExplorerMap() {
     mapRef.current = map;
 
     map.on("load", () => {
-      // -- Airspace source + layers --
+      // -- Airspace source --
       map.addSource(SRC_AIRSPACE, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
+      // 2D flat fill (visible by default)
       map.addLayer({
         id: LYR_AIRSPACE_FILL,
         type: "fill",
@@ -212,6 +219,21 @@ export default function AirspaceExplorerMap() {
         },
       });
 
+      // 3D extrusion (hidden by default)
+      map.addLayer({
+        id: LYR_AIRSPACE_EXTRUSION,
+        type: "fill-extrusion",
+        source: SRC_AIRSPACE,
+        layout: { visibility: "none" },
+        paint: {
+          "fill-extrusion-color": buildColorMatch("category"),
+          "fill-extrusion-opacity": 0.16,
+          "fill-extrusion-base": extrusionBase(),
+          "fill-extrusion-height": extrusionHeight(),
+        },
+      });
+
+      // Outline
       map.addLayer({
         id: LYR_AIRSPACE_LINE,
         type: "line",
@@ -223,6 +245,7 @@ export default function AirspaceExplorerMap() {
         },
       });
 
+      // Labels
       map.addLayer({
         id: LYR_AIRSPACE_LABEL,
         type: "symbol",
@@ -245,6 +268,7 @@ export default function AirspaceExplorerMap() {
       // -- TFR source + layers --
       map.addSource(SRC_TFR, { type: "geojson", data: { type: "FeatureCollection", features: [] } });
 
+      // 2D flat TFR fill
       map.addLayer({
         id: LYR_TFR_FILL,
         type: "fill",
@@ -255,6 +279,22 @@ export default function AirspaceExplorerMap() {
         },
       });
 
+      // 3D TFR extrusion (hidden by default — TFRs don't have altitude data,
+      // so we render a fixed-height column as a visual indicator)
+      map.addLayer({
+        id: LYR_TFR_EXTRUSION,
+        type: "fill-extrusion",
+        source: SRC_TFR,
+        layout: { visibility: "none" },
+        paint: {
+          "fill-extrusion-color": CATEGORY_COLORS.TFR,
+          "fill-extrusion-opacity": 0.25,
+          "fill-extrusion-base": 0,
+          "fill-extrusion-height": 5486, // ~18,000 ft (FL180) in meters
+        },
+      });
+
+      // TFR outline
       map.addLayer({
         id: LYR_TFR_LINE,
         type: "line",
@@ -266,6 +306,7 @@ export default function AirspaceExplorerMap() {
         },
       });
 
+      // TFR labels
       map.addLayer({
         id: LYR_TFR_LABEL,
         type: "symbol",
@@ -297,18 +338,22 @@ export default function AirspaceExplorerMap() {
       debounce = setTimeout(() => void fetchViewportAirspace(map), 400);
     });
 
-    // Click to inspect
-    map.on("click", LYR_AIRSPACE_FILL, (e) => {
-      if (!e.features?.length) return;
-      showPopup(map, e.lngLat, e.features[0]);
-    });
-    map.on("click", LYR_TFR_FILL, (e) => {
-      if (!e.features?.length) return;
-      showPopup(map, e.lngLat, e.features[0]);
-    });
+    // Click to inspect (both flat and extruded layers)
+    for (const lyr of [LYR_AIRSPACE_FILL, LYR_AIRSPACE_EXTRUSION]) {
+      map.on("click", lyr, (e) => {
+        if (!e.features?.length) return;
+        showPopup(map, e.lngLat, e.features[0]);
+      });
+    }
+    for (const lyr of [LYR_TFR_FILL, LYR_TFR_EXTRUSION]) {
+      map.on("click", lyr, (e) => {
+        if (!e.features?.length) return;
+        showPopup(map, e.lngLat, e.features[0]);
+      });
+    }
 
     // Cursor hint
-    for (const lyr of [LYR_AIRSPACE_FILL, LYR_TFR_FILL]) {
+    for (const lyr of [LYR_AIRSPACE_FILL, LYR_AIRSPACE_EXTRUSION, LYR_TFR_FILL, LYR_TFR_EXTRUSION]) {
       map.on("mouseenter", lyr, () => { map.getCanvas().style.cursor = "pointer"; });
       map.on("mouseleave", lyr, () => { map.getCanvas().style.cursor = ""; });
     }
@@ -325,6 +370,33 @@ export default function AirspaceExplorerMap() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // -------------------------------------------------------------------
+  // Sync 3D mode — swap fill ↔ extrusion layers, adjust pitch
+  // -------------------------------------------------------------------
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !map.isStyleLoaded()) return;
+
+    if (is3D) {
+      // Hide flat fills, show extrusions
+      map.setLayoutProperty(LYR_AIRSPACE_FILL, "visibility", "none");
+      map.setLayoutProperty(LYR_AIRSPACE_EXTRUSION, "visibility", "visible");
+      map.setLayoutProperty(LYR_TFR_FILL, "visibility", "none");
+      map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", "visible");
+      // Tilt into 3D perspective
+      map.easeTo({ pitch: 55, duration: 600 });
+    } else {
+      // Show flat fills, hide extrusions
+      map.setLayoutProperty(LYR_AIRSPACE_FILL, "visibility", "visible");
+      map.setLayoutProperty(LYR_AIRSPACE_EXTRUSION, "visibility", "none");
+      map.setLayoutProperty(LYR_TFR_FILL, "visibility", "visible");
+      map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", "none");
+      // Flatten back to 2D
+      map.easeTo({ pitch: 0, duration: 600 });
+    }
+  }, [is3D]);
+
+  // -------------------------------------------------------------------
   // Sync layer visibility with category toggles
   // -------------------------------------------------------------------
 
@@ -337,23 +409,28 @@ export default function AirspaceExplorerMap() {
     const suaVisible = showSUA ? SUA_CATEGORIES.filter((c) => visibleCategories.has(c)) : [];
     const allVisible = [...classVisible, ...suaVisible];
 
-    if (allVisible.length === 0) {
-      map.setFilter(LYR_AIRSPACE_FILL, ["==", "category", "__none__"]);
-      map.setFilter(LYR_AIRSPACE_LINE, ["==", "category", "__none__"]);
-      map.setFilter(LYR_AIRSPACE_LABEL, ["==", "category", "__none__"]);
-    } else {
-      const filter: maplibregl.FilterSpecification = ["in", "category", ...allVisible];
-      map.setFilter(LYR_AIRSPACE_FILL, filter);
-      map.setFilter(LYR_AIRSPACE_LINE, filter);
-      map.setFilter(LYR_AIRSPACE_LABEL, filter);
-    }
+    const airspaceFilter: maplibregl.FilterSpecification = allVisible.length === 0
+      ? ["==", "category", "__none__"]
+      : ["in", "category", ...allVisible];
 
-    // TFR visibility
+    // Apply to both flat and extruded airspace layers
+    map.setFilter(LYR_AIRSPACE_FILL, airspaceFilter);
+    map.setFilter(LYR_AIRSPACE_EXTRUSION, airspaceFilter);
+    map.setFilter(LYR_AIRSPACE_LINE, airspaceFilter);
+    map.setFilter(LYR_AIRSPACE_LABEL, airspaceFilter);
+
+    // TFR visibility — respect both master toggle and 3D layer swapping
     const tfrVisible = showTFRs && visibleCategories.has("TFR");
-    map.setLayoutProperty(LYR_TFR_FILL, "visibility", tfrVisible ? "visible" : "none");
+    if (is3D) {
+      map.setLayoutProperty(LYR_TFR_FILL, "visibility", "none");
+      map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", tfrVisible ? "visible" : "none");
+    } else {
+      map.setLayoutProperty(LYR_TFR_FILL, "visibility", tfrVisible ? "visible" : "none");
+      map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", "none");
+    }
     map.setLayoutProperty(LYR_TFR_LINE, "visibility", tfrVisible ? "visible" : "none");
     map.setLayoutProperty(LYR_TFR_LABEL, "visibility", tfrVisible ? "visible" : "none");
-  }, [visibleCategories, showClassAirspace, showSUA, showTFRs]);
+  }, [visibleCategories, showClassAirspace, showSUA, showTFRs, is3D]);
 
   // -------------------------------------------------------------------
   // Popup helper
@@ -521,7 +598,29 @@ export default function AirspaceExplorerMap() {
       </div>
 
       {/* Map */}
-      <div ref={containerRef} className={styles.mapContainer} />
+      <div className={styles.mapContainer}>
+        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+
+        {/* 3D toggle button — bottom-left of map */}
+        <button
+          type="button"
+          className={`${styles.mapBtn} ${is3D ? styles.mapBtnActive : ""}`}
+          onClick={() => setIs3D((v) => !v)}
+          title={is3D ? "Switch to 2D" : "Switch to 3D"}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {is3D ? (
+              <>
+                <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">2D</text>
+              </>
+            ) : (
+              <>
+                <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">3D</text>
+              </>
+            )}
+          </svg>
+        </button>
+      </div>
     </div>
   );
 }
@@ -539,9 +638,29 @@ function buildColorMatch(prop: string): maplibregl.ExpressionSpecification {
   return ["match", ["get", prop], ...entries, "#94a3b8"] as any;
 }
 
+/** Extrusion base: lowerVal (feet) converted to meters */
+function extrusionBase(): maplibregl.ExpressionSpecification {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ["max", 0, ["*", ["coalesce", ["get", "lowerVal"], 0], FT_TO_M]] as any;
+}
+
+/** Extrusion height: upperVal (feet) converted to meters, fallback to lower+1500m */
+function extrusionHeight(): maplibregl.ExpressionSpecification {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return [
+    "max", 50,
+    ["*",
+      ["-",
+        ["coalesce", ["get", "upperVal"], ["+", ["coalesce", ["get", "lowerVal"], 0], 4921]],
+        ["coalesce", ["get", "lowerVal"], 0],
+      ],
+      FT_TO_M,
+    ],
+  ] as any;
+}
+
 /** Fast stable hash of geometry coordinates for deduplication */
 function hashGeometry(geom: GeoJSON.Geometry): string {
-  // Use first and last coordinate + type as a cheap fingerprint
   const coords = geom.type === "Polygon"
     ? geom.coordinates[0]
     : geom.type === "MultiPolygon"
