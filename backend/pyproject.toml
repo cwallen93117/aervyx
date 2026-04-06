@@ -24,7 +24,9 @@ dependencies = [
   "httpx>=0.28.0",
   "google-auth>=2.38.0",
   "requests>=2.32.0",
-  "slowapi>=0.1.9"
+  "slowapi>=0.1.9",
+  "herbie-data>=2024.1.0",
+  "numpy>=1.26.0"
 ]
 
 [tool.setuptools.packages.find]
