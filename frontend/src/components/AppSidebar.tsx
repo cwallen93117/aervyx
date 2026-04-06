@@ -70,6 +70,15 @@ function SidebarIcon({ id }: { id: string }) {
           <path d="M10 20.5h4M9 22h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
         </svg>
       );
+    case "airspace":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" />
+          <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+          <path d="M12 3.5v2.5M12 18v2.5M3.5 12H6M18 12h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      );
     default:
       return <span>{id.slice(0, 1).toUpperCase()}</span>;
   }
@@ -83,6 +92,7 @@ const itemThemes: Record<string, string> = {
   drivers: "theme-drivers",
   logbook: "theme-logbook",
   weather: "theme-weather",
+  airspace: "theme-airspace",
   settings: "theme-settings",
   admin: "theme-admin",
 };
@@ -102,7 +112,7 @@ export function AppSidebar({
   compact: boolean;
   onToggleCompact: () => void;
 }) {
-  const showEventContext = !compact && activeItem !== "admin" && activeItem !== "settings" && activeItem !== "logbook" && activeItem !== "weather";
+  const showEventContext = !compact && activeItem !== "admin" && activeItem !== "settings" && activeItem !== "logbook" && activeItem !== "weather" && activeItem !== "airspace";
   return (
     <aside className={compact ? "panel nav-sidebar compact-mode" : "panel nav-sidebar"}>
       <div className="sidebar-brand">
