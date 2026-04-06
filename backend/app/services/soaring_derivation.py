@@ -194,6 +194,42 @@ def compute_soaring_quality(
 
 
 # ---------------------------------------------------------------------------
+# Buoyancy-to-shear ratio  (B:S ratio / bsratio)
+# ---------------------------------------------------------------------------
+def compute_bsratio(
+    wstar: np.ndarray,
+    wind_bl_top_u: np.ndarray,
+    wind_bl_top_v: np.ndarray,
+    wind_sfc_u: np.ndarray,
+    wind_sfc_v: np.ndarray,
+) -> np.ndarray:
+    """Compute buoyancy-to-shear ratio (B:S).
+
+    bsratio = W* / |ΔV| where ΔV is the wind shear vector across the BL.
+    Higher values → thermals dominate over shear → better organized lift.
+    Typical soaring thresholds: <3 poor, 3-7 moderate, >7 good.
+
+    Parameters
+    ----------
+    wstar           : convective velocity scale (m/s)
+    wind_bl_top_u/v : wind components at BL top (~850 hPa) (m/s)
+    wind_sfc_u/v    : 10 m wind components (m/s)
+
+    Returns
+    -------
+    bsratio : dimensionless ratio, capped at 20.
+    """
+    wstar = np.maximum(np.asarray(wstar, dtype=np.float64), 0.0)
+    du = np.asarray(wind_bl_top_u, dtype=np.float64) - np.asarray(wind_sfc_u, dtype=np.float64)
+    dv = np.asarray(wind_bl_top_v, dtype=np.float64) - np.asarray(wind_sfc_v, dtype=np.float64)
+    shear = np.sqrt(du**2 + dv**2)
+    # Floor shear to avoid division by zero
+    shear = np.maximum(shear, 0.1)
+    ratio = wstar / shear
+    return np.minimum(ratio, 20.0)
+
+
+# ---------------------------------------------------------------------------
 # CAPE-based fallback W* (emergency only — when SHTFL is unavailable)
 # ---------------------------------------------------------------------------
 def compute_wstar_cape_fallback(

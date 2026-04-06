@@ -140,6 +140,22 @@ VARIABLES: dict[str, dict[str, Any]] = {
         "exclude_models": ["nbm"],
         "derived": "soaring_composite",
     },
+    # Buoyancy-to-shear ratio (B:S) — W* / wind shear across BL
+    # Higher = thermals dominate over shear → better organized lift
+    # Thresholds: <3 poor, 3-7 moderate, >7 good
+    "bsratio": {
+        "search": ":SHTFL:surface:",
+        "search_blh": ":HPBL:surface:",
+        "search_t2m": ":TMP:2 m above ground:",
+        "search_td2m": ":DPT:2 m above ground:",
+        "search_tcdc": ":TCDC:entire atmosphere:",
+        "search_wind_u": ":UGRD:10 m above ground:",
+        "search_wind_v": ":VGRD:10 m above ground:",
+        "search_wind_bl_u": ":UGRD:850 mb:",
+        "search_wind_bl_v": ":VGRD:850 mb:",
+        "product_overrides": {"hrrr": "sfc"},
+        "exclude_models": ["nbm"],
+    },
     "convective_cloud_top": {
         "search": ":HGT:cloud top:",
         "product_overrides": {"hrrr": "prs"},
@@ -263,6 +279,15 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
         (0.85, 220, 60,  20,  230),
         (1.0,  200, 20,  20,  235),
     ],
+    # bsratio: red(shear-dominated)→orange→yellow→green→teal→blue(buoyancy-dominated)
+    "bsratio": [
+        (0.0,   220, 60,  60,  180),  # 0  — red (shear-dominated)
+        (0.15,  230, 140, 40,  200),  # 3  — orange
+        (0.25,  220, 200, 40,  210),  # 5  — yellow
+        (0.35,  120, 200, 60,  220),  # 7  — green
+        (0.5,   60,  180, 140, 230),  # 10 — teal
+        (1.0,   40,  120, 200, 240),  # 20 — blue (buoyancy-dominated)
+    ],
     # soaring quality: red(bad)→orange→yellow→green→blue(great)
     "soaring": [
         (0.0,  180, 180, 180, 100),  # gray — no soaring
@@ -294,6 +319,10 @@ _VAR_SCALE: dict[str, dict] = {
     # Composite soaring quality: 0 to 10
     "soaring_quality": {
         "ramp": "soaring", "scale_min": 0.0, "scale_max": 10.0, "clamp_neg": True,
+    },
+    # Buoyancy-to-shear ratio: 0 to 20 (dimensionless)
+    "bsratio": {
+        "ramp": "bsratio", "scale_min": 0.0, "scale_max": 20.0, "clamp_neg": True,
     },
     # CAPE: 0 to 4000 J/kg
     "cape": {
@@ -477,11 +506,12 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         arr = ds[var_names[0]].values
         if variable == "vertical_velocity_700hPa":
             arr = -arr / 10.0
-        elif variable in ("thermal_updraft", "soaring_quality"):
+        elif variable in ("thermal_updraft", "soaring_quality", "bsratio"):
             from app.services.soaring_derivation import (
                 compute_wstar,
                 compute_wstar_cape_fallback,
                 compute_soaring_quality,
+                compute_bsratio,
             )
 
             # Fetch auxiliary fields from same Herbie object
@@ -496,7 +526,7 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
             t2m_arr = _safe_fetch("search_t2m")
             td2m_arr = _safe_fetch("search_td2m")
             tcdc_arr = _safe_fetch("search_tcdc")
-            cape_arr = _safe_fetch("search_cape")
+            cape_arr = _safe_fetch("search_cape") if "search_cape" in vdef else None
 
             shtfl = np.maximum(arr, 0.0)
             shtfl_ok = float(np.nanmax(shtfl)) > 0.01
@@ -527,6 +557,24 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
                     if u_arr is not None and v_arr is not None:
                         wind_sfc = np.sqrt(u_arr ** 2 + v_arr ** 2)
                 arr = compute_soaring_quality(wstar, blh_arr, tcdc_arr, wind_sfc)
+            elif variable == "bsratio":
+                wind_bl_u = wind_bl_v = wind_sfc_u = wind_sfc_v = None
+                for key in ("search_wind_bl_u", "search_wind_bl_v", "search_wind_u", "search_wind_v"):
+                    if key in vdef:
+                        field_arr = _safe_fetch(key)
+                        if key == "search_wind_bl_u":
+                            wind_bl_u = field_arr
+                        elif key == "search_wind_bl_v":
+                            wind_bl_v = field_arr
+                        elif key == "search_wind_u":
+                            wind_sfc_u = field_arr
+                        elif key == "search_wind_v":
+                            wind_sfc_v = field_arr
+                if (wind_bl_u is not None and wind_bl_v is not None
+                        and wind_sfc_u is not None and wind_sfc_v is not None):
+                    arr = compute_bsratio(wstar, wind_bl_u, wind_bl_v, wind_sfc_u, wind_sfc_v)
+                else:
+                    arr = wstar  # fallback to W* if wind data unavailable
             else:
                 arr = wstar
         lats = ds.latitude.values
@@ -770,11 +818,12 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
         if variable == "vertical_velocity_700hPa":
             # Pa/s → m/s (positive = lift). At 700 hPa, ~−1 Pa/s ≈ +0.1 m/s
             arr = -arr / 10.0
-        elif variable in ("thermal_updraft", "soaring_quality"):
+        elif variable in ("thermal_updraft", "soaring_quality", "bsratio"):
             from app.services.soaring_derivation import (
                 compute_wstar,
                 compute_wstar_cape_fallback,
                 compute_soaring_quality,
+                compute_bsratio,
             )
 
             def _safe_fetch_gj(key: str) -> np.ndarray | None:
@@ -788,7 +837,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
             t2m_arr = _safe_fetch_gj("search_t2m")
             td2m_arr = _safe_fetch_gj("search_td2m")
             tcdc_arr = _safe_fetch_gj("search_tcdc")
-            cape_arr = _safe_fetch_gj("search_cape")
+            cape_arr = _safe_fetch_gj("search_cape") if "search_cape" in vdef else None
 
             shtfl = np.maximum(arr, 0.0)
             shtfl_ok = float(np.nanmax(shtfl)) > 0.01
@@ -817,6 +866,24 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
                     if u_arr is not None and v_arr is not None:
                         wind_sfc = np.sqrt(u_arr ** 2 + v_arr ** 2)
                 arr = compute_soaring_quality(wstar, blh_arr, tcdc_arr, wind_sfc)
+            elif variable == "bsratio":
+                wind_bl_u = wind_bl_v = wind_sfc_u = wind_sfc_v = None
+                for key in ("search_wind_bl_u", "search_wind_bl_v", "search_wind_u", "search_wind_v"):
+                    if key in vdef:
+                        field_arr = _safe_fetch_gj(key)
+                        if key == "search_wind_bl_u":
+                            wind_bl_u = field_arr
+                        elif key == "search_wind_bl_v":
+                            wind_bl_v = field_arr
+                        elif key == "search_wind_u":
+                            wind_sfc_u = field_arr
+                        elif key == "search_wind_v":
+                            wind_sfc_v = field_arr
+                if (wind_bl_u is not None and wind_bl_v is not None
+                        and wind_sfc_u is not None and wind_sfc_v is not None):
+                    arr = compute_bsratio(wstar, wind_bl_u, wind_bl_v, wind_sfc_u, wind_sfc_v)
+                else:
+                    arr = wstar  # fallback to W* if wind data unavailable
             else:
                 arr = wstar
 
