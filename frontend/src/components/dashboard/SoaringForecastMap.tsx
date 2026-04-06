@@ -124,9 +124,14 @@ function formatVT(iso: string) {
 const OVERLAY_LAYER = "soaring-overlay-layer";
 const OVERLAY_SRC = "soaring-overlay-src";
 
+const DEBUG_SRC = "soaring-debug-labels-src";
+const DEBUG_LAYER = "soaring-debug-labels-layer";
+
 function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string | null>) {
   try { if (map.getLayer(OVERLAY_LAYER)) map.removeLayer(OVERLAY_LAYER); } catch { /* */ }
+  try { if (map.getLayer(DEBUG_LAYER)) map.removeLayer(DEBUG_LAYER); } catch { /* */ }
   try { if (map.getSource(OVERLAY_SRC)) map.removeSource(OVERLAY_SRC); } catch { /* */ }
+  try { if (map.getSource(DEBUG_SRC)) map.removeSource(DEBUG_SRC); } catch { /* */ }
   if (blobRef?.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 }
 
@@ -364,12 +369,36 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             },
           });
 
-          // Debug labels: add as a GeoJSON source + symbol layer
-          const DEBUG_SRC = "soaring-debug-labels-src";
-          const DEBUG_LAYER = "soaring-debug-labels-layer";
-          try { if (map.getLayer(DEBUG_LAYER)) map.removeLayer(DEBUG_LAYER); } catch { /* */ }
-          try { if (map.getSource(DEBUG_SRC)) map.removeSource(DEBUG_SRC); } catch { /* */ }
+          // Debug grid dots: circle at every grid point to verify native resolution
+          if (data.debug_labels && data.debug_labels.length > 0) {
+            map.addSource(DEBUG_SRC, {
+              type: "geojson",
+              data: {
+                type: "FeatureCollection",
+                features: data.debug_labels.map(lb => ({
+                  type: "Feature" as const,
+                  geometry: { type: "Point" as const, coordinates: [lb.lon, lb.lat] },
+                  properties: { val: lb.val },
+                })),
+              },
+            });
+            map.addLayer({
+              id: DEBUG_LAYER,
+              type: "circle",
+              source: DEBUG_SRC,
+              paint: {
+                "circle-radius": 2,
+                "circle-color": "#000000",
+                "circle-opacity": 0.6,
+                "circle-stroke-width": 0,
+              },
+              minzoom: 0,
+              maxzoom: 24,
+            });
+            map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
+          }
 
+          /* --- Text label version (commented out — re-enable for value readout) ---
           if (data.debug_labels && data.debug_labels.length > 0) {
             map.addSource(DEBUG_SRC, {
               type: "geojson",
@@ -400,9 +429,9 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               minzoom: 0,
               maxzoom: 24,
             });
-            // Visibility based on debug toggle
-            map.setLayoutProperty(DEBUG_LAYER, "visibility", "visible");
+            map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
           }
+          --- end text label version */
         } catch (err) {
           console.warn("[SoaringForecast] raster layer error:", err);
           URL.revokeObjectURL(blobUrl);
@@ -415,11 +444,10 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes, mapReady]);
 
-  // Toggle debug label visibility
+  // Toggle debug dot visibility
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
-    const DEBUG_LAYER = "soaring-debug-labels-layer";
     try {
       if (map.getLayer(DEBUG_LAYER)) {
         map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
