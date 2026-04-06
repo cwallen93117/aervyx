@@ -341,6 +341,16 @@ input, select, textarea { font-family: inherit; }
   color: #fee2e2;
 }
 
+.theme-weather .nav-item-glyph {
+  background: rgba(99, 102, 241, 0.16);
+  color: #a5b4fc;
+}
+
+.nav-item.active.theme-weather .nav-item-glyph {
+  background: rgba(99, 102, 241, 0.24);
+  color: #e0e7ff;
+}
+
 .nav-item-copy {
   display: flex;
   flex-direction: column;
@@ -838,7 +848,8 @@ select {
 .fieldset-cluster .stack.compact input[type="date"],
 .compact-labeled-row label.stack.compact input[type="time"],
 .compact-labeled-row label.stack.compact input[type="date"] {
-  max-width: 180px;
+  min-width: 140px;
+  max-width: none;
 }
 
 .fieldset-cluster .stack.compact input[type="number"],
@@ -1574,16 +1585,17 @@ button[type="submit"]:hover,
 .task-gate-times {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   margin-top: 2px;
-  padding: 10px 12px;
+  padding: 6px 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: var(--wash);
+  grid-column: 1 / -1;
 }
 
 .task-gate-times strong {
-  font-size: 0.75rem;
+  font-size: 0.625rem;
   font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
@@ -1593,19 +1605,19 @@ button[type="submit"]:hover,
 .task-gate-time-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px;
 }
 
 .task-gate-time-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 7px;
+  padding: 2px 5px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  font-size: 0.6875rem;
+  font-size: 0.6rem;
   font-weight: 600;
   white-space: nowrap;
 }
