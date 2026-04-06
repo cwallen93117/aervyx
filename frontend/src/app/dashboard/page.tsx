@@ -15,6 +15,7 @@ import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
 import { WeatherSection } from "../../components/dashboard/WeatherSection";
+import { AirspaceSection } from "../../components/dashboard/AirspaceSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
 import DriverDashboard from "../../components/dashboard/DriverDashboard";
 import { ThemeToggle } from "../../components/ThemeToggle";
@@ -92,6 +93,7 @@ const adminSidebarItems = [
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
+  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
@@ -103,6 +105,7 @@ const organizerSidebarItems = [
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
+  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
@@ -112,6 +115,7 @@ const pilotSidebarItems = [
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
+  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const guestSidebarItems = [
@@ -121,18 +125,18 @@ const guestSidebarItems = [
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
   if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "settings") {
+    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
       return section;
     }
     return "tasks";
   }
   if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "settings") {
+    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
       return section;
     }
     return "events";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "settings" || section === "admin") {
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings" || section === "admin") {
     return section;
   }
   return "events";
@@ -2651,6 +2655,8 @@ export default function HomePage() {
           );
         case "weather":
           return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} />;
+        case "airspace":
+          return <AirspaceSection />;
         case "settings":
           return (
             <SettingsSection

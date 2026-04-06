@@ -351,6 +351,16 @@ input, select, textarea { font-family: inherit; }
   color: #e0e7ff;
 }
 
+.theme-airspace .nav-item-glyph {
+  background: rgba(234, 88, 12, 0.16);
+  color: #fdba74;
+}
+
+.nav-item.active.theme-airspace .nav-item-glyph {
+  background: rgba(234, 88, 12, 0.24);
+  color: #fed7aa;
+}
+
 .nav-item-copy {
   display: flex;
   flex-direction: column;
