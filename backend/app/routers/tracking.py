@@ -505,18 +505,39 @@ def get_assigned_pilots(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[AssignedPilotResponse]:
-    """Return pilots in a task. First pass returns all event pilots for the task."""
+    """Return pilots assigned to this driver for a task.
+
+    Uses DriverAssignment table if assignments exist, otherwise falls back
+    to all event pilots for backward compatibility.
+    """
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    from app.models import Pilot
-    rows = session.execute(
-        select(Pilot)
-        .join(EventPilot, EventPilot.pilot_id == Pilot.id)
-        .where(EventPilot.event_id == task.event_id)
-        .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
-    ).scalars().all()
+    from app.models import DriverAssignment, Pilot, PilotLanding
+
+    # Try explicit driver assignments first
+    assigned_ids = session.scalars(
+        select(DriverAssignment.pilot_id).where(
+            DriverAssignment.task_id == task_id,
+            DriverAssignment.driver_user_id == user.id,
+        )
+    ).all()
+
+    if assigned_ids:
+        rows = session.execute(
+            select(Pilot)
+            .where(Pilot.id.in_(assigned_ids))
+            .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
+        ).scalars().all()
+    else:
+        # Fallback: all event pilots
+        rows = session.execute(
+            select(Pilot)
+            .join(EventPilot, EventPilot.pilot_id == Pilot.id)
+            .where(EventPilot.event_id == task.event_id)
+            .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
+        ).scalars().all()
 
     return [
         AssignedPilotResponse(

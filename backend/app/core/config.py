@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     mqtt_host: str | None = None
     mqtt_port: int = 1883
     mesh_mqtt_topic_prefix: str = "aervyx"
+    valhalla_url: str = "http://valhalla:8002"
 
     model_config = SettingsConfigDict(
         env_file=".env",
