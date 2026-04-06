@@ -10,8 +10,14 @@
 html{scroll-behavior:smooth}
 body{font-family:'Barlow',sans-serif;font-weight:400;background:var(--void);color:var(--text);overflow-x:hidden;line-height:1.6}
 
+/* BETA BANNER */
+.beta-banner{position:fixed;top:0;left:0;right:0;z-index:210;background:rgba(0,229,255,0.08);border-bottom:1px solid rgba(0,229,255,0.15);text-align:center;padding:7px 16px;font-size:.8125rem;color:rgba(255,255,255,0.72);letter-spacing:.01em;backdrop-filter:blur(12px)}
+.beta-banner a{color:var(--cyan);margin-left:6px;font-weight:600;text-decoration:none}
+.beta-banner a:hover{text-decoration:underline}
+.beta-chip{display:inline-block;background:var(--cyan);color:var(--void);font-size:.6875rem;font-weight:700;padding:2px 8px;border-radius:4px;margin-right:8px;text-transform:uppercase;letter-spacing:.04em}
+
 /* NAV */
-nav{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:0 2.5rem;height:60px;background:rgba(6,9,15,0.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
+nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:center;justify-content:space-between;padding:0 2.5rem;height:60px;background:rgba(6,9,15,0.85);backdrop-filter:blur(20px);border-bottom:1px solid var(--border)}
 .nav-brand{display:flex;align-items:center;gap:.5rem;text-decoration:none;flex-shrink:0}
 .nav-icon svg{width:30px;height:30px;display:block}
 .nav-wordmark{font-family:'Exo 2',sans-serif;font-weight:900;font-size:1.18rem;color:var(--white);letter-spacing:-.01em}
@@ -29,7 +35,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:200;display:flex;align-items:cen
 .nav-live:hover{background:#1aef82;transform:translateY(-1px);box-shadow:0 0 28px rgba(0,230,118,.44)}
 
 /* HERO */
-.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:88px 2rem 5rem;position:relative;overflow:hidden;text-align:center}
+.hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:122px 2rem 5rem;position:relative;overflow:hidden;text-align:center}
 .hero-bg{position:absolute;inset:0;background:radial-gradient(ellipse 110% 65% at 50% -5%,rgba(0,229,255,.07) 0%,transparent 60%),radial-gradient(ellipse 55% 45% at 12% 88%,rgba(255,107,53,.06) 0%,transparent 55%),radial-gradient(ellipse 45% 40% at 88% 78%,rgba(167,139,250,.05) 0%,transparent 55%),var(--void)}
 .hero-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(0,229,255,.032) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.032) 1px,transparent 1px);background-size:72px 72px;mask-image:radial-gradient(ellipse 85% 85% at 50% 50%,black 22%,transparent 72%)}
 .rings{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;width:800px;height:800px}
@@ -332,6 +338,8 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .nav-right{gap:.4rem}
 }
 @media(max-width:560px){
+  .beta-banner{font-size:.75rem;padding:6px 12px}
+  .beta-chip{font-size:.6rem;padding:1px 6px;margin-right:4px}
   /* Nav: shorten login text, tighten Watch Live + CTA to fit alongside brand */
   .nav-cta-long{display:none}
   .nav-live{font-size:.78rem;padding:.42rem .72rem;gap:.38rem}
