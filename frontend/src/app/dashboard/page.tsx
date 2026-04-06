@@ -15,6 +15,7 @@ import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
+import DriverDashboard from "../../components/dashboard/DriverDashboard";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import {
   type SidebarSection,
@@ -2598,7 +2599,17 @@ export default function HomePage() {
             />
           );
         case "drivers":
-          return <SectionCard><p className="hint">Driver logistics and tracking tools are coming soon.</p></SectionCard>;
+          return (
+            <DriverDashboard
+              token={token}
+              user={user}
+              selectedEventId={selectedEventId}
+              tasks={tasks}
+              pilots={pilots}
+              isAdmin={isAdmin}
+              canManagePlatform={canManagePlatform ?? false}
+            />
+          );
         case "logbook":
           return (
             <LogbookSection
