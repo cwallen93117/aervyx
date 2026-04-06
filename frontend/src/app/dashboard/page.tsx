@@ -2650,7 +2650,7 @@ export default function HomePage() {
             />
           );
         case "weather":
-          return <WeatherSection />;
+          return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} />;
         case "settings":
           return (
             <SettingsSection
