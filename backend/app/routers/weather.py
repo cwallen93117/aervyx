@@ -323,7 +323,12 @@ def _colorize_array(
     data: Any,
     stops: list[tuple[float, int, int, int, int]],
 ) -> bytes:
-    """Vectorized: map a 2-D float array to RGBA bytes via color stops."""
+    """Vectorized: map a 2-D float array to RGBA bytes via discrete color tiers.
+
+    Each pixel gets the flat color of its tier (no gradient interpolation).
+    This matches the XC Skies stepped/banded visualization style, producing
+    clear boundaries between value ranges.
+    """
     flat = data.ravel().astype(np.float64)
     n = len(flat)
     nan_mask = np.isnan(flat)
@@ -341,20 +346,23 @@ def _colorize_array(
     gv = np.empty_like(vals)
     bv = np.empty_like(vals)
     av = np.empty_like(vals)
-    # Initialize to last stop
+    # Initialize to last stop color
     rv[:] = stops[-1][1]; gv[:] = stops[-1][2]; bv[:] = stops[-1][3]; av[:] = stops[-1][4]
+    # Tiered: each band gets the LOWER stop's flat color (no interpolation)
     for i in range(len(stops) - 1):
         lo = stops[i]
         hi = stops[i + 1]
-        mask = (vals >= lo[0]) & (vals <= hi[0])
+        if i < len(stops) - 2:
+            mask = (vals >= lo[0]) & (vals < hi[0])
+        else:
+            # Last band includes the upper bound
+            mask = (vals >= lo[0]) & (vals <= hi[0])
         if not np.any(mask):
             continue
-        denom = hi[0] - lo[0]
-        t = (vals[mask] - lo[0]) / denom if denom != 0 else np.zeros(mask.sum())
-        rv[mask] = lo[1] + t * (hi[1] - lo[1])
-        gv[mask] = lo[2] + t * (hi[2] - lo[2])
-        bv[mask] = lo[3] + t * (hi[3] - lo[3])
-        av[mask] = lo[4] + t * (hi[4] - lo[4])
+        rv[mask] = lo[1]
+        gv[mask] = lo[2]
+        bv[mask] = lo[3]
+        av[mask] = lo[4]
     r[valid] = rv; g[valid] = gv; b[valid] = bv; a[valid] = av
     # Interleave RGBA
     rgba = np.zeros(n * 4, dtype=np.uint8)
@@ -438,20 +446,36 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
             arr = -arr / 10.0
         elif variable == "thermal_updraft":
             # Convective velocity scale: W* = (g/T * zi * Hs/(rho*cp))^(1/3)
-            # arr = SHTFL (W/m²), positive = upward heat flux
-            shtfl = np.maximum(arr, 0.0)
+            # SHTFL is an averaged forecast field — may not exist at fh=0.
+            # Strategy: try SHTFL+BLH first, fall back to CAPE+BLH.
+            blh_arr = None
             try:
                 ds_blh = H.xarray(vdef["search_blh"])
-                blh_arr = ds_blh[list(ds_blh.data_vars)[0]].values
-                blh_arr = np.maximum(blh_arr, 10.0)  # floor at 10m
+                blh_arr = np.maximum(ds_blh[list(ds_blh.data_vars)[0]].values, 10.0)
+            except Exception:
+                pass
+
+            shtfl = np.maximum(arr, 0.0)
+            shtfl_ok = float(np.nanmax(shtfl)) > 0.01
+
+            if shtfl_ok and blh_arr is not None:
+                # Primary: W* from sensible heat flux + BLH
                 # g=9.81, T~288K, rho*cp~1200 → g/(T*rho*cp) ≈ 2.84e-5
                 arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
-            except Exception:
-                # Fallback: CAPE-based if BLH fetch fails
+            elif blh_arr is not None:
+                # Fallback: CAPE+BLH when SHTFL is zero/missing (e.g. fh=0)
                 try:
                     ds_cape = H.xarray(vdef["search_cape"])
                     cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
                     arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
+                except Exception:
+                    arr = np.zeros_like(shtfl)
+            else:
+                # Last resort: CAPE-only approximation
+                try:
+                    ds_cape = H.xarray(vdef["search_cape"])
+                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
+                    arr = 0.12 * np.sqrt(2.0 * cape_arr)
                 except Exception:
                     arr = np.zeros_like(shtfl)
         lats = ds.latitude.values
@@ -686,14 +710,32 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
             # Pa/s → m/s (positive = lift). At 700 hPa, ~−1 Pa/s ≈ +0.1 m/s
             arr = -arr / 10.0
         elif variable == "thermal_updraft":
-            shtfl = np.maximum(arr, 0.0)
+            blh_arr = None
             try:
                 ds_blh = H.xarray(vdef["search_blh"])
-                blh_arr = ds_blh[list(ds_blh.data_vars)[0]].values
-                blh_arr = np.maximum(blh_arr, 10.0)
-                arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
+                blh_arr = np.maximum(ds_blh[list(ds_blh.data_vars)[0]].values, 10.0)
             except Exception:
-                arr = np.zeros_like(shtfl)
+                pass
+
+            shtfl = np.maximum(arr, 0.0)
+            shtfl_ok = float(np.nanmax(shtfl)) > 0.01
+
+            if shtfl_ok and blh_arr is not None:
+                arr = np.power(2.84e-5 * blh_arr * shtfl, 1.0 / 3.0)
+            elif blh_arr is not None:
+                try:
+                    ds_cape = H.xarray(vdef["search_cape"])
+                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
+                    arr = 0.05 * np.power(blh_arr * cape_arr, 1.0 / 3.0)
+                except Exception:
+                    arr = np.zeros_like(shtfl)
+            else:
+                try:
+                    ds_cape = H.xarray(vdef["search_cape"])
+                    cape_arr = np.maximum(ds_cape[list(ds_cape.data_vars)[0]].values, 0.0)
+                    arr = 0.12 * np.sqrt(2.0 * cape_arr)
+                except Exception:
+                    arr = np.zeros_like(shtfl)
 
         lats = ds.latitude.values
         lons = ds.longitude.values
