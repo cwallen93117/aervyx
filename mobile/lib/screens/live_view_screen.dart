@@ -54,6 +54,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   bool _sseConnected = false;
   bool _hasActiveTask = false;
   bool _initialCenterDone = false;
+  bool _userPanned = false;
   LatLng? _userPosition;
 
   @override
@@ -94,7 +95,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
       if (mounted) {
         setState(() => _userPosition = LatLng(pos!.latitude, pos.longitude));
-        if (!_initialCenterDone) {
+        if (!_initialCenterDone && !_userPanned) {
           _initialCenterDone = true;
           _mapController.move(_userPosition!, 13);
         }
@@ -157,8 +158,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         }
       });
 
-      // Center map on first data if we haven't centered yet
-      if (!_initialCenterDone && _pilots.isNotEmpty) {
+      // Center map on first data if we haven't centered yet and user hasn't panned
+      if (!_initialCenterDone && !_userPanned && _pilots.isNotEmpty) {
         _initialCenterDone = true;
         final first = _pilots.values.first;
         _mapController.move(LatLng(first.lat, first.lon), 13);
@@ -276,6 +277,14 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             options: MapOptions(
               initialCenter: center,
               initialZoom: 13,
+              onMapEvent: (event) {
+                if (!_userPanned &&
+                    (event.source == MapEventSource.dragGesture ||
+                     event.source == MapEventSource.multiFingerGesture ||
+                     event.source == MapEventSource.flingAnimation)) {
+                  _userPanned = true;
+                }
+              },
             ),
             children: [
               TileLayer(
@@ -352,6 +361,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 }
 
                 if (target != null) {
+                  // Re-enable auto-center and jump to current position
+                  setState(() => _userPanned = false);
                   _mapController.move(target, _mapController.camera.zoom);
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(

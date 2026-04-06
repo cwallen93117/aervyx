@@ -1079,6 +1079,8 @@ export const TaskMap = React.memo(function TaskMap({
       try { map.removeLayer("user-location-dot"); } catch {}
       try { map.removeSource("user-location"); } catch {}
       setGpsFollowing(false);
+      // Clear pan-lock so waypoint geometry updates can auto-fit again
+      manualViewChangedRef.current = false;
       // Refit to task bounds
       const target = resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints);
       if (target.kind !== "fallback") {
@@ -1094,8 +1096,9 @@ export const TaskMap = React.memo(function TaskMap({
         }
       }
     } else {
-      // Start following
+      // Start following — clear any pan-lock so the button always re-centers
       if (!("geolocation" in navigator)) return;
+      manualViewChangedRef.current = false;
       setGpsFollowing(true);
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
@@ -1109,8 +1112,11 @@ export const TaskMap = React.memo(function TaskMap({
             map.addLayer({ id: "user-location-pulse", type: "circle", source: "user-location", paint: { "circle-radius": 18, "circle-color": "#2563eb", "circle-opacity": 0.15 } });
             map.addLayer({ id: "user-location-dot", type: "circle", source: "user-location", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
           }
-          programmaticCameraMoveRef.current = true;
-          map.easeTo({ center: lngLat, zoom: Math.max(map.getZoom(), 13), duration: 600 });
+          // Stop centering if user has panned away — they're exploring the map
+          if (!manualViewChangedRef.current) {
+            programmaticCameraMoveRef.current = true;
+            map.easeTo({ center: lngLat, zoom: Math.max(map.getZoom(), 13), duration: 600 });
+          }
         },
         () => {
           setGpsFollowing(false);
@@ -2055,7 +2061,8 @@ export const TaskMap = React.memo(function TaskMap({
     const shouldFitToTaskAfterFallback = nextFitTargetKind === "task" && previousFitTargetKind !== "task";
     const shouldFitToWaypointGeometry =
       nextFitTargetKind !== "task" &&
-      geometryChanged;
+      geometryChanged &&
+      !manualViewChangedRef.current;
     // When fitKey changes before new geometry arrives, mark a deferred fit
     // so we refit once the new task's data loads.
     const shouldFitDeferredTaskGeometry =
