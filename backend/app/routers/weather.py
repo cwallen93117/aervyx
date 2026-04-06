@@ -211,15 +211,15 @@ _raster_cache: dict[str, tuple[dict, float]] = {}
 _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
     # thermal / updraft: XC Skies 9-stop ramp (0–1200 fpm / 0–6 m/s)
     "thermal": [
-        (0.0,   200, 220, 255, 80),   # 0 fpm    — very light blue, nearly transparent
-        (0.085, 130, 180, 240, 160),  # 100 fpm  — light blue
-        (0.169, 60,  160, 220, 180),  # 200 fpm  — blue-teal
-        (0.254, 40,  180, 140, 195),  # 300 fpm  — teal-green
-        (0.339, 80,  190, 60,  210),  # 400 fpm  — green
-        (0.423, 180, 210, 40,  220),  # 500 fpm  — yellow-green
-        (0.593, 240, 190, 30,  230),  # 700 fpm  — yellow-orange
-        (0.762, 230, 110, 20,  240),  # 900 fpm  — orange-red
-        (1.0,   210, 30,  30,  245),  # 1200 fpm — red
+        (0.0,    200, 220, 255, 80),   # 0 fpm    — very light blue, nearly transparent
+        (0.0833, 130, 180, 240, 160),  # 100 fpm  — light blue
+        (0.1667, 60,  160, 220, 180),  # 200 fpm  — blue-teal
+        (0.25,   40,  180, 140, 195),  # 300 fpm  — teal-green
+        (0.3333, 80,  190, 60,  210),  # 400 fpm  — green
+        (0.4167, 180, 210, 40,  220),  # 500 fpm  — yellow-green
+        (0.5833, 240, 190, 30,  230),  # 700 fpm  — yellow-orange
+        (0.75,   230, 110, 20,  240),  # 900 fpm  — orange-red
+        (1.0,    210, 30,  30,  245),  # 1200 fpm — red
     ],
     # instability: red(unstable)→orange→yellow→green→blue(stable)
     "instability": [
@@ -289,7 +289,7 @@ _VAR_SCALE: dict[str, dict] = {
     # Derived thermal updraft: 0 to 6 m/s (~1200 fpm)
     # W* from SHTFL+BLH with moisture/cloud corrections
     "thermal_updraft": {
-        "ramp": "thermal", "scale_min": 0.0, "scale_max": 6.0, "clamp_neg": True,
+        "ramp": "thermal", "scale_min": 0.0, "scale_max": 6.096, "clamp_neg": True,
     },
     # Composite soaring quality: 0 to 10
     "soaring_quality": {
@@ -652,8 +652,9 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     # Build tier info for frontend legend: each tier's value boundary + color
     tiers = []
     for i, (val, r_, g_, b_, a_) in enumerate(stops):
+        physical_val = scale_min + val * (scale_max - scale_min)
         tiers.append({
-            "value": round(val, 4),
+            "value": round(physical_val, 4),
             "color": f"rgba({int(r_)},{int(g_)},{int(b_)},{round(a_/255,2)})",
         })
 
