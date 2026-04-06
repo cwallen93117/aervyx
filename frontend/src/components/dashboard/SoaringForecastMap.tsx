@@ -232,7 +232,6 @@ type RunInfo = { date: string; hour: string; valid_times: string[]; max_fxx: num
 export function SoaringForecastMap({ units }: { units: Units }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
-  const mapLoaded = useRef(false);
   const blobUrlRef = useRef<string | null>(null);
 
   const [activeModel, setActiveModel] = useState<ModelId>("hrrr");
@@ -243,7 +242,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [activeOverlay, setActiveOverlay] = useState<string>("thermal_strength");
   const [opacity, setOpacity] = useState(70);
   const [gridLoading, setGridLoading] = useState(false);
-  const [, setMapReady] = useState(0);
+  const [mapReady, setMapReady] = useState(0);
 
   const validTimes = activeRun?.valid_times ?? [];
 
@@ -260,9 +259,9 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       center: [-98, 39], zoom: 4,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    map.on("load", () => { mapLoaded.current = true; setMapReady(n => n + 1); });
+    map.on("load", () => setMapReady(1));
     mapRef.current = map;
-    return () => { map.remove(); mapRef.current = null; mapLoaded.current = false; };
+    return () => { map.remove(); mapRef.current = null; setMapReady(0); };
   }, []);
 
   // Fetch available runs when model changes — auto-select most recent
@@ -284,7 +283,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   // Fetch raster overlay and display as image layer
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapLoaded.current || !activeRun) return;
+    if (!map || !mapReady || !activeRun) return;
 
     const vt = validTimes[selectedTimeIdx];
     if (!vt) return;
@@ -304,7 +303,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown> }) => {
-        if (cancelled || !mapLoaded.current) return;
+        if (cancelled) return;
         safeRemove(map, blobUrlRef);
 
         // Convert base64 data URI to blob URL for MapLibre compatibility
@@ -351,7 +350,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       .finally(() => { if (!cancelled) setGridLoading(false); });
 
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
-  }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes, mapReady]);
 
   // Click handler — open popup with Skew-T
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
