@@ -677,35 +677,48 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     png_bytes = _make_png(width_px, height_px, rgba_bytes)
     data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
 
-    # --- Debug value labels: dense grid of text values for verification ---
+    # --- Debug value labels: vectorised grid dots for verification ---
     # Convert to display units for thermal_updraft (m/s → fpm)
     _MS_TO_FPM = 196.85
     _display_multiplier = _MS_TO_FPM if variable == "thermal_updraft" else 1.0
     _display_round = 0 if variable == "thermal_updraft" else 1  # integers for fpm
 
-    debug_labels: list[dict] = []
-    # Show every native grid point as a dot — circles are cheap in MapLibre.
-    # NAM3km 1799×1059 = ~1.9M dots, HRRR similar. MapLibre handles this
-    # as circle layers far better than text symbols.
-    label_step = 1
-    for r in range(0, height_px, label_step):
-        for c in range(0, width_px, label_step):
-            val = float(data_sub[r, c]) if not np.isnan(data_sub[r, c]) else None
-            if val is None:
-                continue
-            if is_2d:
-                lat_v = float(lats_sub[r, c])
-                lon_v = float(lons_sub[r, c])
-            else:
-                lat_v = float(lats_1d[r]) if r < len(lats_1d) else None
-                lon_v = float(lons_1d[c]) if c < len(lons_1d) else None
-            if lat_v is not None and lon_v is not None:
-                display_val = val * _display_multiplier
-                debug_labels.append({
-                    "lat": round(lat_v, 2),
-                    "lon": round(lon_v, 2),
-                    "val": round(display_val, _display_round),
-                })
+    # Dynamic step: keep total dots ≤ MAX_DEBUG to avoid huge JSON responses.
+    # At full CONUS zoom, hi-res models (1.9M pts) get step≈7 → ~39K dots.
+    # Zoomed-in bbox filtering later brings it to native res in the viewport.
+    import math
+    MAX_DEBUG = 50_000
+    total_points = height_px * width_px
+    label_step = max(1, int(math.ceil(math.sqrt(total_points / MAX_DEBUG)))) if total_points > MAX_DEBUG else 1
+
+    # Vectorised label generation with numpy — orders of magnitude faster
+    # than a Python double-loop for hi-res grids.
+    r_idx = np.arange(0, height_px, label_step)
+    c_idx = np.arange(0, width_px, label_step)
+
+    if is_2d:
+        rr, cc = np.meshgrid(r_idx, c_idx, indexing="ij")
+        lat_arr = lats_sub[rr, cc].ravel()
+        lon_arr = lons_sub[rr, cc].ravel()
+        val_arr = data_sub[rr, cc].ravel()
+    else:
+        safe_r = r_idx[r_idx < len(lats_1d)]
+        safe_c = c_idx[c_idx < len(lons_1d)]
+        lon_grid, lat_grid = np.meshgrid(lons_1d[safe_c], lats_1d[safe_r])
+        lat_arr = lat_grid.ravel()
+        lon_arr = lon_grid.ravel()
+        val_arr = data_sub[np.ix_(safe_r, safe_c)].ravel() if data_sub.ndim == 2 else data_sub[safe_r].ravel()
+
+    # Filter NaN, apply display conversion, round
+    valid_mask = ~np.isnan(val_arr)
+    lat_arr = np.round(lat_arr[valid_mask], 2)
+    lon_arr = np.round(lon_arr[valid_mask], 2)
+    val_arr = np.round(val_arr[valid_mask] * _display_multiplier, _display_round)
+
+    debug_labels: list[dict] = [
+        {"lat": float(lat_arr[i]), "lon": float(lon_arr[i]), "val": float(val_arr[i])}
+        for i in range(len(lat_arr))
+    ]
 
     # MapLibre image source coordinates: [[w,n],[e,n],[e,s],[w,s]]
     coordinates = [
@@ -1062,7 +1075,7 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v5"
+    _RASTER_VERSION = "v6"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
     # Parse optional viewport bounds for filtering debug dots
