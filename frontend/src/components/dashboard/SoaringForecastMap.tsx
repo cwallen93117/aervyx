@@ -124,14 +124,9 @@ function formatVT(iso: string) {
 const OVERLAY_LAYER = "soaring-overlay-layer";
 const OVERLAY_SRC = "soaring-overlay-src";
 
-const DEBUG_SRC = "soaring-debug-labels-src";
-const DEBUG_LAYER = "soaring-debug-labels-layer";
-
 function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string | null>) {
   try { if (map.getLayer(OVERLAY_LAYER)) map.removeLayer(OVERLAY_LAYER); } catch { /* */ }
-  try { if (map.getLayer(DEBUG_LAYER)) map.removeLayer(DEBUG_LAYER); } catch { /* */ }
   try { if (map.getSource(OVERLAY_SRC)) map.removeSource(OVERLAY_SRC); } catch { /* */ }
-  try { if (map.getSource(DEBUG_SRC)) map.removeSource(DEBUG_SRC); } catch { /* */ }
   if (blobRef?.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 }
 
@@ -264,13 +259,19 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [mapReady, setMapReady] = useState(0);
   const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; scale_min: number; scale_max: number } | null>(null);
   const [tiers, setTiers] = useState<{ value: number; color: string }[] | null>(null);
-  const [showDebugLabels, setShowDebugLabels] = useState(true);
 
   const validTimes = activeRun?.valid_times ?? [];
 
   // Init map
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
+    const savedView = (() => {
+      try {
+        const raw = localStorage.getItem("aervyx-weather-map-view");
+        if (raw) { const v = JSON.parse(raw); return { center: v.center, zoom: v.zoom }; }
+      } catch { /* */ }
+      return { center: [-98, 39] as [number, number], zoom: 4 };
+    })();
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: {
@@ -278,11 +279,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         sources: { basemap: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "\u00a9 OpenStreetMap contributors" } },
         layers: [{ id: "bg", type: "background", paint: { "background-color": "#e7eef5" } }, { id: "basemap", type: "raster", source: "basemap" }],
       },
-      center: [-75.17, 39.95], zoom: 9,  // DEBUG: Philadelphia close-up for grid verification
+      center: savedView.center, zoom: savedView.zoom,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 200, unit: "metric" }), "bottom-left");
     map.on("load", () => setMapReady(1));
+    map.on("moveend", () => {
+      const c = map.getCenter();
+      localStorage.setItem("aervyx-weather-map-view", JSON.stringify({
+        center: [c.lng, c.lat],
+        zoom: map.getZoom(),
+      }));
+    });
     mapRef.current = map;
     return () => { map.remove(); mapRef.current = null; setMapReady(0); };
   }, []);
@@ -319,15 +327,13 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    const bounds = map.getBounds();
-    const bboxParam = `${bounds.getWest().toFixed(2)},${bounds.getSouth().toFixed(2)},${bounds.getEast().toFixed(2)},${bounds.getNorth().toFixed(2)}`;
-    const url = `${api}/api/weather/raster?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&bbox=${bboxParam}`;
+    const url = `${api}/api/weather/raster?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}`;
 
     let cancelled = false;
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; scale_min: number; scale_max: number }; tiers?: { value: number; color: string }[]; debug_labels?: { lat: number; lon: number; val: number }[] }) => {
+      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; scale_min: number; scale_max: number }; tiers?: { value: number; color: string }[] }) => {
         if (cancelled) return;
         safeRemove(map, blobUrlRef);
 
@@ -371,69 +377,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             },
           });
 
-          // Debug grid dots: circle at every grid point to verify native resolution
-          if (data.debug_labels && data.debug_labels.length > 0) {
-            map.addSource(DEBUG_SRC, {
-              type: "geojson",
-              data: {
-                type: "FeatureCollection",
-                features: data.debug_labels.map(lb => ({
-                  type: "Feature" as const,
-                  geometry: { type: "Point" as const, coordinates: [lb.lon, lb.lat] },
-                  properties: { val: lb.val },
-                })),
-              },
-            });
-            map.addLayer({
-              id: DEBUG_LAYER,
-              type: "circle",
-              source: DEBUG_SRC,
-              paint: {
-                "circle-radius": 2,
-                "circle-color": "#000000",
-                "circle-opacity": 0.6,
-                "circle-stroke-width": 0,
-              },
-              minzoom: 0,
-              maxzoom: 24,
-            });
-            map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
-          }
-
-          /* --- Text label version (commented out — re-enable for value readout) ---
-          if (data.debug_labels && data.debug_labels.length > 0) {
-            map.addSource(DEBUG_SRC, {
-              type: "geojson",
-              data: {
-                type: "FeatureCollection",
-                features: data.debug_labels.map(lb => ({
-                  type: "Feature" as const,
-                  geometry: { type: "Point" as const, coordinates: [lb.lon, lb.lat] },
-                  properties: { label: String(lb.val) },
-                })),
-              },
-            });
-            map.addLayer({
-              id: DEBUG_LAYER,
-              type: "symbol",
-              source: DEBUG_SRC,
-              layout: {
-                "text-field": ["get", "label"],
-                "text-size": 11,
-                "text-allow-overlap": true,
-                "text-ignore-placement": true,
-              },
-              paint: {
-                "text-color": "#0f172a",
-                "text-halo-color": "#ffffff",
-                "text-halo-width": 1.5,
-              },
-              minzoom: 0,
-              maxzoom: 24,
-            });
-            map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
-          }
-          --- end text label version */
         } catch (err) {
           console.warn("[SoaringForecast] raster layer error:", err);
           URL.revokeObjectURL(blobUrl);
@@ -445,17 +388,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes, mapReady]);
-
-  // Toggle debug dot visibility
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !mapReady) return;
-    try {
-      if (map.getLayer(DEBUG_LAYER)) {
-        map.setLayoutProperty(DEBUG_LAYER, "visibility", showDebugLabels ? "visible" : "none");
-      }
-    } catch { /* layer may not exist yet */ }
-  }, [showDebugLabels, mapReady]);
 
   // Click handler — open popup with Skew-T
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
@@ -661,13 +593,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           </div>
         </div>
 
-        {/* Debug toggle */}
-        <div className={styles.section}>
-          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: "0.72rem", color: "var(--muted)", cursor: "pointer" }}>
-            <input type="checkbox" checked={showDebugLabels} onChange={e => setShowDebugLabels(e.target.checked)} />
-            Show values on map
-          </label>
-        </div>
       </div>
 
       {/* Map */}
