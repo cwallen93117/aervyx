@@ -157,7 +157,7 @@ async def _check_freshness(client: httpx.AsyncClient, source: str) -> tuple[bool
         meta = session.scalars(
             select(FaaAirspaceMeta).where(FaaAirspaceMeta.source == source)
         ).first()
-        if meta is None or meta.last_edit_date != new_edit_date:
+        if meta is None or meta.last_edit_date != new_edit_date or meta.record_count == 0:
             return True, new_edit_date
         return False, new_edit_date
     finally:
@@ -310,6 +310,10 @@ def _compute_bbox(geometry: dict) -> tuple[float, float, float, float]:
 
 def _import_to_db(source: str, features: list[dict], edit_date: str | None) -> int:
     """Delete old rows for this source, insert new normalized features, update meta."""
+    if not features:
+        logger.warning("FAA airspace: skipping %s import — 0 features returned (keeping existing data)", source)
+        return 0
+
     normalizer = _NORMALIZERS[source]
     session = SessionLocal()
     try:

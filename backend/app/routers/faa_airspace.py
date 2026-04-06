@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
 
@@ -28,3 +30,20 @@ async def get_features(
 async def get_status() -> dict:
     """Return cache status: per-source counts, timestamps, edit dates."""
     return get_cache_status()
+
+
+@router.post("/refresh")
+async def refresh_cache() -> dict:
+    """Force re-import all sources from FAA ArcGIS."""
+    from app.services.faa_airspace import _fetch_and_import, _load_cache_from_db
+
+    results = {}
+    for src in ("class", "sua", "tfr"):
+        try:
+            count = await _fetch_and_import(src)
+            results[src] = {"status": "ok", "count": count}
+        except Exception as e:
+            results[src] = {"status": "error", "error": str(e)}
+
+    _load_cache_from_db()
+    return {"refreshed": results, **get_cache_status()}

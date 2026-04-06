@@ -588,7 +588,13 @@ export default function AirspaceExplorerMap() {
         {/* Legend — floating overlay on map, bottom-right */}
         <div className={styles.legend}>
           <div className={styles.legendTitle}>Legend</div>
-          {ALL_CATEGORIES.filter((c) => visibleCategories.has(c)).map((cat) => (
+          {ALL_CATEGORIES.filter((c) => {
+            if (!visibleCategories.has(c)) return false;
+            if (CLASS_CATEGORIES.includes(c) && !showClassAirspace) return false;
+            if (SUA_CATEGORIES.includes(c) && !showSUA) return false;
+            if (TFR_CATEGORIES.includes(c) && !showTFRs) return false;
+            return true;
+          }).map((cat) => (
             <div key={cat} className={styles.legendItem}>
               <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
               {CATEGORY_LABELS[cat]}
