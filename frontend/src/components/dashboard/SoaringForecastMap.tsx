@@ -659,39 +659,37 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               {activeOv.label}{activeOv.unit ? ` (${displayUnit(activeOv, units)})` : ""}
             </p>
             {tiers && tiers.length > 1 ? (() => {
-              const totalRange = tiers[tiers.length - 1].value - tiers[0].value;
-              // Bands rendered top-to-bottom: highest band first
-              const bands = tiers.slice(0, -1).map((tier, i) => {
-                const next = tiers[i + 1];
-                const heightPct = totalRange > 0 ? ((next.value - tier.value) / totalRange) * 100 : 100 / (tiers.length - 1);
-                return { color: tier.color, heightPct, lowerVal: tier.value, upperVal: next.value };
-              }).reverse(); // reverse so highest band is at top
-              // Label stops: top label = max value, then each lower boundary going down
-              const labelStops = [...tiers].reverse(); // [max, ..., min]
+              // Bands: one per adjacent tier pair, reversed so highest is at top
+              const bands = tiers.slice(0, -1).map((tier, i) => ({
+                color: tier.color,
+                lowerVal: tier.value,
+                upperVal: tiers[i + 1].value,
+              })).reverse();
+
+              // Label values at each tier boundary, highest first
+              const labelVals = [...tiers].reverse().map(tier => {
+                let v = tier.value;
+                if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
+                else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
+                else v = Math.round(v);
+                return v;
+              });
+
               return (
                 <div className={styles.mapLegendVerticalInner}>
-                  {/* Labels column */}
-                  <div className={styles.mapLegendVerticalLabelsCol}>
-                    {labelStops.map((tier, i) => {
-                      let v = tier.value;
-                      if (activeOv.unitType === "vario" && units.vario === "fpm") v = Math.round(v * 196.85);
-                      else if (activeOv.unitType === "altitude" && units.altitude === "ft") v = Math.round(v * 3.28084);
-                      else v = Math.round(v);
-                      // Each label sits at the top of its corresponding band
-                      const bandAbove = i < bands.length ? bands[i] : null;
-                      const heightPct = bandAbove ? bandAbove.heightPct : 0;
-                      return (
-                        <div key={i} className={styles.mapLegendVerticalLabelSlot}
-                          style={{ flexBasis: i < bands.length ? `${heightPct}%` : "0%", flexGrow: i < bands.length ? 0 : 0 }}>
-                          <span className={styles.mapLegendVerticalLabel}>{v}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  {/* Color bar column */}
+                  {/* Color bar on left */}
                   <div className={styles.mapLegendVerticalBar}>
                     {bands.map((band, i) => (
-                      <div key={i} style={{ height: `${band.heightPct}%`, background: band.color, minHeight: 2 }} />
+                      <div key={i} style={{ flex: 1, background: band.color }} />
+                    ))}
+                  </div>
+                  {/* Labels on right — positioned at boundaries */}
+                  <div className={styles.mapLegendVerticalLabelsCol}>
+                    {labelVals.map((v, i) => (
+                      <div key={i} className={styles.mapLegendVerticalLabelSlot}
+                        style={{ flex: i < bands.length ? 1 : 0 }}>
+                        <span className={styles.mapLegendVerticalLabel}>{v}</span>
+                      </div>
                     ))}
                   </div>
                 </div>
