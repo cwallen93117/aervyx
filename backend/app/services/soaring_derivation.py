@@ -8,6 +8,15 @@ Key references:
   - Deardorff convective velocity scale (W*)
   - DrJack RASP parameter definitions (wstar, hbl, bsratio)
   - SoaringMeteo GFS pipeline derivation approach
+
+Design philosophy (informed by XC Skies comparison):
+  - compute_wstar should be PURE Deardorff physics — no ad-hoc penalties.
+    SHTFL already encodes cloud shading and surface moisture effects via the
+    model's own energy balance.  Layering additional moisture/cloud multipliers
+    on top double-counts those effects and crushes the signal.
+  - Moisture and cloud information should drive SEPARATE overlays (cloudbase,
+    cu probability, overdevelopment risk) rather than killing the thermal field.
+  - The CAPE fallback is clearly marked as lower-confidence and emergency-only.
 """
 
 from __future__ import annotations
@@ -51,6 +60,25 @@ def mixing_ratio_from_dewpoint(
 
 
 # ---------------------------------------------------------------------------
+# Cloudbase estimate (Hennig formula)
+# ---------------------------------------------------------------------------
+def compute_cloudbase_agl(
+    t2m: np.ndarray,
+    td2m: np.ndarray,
+) -> np.ndarray:
+    """Estimate convective cloudbase height AGL (metres).
+
+    Uses the Hennig/spread formula:  cloudbase ≈ 122.6 × (T - Td)
+    where T and Td are in °C.  This is the standard glider-pilot rule of
+    thumb and matches RASP's ``zsfclcldif`` parameter.
+    """
+    t_c = np.asarray(t2m, dtype=np.float64) - 273.15
+    td_c = np.asarray(td2m, dtype=np.float64) - 273.15
+    spread = np.maximum(t_c - td_c, 0.0)
+    return 122.6 * spread
+
+
+# ---------------------------------------------------------------------------
 # Core: Convective velocity scale W*
 # ---------------------------------------------------------------------------
 def compute_wstar(
@@ -60,15 +88,24 @@ def compute_wstar(
     td2m: np.ndarray,
     tcdc: np.ndarray,
 ) -> np.ndarray:
-    """Compute W* (convective velocity scale) with moisture & cloud corrections.
+    """Compute W* (Deardorff convective velocity scale).
+
+    This is the PURE physical formula with no ad-hoc penalties.
+    SHTFL from the NWP model already reflects:
+      - cloud shading (reduced solar → reduced SHTFL)
+      - surface moisture (latent vs sensible heat partitioning)
+      - terrain albedo and land-use effects
+    so multiplying by additional moisture/cloud factors double-counts
+    those effects and suppresses the signal.
 
     Parameters
     ----------
     shtfl : sensible heat flux at surface  (W/m²).  Positive = upward.
     blh   : boundary layer height  (m).
     t2m   : 2-metre temperature  (K).
-    td2m  : 2-metre dewpoint temperature  (K).
-    tcdc  : total cloud cover  (%, 0–100).
+    td2m  : 2-metre dewpoint temperature  (K).  Used only for Tv correction.
+    tcdc  : total cloud cover  (%, 0–100).  Accepted but NOT applied as a
+            penalty — kept in signature for API compatibility.
 
     Returns
     -------
@@ -79,7 +116,6 @@ def compute_wstar(
     blh = np.maximum(np.asarray(blh, dtype=np.float64), 10.0)
     t2m = np.asarray(t2m, dtype=np.float64)
     td2m = np.asarray(td2m, dtype=np.float64)
-    tcdc = np.clip(np.asarray(tcdc, dtype=np.float64), 0.0, 100.0)
 
     # --- Virtual temperature (accounts for moisture in buoyancy) ---
     w = mixing_ratio_from_dewpoint(td2m)
@@ -87,35 +123,22 @@ def compute_wstar(
     # Floor virtual temp to avoid division by zero at extreme cold
     t_virtual = np.maximum(t_virtual, 200.0)
 
-    # --- Base W* (Deardorff convective velocity scale) ---
+    # --- W* (Deardorff convective velocity scale) ---
     #   W* = [ (g / Tv) × zi × Hs / (ρ cp) ] ^ (1/3)
     # where Hs = sensible heat flux, zi = BLH
+    #
+    # No additional moisture or cloud penalties — SHTFL already carries
+    # the model's energy-balance signal.
     wstar = np.power(
         (G / t_virtual) * blh * shtfl / RHO_CP,
         1.0 / 3.0,
     )
 
-    # --- Moisture inhibition ---
-    # Dewpoint depression: larger = drier BL = better thermals
-    # DD < 5K → very moist, thermals strongly suppressed
-    # DD > 15K → dry, no penalty
-    dd = t2m - td2m
-    moisture_factor = np.clip(dd / 15.0, 0.0, 1.0)
-    wstar *= moisture_factor
-
-    # --- Cloud cover suppression ---
-    # Squared cloud fraction → scattered clouds barely penalize,
-    # overcast kills thermals almost entirely.
-    # The 0.8 coefficient preserves residual activity under broken cloud.
-    cloud_frac = tcdc / 100.0
-    cloud_factor = 1.0 - 0.8 * np.power(cloud_frac, 2.0)
-    wstar *= cloud_factor
-
     return wstar
 
 
 # ---------------------------------------------------------------------------
-# Composite soaring quality index
+# Composite soaring quality index  (experimental)
 # ---------------------------------------------------------------------------
 def compute_soaring_quality(
     wstar: np.ndarray,
@@ -127,6 +150,10 @@ def compute_soaring_quality(
 
     Blends thermal strength, BL height, cloud cover, and surface wind
     into a single pilot-friendly metric.
+
+    NOTE: This is an experimental composite — not a direct meteorological
+    field.  For comparison with XC Skies, use the individual thermal_updraft
+    and BL height overlays instead.
 
     Parameters
     ----------
@@ -155,9 +182,7 @@ def compute_soaring_quality(
     else:
         f_wind = 1.0
 
-    # Weighted composite
-    # Thermal strength dominates (0.45), then BL height (0.25),
-    # cloud (0.20), wind (0.10)
+    # Weighted composite — thermal strength dominates
     score = (
         0.45 * f_thermal
         + 0.25 * f_blh
@@ -169,7 +194,7 @@ def compute_soaring_quality(
 
 
 # ---------------------------------------------------------------------------
-# CAPE-based fallback W* (for when SHTFL is unavailable, e.g. fh=0)
+# CAPE-based fallback W* (emergency only — when SHTFL is unavailable)
 # ---------------------------------------------------------------------------
 def compute_wstar_cape_fallback(
     cape: np.ndarray,
@@ -180,39 +205,30 @@ def compute_wstar_cape_fallback(
 ) -> np.ndarray:
     """Estimate W* from CAPE + BLH when SHTFL is not available.
 
-    Uses the relationship:  Hs_est ≈ (ρ cp / g) × CAPE × g / (2 × zi)
-    which gives a rough surface heat flux proxy from CAPE and BL depth.
-    Then feeds that into the standard W* with corrections.
+    This is a LOWER-CONFIDENCE fallback used only when SHTFL data is
+    missing (e.g., forecast hour 0 where averaged flux fields don't exist).
+    CAPE measures deep convective potential (thunderstorm energy), not
+    boundary-layer thermal strength, so this will diverge from SHTFL-based
+    W* in many situations.
 
-    This is less accurate than the SHTFL path but much better than the
-    old arbitrary coefficient approach.
+    No moisture/cloud penalties applied — same philosophy as compute_wstar.
     """
     cape = np.maximum(np.asarray(cape, dtype=np.float64), 0.0)
     blh = np.maximum(np.asarray(blh, dtype=np.float64), 10.0)
     t2m = np.asarray(t2m, dtype=np.float64)
     td2m = np.asarray(td2m, dtype=np.float64)
-    tcdc = np.clip(np.asarray(tcdc, dtype=np.float64), 0.0, 100.0)
 
     # Virtual temperature
     w = mixing_ratio_from_dewpoint(td2m)
     t_virtual = np.maximum(t2m * (1.0 + 0.61 * w), 200.0)
 
     # Approximate W* from CAPE:
-    # W* ≈ (CAPE × g / (Tv))^(1/3) × scaling_factor
-    # The scaling_factor of 0.4 is calibrated to match SHTFL-based W*
-    # for typical convective conditions.
+    # W* ≈ scaling × (CAPE × g / Tv)^(1/3)
+    # The 0.4 factor is a rough calibration; CAPE-based W* should be treated
+    # as indicative only.
     wstar = 0.4 * np.power(np.maximum(cape * G / t_virtual, 0.0), 1.0 / 3.0)
 
     # Cap at reasonable maximum
     wstar = np.minimum(wstar, 8.0)
-
-    # Apply same moisture + cloud corrections
-    dd = t2m - td2m
-    moisture_factor = np.clip(dd / 15.0, 0.0, 1.0)
-    wstar *= moisture_factor
-
-    cloud_frac = tcdc / 100.0
-    cloud_factor = 1.0 - 0.8 * np.power(cloud_frac, 2.0)
-    wstar *= cloud_factor
 
     return wstar
