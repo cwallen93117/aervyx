@@ -68,11 +68,6 @@ def _rel_path(model: str, run_date: str, run_hour: int, variable: str, fxx: int)
     return f"{model}/{run_date}/{run_hour:02d}/{variable}_f{fxx:03d}.png"
 
 
-def _grid_path(png_rel: str) -> str:
-    """Grid data file path — sits next to the PNG."""
-    return png_rel.rsplit(".", 1)[0] + ".grid"
-
-
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -117,23 +112,8 @@ def get_cached_raster(cache_key: str) -> dict[str, Any] | None:
         result["data_range"] = json.loads(range_json)
     if tiers_json:
         result["tiers"] = json.loads(tiers_json)
-    # Legacy: skip debug_labels_json, dots are now generated on-the-fly
     if meta_json:
         result["meta"] = json.loads(meta_json)
-
-    # Load compressed grid data if available (for on-the-fly dot generation)
-    grid_file = CACHE_ROOT / _grid_path(file_path)
-    if grid_file.exists():
-        try:
-            result["_grid_bytes"] = grid_file.read_bytes()
-            # Parse shape + display_round from meta
-            meta = result.get("meta", {})
-            w = meta.get("width", 0)
-            h = meta.get("height", 0)
-            result["_grid_shape"] = (h, w)
-            result["_display_round"] = meta.get("display_round", 1)
-        except OSError:
-            pass  # dots just won't show on this cache hit
 
     return result
 
@@ -160,20 +140,6 @@ def store_raster(
     abs_path = CACHE_ROOT / rel
     abs_path.parent.mkdir(parents=True, exist_ok=True)
     abs_path.write_bytes(png_bytes)
-
-    # Save compressed grid data alongside the PNG for on-the-fly dot generation
-    grid_data: bytes | None = result.get("_grid_bytes")
-    if grid_data:
-        grid_abs = CACHE_ROOT / _grid_path(rel)
-        try:
-            grid_abs.write_bytes(grid_data)
-        except OSError:
-            logger.warning("Failed to write grid data %s", grid_abs, exc_info=True)
-
-    # Embed display_round in meta for cache retrieval
-    meta = dict(result.get("meta") or {})
-    if "_display_round" in result:
-        meta["display_round"] = result["_display_round"]
 
     conn.execute(
         """
@@ -203,15 +169,14 @@ def store_raster(
             json.dumps(result.get("coordinates")),
             json.dumps(result.get("data_range")) if result.get("data_range") else None,
             json.dumps(result.get("tiers")) if result.get("tiers") else None,
-            None,  # debug_labels no longer stored in DB — generated on-the-fly
-            json.dumps(meta),
+            None,  # debug_labels not stored
+            json.dumps(result.get("meta")) if result.get("meta") else None,
             len(png_bytes),
             time.time(),
         ),
     )
     conn.commit()
-    logger.debug("Cached raster %s (%d bytes PNG, %d bytes grid)",
-                 cache_key, len(png_bytes), len(grid_data) if grid_data else 0)
+    logger.debug("Cached raster %s (%d bytes)", cache_key, len(png_bytes))
 
 
 def prune_old_rasters(keep_days: int = 2) -> int:
