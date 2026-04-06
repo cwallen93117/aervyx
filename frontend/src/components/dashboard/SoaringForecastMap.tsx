@@ -244,7 +244,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [opacity, setOpacity] = useState(85);
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);
-  const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; p2: number; p98: number; scale_min: number; scale_max: number } | null>(null);
+  const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; scale_min: number; scale_max: number } | null>(null);
   const [showDebugLabels, setShowDebugLabels] = useState(false);
 
   const validTimes = activeRun?.valid_times ?? [];
@@ -305,7 +305,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; p2: number; p98: number; scale_min: number; scale_max: number }; debug_labels?: { lat: number; lon: number; val: number }[] }) => {
+      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; scale_min: number; scale_max: number }; debug_labels?: { lat: number; lon: number; val: number }[] }) => {
         if (cancelled) return;
         safeRemove(map, blobUrlRef);
 

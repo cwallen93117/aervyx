@@ -233,71 +233,60 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
     ],
 }
 
-# Map each variable to scaling config:
-#   ramp:          color ramp name
-#   fixed_min:     hard floor for scale (None = use data p2)
-#   max_cap:       maximum allowed scale ceiling
-#   min_ceil:      minimum scale ceiling (so legend always shows a useful range)
-#   clamp_neg:     if True, clamp data values < 0 to 0 before scaling
-#   adaptive_max:  if True, use min(max(data_p98*1.5, min_ceil), max_cap)
-#                  if False, always use max_cap
+# Fixed scale config per variable — NO adaptive scaling.
+# Same colors every day for easy visual comparison across forecasts.
+#   ramp:       color ramp name
+#   scale_min:  hard floor for color scale
+#   scale_max:  hard ceiling for color scale
+#   clamp_neg:  if True, clamp data values < 0 to 0 before color mapping
 _VAR_SCALE: dict[str, dict] = {
-    # Thermal strength: 0 to 1500 fpm (7.6 m/s) cap, min ceiling 500 fpm (2.5 m/s)
+    # Thermal strength: 0 to 1500 fpm (7.6 m/s)
     "vertical_velocity_700hPa": {
-        "ramp": "thermal", "fixed_min": 0.0, "max_cap": 7.6,
-        "min_ceil": 2.5, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "thermal", "scale_min": 0.0, "scale_max": 7.6, "clamp_neg": True,
     },
-    # CAPE: 0 to 4000 J/kg, min ceiling 500
+    # CAPE: 0 to 4000 J/kg
     "cape": {
-        "ramp": "thermal", "fixed_min": 0.0, "max_cap": 4000.0,
-        "min_ceil": 500.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "thermal", "scale_min": 0.0, "scale_max": 4000.0, "clamp_neg": True,
     },
-    # Cloud top height: 0 to 5500 m (~18000 ft), min ceiling 1500m (~5000ft)
+    # Cloud top height: 0 to 5500 m (~18000 ft)
     "convective_cloud_top": {
-        "ramp": "height", "fixed_min": 0.0, "max_cap": 5500.0,
-        "min_ceil": 1500.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "height", "scale_min": 0.0, "scale_max": 5500.0, "clamp_neg": True,
     },
-    # Cloud base: same as cloud top
+    # Cloud base height: 0 to 5500 m (~18000 ft)
     "convective_cloud_base": {
-        "ramp": "height", "fixed_min": 0.0, "max_cap": 5500.0,
-        "min_ceil": 1500.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "height", "scale_min": 0.0, "scale_max": 5500.0, "clamp_neg": True,
     },
-    # Boundary layer: 0 to 5500 m (~18000 ft), min ceiling 1000m (~3300ft)
+    # Boundary layer height: 0 to 5500 m (~18000 ft)
     "boundary_layer_height": {
-        "ramp": "height", "fixed_min": 0.0, "max_cap": 5500.0,
-        "min_ceil": 1000.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "height", "scale_min": 0.0, "scale_max": 5500.0, "clamp_neg": True,
     },
-    # Lifted index: -8 to +4, fixed (well-known scale)
+    # Lifted index: -8 to +4 (well-known meteorological scale)
     "lifted_index": {
-        "ramp": "instability", "fixed_min": -8.0, "max_cap": 4.0,
-        "min_ceil": None, "clamp_neg": False, "adaptive_max": False,
+        "ramp": "instability", "scale_min": -8.0, "scale_max": 4.0, "clamp_neg": False,
     },
-    # Cloud cover: fixed 0-100%
+    # Cloud cover: 0 to 100%
     "cloud_cover": {
-        "ramp": "cloud", "fixed_min": 0.0, "max_cap": 100.0,
-        "min_ceil": None, "clamp_neg": False, "adaptive_max": False,
+        "ramp": "cloud", "scale_min": 0.0, "scale_max": 100.0, "clamp_neg": False,
     },
-    # Precipitation: 0 to 50 mm, min ceiling 5mm
+    # Precipitation: 0 to 50 mm
     "precipitation": {
-        "ramp": "precip", "fixed_min": 0.0, "max_cap": 50.0,
-        "min_ceil": 5.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "precip", "scale_min": 0.0, "scale_max": 50.0, "clamp_neg": True,
     },
-    # Winds: 0+ with per-level caps and min ceilings
+    # Surface wind: 0 to 30 m/s (~58 kt)
     "wind_speed_10m": {
-        "ramp": "wind", "fixed_min": 0.0, "max_cap": 30.0,
-        "min_ceil": 10.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "wind", "scale_min": 0.0, "scale_max": 30.0, "clamp_neg": True,
     },
+    # 850 hPa wind: 0 to 40 m/s (~78 kt)
     "wind_speed_850hPa": {
-        "ramp": "wind", "fixed_min": 0.0, "max_cap": 40.0,
-        "min_ceil": 15.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "wind", "scale_min": 0.0, "scale_max": 40.0, "clamp_neg": True,
     },
+    # 700 hPa wind: 0 to 50 m/s (~97 kt)
     "wind_speed_700hPa": {
-        "ramp": "wind", "fixed_min": 0.0, "max_cap": 50.0,
-        "min_ceil": 15.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "wind", "scale_min": 0.0, "scale_max": 50.0, "clamp_neg": True,
     },
+    # 500 hPa wind: 0 to 60 m/s (~117 kt)
     "wind_speed_500hPa": {
-        "ramp": "wind", "fixed_min": 0.0, "max_cap": 60.0,
-        "min_ceil": 20.0, "clamp_neg": True, "adaptive_max": True,
+        "ramp": "wind", "scale_min": 0.0, "scale_max": 60.0, "clamp_neg": True,
     },
 }
 
@@ -492,14 +481,13 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         if lats_1d[0] < lats_1d[-1]:
             data_sub = np.flipud(data_sub)
 
-    # --- Color scaling with sensible soaring-friendly ranges ---
+    # --- Fixed color scaling — same colors every day for cross-day comparison ---
     vcfg = _VAR_SCALE.get(variable, {
-        "ramp": "thermal", "fixed_min": None, "max_cap": None,
-        "clamp_neg": False, "adaptive_max": True,
+        "ramp": "thermal", "scale_min": 0.0, "scale_max": 1.0, "clamp_neg": False,
     })
     ramp = _COLOR_RAMPS.get(vcfg["ramp"], _COLOR_RAMPS["thermal"])
 
-    # Clamp negative values to zero for positive-only variables (thermals, heights)
+    # Clamp negative values to zero for positive-only variables
     if vcfg["clamp_neg"]:
         data_sub = np.where(np.isnan(data_sub), data_sub, np.maximum(data_sub, 0.0))
 
@@ -507,32 +495,12 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     if valid_data.size == 0:
         raise RuntimeError("No valid data in grid")
 
-    data_p2 = float(np.percentile(valid_data, 2))
-    data_p98 = float(np.percentile(valid_data, 98))
     data_min = float(np.nanmin(valid_data))
     data_max = float(np.nanmax(valid_data))
     data_mean = float(np.nanmean(valid_data))
 
-    # Scale min: use fixed_min if set, else data p2
-    scale_min = vcfg["fixed_min"] if vcfg["fixed_min"] is not None else data_p2
-
-    # Scale max: adaptive (stretch to data but capped) or fixed
-    max_cap = vcfg["max_cap"]
-    min_ceil = vcfg.get("min_ceil")
-    if vcfg["adaptive_max"] and max_cap is not None:
-        # Use p98 * 1.5, but at least min_ceil, and never above max_cap
-        adaptive_ceil = data_p98 * 1.5
-        if min_ceil is not None:
-            adaptive_ceil = max(adaptive_ceil, min_ceil)
-        scale_max = min(adaptive_ceil, max_cap)
-    elif max_cap is not None:
-        scale_max = max_cap
-    else:
-        scale_max = data_p98
-
-    # Ensure some spread
-    if scale_max - scale_min < 0.01:
-        scale_max = scale_min + 1.0
+    scale_min = vcfg["scale_min"]
+    scale_max = vcfg["scale_max"]
 
     stops = _build_color_stops(ramp, scale_min, scale_max)
 
@@ -577,8 +545,6 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
             "min": round(data_min, 4),
             "max": round(data_max, 4),
             "mean": round(data_mean, 4),
-            "p2": round(data_p2, 4),
-            "p98": round(data_p98, 4),
             "scale_min": round(scale_min, 4),
             "scale_max": round(scale_max, 4),
         },
