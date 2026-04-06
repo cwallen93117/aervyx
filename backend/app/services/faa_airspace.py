@@ -27,11 +27,21 @@ logger = logging.getLogger("faa_airspace")
 # ArcGIS endpoint configuration
 # ---------------------------------------------------------------------------
 
+_CLASS_BASE = "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Class_Airspace/FeatureServer/0"
+_CLASS_FIELDS = "IDENT,NAME,CLASS,LOCAL_TYPE,TYPE_CODE,UPPER_DESC,LOWER_DESC,UPPER_VAL,UPPER_UOM,LOWER_VAL,LOWER_UOM,CITY,STATE"
+
+# Split class airspace into per-class queries to avoid ArcGIS 504 timeouts
+_CLASS_QUERIES = [
+    "CLASS='B'",
+    "CLASS='C'",
+    "CLASS='D'",
+]
+
 _SOURCES = {
     "class": {
-        "base": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Class_Airspace/FeatureServer/0",
-        "fields": "IDENT,NAME,CLASS,LOCAL_TYPE,TYPE_CODE,UPPER_DESC,LOWER_DESC,UPPER_VAL,UPPER_UOM,LOWER_VAL,LOWER_UOM,CITY,STATE",
-        "where": "CLASS IN ('B','C','D') OR LOCAL_TYPE IN ('CLASS_B','CLASS_C','CLASS_D')",
+        "base": _CLASS_BASE,
+        "fields": _CLASS_FIELDS,
+        "where": _CLASS_QUERIES,  # list — fetched as separate queries then merged
     },
     "sua": {
         "base": "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Special_Use_Airspace/FeatureServer/0",
@@ -45,7 +55,7 @@ _SOURCES = {
     },
 }
 
-PAGE_SIZE = 2000
+PAGE_SIZE = 1000
 
 # ---------------------------------------------------------------------------
 # In-memory cache
@@ -427,9 +437,21 @@ async def _fetch_and_import(source: str) -> int:
     cfg = _SOURCES[source]
     async with httpx.AsyncClient() as client:
         logger.info("FAA airspace: fetching %s from ArcGIS...", source)
-        raw_features = await _fetch_arcgis_paginated(
-            client, cfg["base"], cfg["where"], cfg["fields"],
-        )
+
+        where_clauses = cfg["where"]
+        if isinstance(where_clauses, list):
+            # Multiple queries (e.g. per-class) — fetch separately to avoid timeouts
+            raw_features: list[dict] = []
+            for wc in where_clauses:
+                batch = await _fetch_arcgis_paginated(
+                    client, cfg["base"], wc, cfg["fields"],
+                )
+                raw_features.extend(batch)
+                logger.info("FAA airspace: %s query '%s' returned %d features", source, wc, len(batch))
+        else:
+            raw_features = await _fetch_arcgis_paginated(
+                client, cfg["base"], where_clauses, cfg["fields"],
+            )
 
         # Check edit date for meta
         is_stale, edit_date = await _check_freshness(client, source)
