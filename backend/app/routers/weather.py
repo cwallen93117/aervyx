@@ -49,7 +49,7 @@ MODEL_CONFIG: dict[str, dict[str, Any]] = {
         "resolution": "12km",
         "coverage": "N. America",
         "herbie_model": "nam",
-        "default_product": None,
+        "default_product": "awip12",
         "run_hours": [0, 6, 12, 18],
         "max_fxx": 60,
         "fxx_step": 1,
