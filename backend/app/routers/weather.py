@@ -677,9 +677,15 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     png_bytes = _make_png(width_px, height_px, rgba_bytes)
     data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
 
-    # --- Debug value labels: sparse grid of text values for sanity check ---
+    # --- Debug value labels: dense grid of text values for verification ---
+    # Convert to display units for thermal_updraft (m/s → fpm)
+    _MS_TO_FPM = 196.85
+    _display_multiplier = _MS_TO_FPM if variable == "thermal_updraft" else 1.0
+    _display_round = 0 if variable == "thermal_updraft" else 1  # integers for fpm
+
     debug_labels: list[dict] = []
-    label_step = max(1, min(height_px, width_px) // 8)  # ~8x8 grid of labels
+    # ~25x25 grid of labels for good density when zoomed in
+    label_step = max(1, min(height_px, width_px) // 25)
     for r in range(0, height_px, label_step):
         for c in range(0, width_px, label_step):
             val = float(data_sub[r, c]) if not np.isnan(data_sub[r, c]) else None
@@ -692,10 +698,11 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
                 lat_v = float(lats_1d[r]) if r < len(lats_1d) else None
                 lon_v = float(lons_1d[c]) if c < len(lons_1d) else None
             if lat_v is not None and lon_v is not None:
+                display_val = val * _display_multiplier
                 debug_labels.append({
                     "lat": round(lat_v, 2),
                     "lon": round(lon_v, 2),
-                    "val": round(val, 3),
+                    "val": round(display_val, _display_round),
                 })
 
     # MapLibre image source coordinates: [[w,n],[e,n],[e,s],[w,s]]
