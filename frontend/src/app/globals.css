@@ -838,7 +838,7 @@ select {
 .fieldset-cluster .stack.compact input[type="date"],
 .compact-labeled-row label.stack.compact input[type="time"],
 .compact-labeled-row label.stack.compact input[type="date"] {
-  max-width: 152px;
+  max-width: 180px;
 }
 
 .fieldset-cluster .stack.compact input[type="number"],
@@ -1600,12 +1600,12 @@ button[type="submit"]:hover,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 10px;
+  padding: 3px 7px;
   border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--panel);
   color: var(--ink);
-  font-size: 0.8125rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -5069,13 +5069,7 @@ details[open] > summary {
   }
 
   .task-toolbar {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: end;
-  }
-
-  .task-toolbar-left {
-    grid-column: 1 / -1;
+    flex-wrap: wrap;
   }
 
   .task-toolbar-spacer {
@@ -5083,8 +5077,7 @@ details[open] > summary {
   }
 
   .task-toolbar-delete {
-    justify-self: end;
-    margin-left: 0;
+    margin-left: auto;
   }
 
   .event-three-up > :nth-child(2) {
@@ -5145,15 +5138,10 @@ details[open] > summary {
 }
 
 @media (max-width: 780px) {
-  .task-toolbar,
-  .task-toolbar-left,
-  .task-toolbar-actions {
+  .task-toolbar {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .task-toolbar {
     gap: 10px;
   }
 
@@ -5161,8 +5149,7 @@ details[open] > summary {
     min-width: 0;
   }
 
-  .task-toolbar-left > button,
-  .task-toolbar-actions > button,
+  .task-toolbar > button,
   .task-toolbar-delete {
     width: 100%;
   }
