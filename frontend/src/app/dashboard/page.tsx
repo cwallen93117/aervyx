@@ -14,6 +14,7 @@ import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection"
 import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
+import { WeatherSection } from "../../components/dashboard/WeatherSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import {
@@ -89,6 +90,7 @@ const adminSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
+  { id: "weather", label: "Weather" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
@@ -99,6 +101,7 @@ const organizerSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
+  { id: "weather", label: "Weather" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
@@ -107,6 +110,7 @@ const pilotSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
+  { id: "weather", label: "Weather" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const guestSidebarItems = [
@@ -116,18 +120,18 @@ const guestSidebarItems = [
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
   if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings") {
+    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "settings") {
       return section;
     }
     return "tasks";
   }
   if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings") {
+    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "settings") {
       return section;
     }
     return "events";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings" || section === "admin") {
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "settings" || section === "admin") {
     return section;
   }
   return "events";
@@ -2634,6 +2638,8 @@ export default function HomePage() {
               setFlightStar={setLogbookFlightStar}
             />
           );
+        case "weather":
+          return <WeatherSection />;
         case "settings":
           return (
             <SettingsSection
