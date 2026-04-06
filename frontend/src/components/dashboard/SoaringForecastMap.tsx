@@ -70,8 +70,8 @@ type OverlayDef = {
 const OVERLAYS: OverlayDef[] = [
   { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "vertical_velocity_700hPa", legendMinVal: 0,   legendMaxVal: 5,    gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)", colors: ["#3b82f6","#22c55e","#eab308","#ef4444"] },
   { id: "cape",                  label: "CAPE",                    unit: "J/kg", unitType: "jkg",      group: "Thermal / Lift",  variable: "cape",                     legendMinVal: 0,   legendMaxVal: 2000, gradient: "linear-gradient(to right,#3b82f6,#22c55e,#eab308,#ef4444)", colors: ["#3b82f6","#22c55e","#eab308","#ef4444"] },
-  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 4000, gradient: "linear-gradient(to right,#ef4444,#eab308,#22c55e,#3b82f6)", colors: ["#ef4444","#eab308","#22c55e","#3b82f6"] },
-  { id: "boundary_layer_height", label: "Boundary Layer Height",   unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "boundary_layer_height",    legendMinVal: 0,   legendMaxVal: 3500, gradient: "linear-gradient(to right,#ef4444,#eab308,#22c55e,#3b82f6)", colors: ["#ef4444","#eab308","#22c55e","#3b82f6"] },
+  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 7000, gradient: "linear-gradient(to right,#9ca3af,#22c55e,#60a5fa,#a78bfa,#ec4899)", colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"] },
+  { id: "boundary_layer_height", label: "Boundary Layer Height",   unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "boundary_layer_height",    legendMinVal: 0,   legendMaxVal: 5000, gradient: "linear-gradient(to right,#9ca3af,#22c55e,#60a5fa,#a78bfa,#ec4899)", colors: ["#9ca3af","#22c55e","#60a5fa","#ec4899"] },
   { id: "lifted_index",          label: "Lifted Index",            unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "lifted_index",             legendMinVal: -8,  legendMaxVal: 4,    gradient: "linear-gradient(to right,#ef4444,#f97316,#22c55e,#3b82f6)", colors: ["#ef4444","#f97316","#22c55e","#3b82f6"] },
   { id: "cloud_cover",           label: "Cloud Cover",             unit: "%",    unitType: "percent",  group: "Cloud / Weather", variable: "cloud_cover",              legendMinVal: 0,   legendMaxVal: 100,  gradient: "linear-gradient(to right,#f8fafc,#94a3b8,#1e293b,#0f172a)", colors: ["#f8fafc","#94a3b8","#1e293b","#0f172a"] },
   { id: "precipitation",         label: "Precipitation",           unit: "mm",   unitType: "mm",       group: "Cloud / Weather", variable: "precipitation",            legendMinVal: 0,   legendMaxVal: 20,   gradient: "linear-gradient(to right,#f8fafc,#3b82f6,#7c3aed,#7c3aed)", colors: ["#f8fafc","#3b82f6","#7c3aed","#7c3aed"] },
@@ -279,7 +279,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       .finally(() => setMetaLoading(false));
   }, [activeModel]);
 
-  // Fetch grid data and update map overlay
+  // Fetch raster overlay and display as image layer
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapLoaded.current || !activeRun) return;
@@ -295,44 +295,40 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}`;
+    const url = `${api}/api/weather/raster?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}`;
 
     let cancelled = false;
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((geojson: GeoJSON.FeatureCollection) => {
+      .then((data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown> }) => {
         if (cancelled || !mapLoaded.current) return;
         safeRemove(map);
 
         requestAnimationFrame(() => {
           if (cancelled) return;
           try {
-            map.addSource(OVERLAY_SRC, { type: "geojson", data: geojson });
+            const coords = data.coordinates as [[number, number], [number, number], [number, number], [number, number]];
+            map.addSource(OVERLAY_SRC, {
+              type: "image",
+              url: data.image,
+              coordinates: coords,
+            });
             map.addLayer({
               id: OVERLAY_LAYER,
-              type: "circle",
+              type: "raster",
               source: OVERLAY_SRC,
               paint: {
-                "circle-radius": ["interpolate", ["linear"], ["zoom"], 3, 3, 5, 6, 7, 12, 9, 24, 11, 48] as unknown as maplibregl.ExpressionSpecification,
-                "circle-color": [
-                  "interpolate", ["linear"], ["get", "value"],
-                  ov.legendMinVal, ov.colors[0],
-                  ov.legendMinVal + (ov.legendMaxVal - ov.legendMinVal) * 0.33, ov.colors[1],
-                  ov.legendMinVal + (ov.legendMaxVal - ov.legendMinVal) * 0.66, ov.colors[2],
-                  ov.legendMaxVal, ov.colors[3],
-                ] as unknown as maplibregl.ExpressionSpecification,
-                "circle-opacity": opacity / 100,
-                "circle-stroke-width": 0,
-                "circle-blur": 0.6,
+                "raster-opacity": opacity / 100,
+                "raster-fade-duration": 0,
               },
             });
           } catch (err) {
-            console.warn("[SoaringForecast] layer add error:", err);
+            console.warn("[SoaringForecast] raster layer error:", err);
           }
         });
       })
-      .catch(err => console.warn("[SoaringForecast] grid fetch error:", err))
+      .catch(err => console.warn("[SoaringForecast] raster fetch error:", err))
       .finally(() => { if (!cancelled) setGridLoading(false); });
 
     return () => { cancelled = true; safeRemove(map); };
