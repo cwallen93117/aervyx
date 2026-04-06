@@ -1,22 +1,31 @@
 /**
- * FAA Airspace data fetching from public ArcGIS feature services.
- * Two services: Class_Airspace (B/C/D/E/Mode-C) and Special_Use_Airspace (R/P/W/A/MOA).
- * Plus National_Defense_Airspace_TFR_Areas for defense TFRs.
- * All free, no API key, CORS-enabled.
+ * FAA Airspace data — fetched from our backend cache (which syncs from FAA ArcGIS).
+ * Backend: GET /api/faa-airspace/features?west=&south=&east=&north=&categories=
  */
 
 // ---------------------------------------------------------------------------
-// ArcGIS endpoint base URLs
+// API base resolution (same pattern as page.tsx)
 // ---------------------------------------------------------------------------
 
-const CLASS_AIRSPACE_URL =
-  "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Class_Airspace/FeatureServer/0/query";
-const SUA_URL =
-  "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/Special_Use_Airspace/FeatureServer/0/query";
-const NDA_TFR_URL =
-  "https://services6.arcgis.com/ssFJjBXIUyZDrSYZ/arcgis/rest/services/National_Defense_Airspace_TFR_Areas/FeatureServer/0/query";
-
-const PAGE_SIZE = 2000;
+function resolveApiBase() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured?.startsWith("/")) return configured;
+  if (typeof window !== "undefined") {
+    if (configured) {
+      try {
+        const parsed = new URL(configured);
+        if (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") {
+          return `${window.location.protocol}//${window.location.hostname}:${parsed.port || "8000"}`;
+        }
+      } catch {
+        return configured;
+      }
+      return configured;
+    }
+    return "/backend";
+  }
+  return configured ?? "/backend";
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -77,7 +86,7 @@ export const CATEGORY_LABELS: Record<AirspaceCategory, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Internal: paginated ArcGIS GeoJSON fetch
+// Bounds type
 // ---------------------------------------------------------------------------
 
 interface BoundsBox {
@@ -87,162 +96,43 @@ interface BoundsBox {
   north: number;
 }
 
-async function fetchArcGISPaginated(
-  baseUrl: string,
-  bounds: BoundsBox | null,
-  where: string,
-  outFields: string,
+// ---------------------------------------------------------------------------
+// Internal: fetch from backend cache
+// ---------------------------------------------------------------------------
+
+async function fetchFromBackend(
+  bounds: BoundsBox,
+  categories: string,
   signal?: AbortSignal,
-): Promise<GeoJSON.FeatureCollection> {
-  const allFeatures: GeoJSON.Feature[] = [];
-  let offset = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    const params = new URLSearchParams({
-      where,
-      outFields,
-      f: "geojson",
-      outSR: "4326",
-      resultRecordCount: String(PAGE_SIZE),
-      resultOffset: String(offset),
-    });
-
-    if (bounds) {
-      params.set("geometry", `${bounds.west},${bounds.south},${bounds.east},${bounds.north}`);
-      params.set("geometryType", "esriGeometryEnvelope");
-      params.set("spatialRel", "esriSpatialRelIntersects");
-      params.set("inSR", "4326");
-    }
-
-    const resp = await fetch(`${baseUrl}?${params}`, { signal });
-    if (!resp.ok) throw new Error(`ArcGIS query failed: ${resp.status}`);
-    const data = await resp.json();
-
-    const features = data.features ?? [];
-    allFeatures.push(...features);
-
-    if (features.length < PAGE_SIZE) {
-      hasMore = false;
-    } else {
-      offset += PAGE_SIZE;
-    }
-  }
-
-  return { type: "FeatureCollection", features: allFeatures };
+): Promise<GeoJSONFC> {
+  const api = resolveApiBase();
+  const params = new URLSearchParams({
+    west: String(bounds.west),
+    south: String(bounds.south),
+    east: String(bounds.east),
+    north: String(bounds.north),
+    categories,
+  });
+  const resp = await fetch(`${api}/api/faa-airspace/features?${params}`, { signal });
+  if (!resp.ok) throw new Error(`Airspace API failed: ${resp.status}`);
+  return resp.json();
 }
 
 // ---------------------------------------------------------------------------
-// Normalize raw FAA features into our unified schema
-// ---------------------------------------------------------------------------
-
-function normalizeClassAirspace(raw: GeoJSON.FeatureCollection): GeoJSONFeature[] {
-  return (raw.features as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[]).map((f) => {
-    const p = f.properties ?? {};
-    const classVal = (p.CLASS ?? "").toUpperCase();
-    const localType = (p.LOCAL_TYPE ?? "").toUpperCase();
-
-    let category: AirspaceCategory = "E";
-    if (classVal === "B" || localType === "CLASS_B") category = "B";
-    else if (classVal === "C" || localType === "CLASS_C") category = "C";
-    else if (classVal === "D" || localType === "CLASS_D") category = "D";
-    else if (classVal === "E" || localType.startsWith("CLASS_E")) category = "E";
-    else if (localType === "MODE C" || (p.TYPE_CODE ?? "").toUpperCase() === "MODE-C") category = "MODE-C";
-
-    return {
-      ...f,
-      properties: {
-        category,
-        name: p.NAME ?? p.IDENT ?? "Unknown",
-        ident: p.IDENT ?? undefined,
-        upperVal: p.UPPER_VAL != null ? Number(p.UPPER_VAL) : null,
-        upperUom: p.UPPER_UOM ?? "FT",
-        lowerVal: p.LOWER_VAL != null ? Number(p.LOWER_VAL) : null,
-        lowerUom: p.LOWER_UOM ?? "FT",
-        upperDesc: p.UPPER_DESC ?? "",
-        lowerDesc: p.LOWER_DESC ?? "",
-        city: p.CITY ?? undefined,
-        state: p.STATE ?? undefined,
-        source: "class" as const,
-      },
-    };
-  });
-}
-
-function normalizeSUA(raw: GeoJSON.FeatureCollection): GeoJSONFeature[] {
-  return (raw.features as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[]).map((f) => {
-    const p = f.properties ?? {};
-    const typeCode = (p.TYPE_CODE ?? "").toUpperCase();
-
-    let category: AirspaceCategory = "R";
-    if (typeCode === "P") category = "P";
-    else if (typeCode === "R") category = "R";
-    else if (typeCode === "W") category = "W";
-    else if (typeCode === "A") category = "A";
-    else if (typeCode === "M" || typeCode === "MOA") category = "MOA";
-
-    return {
-      ...f,
-      properties: {
-        category,
-        name: p.NAME ?? "Unknown",
-        upperVal: p.UPPER_VAL != null ? Number(p.UPPER_VAL) : null,
-        upperUom: p.UPPER_UOM ?? "FT",
-        lowerVal: p.LOWER_VAL != null ? Number(p.LOWER_VAL) : null,
-        lowerUom: p.LOWER_UOM ?? "FT",
-        upperDesc: p.UPPER_DESC ?? "",
-        lowerDesc: p.LOWER_DESC ?? "",
-        city: p.CITY ?? undefined,
-        state: p.STATE ?? undefined,
-        source: "sua" as const,
-      },
-    };
-  });
-}
-
-function normalizeTFR(raw: GeoJSON.FeatureCollection): GeoJSONFeature[] {
-  return (raw.features as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[]).map((f) => {
-    const p = f.properties ?? {};
-    return {
-      ...f,
-      properties: {
-        category: "TFR" as AirspaceCategory,
-        name: p.NAME ?? "TFR",
-        upperVal: null,
-        upperUom: "FT",
-        lowerVal: null,
-        lowerUom: "FT",
-        upperDesc: p.WKHR_RMK ?? "",
-        lowerDesc: "",
-        city: p.CITY ?? undefined,
-        state: p.STATE ?? undefined,
-        source: "tfr" as const,
-      },
-    };
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Public API
+// Public API (same signatures — AirspaceExplorerMap needs no changes)
 // ---------------------------------------------------------------------------
 
 export async function fetchClassAirspace(bounds: BoundsBox, signal?: AbortSignal): Promise<GeoJSONFC> {
-  const fields = "IDENT,NAME,CLASS,LOCAL_TYPE,TYPE_CODE,UPPER_DESC,LOWER_DESC,UPPER_VAL,UPPER_UOM,LOWER_VAL,LOWER_UOM,CITY,STATE";
-  // Skip Mode-C and Class E (too many, low relevance for paragliding/hang gliding)
-  const where = "CLASS IN ('B','C','D') OR LOCAL_TYPE IN ('CLASS_B','CLASS_C','CLASS_D')";
-  const raw = await fetchArcGISPaginated(CLASS_AIRSPACE_URL, bounds, where, fields, signal);
-  return { type: "FeatureCollection", features: normalizeClassAirspace(raw) };
+  return fetchFromBackend(bounds, "B,C,D", signal);
 }
 
 export async function fetchSpecialUseAirspace(bounds: BoundsBox, signal?: AbortSignal): Promise<GeoJSONFC> {
-  const fields = "NAME,TYPE_CODE,CLASS,UPPER_DESC,LOWER_DESC,UPPER_VAL,UPPER_UOM,LOWER_VAL,LOWER_UOM,CITY,STATE";
-  const raw = await fetchArcGISPaginated(SUA_URL, bounds, "1=1", fields, signal);
-  return { type: "FeatureCollection", features: normalizeSUA(raw) };
+  return fetchFromBackend(bounds, "P,R,W,A,MOA", signal);
 }
 
 export async function fetchTFRs(signal?: AbortSignal): Promise<GeoJSONFC> {
-  const raw = await fetchArcGISPaginated(NDA_TFR_URL, null, "1=1", "*", signal);
-  return { type: "FeatureCollection", features: normalizeTFR(raw) };
+  // Global bbox for TFRs
+  return fetchFromBackend({ west: -180, south: -90, east: 180, north: 90 }, "TFR", signal);
 }
 
 // ---------------------------------------------------------------------------
