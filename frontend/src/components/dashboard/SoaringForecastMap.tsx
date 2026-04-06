@@ -278,7 +278,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         sources: { basemap: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "\u00a9 OpenStreetMap contributors" } },
         layers: [{ id: "bg", type: "background", paint: { "background-color": "#e7eef5" } }, { id: "basemap", type: "raster", source: "basemap" }],
       },
-      center: [-98, 39], zoom: 4,
+      center: [-75.17, 39.95], zoom: 9,  // DEBUG: Philadelphia close-up for grid verification
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 200, unit: "metric" }), "bottom-left");

@@ -677,48 +677,26 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     png_bytes = _make_png(width_px, height_px, rgba_bytes)
     data_uri = "data:image/png;base64," + base64.b64encode(png_bytes).decode()
 
-    # --- Debug value labels: vectorised grid dots for verification ---
-    # Convert to display units for thermal_updraft (m/s → fpm)
+    # --- Compact grid data for on-the-fly debug dot generation ---
+    # Store full-resolution lat/lon/val arrays as compressed binary so the
+    # endpoint can generate step=1 dots within any bbox without re-fetching.
+    import zlib
     _MS_TO_FPM = 196.85
     _display_multiplier = _MS_TO_FPM if variable == "thermal_updraft" else 1.0
-    _display_round = 0 if variable == "thermal_updraft" else 1  # integers for fpm
-
-    # Dynamic step: keep total dots ≤ MAX_DEBUG to avoid huge JSON responses.
-    # At full CONUS zoom, hi-res models (1.9M pts) get step≈7 → ~39K dots.
-    # Zoomed-in bbox filtering later brings it to native res in the viewport.
-    import math
-    MAX_DEBUG = 50_000
-    total_points = height_px * width_px
-    label_step = max(1, int(math.ceil(math.sqrt(total_points / MAX_DEBUG)))) if total_points > MAX_DEBUG else 1
-
-    # Vectorised label generation with numpy — orders of magnitude faster
-    # than a Python double-loop for hi-res grids.
-    r_idx = np.arange(0, height_px, label_step)
-    c_idx = np.arange(0, width_px, label_step)
+    _display_round = 0 if variable == "thermal_updraft" else 1
 
     if is_2d:
-        rr, cc = np.meshgrid(r_idx, c_idx, indexing="ij")
-        lat_arr = lats_sub[rr, cc].ravel()
-        lon_arr = lons_sub[rr, cc].ravel()
-        val_arr = data_sub[rr, cc].ravel()
+        _flat_lat = lats_sub.astype(np.float32).ravel()
+        _flat_lon = lons_sub.astype(np.float32).ravel()
     else:
-        safe_r = r_idx[r_idx < len(lats_1d)]
-        safe_c = c_idx[c_idx < len(lons_1d)]
-        lon_grid, lat_grid = np.meshgrid(lons_1d[safe_c], lats_1d[safe_r])
-        lat_arr = lat_grid.ravel()
-        lon_arr = lon_grid.ravel()
-        val_arr = data_sub[np.ix_(safe_r, safe_c)].ravel() if data_sub.ndim == 2 else data_sub[safe_r].ravel()
+        _lon_grid, _lat_grid = np.meshgrid(lons_1d.astype(np.float32), lats_1d.astype(np.float32))
+        _flat_lat = _lat_grid.ravel()
+        _flat_lon = _lon_grid.ravel()
+    _flat_val = (data_sub.astype(np.float32) * _display_multiplier).ravel()
 
-    # Filter NaN, apply display conversion, round
-    valid_mask = ~np.isnan(val_arr)
-    lat_arr = np.round(lat_arr[valid_mask], 2)
-    lon_arr = np.round(lon_arr[valid_mask], 2)
-    val_arr = np.round(val_arr[valid_mask] * _display_multiplier, _display_round)
-
-    debug_labels: list[dict] = [
-        {"lat": float(lat_arr[i]), "lon": float(lon_arr[i]), "val": float(val_arr[i])}
-        for i in range(len(lat_arr))
-    ]
+    # Pack as [lat, lon, val] interleaved float32, then compress
+    _grid_raw = np.column_stack([_flat_lat, _flat_lon, _flat_val]).tobytes()
+    _grid_compressed = zlib.compress(_grid_raw, 1)  # level 1 = fast
 
     # MapLibre image source coordinates: [[w,n],[e,n],[e,s],[w,s]]
     coordinates = [
@@ -748,7 +726,10 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
             "scale_max": round(scale_max, 4),
         },
         "tiers": tiers,
-        "debug_labels": debug_labels,
+        # Grid data for on-the-fly dot generation (not sent to client directly)
+        "_grid_bytes": _grid_compressed,
+        "_grid_shape": (height_px, width_px),
+        "_display_round": _display_round,
         "meta": {
             "model": model,
             "variable": variable,
@@ -1075,10 +1056,10 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v6"
+    _RASTER_VERSION = "v7"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
-    # Parse optional viewport bounds for filtering debug dots
+    # Parse optional viewport bounds for generating debug dots
     bbox_bounds = None
     if bbox:
         try:
@@ -1088,21 +1069,58 @@ async def weather_raster(
         except ValueError:
             pass
 
-    def _filter_dots(resp: dict) -> dict:
-        """Filter debug_labels to visible viewport — avoids sending 1.9M dots."""
-        if bbox_bounds is None or "debug_labels" not in resp:
+    def _generate_dots(resp: dict) -> dict:
+        """Generate step=1 debug dots on-the-fly from compressed grid data.
+
+        Filters to bbox first (numpy vectorised), then converts only visible
+        points to Python dicts.  Caps at 100K dots to protect the browser.
+        """
+        import zlib
+        grid_bytes = resp.pop("_grid_bytes", None)
+        grid_shape = resp.pop("_grid_shape", None)
+        display_round = resp.pop("_display_round", 1)
+        if grid_bytes is None or grid_shape is None:
             return resp
-        w, s, e, n = bbox_bounds
-        filtered = [
-            lb for lb in resp["debug_labels"]
-            if w <= lb["lon"] <= e and s <= lb["lat"] <= n
+        try:
+            raw = zlib.decompress(grid_bytes)
+        except Exception:
+            return resp
+        n_points = len(raw) // 12  # 3 × float32
+        grid = np.frombuffer(raw, dtype=np.float32).reshape(n_points, 3)
+        lats = grid[:, 0]
+        lons = grid[:, 1]
+        vals = grid[:, 2]
+
+        # Filter NaN
+        valid = ~np.isnan(vals)
+        lats, lons, vals = lats[valid], lons[valid], vals[valid]
+
+        # Bbox filter — step=1, every native grid point within viewport
+        if bbox_bounds is not None:
+            w, s, e, n_ = bbox_bounds
+            mask = (lons >= w) & (lons <= e) & (lats >= s) & (lats <= n_)
+            lats, lons, vals = lats[mask], lons[mask], vals[mask]
+
+        # Safety cap
+        MAX_DOTS = 100_000
+        if len(lats) > MAX_DOTS:
+            step = max(1, len(lats) // MAX_DOTS)
+            lats, lons, vals = lats[::step], lons[::step], vals[::step]
+
+        lats_r = np.round(lats, 2)
+        lons_r = np.round(lons, 2)
+        vals_r = np.round(vals, int(display_round))
+
+        resp["debug_labels"] = [
+            {"lat": float(lats_r[i]), "lon": float(lons_r[i]), "val": float(vals_r[i])}
+            for i in range(len(lats_r))
         ]
-        return {**resp, "debug_labels": filtered}
+        return resp
 
     # Check persistent cache first
     cached = get_cached_raster(cache_key)
     if cached is not None:
-        return JSONResponse(_filter_dots(cached))
+        return JSONResponse(_generate_dots(cached))
 
     loop = asyncio.get_event_loop()
     try:
@@ -1114,14 +1132,14 @@ async def weather_raster(
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}")
 
-    # Store in persistent cache with ALL dots (non-blocking failure is OK)
+    # Store in persistent cache (grid data saved as .grid file alongside PNG)
     try:
         store_raster(cache_key, model, date, hour, fh, variable, result)
     except Exception:
         import logging
         logging.getLogger(__name__).warning("Cache store failed for %s", cache_key, exc_info=True)
 
-    return JSONResponse(_filter_dots(result))
+    return JSONResponse(_generate_dots(result))
 
 
 @router.get("/variables")
