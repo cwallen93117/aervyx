@@ -534,8 +534,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // Dense fixed spacing — show a barb at nearly every grid point
-    const CELL = 22;
+    // ~1 mm spacing at 96 dpi ≈ 4 px
+    const CELL = 4;
     const occupied = new Set<string>();
 
     for (const pt of windBarbsRef.current) {
