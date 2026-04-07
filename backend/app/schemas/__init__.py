@@ -139,6 +139,7 @@ class AdminUserResponse(BaseModel):
     email: str | None = None
     pilot_name: str | None = None
     competition_number: str | None = None
+    mesh_device_id: str | None = None
     is_active: bool
     created_at: datetime
 
@@ -147,6 +148,7 @@ class AdminUserUpdate(BaseModel):
     role: str
     profile_type: str
     is_active: bool = True
+    mesh_device_id: str | None = None
 
 
 class AdminUserCredentialsUpdate(BaseModel):

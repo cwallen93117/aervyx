@@ -376,6 +376,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     <SortHeader field="username" label="Username" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="role" label="Role" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="status" label="Status" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
+                    <th>Mesh Device</th>
                     <th className="participant-table-actions">Actions</th>
                   </tr>
                 </thead>
@@ -423,6 +424,19 @@ export default function AdminSection(props: AdminSectionProps) {
                             />
                             <span>{account.is_active ? "Active" : "Disabled"}</span>
                           </label>
+                        </td>
+                        <td>
+                          <input
+                            type="text"
+                            placeholder="!abcd1234"
+                            value={account.mesh_device_id ?? ""}
+                            style={{ fontSize: "0.75rem", width: "90px", padding: "2px 4px" }}
+                            onChange={(event) => {
+                              const updated = { ...account, mesh_device_id: event.target.value || null };
+                              setAdminUsers((current) => current.map((entry) => entry.id === account.id ? updated : entry));
+                            }}
+                            onBlur={() => void saveAdminUser(account)}
+                          />
                         </td>
                         <td className="participant-table-actions">
                           <div className="compact-slot-actions">

@@ -645,6 +645,7 @@ def list_users(admin: User = Depends(require_admin), session: Session = Depends(
                 else None
             ),
             competition_number=pilots[user.pilot_id].competition_number if user.pilot_id and user.pilot_id in pilots else None,
+            mesh_device_id=user.mesh_device_id,
             is_active=user.is_active,
             created_at=user.created_at,
         )
@@ -677,6 +678,7 @@ def update_user_account(
     target.role = role
     target.profile_type = profile_type
     target.is_active = payload.is_active
+    target.mesh_device_id = (payload.mesh_device_id.strip() or None) if payload.mesh_device_id else None
     session.add(target)
     session.commit()
     session.refresh(target)
@@ -693,6 +695,7 @@ def update_user_account(
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=target.mesh_device_id,
         is_active=target.is_active,
         created_at=target.created_at,
     )
@@ -732,6 +735,7 @@ def update_user_credentials(
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=target.mesh_device_id,
         is_active=target.is_active,
         created_at=target.created_at,
     )

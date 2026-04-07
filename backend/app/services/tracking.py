@@ -46,7 +46,7 @@ def normalize_position_source(raw: str | None) -> str:
     candidate = raw.strip().lower()
     if candidate == "app":
         return "cellular"
-    if candidate == "mqtt_gateway":
+    if candidate in ("mqtt_gateway", "mesh_relay"):
         return "mesh"
     return "other"
 

@@ -1584,6 +1584,7 @@ export default function HomePage() {
           role: userRecord.role,
           profile_type: userRecord.profile_type,
           is_active: userRecord.is_active,
+          mesh_device_id: userRecord.mesh_device_id,
         }),
       });
       setAdminUsers((current) => current.map((entry) => (entry.id === payload.id ? payload : entry)));

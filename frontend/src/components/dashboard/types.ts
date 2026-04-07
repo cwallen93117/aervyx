@@ -36,6 +36,7 @@ export type AdminUserRecord = {
   email: string | null;
   pilot_name: string | null;
   competition_number: string | null;
+  mesh_device_id: string | null;
   is_active: boolean;
   created_at: string;
 };

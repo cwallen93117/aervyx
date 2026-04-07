@@ -74,6 +74,10 @@ class BleService extends ChangeNotifier {
   Timer? _reconnectTimer;
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
 
+  // ── Mesh position relay ──
+  StreamSubscription<List<int>>? _fromNumSubscription;
+  Timer? _meshPollTimer;
+
   // ── SOS ──
   String _sosMessage = 'SOS — Pilot needs immediate assistance';
   bool _isSendingSos = false;
@@ -384,8 +388,9 @@ class BleService extends ChangeNotifier {
       _statusMessage = 'Connected to ${meshDevice.name}';
       _configLoaded = true;
 
-      // Start phone GPS sharing
+      // Start phone GPS sharing and mesh position relay
       _startPhoneGpsSharing();
+      _startMeshPositionRelay();
     } catch (e) {
       _error = 'Connection failed: $e';
       _statusMessage = null;
@@ -410,6 +415,7 @@ class BleService extends ChangeNotifier {
     _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
+    _stopMeshPositionRelay();
     if (_connectedDevice != null) {
       try {
         await _connectedDevice!.device.disconnect();
@@ -435,6 +441,7 @@ class BleService extends ChangeNotifier {
 
     // Clean up connection state
     _stopPhoneGpsSharing();
+    _stopMeshPositionRelay();
     _toRadio = null;
     _fromRadio = null;
     _fromNum = null;
@@ -523,8 +530,9 @@ class BleService extends ChangeNotifier {
       await _readDeviceConfig();
       _configLoaded = true;
 
-      // Restart GPS sharing
+      // Restart GPS sharing and mesh relay
       _startPhoneGpsSharing();
+      _startMeshPositionRelay();
 
       _isReconnecting = false;
       _reconnectAttempts = 0;
@@ -1315,6 +1323,208 @@ class BleService extends ChangeNotifier {
     _phoneGpsTimer = null;
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Mesh position relay — read positions from device and POST to backend
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  void _startMeshPositionRelay() {
+    _stopMeshPositionRelay();
+
+    // Use fromNum notifications if available, otherwise poll
+    if (_fromNum != null) {
+      _fromNum!.setNotifyValue(true).then((_) {
+        _fromNumSubscription = _fromNum!.onValueReceived.listen((_) {
+          _drainFromRadio();
+        });
+      }).catchError((_) {
+        // Fallback to polling if notifications fail
+        _meshPollTimer = Timer.periodic(
+          const Duration(seconds: 5),
+          (_) => _drainFromRadio(),
+        );
+      });
+    } else {
+      // No fromNum — poll periodically
+      _meshPollTimer = Timer.periodic(
+        const Duration(seconds: 5),
+        (_) => _drainFromRadio(),
+      );
+    }
+  }
+
+  void _stopMeshPositionRelay() {
+    _fromNumSubscription?.cancel();
+    _fromNumSubscription = null;
+    _meshPollTimer?.cancel();
+    _meshPollTimer = null;
+  }
+
+  Future<void> _drainFromRadio() async {
+    if (_fromRadio == null) return;
+
+    // Read all available packets (up to 20 per drain cycle)
+    for (var i = 0; i < 20; i++) {
+      List<int> data;
+      try {
+        data = await _fromRadio!.read();
+      } catch (_) {
+        break;
+      }
+      if (data.isEmpty) break;
+
+      final bytes = Uint8List.fromList(data);
+      // Parse for position packets and relay to backend
+      _parseAndRelayMeshPacket(bytes);
+    }
+  }
+
+  void _parseAndRelayMeshPacket(Uint8List data) {
+    try {
+      final reader = ProtoReader(data);
+      while (reader.hasMore) {
+        final (field, wireType) = reader.readTag();
+        if (field == 2) {
+          // MeshPacket
+          final packetBytes = reader.readBytes();
+          _handleMeshPacket(Uint8List.fromList(packetBytes));
+        } else {
+          reader.skip(wireType);
+        }
+      }
+    } catch (_) {
+      // Malformed protobuf — skip
+    }
+  }
+
+  void _handleMeshPacket(Uint8List packetBytes) {
+    try {
+      final mp = ProtoReader(packetBytes);
+      int? fromNode;
+      Uint8List? decodedData;
+
+      while (mp.hasMore) {
+        final (field, wireType) = mp.readTag();
+        switch (field) {
+          case 1: // from (fixed32 — wire type 5)
+            if (wireType == 5) {
+              fromNode = mp.readFixed32();
+            } else {
+              mp.skip(wireType);
+            }
+            break;
+          case 3: // decoded Data (length-delimited)
+            decodedData = Uint8List.fromList(mp.readBytes());
+            break;
+          default:
+            mp.skip(wireType);
+        }
+      }
+
+      if (decodedData == null) return;
+
+      // Parse the Data message
+      final dataReader = ProtoReader(decodedData);
+      int? portnum;
+      Uint8List? payload;
+
+      while (dataReader.hasMore) {
+        final (field, wireType) = dataReader.readTag();
+        switch (field) {
+          case 1: // portnum (varint). POSITION_APP = 3
+            portnum = dataReader.readVarint();
+            break;
+          case 2: // payload (bytes)
+            payload = Uint8List.fromList(dataReader.readBytes());
+            break;
+          default:
+            dataReader.skip(wireType);
+        }
+      }
+
+      if (portnum != 3 || payload == null) return; // Not a position packet
+
+      // Parse Position message
+      final posReader = ProtoReader(payload);
+      int? latI, lonI, alt, time, speed, heading;
+
+      while (posReader.hasMore) {
+        final (field, wireType) = posReader.readTag();
+        switch (field) {
+          case 1: // latitude_i (sfixed32, wire type 5)
+            latI = wireType == 5 ? posReader.readSfixed32() : (posReader.skip(wireType) as dynamic);
+            break;
+          case 2: // longitude_i (sfixed32, wire type 5)
+            lonI = wireType == 5 ? posReader.readSfixed32() : (posReader.skip(wireType) as dynamic);
+            break;
+          case 3: // altitude (varint)
+            alt = posReader.readVarint();
+            break;
+          case 4: // time (varint)
+            time = posReader.readVarint();
+            break;
+          case 8: // ground_speed (varint)
+            speed = posReader.readVarint();
+            break;
+          case 9: // ground_track (varint)
+            heading = posReader.readVarint();
+            break;
+          default:
+            posReader.skip(wireType);
+        }
+      }
+
+      if (latI == null || lonI == null) return;
+      final lat = latI / 1e7;
+      final lon = lonI / 1e7;
+      if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
+      if (lat == 0 && lon == 0) return; // No fix
+
+      final deviceId = fromNode != null ? '!${fromNode.toRadixString(16).padLeft(8, '0')}' : null;
+
+      // POST to backend
+      _relayPositionToBackend(
+        lat: lat,
+        lon: lon,
+        alt: alt?.toDouble(),
+        speed: speed?.toDouble(),
+        heading: heading != null ? heading / 1e5 : null,
+        deviceId: deviceId,
+        timestamp: time != null
+            ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
+            : null,
+      );
+    } catch (_) {
+      // Malformed mesh packet — skip
+    }
+  }
+
+  Future<void> _relayPositionToBackend({
+    required double lat,
+    required double lon,
+    double? alt,
+    double? speed,
+    double? heading,
+    String? deviceId,
+    DateTime? timestamp,
+  }) async {
+    final body = <String, dynamic>{
+      'lat': lat,
+      'lon': lon,
+      if (alt != null) 'alt': alt,
+      if (speed != null) 'speed': speed,
+      if (heading != null) 'heading': heading,
+      if (deviceId != null) 'device_id': deviceId,
+      if (timestamp != null) 'timestamp': timestamp.toIso8601String(),
+      'source': 'mesh_relay',
+    };
+
+    try {
+      await _api.post(ApiConfig.trackPositionPath, body: body);
+    } catch (_) {
+      // Backend unreachable — silently drop (not critical)
+    }
+  }
+
   void _onPhoneGpsUpdate(Position pos) {
     _lastPhonePosition = pos;
     _sendPhonePosition();
@@ -1355,6 +1565,7 @@ class BleService extends ChangeNotifier {
     _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
+    _stopMeshPositionRelay();
     stopScan();
     disconnect();
     super.dispose();

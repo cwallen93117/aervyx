@@ -38,7 +38,7 @@ import aiomqtt
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import SiteSettings, User
+from app.models import Event, EventPilot, SiteSettings, Task, User
 from app.services.tracking import store_position
 
 logger = logging.getLogger("aervyx.mqtt")
@@ -62,12 +62,12 @@ def _parse_position(raw: bytes | bytearray) -> dict | None:
     if not isinstance(data, dict):
         return None
 
-    # Require at minimum lat, lon, and task_id
+    # Require at minimum lat and lon (task_id is resolved later if missing)
     lat = data.get("latitude")
     lon = data.get("longitude")
     task_id = data.get("task_id")
-    if lat is None or lon is None or task_id is None:
-        logger.debug("Ignoring MQTT message missing latitude, longitude, or task_id")
+    if lat is None or lon is None:
+        logger.debug("Ignoring MQTT message missing latitude or longitude")
         return None
 
     ts_raw = data.get("timestamp")
@@ -79,7 +79,7 @@ def _parse_position(raw: bytes | bytearray) -> dict | None:
             pass
 
     return {
-        "task_id": int(task_id),
+        "task_id": int(task_id) if task_id is not None else None,
         "lat": float(lat),
         "lon": float(lon),
         "alt": float(data["altitude"]) if data.get("altitude") is not None else None,
@@ -315,6 +315,24 @@ def _resolve_pilot_id(session, device_id: str | None) -> int | None:
     return user.pilot_id if user else None
 
 
+def _resolve_active_task_id(session, pilot_id: int | None) -> int | None:
+    """Find the active competition task for a pilot, if any."""
+    if pilot_id is None:
+        return None
+    task = session.execute(
+        select(Task)
+        .join(Event, Task.event_id == Event.id)
+        .join(EventPilot, EventPilot.event_id == Event.id)
+        .where(
+            EventPilot.pilot_id == pilot_id,
+            Task.status == "active",
+        )
+        .order_by(Task.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return task.id if task else None
+
+
 def _read_mqtt_config_from_db() -> tuple[str | None, int, str]:
     """Read MQTT broker settings from the site_settings DB row.
 
@@ -385,6 +403,9 @@ async def _subscribe_loop() -> None:
                         # Resolve device_id → pilot_id if not already set
                         if parsed.get("pilot_id") is None and parsed.get("device_id"):
                             parsed["pilot_id"] = _resolve_pilot_id(session, parsed["device_id"])
+                        # Resolve pilot_id → task_id if not already set
+                        if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
+                            parsed["task_id"] = _resolve_active_task_id(session, parsed["pilot_id"])
                         store_position(session, **parsed)
                         session.commit()
                         mqtt_last_message_at = datetime.now(UTC)
