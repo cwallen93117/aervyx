@@ -1303,8 +1303,8 @@ _WIND_BARB_LEVELS: dict[str, tuple[str, str, dict[str, str]]] = {
     "500hPa": (":UGRD:500 mb:",            ":VGRD:500 mb:",            {"hrrr": "prs"}),
 }
 
-# Target total barb count when subsampling
-_BARB_TARGET = 600
+# No subsampling — send every grid point, frontend handles density
+_BARB_STEP = 1
 
 # CONUS clip bounds — same as raster pipeline
 _BARB_LAT = (20.0, 55.0)
@@ -1363,26 +1363,28 @@ def _fetch_wind_barbs(
 
     if is_2d:
         rows, cols = lats.shape
-        total = rows * cols
-        n_step = max(1, int(np.sqrt(total / _BARB_TARGET)))
 
-        points: list[dict] = []
-        for i in range(0, rows, n_step):
-            for j in range(0, cols, n_step):
-                lat_v = float(lats[i, j])
-                lon_v = float(lons[i, j])
-                if not (_BARB_LAT[0] <= lat_v <= _BARB_LAT[1] and _BARB_LON[0] <= lon_v <= _BARB_LON[1]):
-                    continue
-                u_v = float(u_arr[i, j])
-                v_v = float(v_arr[i, j])
-                if np.isnan(u_v) or np.isnan(v_v):
-                    continue
-                points.append({
-                    "lat": round(lat_v, 3),
-                    "lng": round(lon_v, 3),
-                    "u": round(u_v, 3),
-                    "v": round(v_v, 3),
-                })
+        # Vectorised CONUS clip + NaN filter
+        lat_flat = lats[::_BARB_STEP, ::_BARB_STEP].ravel()
+        lon_flat = lons[::_BARB_STEP, ::_BARB_STEP].ravel()
+        u_flat = u_arr[::_BARB_STEP, ::_BARB_STEP].ravel()
+        v_flat = v_arr[::_BARB_STEP, ::_BARB_STEP].ravel()
+
+        mask = (
+            (lat_flat >= _BARB_LAT[0]) & (lat_flat <= _BARB_LAT[1]) &
+            (lon_flat >= _BARB_LON[0]) & (lon_flat <= _BARB_LON[1]) &
+            np.isfinite(u_flat) & np.isfinite(v_flat)
+        )
+        lat_sel = lat_flat[mask]
+        lon_sel = lon_flat[mask]
+        u_sel = u_flat[mask]
+        v_sel = v_flat[mask]
+
+        points: list[dict] = [
+            {"lat": round(float(la), 3), "lng": round(float(lo), 3),
+             "u": round(float(u), 3), "v": round(float(v), 3)}
+            for la, lo, u, v in zip(lat_sel, lon_sel, u_sel, v_sel)
+        ]
     else:
         lats_1d = lats
         lons_1d = lons
@@ -1390,19 +1392,14 @@ def _fetch_wind_barbs(
         # Clip to CONUS
         lat_mask = (lats_1d >= _BARB_LAT[0]) & (lats_1d <= _BARB_LAT[1])
         lon_mask = (lons_1d >= _BARB_LON[0]) & (lons_1d <= _BARB_LON[1])
-        lat_idx_all = np.where(lat_mask)[0]
-        lon_idx_all = np.where(lon_mask)[0]
-
-        n_lat = len(lat_idx_all)
-        n_lon = len(lon_idx_all)
-        total = n_lat * n_lon
-        n_step = max(1, int(np.sqrt(total / _BARB_TARGET)))
+        lat_sel = lats_1d[lat_mask][::_BARB_STEP]
+        lon_sel = lons_1d[lon_mask][::_BARB_STEP]
+        lat_idx = np.where(lat_mask)[0][::_BARB_STEP]
+        lon_idx = np.where(lon_mask)[0][::_BARB_STEP]
 
         points = []
-        for ii in range(0, n_lat, n_step):
-            for jj in range(0, n_lon, n_step):
-                i = int(lat_idx_all[ii])
-                j = int(lon_idx_all[jj])
+        for i in lat_idx:
+            for j in lon_idx:
                 u_v = float(u_arr[i, j]) if u_arr.ndim == 2 else float(u_arr[i])
                 v_v = float(v_arr[i, j]) if v_arr.ndim == 2 else float(v_arr[i])
                 if np.isnan(u_v) or np.isnan(v_v):
