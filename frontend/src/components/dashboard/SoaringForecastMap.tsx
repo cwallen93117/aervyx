@@ -531,10 +531,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // Tight spacing — ~2px between barb centers
-    const CELL = 2;
-    const occupied = new Set<string>();
-
+    // Draw every data point — no deduplication. Density is controlled
+    // by the model's native grid resolution; zooming in reveals more detail.
     for (const pt of windBarbsRef.current) {
       const px = map.project([pt.lng, pt.lat]);
       const x = px.x;
@@ -542,11 +540,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
       // Skip points outside the visible canvas area (with margin)
       if (x < -40 || x > cssW + 40 || y < -40 || y > cssH + 40) continue;
-
-      // Skip if cell already occupied
-      const cellKey = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
-      if (occupied.has(cellKey)) continue;
-      occupied.add(cellKey);
 
       // Convert m/s to knots
       const speedKt = Math.sqrt(pt.u * pt.u + pt.v * pt.v) * 1.94384;
