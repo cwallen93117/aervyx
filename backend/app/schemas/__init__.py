@@ -156,6 +156,10 @@ class AdminUserCredentialsUpdate(BaseModel):
     password: str | None = None
 
 
+class MeshDeviceRegister(BaseModel):
+    mesh_device_id: str | None = None
+
+
 class MapOverlayConfigResponse(BaseModel):
     config: dict
     updated_at: datetime | None = None

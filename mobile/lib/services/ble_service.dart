@@ -190,6 +190,29 @@ class BleService extends ChangeNotifier {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Mesh device auto-registration
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Register the connected device's node ID against the logged-in user.
+  /// Called automatically after BLE connection + config dump completes.
+  /// If the user switches devices, the new ID overwrites the old one.
+  Future<void> _registerMeshDevice() async {
+    if (_deviceState.myNodeNum == 0) return;
+    final deviceId =
+        '!${_deviceState.myNodeNum.toRadixString(16).padLeft(8, '0')}';
+    try {
+      await _api.put(
+        ApiConfig.meshDeviceRegisterPath,
+        body: {'mesh_device_id': deviceId},
+      );
+      debugPrint('Registered mesh device $deviceId');
+    } catch (e) {
+      // Non-critical — device will still work, just won't resolve in MQTT
+      debugPrint('Failed to register mesh device: $e');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // SOS
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -387,6 +410,9 @@ class BleService extends ChangeNotifier {
 
       _statusMessage = 'Connected to ${meshDevice.name}';
       _configLoaded = true;
+
+      // Auto-register this device's node ID against the logged-in user
+      _registerMeshDevice();
 
       // Start phone GPS sharing and mesh position relay
       _startPhoneGpsSharing();

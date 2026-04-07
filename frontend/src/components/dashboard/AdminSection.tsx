@@ -428,9 +428,10 @@ export default function AdminSection(props: AdminSectionProps) {
                         <td>
                           <input
                             type="text"
-                            placeholder="!abcd1234"
+                            placeholder="auto"
                             value={account.mesh_device_id ?? ""}
-                            style={{ fontSize: "0.75rem", width: "90px", padding: "2px 4px" }}
+                            title="Auto-registered when user connects via BLE. Admin can override."
+                            style={{ fontSize: "0.75rem", width: "90px", padding: "2px 4px", fontFamily: "monospace" }}
                             onChange={(event) => {
                               const updated = { ...account, mesh_device_id: event.target.value || null };
                               setAdminUsers((current) => current.map((entry) => entry.id === account.id ? updated : entry));

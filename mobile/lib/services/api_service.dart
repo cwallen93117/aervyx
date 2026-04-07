@@ -61,6 +61,19 @@ class ApiService {
     return decoded is Map<String, dynamic> ? decoded : {};
   }
 
+  Future<Map<String, dynamic>> put(String path,
+      {Map<String, dynamic>? body}) async {
+    final response = await http.put(
+      Uri.parse('$_baseUrl$path'),
+      headers: _headers,
+      body: body != null ? jsonEncode(body) : null,
+    );
+    _assertOk(response);
+    if (response.body.isEmpty) return {};
+    final decoded = jsonDecode(response.body);
+    return decoded is Map<String, dynamic> ? decoded : {};
+  }
+
   /// Upload a file via multipart/form-data POST.
   Future<Map<String, dynamic>> uploadFile(
     String path, {

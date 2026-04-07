@@ -22,6 +22,7 @@ from app.schemas import (
     AccountSettingsUpdateResponse,
     GoogleAuthRequest,
     LoginRequest,
+    MeshDeviceRegister,
     PasswordChangeRequest,
     PilotClaimRequest,
     PilotClaimResponse,
@@ -428,6 +429,46 @@ def change_password(
     session.add(user)
     session.commit()
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Meshtastic device self-registration
+# ---------------------------------------------------------------------------
+
+@router.put("/mesh-device")
+def register_mesh_device(
+    payload: MeshDeviceRegister,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Allow a logged-in user to register (or clear) their own Meshtastic device ID.
+
+    If another user already holds the same device ID that device association is
+    transferred to the caller — the latest BLE pairing wins.
+    Sending null / empty string clears the current user's association.
+    """
+    device_id = (payload.mesh_device_id or "").strip() or None
+
+    if device_id is not None:
+        # Clear the device from any other user who currently holds it
+        previous_owner = session.scalar(
+            select(User).where(User.mesh_device_id == device_id, User.id != user.id)
+        )
+        if previous_owner is not None:
+            previous_owner.mesh_device_id = None
+            session.add(previous_owner)
+            logger.info(
+                "Transferred mesh_device_id %s from user %s to user %s",
+                device_id,
+                previous_owner.username,
+                user.username,
+            )
+
+    user.mesh_device_id = device_id
+    session.add(user)
+    session.commit()
+    logger.info("User %s set mesh_device_id=%s", user.username, device_id)
+    return {"ok": True, "mesh_device_id": device_id}
 
 
 # ---------------------------------------------------------------------------
