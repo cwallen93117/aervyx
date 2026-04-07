@@ -252,7 +252,7 @@ function buildDayGroups(validTimes: string[]): DayGroup[] {
   if (validTimes.length < 2) {
     if (validTimes.length === 1) {
       const d = new Date(validTimes[0]);
-      return [{ label: `${d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} ${d.getUTCDate()}`, startPct: 0, widthPct: 100 }];
+      return [{ label: `${d.toLocaleDateString("en-US", { weekday: "short" })} ${d.getDate()}`, startPct: 0, widthPct: 100 }];
     }
     return [];
   }
@@ -265,17 +265,18 @@ function buildDayGroups(validTimes: string[]): DayGroup[] {
   let groupStartMs = startMs;
   validTimes.forEach((iso, i) => {
     const d = new Date(iso);
-    const dateKey = `${d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} ${d.getUTCDate()}`;
+    // Use local date for grouping
+    const dateKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    const label = `${d.toLocaleDateString("en-US", { weekday: "short" })} ${d.getDate()}`;
     if (dateKey !== currentDate) {
       if (currentDate !== "" && groups.length > 0) {
         const prevEndMs = new Date(validTimes[i - 1]).getTime();
-        // Split at midpoint between last tick of prev day and first tick of this day
         const boundaryMs = (prevEndMs + d.getTime()) / 2;
         groups[groups.length - 1].widthPct = ((boundaryMs - groupStartMs) / spanMs) * 100;
         groupStartMs = boundaryMs;
       }
       currentDate = dateKey;
-      groups.push({ label: dateKey, startPct: ((groupStartMs - startMs) / spanMs) * 100, widthPct: 0 });
+      groups.push({ label, startPct: ((groupStartMs - startMs) / spanMs) * 100, widthPct: 0 });
     }
   });
   if (groups.length > 0) {
@@ -284,8 +285,12 @@ function buildDayGroups(validTimes: string[]): DayGroup[] {
   return groups;
 }
 
-function getHourUTC(iso: string): number {
-  return new Date(iso).getUTCHours();
+function getLocalHour(iso: string): number {
+  return new Date(iso).getHours();
+}
+
+function getLocalMinute(iso: string): number {
+  return new Date(iso).getMinutes();
 }
 
 /* Find closest index in validTimes to a target ISO datetime string */
@@ -660,8 +665,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     ? timePct(validTimes[selectedTimeIdx])
     : 0;
 
-  // Which hour ticks to label (every 3h)
-  const LABEL_HOURS = new Set([0, 3, 6, 9, 12, 15, 18, 21]);
 
   return (
     <div className={styles.shell}>
@@ -786,12 +789,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                   onPointerUp={handleTimelinePointerUp}
                   onPointerCancel={handleTimelinePointerUp}
                 >
-                  {/* Tick marks — absolutely positioned at true time */}
+                  {/* Tick marks — only where data exists, local time labels */}
                   {validTimes.map((iso, i) => {
-                    const h = getHourUTC(iso);
-                    const isLabel = LABEL_HOURS.has(h);
-                    const isMidnight = h === 0;
+                    const h = getLocalHour(iso);
+                    const m = getLocalMinute(iso);
+                    // Only show ticks at round hours (skip sub-hour times)
+                    if (m !== 0) return null;
                     const pct = timePct(iso);
+                    const isMidnight = h === 0;
+                    // Format as 12h: 12a, 3p, etc.
+                    const ampm = h < 12 ? "a" : "p";
+                    const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+                    const label = `${h12}${ampm}`;
                     return (
                       <div
                         key={i}
@@ -802,14 +811,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                           className={[
                             styles.timelineTickMark,
                             isMidnight ? styles.timelineTickMidnight : "",
-                            isLabel ? styles.timelineTickLabeled : "",
+                            styles.timelineTickLabeled,
                           ].join(" ")}
                         />
-                        {isLabel && (
-                          <span className={styles.timelineTickLabel}>
-                            {String(h).padStart(2, "0")}
-                          </span>
-                        )}
+                        <span className={styles.timelineTickLabel}>
+                          {label}
+                        </span>
                       </div>
                     );
                   })}
