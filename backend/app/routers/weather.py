@@ -730,8 +730,17 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     }
 
 
-def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
-    """Convert grid arrays to GeoJSON features, subsampling every `step` points."""
+def _build_geojson(
+    lats: Any,
+    lons: Any,
+    data: Any,
+    step: int,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> list[dict]:
+    """Convert grid arrays to GeoJSON features, subsampling every `step` points.
+
+    bbox = (lat_min, lat_max, lon_min, lon_max) — if given, skip points outside.
+    """
     features: list[dict] = []
     if lats.ndim == 2:
         for i in range(0, lats.shape[0], step):
@@ -743,6 +752,8 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
                 lon_v = float(lons[i, j])
                 if lon_v > 180:
                     lon_v -= 360
+                if bbox and not (bbox[0] <= lat_v <= bbox[1] and bbox[2] <= lon_v <= bbox[3]):
+                    continue
                 features.append({
                     "type": "Feature",
                     "geometry": {"type": "Point", "coordinates": [round(lon_v, 3), round(lat_v, 3)]},
@@ -750,6 +761,9 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
                 })
     else:
         for i in range(0, len(lats), step):
+            lat_v = float(lats[i])
+            if bbox and not (bbox[0] <= lat_v <= bbox[1]):
+                continue
             for j in range(0, len(lons), step):
                 val = float(data[i, j]) if data.ndim > 1 else float(data[i])
                 if np.isnan(val):
@@ -757,15 +771,17 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
                 lon_v = float(lons[j])
                 if lon_v > 180:
                     lon_v -= 360
+                if bbox and not (bbox[2] <= lon_v <= bbox[3]):
+                    continue
                 features.append({
                     "type": "Feature",
-                    "geometry": {"type": "Point", "coordinates": [round(lon_v, 3), round(float(lats[i]), 3)]},
+                    "geometry": {"type": "Point", "coordinates": [round(lon_v, 3), round(lat_v, 3)]},
                     "properties": {"value": round(val, 2)},
                 })
     return features
 
 
-def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: str, step_override: int | None = None) -> dict:
+def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: str, step_override: int | None = None, bbox: tuple[float, float, float, float] | None = None) -> dict:
     """Synchronous Herbie fetch — runs in thread pool."""
     from herbie import Herbie
 
@@ -802,7 +818,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
 
         lats = ds_u.latitude.values
         lons = ds_u.longitude.values
-        features = _build_geojson(lats, lons, speed, step)
+        features = _build_geojson(lats, lons, speed, step, bbox)
     elif variable in ("thermal_updraft", "soaring_quality", "bsratio"):
         # Derived soaring variables — graceful fallback for missing SHTFL
         from app.services.soaring_derivation import (
@@ -881,7 +897,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
         else:
             arr = wstar
 
-        features = _build_geojson(lats, lons, arr, step)
+        features = _build_geojson(lats, lons, arr, step, bbox)
     else:
         try:
             ds = H.xarray(vdef["search"])
@@ -899,7 +915,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
 
         lats = ds.latitude.values
         lons = ds.longitude.values
-        features = _build_geojson(lats, lons, arr, step)
+        features = _build_geojson(lats, lons, arr, step, bbox)
 
     vcfg = _VAR_SCALE.get(variable, {"scale_min": 0, "scale_max": 1})
     return {
@@ -1121,28 +1137,23 @@ async def weather_grid(
     if model in VARIABLES[variable].get("exclude_models", []):
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
-    def _clip_features(data: dict) -> dict:
-        if lat_min is None or lat_max is None or lon_min is None or lon_max is None:
-            return data
-        clipped = [
-            f for f in data["features"]
-            if lat_min <= f["geometry"]["coordinates"][1] <= lat_max
-            and lon_min <= f["geometry"]["coordinates"][0] <= lon_max
-        ]
-        return {**data, "features": clipped}
+    # Build bbox tuple if all bounds provided
+    bbox = None
+    if lat_min is not None and lat_max is not None and lon_min is not None and lon_max is not None:
+        bbox = (lat_min, lat_max, lon_min, lon_max)
 
     # No caching — always fetch live data for debugging
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
-            _executor, _fetch_grid, model, date, hour, fh, variable, step
+            _executor, _fetch_grid, model, date, hour, fh, variable, step, bbox
         )
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}")
 
-    return JSONResponse(_clip_features(result))
+    return JSONResponse(result)
 
 
 @router.get("/raster")
