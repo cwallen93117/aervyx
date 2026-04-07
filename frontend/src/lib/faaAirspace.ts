@@ -136,9 +136,11 @@ export async function fetchTFRs(signal?: AbortSignal): Promise<GeoJSONFC> {
 }
 
 // ---------------------------------------------------------------------------
-// OpenAir export
+// OpenAir export — follows Naviter OpenAir 2.1 spec
+// https://github.com/naviter/seeyou_file_formats/blob/main/OpenAir_File_Format_Support.md
 // ---------------------------------------------------------------------------
 
+/** Convert decimal degrees to DMS string: DD:MM:SS N/S or DDD:MM:SS E/W */
 function decimalToDMS(dec: number, isLon: boolean): string {
   const abs = Math.abs(dec);
   const d = Math.floor(abs);
@@ -147,7 +149,11 @@ function decimalToDMS(dec: number, isLon: boolean): string {
   const s = Math.round((mFloat - m) * 60);
   const dir = isLon ? (dec >= 0 ? "E" : "W") : (dec >= 0 ? "N" : "S");
   const dPad = isLon ? String(d).padStart(3, "0") : String(d).padStart(2, "0");
-  return `${dPad}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")} ${dir}`;
+  return `${dPad}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}${dir}`;
+}
+
+function fmtPoint(lat: number, lon: number): string {
+  return `${decimalToDMS(lat, false)} ${decimalToDMS(lon, true)}`;
 }
 
 function categoryToOpenAirClass(cat: AirspaceCategory): string {
@@ -159,18 +165,93 @@ function categoryToOpenAirClass(cat: AirspaceCategory): string {
     case "P": return "P";
     case "R": return "R";
     case "W": return "W";
-    case "A": return "R"; // Alert → use R in OpenAir
-    case "MOA": return "Q"; // MOA → Danger in OpenAir
+    case "A": return "R";
+    case "MOA": return "Q";
     case "TFR": return "R";
     case "MODE-C": return "E";
   }
 }
 
-function formatAltitude(val: number | null, uom: string): string {
-  if (val == null || val === 0) return "SFC";
+/** Format altitude per OpenAir spec */
+function formatAltitude(val: number | null, uom: string, isUpper: boolean): string {
+  if (isUpper && (val == null || val === 0)) return "UNL";
+  if (!isUpper && (val == null || val === 0)) return "GND";
   if (uom === "FL") return `FL${val}`;
-  return `${val}${uom}`;
+  return `${val}ft AMSL`;
 }
+
+// --- Circle detection ---
+
+const NM_PER_DEG_LAT = 60; // 1 degree latitude ≈ 60 nm
+
+/** Compute centroid of a ring of [lon, lat] coordinates */
+function centroid(ring: number[][]): [number, number] {
+  let sumLon = 0, sumLat = 0;
+  // Exclude closing point if it duplicates first
+  const n = (ring.length > 1 &&
+    ring[0][0] === ring[ring.length - 1][0] &&
+    ring[0][1] === ring[ring.length - 1][1])
+    ? ring.length - 1 : ring.length;
+  for (let i = 0; i < n; i++) {
+    sumLon += ring[i][0];
+    sumLat += ring[i][1];
+  }
+  return [sumLon / n, sumLat / n];
+}
+
+/** Haversine distance between two points in nautical miles */
+function distNm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const toRad = Math.PI / 180;
+  const dLat = (lat2 - lat1) * toRad;
+  const dLon = (lon2 - lon1) * toRad;
+  const a = Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLon / 2) ** 2;
+  return 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 3440.065; // Earth radius in nm
+}
+
+/**
+ * Detect if a polygon ring is approximately circular.
+ * Returns { centerLat, centerLon, radiusNm } or null.
+ * Tolerance: all vertices within 5% of the mean radius.
+ */
+function detectCircle(ring: number[][]): { centerLat: number; centerLon: number; radiusNm: number } | null {
+  if (ring.length < 12) return null; // too few points to be a circle
+  const [cLon, cLat] = centroid(ring);
+  const distances = ring.map(([lon, lat]) => distNm(cLat, cLon, lat, lon));
+  const mean = distances.reduce((a, b) => a + b, 0) / distances.length;
+  if (mean < 0.5) return null; // too small
+  const maxDev = Math.max(...distances.map((d) => Math.abs(d - mean)));
+  if (maxDev / mean > 0.05) return null; // not circular enough
+  return { centerLat: cLat, centerLon: cLon, radiusNm: Math.round(mean * 100) / 100 };
+}
+
+// --- Polygon simplification (Ramer-Douglas-Peucker) ---
+
+function perpDist(pt: number[], lineStart: number[], lineEnd: number[]): number {
+  const dx = lineEnd[0] - lineStart[0];
+  const dy = lineEnd[1] - lineStart[1];
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return Math.hypot(pt[0] - lineStart[0], pt[1] - lineStart[1]);
+  const t = Math.max(0, Math.min(1, ((pt[0] - lineStart[0]) * dx + (pt[1] - lineStart[1]) * dy) / lenSq));
+  return Math.hypot(pt[0] - (lineStart[0] + t * dx), pt[1] - (lineStart[1] + t * dy));
+}
+
+function simplifyRing(ring: number[][], epsilon: number): number[][] {
+  if (ring.length <= 4) return ring;
+  let maxDist = 0, idx = 0;
+  for (let i = 1; i < ring.length - 1; i++) {
+    const d = perpDist(ring[i], ring[0], ring[ring.length - 1]);
+    if (d > maxDist) { maxDist = d; idx = i; }
+  }
+  if (maxDist > epsilon) {
+    const left = simplifyRing(ring.slice(0, idx + 1), epsilon);
+    const right = simplifyRing(ring.slice(idx), epsilon);
+    return [...left.slice(0, -1), ...right];
+  }
+  return [ring[0], ring[ring.length - 1]];
+}
+
+// --- Main export ---
 
 export function toOpenAir(features: GeoJSONFeature[]): string {
   const lines: string[] = [];
@@ -179,15 +260,25 @@ export function toOpenAir(features: GeoJSONFeature[]): string {
     const p = f.properties;
     lines.push(`AC ${categoryToOpenAirClass(p.category)}`);
     lines.push(`AN ${p.name}`);
-    lines.push(`AH ${formatAltitude(p.upperVal, p.upperUom)}`);
-    lines.push(`AL ${formatAltitude(p.lowerVal, p.lowerUom)}`);
+    lines.push(`AH ${formatAltitude(p.upperVal, p.upperUom, true)}`);
+    lines.push(`AL ${formatAltitude(p.lowerVal, p.lowerUom, false)}`);
 
-    const coords = f.geometry.type === "Polygon"
+    const ring = f.geometry.type === "Polygon"
       ? f.geometry.coordinates[0]
       : f.geometry.coordinates[0]?.[0] ?? [];
 
-    for (const [lon, lat] of coords) {
-      lines.push(`DP ${decimalToDMS(lat, false)} ${decimalToDMS(lon, true)}`);
+    // Try circle detection first (common for Class C/D)
+    const circle = detectCircle(ring);
+    if (circle) {
+      lines.push(`V X=${fmtPoint(circle.centerLat, circle.centerLon)}`);
+      lines.push(`DC ${circle.radiusNm}`);
+    } else {
+      // Polygon — simplify to reduce noise, then emit DP points
+      // epsilon ~0.001° ≈ ~60m, good tradeoff for airspace boundaries
+      const simplified = simplifyRing(ring, 0.001);
+      for (const [lon, lat] of simplified) {
+        lines.push(`DP ${fmtPoint(lat, lon)}`);
+      }
     }
 
     lines.push("");
