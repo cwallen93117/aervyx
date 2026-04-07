@@ -413,41 +413,34 @@ def _colorize_array(
     data: Any,
     stops: list[tuple[float, int, int, int, int]],
 ) -> bytes:
-    """Vectorized: map a 2-D float array to RGBA bytes via smooth interpolation.
+    """Vectorized: map a 2-D float array to RGBA bytes via discrete stepped coloring.
 
-    Linearly interpolates R, G, B, A between adjacent color stops, producing
-    a smooth gradient overlay like XC Skies.
+    Each value is assigned the solid color of its floor color stop — no blending.
+    For value V between stop[i] and stop[i+1], the color of stop[i] is used.
     """
     flat = data.ravel().astype(np.float64)
     n = len(flat)
     nan_mask = np.isnan(flat)
-    # Pre-fill with transparent
-    r = np.zeros(n, dtype=np.float64)
-    g = np.zeros(n, dtype=np.float64)
-    b = np.zeros(n, dtype=np.float64)
-    a = np.zeros(n, dtype=np.float64)
-    valid = ~nan_mask
-    vals = flat[valid]
-    # Clamp to stop range
-    vmin, vmax = stops[0][0], stops[-1][0]
-    vals = np.clip(vals, vmin, vmax)
-    # Build arrays of stop positions and RGBA values for np.interp
+
     positions = np.array([s[0] for s in stops], dtype=np.float64)
-    r_stops = np.array([s[1] for s in stops], dtype=np.float64)
-    g_stops = np.array([s[2] for s in stops], dtype=np.float64)
-    b_stops = np.array([s[3] for s in stops], dtype=np.float64)
-    a_stops = np.array([s[4] for s in stops], dtype=np.float64)
-    # Smooth linear interpolation between stops
-    r[valid] = np.interp(vals, positions, r_stops)
-    g[valid] = np.interp(vals, positions, g_stops)
-    b[valid] = np.interp(vals, positions, b_stops)
-    a[valid] = np.interp(vals, positions, a_stops)
-    # Interleave RGBA
+    r_stops = np.array([s[1] for s in stops], dtype=np.uint8)
+    g_stops = np.array([s[2] for s in stops], dtype=np.uint8)
+    b_stops = np.array([s[3] for s in stops], dtype=np.uint8)
+    a_stops = np.array([s[4] for s in stops], dtype=np.uint8)
+
+    # Floor-step: searchsorted(side='right') - 1 gives the lower boundary index
+    indices = np.searchsorted(positions, flat, side='right') - 1
+    indices = np.clip(indices, 0, len(stops) - 1)
+
     rgba = np.zeros(n * 4, dtype=np.uint8)
-    rgba[0::4] = np.clip(r, 0, 255).astype(np.uint8)
-    rgba[1::4] = np.clip(g, 0, 255).astype(np.uint8)
-    rgba[2::4] = np.clip(b, 0, 255).astype(np.uint8)
-    rgba[3::4] = np.clip(a, 0, 255).astype(np.uint8)
+    rgba[0::4] = r_stops[indices]
+    rgba[1::4] = g_stops[indices]
+    rgba[2::4] = b_stops[indices]
+    rgba[3::4] = a_stops[indices]
+
+    # NaN pixels → fully transparent
+    rgba[np.repeat(nan_mask, 4)] = 0
+
     return bytes(rgba)
 
 
@@ -1173,7 +1166,7 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v10"
+    _RASTER_VERSION = "v11"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
     # Check persistent cache first
