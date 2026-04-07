@@ -86,9 +86,13 @@ function steppedGradient(colors: string[]): string {
 }
 
 const OVERLAYS: OverlayDef[] = [
-  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 6706, gradient: steppedGradient(["#645a78","#78649b","#a08cbe","#8278c8","#506ec8","#5a96d2","#64b9dc","#3cb4b4","#3cb98c","#46b45a","#64c83c","#a0d232","#d2d232","#dcc846","#e1b432","#e6aa64","#dc9678","#d7a0a0","#c8c3c3","#d7d2d2","#e6e1c8","#ebe6d2","#f0f0e6"]),
-    colors: ["#645a78","#78649b","#a08cbe","#8278c8","#506ec8","#5a96d2","#64b9dc","#3cb4b4","#3cb98c","#46b45a","#64c83c","#a0d232","#d2d232","#dcc846","#e1b432","#e6aa64","#dc9678","#d7a0a0","#c8c3c3","#d7d2d2","#e6e1c8","#ebe6d2","#f0f0e6"],
-    tierValues: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000, 21000, 22000], excludeModels: ["nbm"] },
+  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 6096, gradient: steppedGradient([
+    "#645a78","#78649b","#a08cbe","#8278c8","#506ec8","#5a96d2","#64b9dc","#3cb4b4","#3cb98c","#46b45a",
+    "#64c83c","#a0d232","#d2d232","#dcc846","#e1b432","#e6aa64","#dc9678","#d7a0a0","#c8c3c3","#d7d2d2","#f0f0e6"]),
+    colors: [
+      "#645a78","#78649b","#a08cbe","#8278c8","#506ec8","#5a96d2","#64b9dc","#3cb4b4","#3cb98c","#46b45a",
+      "#64c83c","#a0d232","#d2d232","#dcc846","#e1b432","#e6aa64","#dc9678","#d7a0a0","#c8c3c3","#d7d2d2","#f0f0e6"],
+    tierValues: [0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000], excludeModels: ["nbm"] },
   { id: "thermal_strength",      label: "Thermal Strength",        unit: "m/s",  unitType: "vario",    group: "Thermal / Lift",  variable: "thermal_updraft",          legendMinVal: 0,   legendMaxVal: 6.096, gradient: steppedGradient(["rgb(200,220,255)","rgb(130,180,240)","rgb(60,160,220)","rgb(40,180,140)","rgb(80,190,60)","rgb(180,210,40)","rgb(240,190,30)","rgb(230,110,20)","rgb(210,30,30)"]), colors: ["#c8dcff","#82b4f0","#3ca0dc","#28b48c","#50be3c","#b4d228","#f0be1e","#e66e14","#d21e1e"], tierValues: [0, 100, 200, 300, 400, 500, 700, 900, 1200], excludeModels: ["nbm"] },
   { id: "bsratio",               label: "B:S Ratio",               unit: "",     unitType: "none",     group: "Thermal / Lift",  variable: "bsratio",                  legendMinVal: 0,   legendMaxVal: 20,   gradient: steppedGradient(["#dc3c3c","#e68c28","#dcc828","#78c83c","#3cb48c","#2878c8"]), colors: ["#dc3c3c","#e68c28","#dcc828","#78c83c","#3cb48c","#2878c8"], tierValues: [0, 3, 5, 7, 10, 15, 20], excludeModels: ["nbm"] },
   { id: "wind_surface",          label: "Surface Wind",            unit: "kt",   unitType: "speed",    group: "Wind",            variable: "wind_speed_10m",           legendMinVal: 0,   legendMaxVal: 60,   gradient: steppedGradient(["#22c55e","#84cc16","#eab308","#f97316","#ef4444"]), colors: ["#22c55e","#eab308","#ef4444","#ef4444"], excludeModels: ["nbm"] },
