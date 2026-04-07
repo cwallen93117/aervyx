@@ -447,9 +447,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    // Debug grid step: step=1 for coarse models, step=3 for fine-res (HRRR/NAM3km) to keep response manageable
-    const debugStep = (activeModel === "hrrr" || activeModel === "nam3km") ? 3 : 1;
-    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=${debugStep}`;
+    // Debug: step=1 for all models (full native resolution)
+    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=1`;
 
     let cancelled = false;
 
