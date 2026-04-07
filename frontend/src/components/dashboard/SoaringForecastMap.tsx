@@ -519,7 +519,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssH = H / dpr;
 
     // Track which screen cells are occupied to avoid over-dense barbs
-    const CELL = 28; // minimum pixel spacing between barb centers
+    const CELL = 14; // minimum pixel spacing between barb centers
     const occupied = new Set<string>();
 
     for (const pt of windBarbsRef.current) {
