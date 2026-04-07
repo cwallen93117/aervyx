@@ -318,12 +318,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isDraggingRef = useRef(false);
 
-  const [activeModel, setActiveModel] = useState<ModelId>("hrrr");
+  const [activeModel, setActiveModel] = useState<ModelId>("gfs");
   const [activeRun, setActiveRun] = useState<RunInfo | null>(null);
   const [selectedTimeIdx, setSelectedTimeIdx] = useState(0);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
-  const [activeOverlay, setActiveOverlay] = useState<string>("thermal_strength");
+  const [activeOverlay, setActiveOverlay] = useState<string>("convective_cloud_top");
   const [opacity, setOpacity] = useState(85);
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);
@@ -347,10 +347,11 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       container: containerRef.current,
       style: {
         version: 8,
-        sources: { basemap: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256, attribution: "\u00a9 OpenStreetMap contributors" } },
+        sources: { basemap: { type: "raster", tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"], tileSize: 256 } },
         layers: [{ id: "bg", type: "background", paint: { "background-color": "#e7eef5" } }, { id: "basemap", type: "raster", source: "basemap" }],
       },
       center: savedView.center, zoom: savedView.zoom,
+      attributionControl: false,
     });
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     map.addControl(new maplibregl.ScaleControl({ maxWidth: 200, unit: "metric" }), "bottom-left");
