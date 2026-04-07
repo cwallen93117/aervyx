@@ -447,8 +447,11 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    // Debug: step=1 for all models (full native resolution)
-    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=1`;
+    // Debug: step=1 for all models (full native resolution), viewport-bounded
+    const map2 = mapRef.current;
+    const bounds = map2?.getBounds();
+    const bboxParam = bounds ? `&lat_min=${bounds.getSouth().toFixed(2)}&lat_max=${bounds.getNorth().toFixed(2)}&lon_min=${bounds.getWest().toFixed(2)}&lon_max=${bounds.getEast().toFixed(2)}` : "";
+    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=1${bboxParam}`;
 
     let cancelled = false;
 
@@ -514,7 +517,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeModel, activeOverlay, selectedTimeIdx, activeRun, validTimes, mapReady]);
+  }, [activeModel, activeOverlay, selectedTimeIdx, activeRun, validTimes, mapReady, barbBoundsKey]);
 
   // Update opacity without refetching
   useEffect(() => {

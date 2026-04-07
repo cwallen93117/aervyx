@@ -1110,6 +1110,8 @@ async def weather_grid(
     fh: int = Query(..., description="Forecast hour"),
     variable: str = Query(..., description="Variable name"),
     step: int | None = Query(None, description="Override subsample step (1=full resolution)"),
+    lat_min: float | None = Query(None), lat_max: float | None = Query(None),
+    lon_min: float | None = Query(None), lon_max: float | None = Query(None),
 ):
     """Fetch a model grid via Herbie and return subsampled GeoJSON."""
     if model not in MODEL_CONFIG:
@@ -1119,13 +1121,23 @@ async def weather_grid(
     if model in VARIABLES[variable].get("exclude_models", []):
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
-    cache_key = f"{model}:{date}:{hour}:{fh}:{variable}"
+    def _clip_features(data: dict) -> dict:
+        if lat_min is None or lat_max is None or lon_min is None or lon_max is None:
+            return data
+        clipped = [
+            f for f in data["features"]
+            if lat_min <= f["geometry"]["coordinates"][1] <= lat_max
+            and lon_min <= f["geometry"]["coordinates"][0] <= lon_max
+        ]
+        return {**data, "features": clipped}
+
+    cache_key = f"{model}:{date}:{hour}:{fh}:{variable}:{step}"
     now = time.time()
 
     if cache_key in _grid_cache:
         data, ts = _grid_cache[cache_key]
         if now - ts < GRID_TTL:
-            return JSONResponse(data)
+            return JSONResponse(_clip_features(data))
 
     loop = asyncio.get_event_loop()
     try:
@@ -1144,7 +1156,7 @@ async def weather_grid(
         if now - ts > GRID_TTL:
             del _grid_cache[k]
 
-    return JSONResponse(result)
+    return JSONResponse(_clip_features(result))
 
 
 @router.get("/raster")
