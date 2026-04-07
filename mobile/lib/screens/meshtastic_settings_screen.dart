@@ -124,25 +124,33 @@ void _showProfileComparison(BuildContext context) {
   ];
 
   String fmtBool(bool v) => v ? 'On' : 'Off';
-  String fmtSecs(int s) => s >= 60 ? '${s ~/ 60}min' : '${s}s';
-  String fmtSmart(ProfileConfig c) =>
-      c.smartPositionEnabled ? 'On (${c.smartMinDistance}m/${c.smartMinInterval}s)' : 'Off';
-  String fmtMqtt(ProfileConfig c) => c.wifiEnabled ? 'Direct' : 'Phone proxy';
-  String fmtDisplay(int s) => s == 0 ? 'Off' : '${s}s';
+  String fmtSecs(int s) {
+    if (s >= 86400) return '${s ~/ 86400}d';
+    if (s >= 3600) return '${s ~/ 3600}h';
+    if (s >= 60) return '${s ~/ 60}min';
+    return '${s}s';
+  }
+  String fmtDisplay(int s) => s == 0 ? 'Default' : '${s}s';
 
   final rows = <_CompRow>[
     _CompRow('Role', (c) => c.role.label),
-    _CompRow('Position interval', (c) => fmtSecs(c.positionBroadcastSecs)),
-    _CompRow('Smart position', (c) => fmtSmart(c)),
-    _CompRow('Wi-Fi', (c) => fmtBool(c.wifiEnabled)),
-    _CompRow('MQTT via', (c) => fmtMqtt(c)),
+    _CompRow('Rebroadcast', (c) => c.rebroadcastMode.label),
     _CompRow('Power saving', (c) => fmtBool(c.powerSaving)),
+    _CompRow('GPS mode', (c) => c.gpsMode.label),
+    _CompRow('Position interval', (c) => fmtSecs(c.positionBroadcastSecs)),
+    _CompRow('Smart position', (c) => fmtBool(c.smartPositionEnabled),
+        info: 'When enabled, the device sends position updates early if it '
+            'detects significant movement based on the min distance and min '
+            'interval thresholds, rather than waiting for the full broadcast '
+            'interval. Helps capture turns and altitude changes in flight.'),
+    _CompRow('Smart min distance', (c) => '${c.smartMinDistance}m'),
+    _CompRow('Smart min interval', (c) => '${c.smartMinInterval}s'),
+    _CompRow('Modem preset', (c) => c.modemPreset.label),
+    _CompRow('Hop limit', (c) => '${c.hopLimit}'),
+    _CompRow('Bluetooth', (c) => fmtBool(c.bluetoothEnabled)),
+    _CompRow('Wi-Fi', (c) => fmtBool(c.wifiEnabled)),
     _CompRow('Display timeout', (c) => fmtDisplay(c.displayTimeoutSecs)),
     _CompRow('Telemetry interval', (c) => fmtSecs(c.telemetryIntervalSecs)),
-    _CompRow('Hop limit', (c) => '${c.hopLimit}'),
-    _CompRow('Modem preset', (c) => c.modemPreset.label),
-    _CompRow('Bluetooth', (c) => fmtBool(c.bluetoothEnabled)),
-    _CompRow('Rebroadcast', (c) => c.rebroadcastMode.label),
   ];
 
   showModalBottomSheet(
@@ -163,30 +171,31 @@ void _showProfileComparison(BuildContext context) {
                   style: theme.textTheme.titleMedium),
             ),
             Expanded(
-              child: SingleChildScrollView(
+              child: ListView.builder(
                 controller: controller,
-                scrollDirection: Axis.horizontal,
-                child: DataTable(
-                  columnSpacing: 16,
-                  headingTextStyle: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                  dataTextStyle: theme.textTheme.bodySmall,
-                  columns: [
-                    const DataColumn(label: Text('Setting')),
-                    ...entries.map((p) => DataColumn(label: Text(p.label))),
-                  ],
-                  rows: rows.map((row) {
-                    return DataRow(cells: [
-                      DataCell(Text(row.label,
-                          style: const TextStyle(fontWeight: FontWeight.w500))),
-                      ...entries.map((p) {
-                        final config = profiles[p]!;
-                        return DataCell(Text(row.getter(config)));
-                      }),
-                    ]);
-                  }).toList(),
-                ),
+                itemCount: rows.length + 1, // +1 for header
+                itemBuilder: (_, index) {
+                  if (index == 0) {
+                    // Header row
+                    return _CompTableRow(
+                      label: 'Setting',
+                      values: entries.map((p) => p.label).toList(),
+                      isHeader: true,
+                      theme: theme,
+                    );
+                  }
+                  final row = rows[index - 1];
+                  return _CompTableRow(
+                    label: row.label,
+                    values: entries.map((p) {
+                      final config = profiles[p]!;
+                      return row.getter(config);
+                    }).toList(),
+                    isHeader: false,
+                    theme: theme,
+                    info: row.info,
+                  );
+                },
               ),
             ),
           ],
@@ -196,10 +205,110 @@ void _showProfileComparison(BuildContext context) {
   );
 }
 
+/// A single row in the comparison table with frozen Setting column.
+class _CompTableRow extends StatelessWidget {
+  final String label;
+  final List<String> values;
+  final bool isHeader;
+  final ThemeData theme;
+  final String? info;
+
+  const _CompTableRow({
+    required this.label,
+    required this.values,
+    required this.isHeader,
+    required this.theme,
+    this.info,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final labelStyle = isHeader
+        ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
+        : theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500);
+    final valueStyle = isHeader
+        ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
+        : theme.textTheme.bodySmall;
+    final bgColor = isHeader
+        ? theme.colorScheme.surfaceContainerHighest
+        : null;
+    final borderSide = BorderSide(
+      color: theme.dividerColor.withValues(alpha: 0.3),
+      width: 0.5,
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: bgColor,
+        border: Border(bottom: borderSide),
+      ),
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Frozen setting label column
+            Container(
+              width: 120,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                border: Border(right: borderSide),
+                color: isHeader ? null : theme.colorScheme.surfaceContainerLow,
+              ),
+              child: Row(
+                children: [
+                  Expanded(child: Text(label, style: labelStyle)),
+                  if (info != null)
+                    GestureDetector(
+                      onTap: () => _showInfoDialog(context, label, info!),
+                      child: Padding(
+                        padding: const EdgeInsets.only(left: 4),
+                        child: Icon(Icons.info_outline,
+                            size: 14, color: theme.colorScheme.primary),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            // Horizontally scrollable value columns
+            Expanded(
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: values.map((v) => Container(
+                    width: 90,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 10),
+                    alignment: Alignment.center,
+                    child: Text(v, style: valueStyle, textAlign: TextAlign.center),
+                  )).toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static void _showInfoDialog(BuildContext context, String title, String body) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title, style: Theme.of(ctx).textTheme.titleSmall),
+        content: Text(body, style: Theme.of(ctx).textTheme.bodySmall),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+        ],
+      ),
+    );
+  }
+}
+
 class _CompRow {
   final String label;
   final String Function(ProfileConfig) getter;
-  const _CompRow(this.label, this.getter);
+  final String? info;
+  const _CompRow(this.label, this.getter, {this.info});
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
