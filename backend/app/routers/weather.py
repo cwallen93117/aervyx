@@ -258,13 +258,31 @@ _COLOR_RAMPS: dict[str, list[tuple[float, int, int, int, int]]] = {
         (0.8,  40,  140, 220, 170),
         (1.0,  40,  60,  180, 155),
     ],
-    # height: gray→green→blue→purple→magenta
+    # height: 23-stop XC-Skies-style altitude ramp  0–6706 m (0–22 000 ft)
     "height": [
-        (0.0,  140, 140, 140, 150),
-        (0.25, 70,  190, 70,  180),
-        (0.5,  80,  180, 220, 200),
-        (0.75, 160, 80,  210, 215),
-        (1.0,  220, 60,  200, 230),
+        (0.0,    100, 90,  120, 170),   #     0 ft — dark gray-purple
+        (0.0455, 120, 100, 155, 180),   #  1000 ft — medium purple
+        (0.0909, 160, 140, 190, 185),   #  2000 ft — lavender
+        (0.1364, 130, 120, 200, 190),   #  3000 ft — blue-violet
+        (0.1818, 80,  110, 200, 195),   #  4000 ft — medium blue
+        (0.2273, 90,  150, 210, 200),   #  5000 ft — sky blue
+        (0.2727, 100, 185, 220, 200),   #  6000 ft — light blue
+        (0.3182, 60,  180, 180, 200),   #  7000 ft — teal
+        (0.3636, 60,  185, 140, 205),   #  8000 ft — green-teal
+        (0.4091, 70,  180, 90,  210),   #  9000 ft — medium green
+        (0.4545, 100, 200, 60,  215),   # 10000 ft — bright green
+        (0.5,    160, 210, 50,  220),   # 11000 ft — yellow-green
+        (0.5455, 210, 210, 50,  220),   # 12000 ft — yellow
+        (0.5909, 220, 200, 70,  220),   # 13000 ft — light gold
+        (0.6364, 225, 180, 50,  220),   # 14000 ft — gold/amber
+        (0.6818, 230, 170, 100, 215),   # 15000 ft — light orange
+        (0.7273, 220, 150, 120, 210),   # 16000 ft — salmon
+        (0.7727, 215, 160, 160, 200),   # 17000 ft — light pink
+        (0.8182, 200, 195, 195, 190),   # 18000 ft — light gray
+        (0.8636, 215, 210, 210, 180),   # 19000 ft — very light gray
+        (0.9091, 230, 225, 200, 170),   # 20000 ft — pale cream
+        (0.9545, 235, 230, 210, 160),   # 21000 ft — very pale yellow
+        (1.0,    240, 240, 230, 150),   # 22000 ft — near white
     ],
     # cloud: clear→gray→dark
     "cloud": [
@@ -340,17 +358,17 @@ _VAR_SCALE: dict[str, dict] = {
     "cape": {
         "ramp": "thermal", "scale_min": 0.0, "scale_max": 4000.0, "clamp_neg": True,
     },
-    # Cloud top height: 0 to 5500 m (~18000 ft)
+    # Cloud top height: 0 to 6706 m (0–22 000 ft)
     "convective_cloud_top": {
-        "ramp": "height", "scale_min": 0.0, "scale_max": 5500.0, "clamp_neg": True,
+        "ramp": "height", "scale_min": 0.0, "scale_max": 6706.0, "clamp_neg": True,
     },
-    # Cloud base height: 0 to 5500 m (~18000 ft)
+    # Cloud base height: 0 to 6706 m (0–22 000 ft)
     "convective_cloud_base": {
-        "ramp": "height", "scale_min": 0.0, "scale_max": 5500.0, "clamp_neg": True,
+        "ramp": "height", "scale_min": 0.0, "scale_max": 6706.0, "clamp_neg": True,
     },
-    # Boundary layer height: 0 to 5500 m (~18000 ft)
+    # Boundary layer height: 0 to 6706 m (0–22 000 ft)
     "boundary_layer_height": {
-        "ramp": "height", "scale_min": 0.0, "scale_max": 5500.0, "clamp_neg": True,
+        "ramp": "height", "scale_min": 0.0, "scale_max": 6706.0, "clamp_neg": True,
     },
     # Lifted index: -8 to +4 (well-known meteorological scale)
     "lifted_index": {
@@ -1157,7 +1175,7 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v8"
+    _RASTER_VERSION = "v9"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
     # Check persistent cache first
