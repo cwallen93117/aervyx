@@ -92,6 +92,7 @@ export interface TasksSectionProps {
   handleRadiusInputBlur: (index: number, point: TaskPointRecord) => void;
   handleRadiusInputKeyDown: (event: KeyboardEvent<HTMLInputElement>, index: number, point: TaskPointRecord) => void;
   radiusInputValue: (index: number, point: TaskPointRecord) => string;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export default function TasksSection(props: TasksSectionProps) {
@@ -136,6 +137,7 @@ export default function TasksSection(props: TasksSectionProps) {
     handleRadiusInputBlur,
     handleRadiusInputKeyDown,
     radiusInputValue,
+    overlayConfig,
   } = props;
   if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
   const usesGatedStart = taskDraft.task_type === "race_to_goal_with_gates" && currentTaskTypeBehavior.usesMultipleGates;
@@ -575,6 +577,7 @@ export default function TasksSection(props: TasksSectionProps) {
                   distance: settingsForm.distance_unit,
                   vario: settingsForm.vario_unit,
                 }}
+                overlayConfig={overlayConfig}
               />
             </div>
           </div>

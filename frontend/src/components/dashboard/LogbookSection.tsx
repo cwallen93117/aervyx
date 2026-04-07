@@ -32,6 +32,7 @@ export interface LogbookSectionProps {
   saveFlightNotes: (flightId: number, notes: string) => Promise<void>;
   updateFlightSite: (flightId: number, siteName: string) => Promise<void>;
   setFlightStar: (flight: LogbookFlightSummaryRecord, starred: boolean) => Promise<void>;
+  overlayConfig?: Record<string, boolean>;
 }
 
 type PendingFolderFile = {
@@ -135,6 +136,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
     saveFlightNotes,
     updateFlightSite,
     setFlightStar,
+    overlayConfig,
   } = props;
 
   const [manualForm, setManualForm] = useState<LogbookFlightFormRecord>(blankManualFlightForm());
@@ -935,6 +937,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   units={units}
                   telemetrySmoothing={telemetrySmoothing}
                   mode="replay"
+                  overlayConfig={overlayConfig}
                 />
               </div>
             )}

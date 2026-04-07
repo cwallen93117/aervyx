@@ -4,9 +4,59 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
-import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, SiteSettingsRecord, User } from "./types";
+import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
 
-type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging";
+type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging" | "map_config";
+
+const MAP_CONTEXTS = [
+  { key: "task_builder", label: "Task Builder" },
+  { key: "scoring", label: "Scoring" },
+  { key: "logbook_replay", label: "Logbook" },
+  { key: "dashboard_live", label: "Dash Live" },
+  { key: "public_live", label: "Public Live" },
+  { key: "airspace_explorer", label: "Airspace" },
+  { key: "soaring_forecast", label: "Forecast" },
+  { key: "admin_site_preview", label: "Admin" },
+] as const;
+
+const ALL_FEATURES = [
+  { key: "turnpoints", label: "Turnpoints", maps: ["task_builder", "scoring", "dashboard_live", "public_live", "admin_site_preview"] },
+  { key: "task_route", label: "Task route", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
+  { key: "task_cylinders", label: "Task cylinders", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
+  { key: "optimized_route", label: "Optimized route", maps: ["task_builder", "scoring"] },
+  { key: "leg_labels", label: "Leg labels", maps: ["task_builder", "scoring"] },
+  { key: "airspaces", label: "Airspace regions", maps: ["task_builder", "scoring", "dashboard_live"] },
+  { key: "airspace_labels", label: "Airspace labels", maps: ["task_builder", "scoring", "dashboard_live"] },
+  { key: "flight_track", label: "Flight track", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live"] },
+  { key: "track_highlight", label: "Track highlight", maps: ["scoring", "logbook_replay"] },
+  { key: "live_positions", label: "Live positions", maps: ["dashboard_live", "public_live"] },
+  { key: "live_labels", label: "Live pilot labels", maps: ["dashboard_live", "public_live"] },
+  { key: "distance_summary", label: "Distance summary", maps: ["task_builder", "scoring"] },
+  { key: "gps_button", label: "GPS follow button", maps: ["public_live"] },
+  { key: "replay_scrubber", label: "Replay scrubber", maps: ["logbook_replay"] },
+  { key: "replay_speed", label: "Replay speed", maps: ["logbook_replay"] },
+  { key: "click_to_add_turnpoint", label: "Click to add TP", maps: ["task_builder"] },
+  { key: "fullscreen_editor_panel", label: "Fullscreen editor", maps: ["task_builder", "scoring"] },
+  { key: "fullscreen_toggle", label: "Fullscreen toggle", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "admin_site_preview"] },
+  { key: "2d_3d_toggle", label: "2D/3D toggle", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "airspace_explorer", "admin_site_preview"] },
+  { key: "basemap_selector", label: "Basemap selector", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "admin_site_preview"] },
+  { key: "altitude_slider", label: "Altitude slider", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "admin_site_preview"] },
+  { key: "airspace_regions", label: "Airspace regions (explorer)", maps: ["airspace_explorer"] },
+  { key: "tfrs", label: "TFRs", maps: ["airspace_explorer"] },
+  { key: "tfr_labels", label: "TFR labels", maps: ["airspace_explorer"] },
+  { key: "category_toggles", label: "Category toggles", maps: ["airspace_explorer"] },
+  { key: "export_openair", label: "Export OpenAir", maps: ["airspace_explorer"] },
+  { key: "legend", label: "Legend", maps: ["airspace_explorer", "soaring_forecast"] },
+  { key: "weather_raster", label: "Weather raster", maps: ["soaring_forecast"] },
+  { key: "wind_barbs", label: "Wind barbs", maps: ["soaring_forecast"] },
+  { key: "sounding_popup", label: "Sounding popup", maps: ["soaring_forecast"] },
+  { key: "model_selector", label: "Model selector", maps: ["soaring_forecast"] },
+  { key: "overlay_tabs", label: "Overlay tabs", maps: ["soaring_forecast"] },
+  { key: "wind_barb_toggle", label: "Wind barb toggle", maps: ["soaring_forecast"] },
+  { key: "opacity_slider", label: "Opacity slider", maps: ["soaring_forecast"] },
+  { key: "time_scrubber", label: "Time scrubber", maps: ["soaring_forecast"] },
+  { key: "model_run_selector", label: "Model run selector", maps: ["soaring_forecast"] },
+] as const;
 type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
 type SortDir = "asc" | "desc";
 
@@ -31,6 +81,10 @@ export interface AdminSectionProps {
   saveSiteSettings: () => void;
   debugStatus: DebugStatusResponse | null;
   refreshDebugStatus: () => void;
+  mapOverlayConfig: MapOverlayConfigRecord;
+  setMapOverlayConfig: (config: MapOverlayConfigRecord | ((current: MapOverlayConfigRecord) => MapOverlayConfigRecord)) => void;
+  mapOverlayConfigFeedback: { type: "success" | "error"; text: string } | null;
+  saveMapOverlayConfig: () => void;
 }
 
 export default function AdminSection(props: AdminSectionProps) {
@@ -55,6 +109,10 @@ export default function AdminSection(props: AdminSectionProps) {
     saveSiteSettings,
     debugStatus,
     refreshDebugStatus,
+    mapOverlayConfig,
+    setMapOverlayConfig,
+    mapOverlayConfigFeedback,
+    saveMapOverlayConfig,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
   const [userSearch, setUserSearch] = useState("");
@@ -236,6 +294,13 @@ export default function AdminSection(props: AdminSectionProps) {
           onClick={() => setActiveTab("debugging")}
         >
           Debugging
+        </button>
+        <button
+          type="button"
+          className={activeTab === "map_config" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("map_config")}
+        >
+          Map overlays
         </button>
       </div>
       {activeTab === "platform_users" ? (
@@ -591,6 +656,7 @@ export default function AdminSection(props: AdminSectionProps) {
                       hideDistanceSummary
                       fitKey={selectedSite ? `${selectedSite.id}:${sitePreviewFitNonce}` : "site-preview-empty"}
                       fitMaxZoom={11}
+                      overlayConfig={mapOverlayConfig.config?.admin_site_preview}
                     />
                   ) : (
                     <div className="logbook-site-preview-label empty">
@@ -605,6 +671,65 @@ export default function AdminSection(props: AdminSectionProps) {
         </SectionCard>
       ) : activeTab === "debugging" ? (
         <DebugTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} />
+      ) : activeTab === "map_config" ? (
+        <SectionCard title="Map overlay configuration">
+          <div className="stack form-block">
+            {mapOverlayConfigFeedback ? <div className={`status-chip ${mapOverlayConfigFeedback.type}`}>{mapOverlayConfigFeedback.text}</div> : null}
+            <p className="hint">Toggle overlays and controls for each map context. Changes take effect on next page load.</p>
+            <div style={{ overflowX: "auto" }}>
+              <table className="admin-map-config-table">
+                <thead>
+                  <tr>
+                    <th>Feature</th>
+                    {MAP_CONTEXTS.map((ctx) => (
+                      <th key={ctx.key}>{ctx.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {ALL_FEATURES.map((feature) => (
+                    <tr key={feature.key}>
+                      <td>{feature.label}</td>
+                      {MAP_CONTEXTS.map((ctx) => {
+                        const applicable = (feature.maps as readonly string[]).includes(ctx.key);
+                        const checked = applicable && mapOverlayConfig.config?.[ctx.key]?.[feature.key] !== false;
+                        return (
+                          <td key={ctx.key} style={{ textAlign: "center" }}>
+                            {applicable ? (
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setMapOverlayConfig((prev) => ({
+                                    ...prev,
+                                    config: {
+                                      ...prev.config,
+                                      [ctx.key]: {
+                                        ...prev.config?.[ctx.key],
+                                        [feature.key]: !checked,
+                                      },
+                                    },
+                                  }));
+                                }}
+                              />
+                            ) : (
+                              <span style={{ color: "var(--dim)" }}>—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="button-row">
+              <button type="button" className="primary-button" onClick={() => void saveMapOverlayConfig()}>
+                Save map overlay config
+              </button>
+            </div>
+          </div>
+        </SectionCard>
       ) : (
         <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">

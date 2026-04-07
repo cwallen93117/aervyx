@@ -61,6 +61,10 @@ export type AdminSiteScanIgcResultRecord = {
   total_igc_scanned: number;
   sites: AdminSiteRecord[];
 };
+export type MapOverlayConfigRecord = {
+  config: Record<string, Record<string, boolean>>;
+  updated_at?: string | null;
+};
 export type SiteSettingsRecord = {
   telemetry_vario_smoothing_seconds: number;
   telemetry_altitude_smoothing_seconds: number;

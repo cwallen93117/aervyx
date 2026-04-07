@@ -1444,6 +1444,44 @@ button[type="submit"]:hover,
   transition: color 0.15s;
 }
 
+/* Map overlay config matrix table */
+.admin-map-config-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+}
+.admin-map-config-table th,
+.admin-map-config-table td {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.admin-map-config-table th {
+  background: var(--surface);
+  font-weight: 600;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.admin-map-config-table td:first-child {
+  font-weight: 500;
+  color: var(--white);
+  position: sticky;
+  left: 0;
+  background: var(--void);
+  z-index: 1;
+}
+.admin-map-config-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--cyan);
+}
+
 .sortable-th:hover {
   color: var(--accent);
 }

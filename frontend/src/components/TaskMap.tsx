@@ -1058,6 +1058,7 @@ export const TaskMap = React.memo(function TaskMap({
     telemetry_glide_ratio_smoothing_seconds: 5,
   },
   showGpsButton = false,
+  overlayConfig,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1083,6 +1084,7 @@ export const TaskMap = React.memo(function TaskMap({
   units?: MapUnitPreferences;
   telemetrySmoothing?: MapTelemetrySmoothing;
   showGpsButton?: boolean;
+  overlayConfig?: Record<string, boolean>;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1123,6 +1125,16 @@ export const TaskMap = React.memo(function TaskMap({
   const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
   const [gpsFollowing, setGpsFollowing] = useState(false);
   const gpsWatchIdRef = useRef<number | null>(null);
+
+  // Overlay config: filter data layers based on admin toggle matrix
+  const oc = overlayConfig;
+  const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
+  const effectiveAirspaces = oc?.airspaces === false ? [] : (airspaces ?? []);
+  const effectiveTrack = oc?.flight_track === false ? null : track;
+  const effectiveLivePositions = oc?.live_positions === false ? [] : livePositions;
+  const effectiveOptimizedRoute = oc?.optimized_route === false ? [] : optimizedRoute;
+  const effectiveLegMetrics = oc?.leg_labels === false ? [] : legMetrics;
+  const effectiveTaskPoints = oc?.task_route === false ? [] : taskPoints;
 
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
@@ -1735,16 +1747,16 @@ export const TaskMap = React.memo(function TaskMap({
   const fitKeyValue = String(fitKey ?? "");
 
   useEffect(() => {
-    turnpointsRef.current = turnpoints;
-  }, [turnpoints]);
+    turnpointsRef.current = effectiveTurnpoints;
+  }, [effectiveTurnpoints]);
 
   useEffect(() => {
-    taskPointsRef.current = taskPoints;
-  }, [taskPoints]);
+    taskPointsRef.current = effectiveTaskPoints;
+  }, [effectiveTaskPoints]);
 
   useEffect(() => {
-    optimizedRouteRef.current = optimizedRoute;
-  }, [optimizedRoute]);
+    optimizedRouteRef.current = effectiveOptimizedRoute;
+  }, [effectiveOptimizedRoute]);
 
   useEffect(() => {
     trackRef.current = track;
@@ -1863,7 +1875,9 @@ export const TaskMap = React.memo(function TaskMap({
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
-      map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
+      if (oc?.fullscreen_toggle !== false) {
+        map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
+      }
       const scaleControl = new maplibregl.ScaleControl({
         maxWidth: 96,
         unit: units.distance === "mi" ? "imperial" : "metric",
@@ -2236,7 +2250,7 @@ export const TaskMap = React.memo(function TaskMap({
     fitTargetKindRef.current = nextFitTargetKind;
   }, [applyFitBounds, fitGeometrySignature, fitKeyValue, fitTargetKind]);
 
-  const replayVisible = !!track && replayTotal > 0;
+  const replayVisible = !!effectiveTrack && replayTotal > 0 && oc?.replay_scrubber !== false;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[replayTotal - 1]) : "--:--";
   const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
@@ -2346,7 +2360,7 @@ export const TaskMap = React.memo(function TaskMap({
   ) : null;
 
   const distanceSummaryOverlay =
-    !hideDistanceSummary && !(isFullscreen && hideFullscreenDistanceOverlay) ? (
+    !hideDistanceSummary && !(isFullscreen && hideFullscreenDistanceOverlay) && oc?.distance_summary !== false ? (
       <div className="map-distance-summary" aria-label="Task distance summary">
         <div className="map-distance-summary-row">
           <strong>Total:</strong>
@@ -2396,6 +2410,7 @@ export const TaskMap = React.memo(function TaskMap({
         )}
       </div>
       <div className="map-control-stack">
+        {oc?.["2d_3d_toggle"] !== false ? (
         <button
           type="button"
           className="map-control-button map-control-mode-button"
@@ -2417,7 +2432,8 @@ export const TaskMap = React.memo(function TaskMap({
         >
           {isPerspective3D ? "3D" : "2D"}
         </button>
-        {showGpsButton && typeof navigator !== "undefined" && "geolocation" in navigator ? (
+        ) : null}
+        {showGpsButton && oc?.gps_button !== false && typeof navigator !== "undefined" && "geolocation" in navigator ? (
           <button
             type="button"
             className={`map-control-button map-control-mode-button${gpsFollowing ? " map-control-gps-active" : ""}`}
@@ -2433,7 +2449,7 @@ export const TaskMap = React.memo(function TaskMap({
         ) : null}
       </div>
       <div className="map-picker-stack">
-        {isPerspective3D ? (
+        {isPerspective3D && oc?.altitude_slider !== false ? (
           <label className="map-style-picker">
             <span>Altitude</span>
             <select value={String(altitudeMultiplier)} onChange={(event) => setAltitudeMultiplier(Number(event.target.value))}>
@@ -2445,6 +2461,7 @@ export const TaskMap = React.memo(function TaskMap({
             </select>
           </label>
         ) : null}
+        {oc?.basemap_selector !== false ? (
         <label className="map-style-picker">
           <span>Map</span>
           <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>
@@ -2453,6 +2470,7 @@ export const TaskMap = React.memo(function TaskMap({
             <option value="terrain">Terrain</option>
           </select>
         </label>
+        ) : null}
       </div>
       {replayVisible && mode === "replay" ? (
         <div className="replay-bar">

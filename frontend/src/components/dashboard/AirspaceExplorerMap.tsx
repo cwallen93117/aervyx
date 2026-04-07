@@ -50,7 +50,8 @@ const LYR_TFR_LABEL = "faa-tfr-label";
 // Component
 // ---------------------------------------------------------------------------
 
-export default function AirspaceExplorerMap() {
+export default function AirspaceExplorerMap({ overlayConfig }: { overlayConfig?: Record<string, boolean> }) {
+  const oc = overlayConfig;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -527,76 +528,83 @@ export default function AirspaceExplorerMap() {
     <div className={styles.shell}>
       {/* Left sidebar controls */}
       <div className={styles.leftPanel}>
-        {/* Controlled airspace */}
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Controlled Airspace</div>
-          <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
-            <input type="checkbox" checked={allClassVisible} onChange={() => toggleGroup(CLASS_CATEGORIES, allClassVisible)} />
-            Show All
-          </label>
-          {CLASS_CATEGORIES.map((cat) => (
-            <label key={cat} className={styles.categoryRow}>
-              <input
-                type="checkbox"
-                checked={visibleCategories.has(cat)}
-                onChange={() => toggleCategory(cat)}
-              />
-              <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
-              {CATEGORY_LABELS[cat]}
-            </label>
-          ))}
-        </div>
+        {/* Controlled airspace + Special Use Airspace + TFRs */}
+        {oc?.category_toggles !== false && (
+          <>
+            {/* Controlled airspace */}
+            <div className={styles.section}>
+              <div className={styles.sectionLabel}>Controlled Airspace</div>
+              <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
+                <input type="checkbox" checked={allClassVisible} onChange={() => toggleGroup(CLASS_CATEGORIES, allClassVisible)} />
+                Show All
+              </label>
+              {CLASS_CATEGORIES.map((cat) => (
+                <label key={cat} className={styles.categoryRow}>
+                  <input
+                    type="checkbox"
+                    checked={visibleCategories.has(cat)}
+                    onChange={() => toggleCategory(cat)}
+                  />
+                  <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
+                  {CATEGORY_LABELS[cat]}
+                </label>
+              ))}
+            </div>
 
-        {/* Special Use Airspace */}
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Special Use Airspace</div>
-          <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
-            <input type="checkbox" checked={allSUAVisible} onChange={() => toggleGroup(SUA_CATEGORIES, allSUAVisible)} />
-            Show All
-          </label>
-          {SUA_CATEGORIES.map((cat) => (
-            <label key={cat} className={styles.categoryRow}>
-              <input
-                type="checkbox"
-                checked={visibleCategories.has(cat)}
-                onChange={() => toggleCategory(cat)}
-              />
-              <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
-              {CATEGORY_LABELS[cat]}
-            </label>
-          ))}
-        </div>
+            {/* Special Use Airspace */}
+            <div className={styles.section}>
+              <div className={styles.sectionLabel}>Special Use Airspace</div>
+              <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
+                <input type="checkbox" checked={allSUAVisible} onChange={() => toggleGroup(SUA_CATEGORIES, allSUAVisible)} />
+                Show All
+              </label>
+              {SUA_CATEGORIES.map((cat) => (
+                <label key={cat} className={styles.categoryRow}>
+                  <input
+                    type="checkbox"
+                    checked={visibleCategories.has(cat)}
+                    onChange={() => toggleCategory(cat)}
+                  />
+                  <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
+                  {CATEGORY_LABELS[cat]}
+                </label>
+              ))}
+            </div>
 
-        {/* TFRs */}
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Temporary Flight Restrictions</div>
-          <label className={styles.categoryRow}>
-            <input type="checkbox" checked={anyTFRVisible} onChange={() => toggleCategory("TFR")} />
-            <span className={styles.swatch} style={{ background: CATEGORY_COLORS.TFR }} />
-            Active TFRs
-          </label>
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 4 }}>
-            Defense airspace TFRs &middot; refreshes every 5 min
-          </div>
-        </div>
+            {/* TFRs */}
+            <div className={styles.section}>
+              <div className={styles.sectionLabel}>Temporary Flight Restrictions</div>
+              <label className={styles.categoryRow}>
+                <input type="checkbox" checked={anyTFRVisible} onChange={() => toggleCategory("TFR")} />
+                <span className={styles.swatch} style={{ background: CATEGORY_COLORS.TFR }} />
+                Active TFRs
+              </label>
+              <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 4 }}>
+                Defense airspace TFRs &middot; refreshes every 5 min
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Export */}
-        <div className={styles.section}>
-          <button
-            type="button"
-            className={styles.exportBtn}
-            onClick={handleExport}
-            disabled={featureCount === 0 && !tfrData?.features.length}
-          >
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Export OpenAir (.txt)
-          </button>
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 6 }}>
-            Exports visible airspace in OpenAir format for XC Tracer, Flymaster, Syride, etc.
+        {oc?.export_openair !== false && (
+          <div className={styles.section}>
+            <button
+              type="button"
+              className={styles.exportBtn}
+              onClick={handleExport}
+              disabled={featureCount === 0 && !tfrData?.features.length}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Export OpenAir (.txt)
+            </button>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 6 }}>
+              Exports visible airspace in OpenAir format for XC Tracer, Flymaster, Syride, etc.
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
 
@@ -605,15 +613,17 @@ export default function AirspaceExplorerMap() {
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
         {/* Legend — floating overlay on map, bottom-right */}
-        <div className={styles.legend}>
-          <div className={styles.legendTitle}>Legend</div>
-          {ALL_CATEGORIES.filter((c) => visibleCategories.has(c)).map((cat) => (
-            <div key={cat} className={styles.legendItem}>
-              <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
-              {CATEGORY_LABELS[cat]}
-            </div>
-          ))}
-        </div>
+        {oc?.legend !== false && (
+          <div className={styles.legend}>
+            <div className={styles.legendTitle}>Legend</div>
+            {ALL_CATEGORIES.filter((c) => visibleCategories.has(c)).map((cat) => (
+              <div key={cat} className={styles.legendItem}>
+                <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
+                {CATEGORY_LABELS[cat]}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Loading indicator — matches weather map pattern */}
         {(loading || tfrLoading) && (
@@ -623,24 +633,26 @@ export default function AirspaceExplorerMap() {
         )}
 
         {/* 3D toggle button — bottom-left of map */}
-        <button
-          type="button"
-          className={`${styles.mapBtn} ${is3D ? styles.mapBtnActive : ""}`}
-          onClick={() => setIs3D((v) => !v)}
-          title={is3D ? "Switch to 2D" : "Switch to 3D"}
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            {is3D ? (
-              <>
-                <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">2D</text>
-              </>
-            ) : (
-              <>
-                <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">3D</text>
-              </>
-            )}
-          </svg>
-        </button>
+        {oc?.["2d_3d_toggle"] !== false && (
+          <button
+            type="button"
+            className={`${styles.mapBtn} ${is3D ? styles.mapBtnActive : ""}`}
+            onClick={() => setIs3D((v) => !v)}
+            title={is3D ? "Switch to 2D" : "Switch to 3D"}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              {is3D ? (
+                <>
+                  <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">2D</text>
+                </>
+              ) : (
+                <>
+                  <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">3D</text>
+                </>
+              )}
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

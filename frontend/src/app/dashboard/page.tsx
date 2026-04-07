@@ -29,6 +29,7 @@ import {
   type AdminSiteScanIgcResultRecord,
   type AdminUserRecord,
   type SiteSettingsRecord,
+  type MapOverlayConfigRecord,
   type LogbookFlightSummaryRecord,
   type LogbookFlightDetailRecord,
   type LogbookFolderImportResultRecord,
@@ -610,6 +611,8 @@ export default function HomePage() {
   const [adminSitesFeedback, setAdminSitesFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettingsRecord>(blankSiteSettingsForm());
   const [siteSettingsFeedback, setSiteSettingsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [mapOverlayConfig, setMapOverlayConfig] = useState<MapOverlayConfigRecord>({ config: {} });
+  const [mapOverlayConfigFeedback, setMapOverlayConfigFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [debugStatus, setDebugStatus] = useState<DebugStatusResponse | null>(null);
   const [logbookFlights, setLogbookFlights] = useState<LogbookFlightSummaryRecord[]>([]);
   const [logbookLoading, setLogbookLoading] = useState(false);
@@ -937,12 +940,13 @@ export default function HomePage() {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
     setToken(activeToken);
     setError("");
-    const [me, rawEvents, settings, loadedSiteSettings, loadedLogbookFlights] = await Promise.all([
+    const [me, rawEvents, settings, loadedSiteSettings, loadedLogbookFlights, loadedMapOverlayConfig] = await Promise.all([
       apiFetch<User>("/api/auth/me", activeToken),
       apiFetch<EventRecord[]>("/api/events", activeToken),
       apiFetch<AccountSettingsRecord>("/api/auth/settings", activeToken),
       apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken),
       apiFetch<LogbookFlightSummaryRecord[]>("/api/logbook/flights", activeToken),
+      apiFetch<MapOverlayConfigRecord>("/api/map-overlay-config", activeToken).catch(() => ({ config: {} }) as MapOverlayConfigRecord),
     ]);
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
@@ -952,6 +956,7 @@ export default function HomePage() {
     setUser(me);
     setSettingsForm(settings);
     setSiteSettings(loadedSiteSettings);
+    setMapOverlayConfig(loadedMapOverlayConfig);
     setLogbookFlights(loadedLogbookFlights);
     setActiveSection(normalizedSection);
     setEvents(loadedEvents);
@@ -1610,6 +1615,21 @@ export default function HomePage() {
       setSiteSettingsFeedback({ type: "success", text: "Site settings saved." });
     } catch (caught) {
       setSiteSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save site settings." });
+    }
+  }
+
+  async function saveMapOverlayConfig() {
+    if (!token) return;
+    setMapOverlayConfigFeedback(null);
+    try {
+      const payload = await apiFetch<MapOverlayConfigRecord>("/api/map-overlay-config", token, {
+        method: "PATCH",
+        body: JSON.stringify({ config: mapOverlayConfig.config }),
+      });
+      setMapOverlayConfig(payload);
+      setMapOverlayConfigFeedback({ type: "success", text: "Map overlay config saved." });
+    } catch (caught) {
+      setMapOverlayConfigFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save map overlay config." });
     }
   }
 
@@ -2468,6 +2488,7 @@ export default function HomePage() {
             handleRadiusInputBlur={handleRadiusInputBlur}
             handleRadiusInputKeyDown={handleRadiusInputKeyDown}
             radiusInputValue={radiusInputValue}
+            overlayConfig={mapOverlayConfig.config?.task_builder}
           />
         );
       }
@@ -2557,6 +2578,7 @@ export default function HomePage() {
               handleRadiusInputBlur={handleRadiusInputBlur}
               handleRadiusInputKeyDown={handleRadiusInputKeyDown}
               radiusInputValue={radiusInputValue}
+              overlayConfig={mapOverlayConfig.config?.task_builder}
             />
           );
         case "scoring":
@@ -2615,6 +2637,7 @@ export default function HomePage() {
                   downloadAllIgcFiles={downloadAllIgcFiles}
                 toggleResultTrack={toggleResultTrack}
                 toggleAllResultTracks={toggleAllResultTracks}
+                overlayConfig={mapOverlayConfig.config?.scoring}
               />
             );
         case "live_tracking":
@@ -2636,6 +2659,7 @@ export default function HomePage() {
                 vario: settingsForm.vario_unit,
               }}
               loadTask={loadTask}
+              overlayConfig={mapOverlayConfig.config?.dashboard_live}
             />
           );
         case "drivers":
@@ -2683,12 +2707,13 @@ export default function HomePage() {
               saveFlightNotes={saveLogbookFlightNotes}
               updateFlightSite={updateLogbookFlightSite}
               setFlightStar={setLogbookFlightStar}
+              overlayConfig={mapOverlayConfig.config?.logbook_replay}
             />
           );
         case "weather":
-          return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} />;
+          return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} overlayConfig={mapOverlayConfig.config?.soaring_forecast} />;
         case "airspace":
-          return <AirspaceSection />;
+          return <AirspaceSection overlayConfig={mapOverlayConfig.config?.airspace_explorer} />;
         case "settings":
           return (
             <SettingsSection
@@ -2729,6 +2754,10 @@ export default function HomePage() {
               saveSiteSettings={saveSiteSettings}
               debugStatus={debugStatus}
               refreshDebugStatus={refreshDebugStatus}
+              mapOverlayConfig={mapOverlayConfig}
+              setMapOverlayConfig={setMapOverlayConfig}
+              mapOverlayConfigFeedback={mapOverlayConfigFeedback}
+              saveMapOverlayConfig={saveMapOverlayConfig}
             />
           ) : (
             <SettingsSection

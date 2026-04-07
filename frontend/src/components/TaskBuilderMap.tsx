@@ -18,6 +18,7 @@ export interface TaskBuilderMapProps {
   taskEditorOverlay?: React.ReactNode;
   hideFullscreenDistanceOverlay?: boolean;
   units?: MapUnitPreferences;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export function TaskBuilderMap({
@@ -36,6 +37,7 @@ export function TaskBuilderMap({
   taskEditorOverlay,
   hideFullscreenDistanceOverlay = false,
   units,
+  overlayConfig,
 }: TaskBuilderMapProps) {
   const viewStateKey = `tasks-${selectedEventId ?? "none"}-${selectedTaskId ?? "draft"}`;
 
@@ -57,6 +59,7 @@ export function TaskBuilderMap({
       fitKey={selectedTaskId}
       viewStateKey={viewStateKey}
       units={units}
+      overlayConfig={overlayConfig}
     />
   );
 }

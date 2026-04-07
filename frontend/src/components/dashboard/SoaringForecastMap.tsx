@@ -341,7 +341,8 @@ function findClosestTimeIdx(validTimes: string[], target: string): number {
 /* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
-export function SoaringForecastMap({ units }: { units: Units }) {
+export function SoaringForecastMap({ units, overlayConfig }: { units: Units; overlayConfig?: Record<string, boolean> }) {
+  const oc = overlayConfig;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const blobUrlRef = useRef<string | null>(null);
@@ -817,6 +818,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
   // Click handler — open popup with Skew-T + point forecast values
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
+    if (oc?.sounding_popup === false) return;
     const map = mapRef.current;
     if (!map) return;
     const { lat, lng } = e.lngLat;
@@ -1100,6 +1102,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     <div className={styles.shell}>
       <div className={styles.leftPanel}>
         {/* Model selector */}
+        {oc?.model_selector !== false && (
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Model</p>
           <div className={styles.modelPills}>
@@ -1125,8 +1128,10 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             ))}
           </div>
         </div>
+        )}
 
         {/* Overlay list */}
+        {oc?.overlay_tabs !== false && (
         <div>
           {groups.map(group => (
             <div key={group}>
@@ -1147,8 +1152,10 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             </div>
           ))}
         </div>
+        )}
 
         {/* Wind barbs */}
+        {oc?.wind_barb_toggle !== false && (
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Wind Barbs</p>
           <label className={styles.windBarbToggle}>
@@ -1206,8 +1213,10 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           })()}
           {/* Color toggle and legend removed — barbs always black */}
         </div>
+        )}
 
         {/* Opacity slider */}
+        {oc?.opacity_slider !== false && (
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Opacity</p>
           <div className={styles.opacityRow}>
@@ -1215,6 +1224,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             <span className={styles.opacityVal}>{opacity}%</span>
           </div>
         </div>
+        )}
 
       </div>
 
@@ -1222,6 +1232,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       <div className={styles.mapContainer}>
 
         {/* Timeline bar */}
+        {oc?.time_scrubber !== false && (
         <div className={styles.timelineBar}>
           {/* Play button */}
           <button
@@ -1332,6 +1343,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             )}
           </div>
         </div>
+        )}
 
         {/* Map */}
         <div ref={containerRef} className={styles.mapFill} />
@@ -1344,7 +1356,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         )}
 
         {/* Legend — vertical bar on the right side of the map */}
-        {activeOv && (() => {
+        {oc?.legend !== false && activeOv && (() => {
           // Build bands + labels from tierValues or tiers or evenly-spaced fallback
           // bandColors: highest-first (top of legend), labelVals: one per band (highest-first)
           let bandColors: string[];

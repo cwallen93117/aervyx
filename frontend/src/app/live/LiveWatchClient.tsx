@@ -79,6 +79,7 @@ export function LiveWatchClient() {
   const [taskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error] = useState("");
+  const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
   const sseControllerRef = useRef<AbortController | null>(null);
 
   const apiBase = useMemo(() => resolveApiBase(), []);
@@ -258,6 +259,23 @@ export function LiveWatchClient() {
     return cleanup;
   }, [connectSSE]);
 
+  // Fetch map overlay config on mount (public_live slice for TaskMap)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${resolveApiBase()}/api/map-overlay-config`);
+        if (res.ok) {
+          const data = await res.json();
+          if (!cancelled && data?.config?.public_live) {
+            setOverlayConfig(data.config.public_live);
+          }
+        }
+      } catch { /* ignore — use defaults */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // FILTER: Dropdown change handler (competition task / buddy group)
   // function handleSourceChange(value: string) {
   //   if (!value) { setSelected(null); return; }
@@ -321,6 +339,7 @@ export function LiveWatchClient() {
             units={defaultUnits}
             editable={false}
             showGpsButton
+            overlayConfig={overlayConfig}
           />
           {activePilotIds.length === 0 && !loading ? (
             <div

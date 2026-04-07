@@ -59,6 +59,7 @@ export interface LiveTrackingSectionProps {
   canManagePlatform: boolean;
   units: MapUnitPreferences;
   loadTask: (activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData?: boolean) => Promise<void>;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export default function LiveTrackingSection({
@@ -73,6 +74,7 @@ export default function LiveTrackingSection({
   canManagePlatform,
   units,
   loadTask,
+  overlayConfig,
 }: LiveTrackingSectionProps) {
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
@@ -599,6 +601,7 @@ export default function LiveTrackingSection({
                   editable={false}
                   mode="live"
                   units={units}
+                  overlayConfig={overlayConfig}
                   fitKey={
                     trackingSource.type === "task"
                       ? `live-${trackingSource.taskId}`

@@ -217,6 +217,7 @@ export interface ScoringSectionProps {
   downloadAllIgcFiles: () => void;
   toggleResultTrack: (uploadId: number, checked: boolean) => void;
   toggleAllResultTracks: () => void;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export default function ScoringSection(props: ScoringSectionProps) {
@@ -273,6 +274,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     downloadAllIgcFiles,
     toggleResultTrack,
     toggleAllResultTracks,
+    overlayConfig,
   } = props;
   const publishedTasks = tasks.filter((task) => task.status === "published");
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
@@ -560,6 +562,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             vario: settingsForm.vario_unit,
                           }}
                           telemetrySmoothing={siteSettings}
+                          overlayConfig={overlayConfig}
                         />
                       </div>
                     </div>
