@@ -447,8 +447,9 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    // Use grid endpoint with step=1 for full native resolution
-    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=1`;
+    // Debug grid step: step=1 for coarse models, step=3 for fine-res (HRRR/NAM3km) to keep response manageable
+    const debugStep = (activeModel === "hrrr" || activeModel === "nam3km") ? 3 : 1;
+    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=${debugStep}`;
 
     let cancelled = false;
 
@@ -567,8 +568,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // Draw every data point — no deduplication. Density is controlled
-    // by the model's native grid resolution; zooming in reveals more detail.
+    // Zoom-based density: skip points when zoomed out to avoid visual clutter.
+    // At zoom ≥10 draw every point; zoomed out → progressively skip more.
+    const zoom = map.getZoom();
+    // Desired minimum pixel spacing between barbs (screen px)
+    const MIN_PX_GAP = 28;
+    // At high zoom one grid cell is many pixels → step=1.
+    // At low zoom cells overlap → step increases.
+    // Use a spatial grid to thin points: bucket by screen-pixel cell.
+    const useSpatialThin = zoom < 10;
+    const occupied = useSpatialThin ? new Set<string>() : null;
+
+    let drawn = 0;
     for (const pt of windBarbsRef.current) {
       const px = map.project([pt.lng, pt.lat]);
       const x = px.x;
@@ -577,6 +588,14 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       // Skip points outside the visible canvas area (with margin)
       if (x < -40 || x > cssW + 40 || y < -40 || y > cssH + 40) continue;
 
+      // Spatial thinning: only draw one barb per MIN_PX_GAP×MIN_PX_GAP screen cell
+      if (occupied) {
+        const cellKey = `${Math.floor(x / MIN_PX_GAP)},${Math.floor(y / MIN_PX_GAP)}`;
+        if (occupied.has(cellKey)) continue;
+        occupied.add(cellKey);
+      }
+
+      drawn++;
       // Convert m/s to knots
       const speedKt = Math.sqrt(pt.u * pt.u + pt.v * pt.v) * 1.94384;
 
