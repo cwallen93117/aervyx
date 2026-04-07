@@ -691,30 +691,26 @@ export default function AdminSection(props: AdminSectionProps) {
                     <tr key={feature.key}>
                       <td>{feature.label}</td>
                       {MAP_CONTEXTS.map((ctx) => {
-                        const applicable = (feature.maps as readonly string[]).includes(ctx.key);
-                        const checked = applicable && mapOverlayConfig.config?.[ctx.key]?.[feature.key] !== false;
+                        const native = (feature.maps as readonly string[]).includes(ctx.key);
+                        const checked = mapOverlayConfig.config?.[ctx.key]?.[feature.key] === true || (native && mapOverlayConfig.config?.[ctx.key]?.[feature.key] !== false);
                         return (
                           <td key={ctx.key} style={{ textAlign: "center" }}>
-                            {applicable ? (
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => {
-                                  setMapOverlayConfig((prev) => ({
-                                    ...prev,
-                                    config: {
-                                      ...prev.config,
-                                      [ctx.key]: {
-                                        ...prev.config?.[ctx.key],
-                                        [feature.key]: !checked,
-                                      },
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => {
+                                setMapOverlayConfig((prev) => ({
+                                  ...prev,
+                                  config: {
+                                    ...prev.config,
+                                    [ctx.key]: {
+                                      ...prev.config?.[ctx.key],
+                                      [feature.key]: !checked,
                                     },
-                                  }));
-                                }}
-                              />
-                            ) : (
-                              <span style={{ color: "var(--dim)" }}>—</span>
-                            )}
+                                  },
+                                }));
+                              }}
+                            />
                           </td>
                         );
                       })}
