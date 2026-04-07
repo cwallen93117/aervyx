@@ -45,7 +45,7 @@ const MODEL_LABELS: Record<ModelId, { label: string; sub: string }> = {
 
 /* Open-Meteo model IDs for sounding (pressure-level point forecast) */
 const SOUNDING_MODEL: Record<ModelId, string | null> = {
-  gfs: "gfs_seamless", nam3km: "nam_conus", nam: "nam_conus", rap: null, hrrr: "hrrr", nbm: null,
+  gfs: "gfs_seamless", nam3km: "ncep_nam_conus", nam: "ncep_nam_conus", rap: null, hrrr: "ncep_hrrr_conus_15min", nbm: null,
 };
 const SOUNDING_PRESSURES = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
 
