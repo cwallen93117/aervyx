@@ -1314,8 +1314,14 @@ async def weather_variables():
 _WIND_BARB_LEVELS: dict[str, tuple[str, str, dict[str, str]]] = {
     # level_id -> (ugrd_search, vgrd_search, product_overrides)
     "10m":    (":UGRD:10 m above ground:", ":VGRD:10 m above ground:", {}),
+    "975hPa": (":UGRD:975 mb:",            ":VGRD:975 mb:",            {"hrrr": "prs"}),
+    "950hPa": (":UGRD:950 mb:",            ":VGRD:950 mb:",            {"hrrr": "prs"}),
+    "925hPa": (":UGRD:925 mb:",            ":VGRD:925 mb:",            {"hrrr": "prs"}),
+    "900hPa": (":UGRD:900 mb:",            ":VGRD:900 mb:",            {"hrrr": "prs"}),
     "850hPa": (":UGRD:850 mb:",            ":VGRD:850 mb:",            {"hrrr": "prs"}),
+    "800hPa": (":UGRD:800 mb:",            ":VGRD:800 mb:",            {"hrrr": "prs"}),
     "700hPa": (":UGRD:700 mb:",            ":VGRD:700 mb:",            {"hrrr": "prs"}),
+    "600hPa": (":UGRD:600 mb:",            ":VGRD:600 mb:",            {"hrrr": "prs"}),
     "500hPa": (":UGRD:500 mb:",            ":VGRD:500 mb:",            {"hrrr": "prs"}),
 }
 
@@ -1440,7 +1446,7 @@ async def weather_wind_barbs(
     date: str = Query(..., description="YYYYMMDD"),
     hour: str = Query(..., description="Run hour e.g. 12"),
     fh: int = Query(..., description="Forecast hour"),
-    level: str = Query("10m", description="Wind level: 10m, 850hPa, 700hPa, 500hPa"),
+    level: str = Query("10m", description="Wind level: 10m, 975-500hPa"),
 ):
     """Return a subsampled grid of U/V wind components for drawing wind barbs.
 

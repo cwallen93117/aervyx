@@ -1128,25 +1128,51 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             />
             Show barbs
           </label>
-          {showWindBarbs && (
-            <div className={styles.windBarbLevelRow}>
-              {[
-                { id: "10m",    label: "Surface" },
-                { id: "850hPa", label: "850 (~1500m)" },
-                { id: "700hPa", label: "700 (~3000m)" },
-                { id: "500hPa", label: "500 (~5500m)" },
-              ].map(lv => (
-                <button
-                  key={lv.id}
-                  className={[styles.windBarbLevelBtn, windBarbLevel === lv.id ? styles.windBarbLevelBtnActive : ""].join(" ")}
-                  onClick={() => setWindBarbLevel(lv.id)}
-                  disabled={activeModel === "nbm"}
-                >
-                  {lv.label}
-                </button>
-              ))}
-            </div>
-          )}
+          {showWindBarbs && (() => {
+            const BARB_LEVELS: { id: string; hpa: string; altM: number; altFt: number }[] = [
+              { id: "10m",    hpa: "Surface", altM: 10,   altFt: 33 },
+              { id: "975hPa", hpa: "975 hPa", altM: 300,  altFt: 1000 },
+              { id: "950hPa", hpa: "950 hPa", altM: 600,  altFt: 2000 },
+              { id: "925hPa", hpa: "925 hPa", altM: 750,  altFt: 2500 },
+              { id: "900hPa", hpa: "900 hPa", altM: 1000, altFt: 3300 },
+              { id: "850hPa", hpa: "850 hPa", altM: 1500, altFt: 5000 },
+              { id: "800hPa", hpa: "800 hPa", altM: 2000, altFt: 6500 },
+              { id: "700hPa", hpa: "700 hPa", altM: 3000, altFt: 10000 },
+              { id: "600hPa", hpa: "600 hPa", altM: 4200, altFt: 14000 },
+              { id: "500hPa", hpa: "500 hPa", altM: 5500, altFt: 18000 },
+            ];
+            const useFt = units.altitude === "ft";
+            const currentIdx = BARB_LEVELS.findIndex(l => l.id === windBarbLevel);
+            const safeIdx = currentIdx === -1 ? 0 : currentIdx;
+            const current = BARB_LEVELS[safeIdx];
+            const altLabel = current.id === "10m"
+              ? (useFt ? "33 ft" : "10 m")
+              : (useFt ? `${current.altFt.toLocaleString()} ft` : `${current.altM.toLocaleString()} m`);
+            const displayLabel = current.id === "10m"
+              ? `Surface · ${altLabel}`
+              : `${current.hpa} · ${altLabel}`;
+            const isDisabled = activeModel === "nbm";
+            return (
+              <div className={styles.windBarbSliderWrap}>
+                <div className={styles.windBarbSliderLabel} title={displayLabel}>
+                  {displayLabel}
+                </div>
+                <div className={styles.windBarbSliderTrack}>
+                  <input
+                    type="range"
+                    className={styles.windBarbSlider}
+                    min={0}
+                    max={BARB_LEVELS.length - 1}
+                    step={1}
+                    value={safeIdx}
+                    disabled={isDisabled}
+                    onChange={e => setWindBarbLevel(BARB_LEVELS[Number(e.target.value)].id)}
+                    style={{ writingMode: "vertical-lr", direction: "rtl" }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
           {showWindBarbs && (
             <div className={styles.windBarbLevelRow} style={{ marginTop: 6 }}>
               {([["color", "Colored"], ["black", "Black"]] as const).map(([mode, label]) => (
