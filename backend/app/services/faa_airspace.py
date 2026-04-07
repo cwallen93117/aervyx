@@ -65,6 +65,52 @@ PAGE_SIZE = 1000
 _feature_cache: list[dict] | None = None
 _cache_loaded_at: float = 0.0
 
+# Simplified geometry epsilon (~0.002° ≈ ~200m, good for map display)
+_SIMPLIFY_EPSILON = 0.002
+
+
+def _simplify_ring(ring: list, epsilon: float) -> list:
+    """Ramer-Douglas-Peucker line simplification."""
+    if len(ring) <= 4:
+        return ring
+
+    def _perp_dist(pt, start, end):
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        len_sq = dx * dx + dy * dy
+        if len_sq == 0:
+            return ((pt[0] - start[0]) ** 2 + (pt[1] - start[1]) ** 2) ** 0.5
+        t = max(0, min(1, ((pt[0] - start[0]) * dx + (pt[1] - start[1]) * dy) / len_sq))
+        return ((pt[0] - (start[0] + t * dx)) ** 2 + (pt[1] - (start[1] + t * dy)) ** 2) ** 0.5
+
+    max_dist = 0
+    idx = 0
+    for i in range(1, len(ring) - 1):
+        d = _perp_dist(ring[i], ring[0], ring[-1])
+        if d > max_dist:
+            max_dist = d
+            idx = i
+
+    if max_dist > epsilon:
+        left = _simplify_ring(ring[:idx + 1], epsilon)
+        right = _simplify_ring(ring[idx:], epsilon)
+        return left[:-1] + right
+    return [ring[0], ring[-1]]
+
+
+def _simplify_geometry(geom: dict) -> dict:
+    """Simplify polygon/multipolygon geometry for map display."""
+    gtype = geom.get("type", "")
+    if gtype == "Polygon":
+        simplified = [_simplify_ring(ring, _SIMPLIFY_EPSILON) for ring in geom["coordinates"]]
+        return {"type": "Polygon", "coordinates": simplified}
+    elif gtype == "MultiPolygon":
+        simplified = [
+            [_simplify_ring(ring, _SIMPLIFY_EPSILON) for ring in poly]
+            for poly in geom["coordinates"]
+        ]
+        return {"type": "MultiPolygon", "coordinates": simplified}
+    return geom
+
 
 def query_bbox(
     west: float, south: float, east: float, north: float,
@@ -82,7 +128,7 @@ def query_bbox(
             continue
         if categories and item["feature"]["properties"]["category"] not in categories:
             continue
-        results.append(item["feature"])
+        results.append(item["simplified"])
 
     return {"type": "FeatureCollection", "features": results}
 
@@ -416,8 +462,14 @@ def _load_cache_from_db() -> int:
                     "source": r.source,
                 },
             }
+            simplified = {
+                "type": "Feature",
+                "geometry": _simplify_geometry(r.geometry_json),
+                "properties": feature["properties"],
+            }
             cache.append({
                 "feature": feature,
+                "simplified": simplified,
                 "bbox": (r.min_lat, r.max_lat, r.min_lon, r.max_lon),
             })
         # Atomic swap

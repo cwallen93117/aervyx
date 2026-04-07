@@ -8,8 +8,7 @@ import {
   type AirspaceCategory,
   CATEGORY_COLORS,
   CATEGORY_LABELS,
-  fetchClassAirspace,
-  fetchSpecialUseAirspace,
+  fetchAllAirspace,
   fetchTFRs,
   downloadOpenAir,
 } from "../../lib/faaAirspace";
@@ -108,15 +107,12 @@ export default function AirspaceExplorerMap() {
     setError(null);
 
     try {
-      const [classData, suaData] = await Promise.all([
-        fetchClassAirspace(viewBounds, ctrl.signal),
-        fetchSpecialUseAirspace(viewBounds, ctrl.signal),
-      ]);
+      const allData = await fetchAllAirspace(viewBounds, ctrl.signal);
 
       if (ctrl.signal.aborted) return;
 
       // Merge new features into the accumulated map (deduplicate by name+category+bounds key)
-      for (const f of [...classData.features, ...suaData.features]) {
+      for (const f of allData.features) {
         const p = f.properties as { name: string; category: string; lowerVal: number | null; upperVal: number | null };
         const key = `${p.category}:${p.name}:${p.lowerVal}:${p.upperVal}:${hashGeometry(f.geometry)}`;
         featureMapRef.current.set(key, f);

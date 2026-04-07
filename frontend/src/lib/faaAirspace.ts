@@ -135,6 +135,11 @@ export async function fetchTFRs(signal?: AbortSignal): Promise<GeoJSONFC> {
   return fetchFromBackend({ west: -180, south: -90, east: 180, north: 90 }, "TFR", signal);
 }
 
+/** Fetch all airspace (class + SUA) in a single request */
+export async function fetchAllAirspace(bounds: BoundsBox, signal?: AbortSignal): Promise<GeoJSONFC> {
+  return fetchFromBackend(bounds, "B,C,D,P,R,W,A,MOA", signal);
+}
+
 // ---------------------------------------------------------------------------
 // OpenAir export — follows Naviter OpenAir 2.1 spec
 // https://github.com/naviter/seeyou_file_formats/blob/main/OpenAir_File_Format_Support.md
