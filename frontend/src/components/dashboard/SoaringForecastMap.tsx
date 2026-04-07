@@ -1367,14 +1367,14 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                 {/* Color bar */}
                 <div className={styles.mapLegendVerticalBar}>
                   {bandColors.map((c, i) => (
-                    <div key={i} style={{ flex: 1, background: c }} />
+                    <div key={i} style={{ height: 18, background: c }} />
                   ))}
                 </div>
                 {/* Labels — one per band, right-aligned to band center */}
                 <div className={styles.mapLegendVerticalLabelsCol}>
                   {labelVals.map((v, i) => (
-                    <div key={i} className={styles.mapLegendVerticalLabelSlot} style={{ flex: 1 }}>
-                      <span className={styles.mapLegendVerticalLabel}>{v}</span>
+                    <div key={i} className={styles.mapLegendVerticalLabelSlot} style={{ height: 18 }}>
+                      <span className={styles.mapLegendVerticalLabel}>{v.toLocaleString()}</span>
                     </div>
                   ))}
                 </div>
