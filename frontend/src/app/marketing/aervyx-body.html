@@ -208,7 +208,7 @@
       <div class="cap" style="--cg:rgba(167,139,250,.05)"><div class="cap-n">08</div><span class="cap-ico">🔄</span><h3>3D Flight Replay</h3><p>Replay any flight over 3D terrain with turnpoint cylinders, altitude profiles, speed overlays, and full scrub control.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(0,229,255,.04)"><div class="cap-n">09</div><span class="cap-ico">📁</span><h3>IGC Evidence</h3><p>Every IGC file is SHA-256 fingerprinted on upload and stored immutably. Full audit trail for all scoring actions.</p><span class="cap-badge cb-auto">Tamper-proof</span></div>
       <!-- Row 4 — Safety + Public -->
-      <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">🛡️</span><h3>Airspace &amp; Weather</h3><p>Live FAA Class B/C/D, TFR, and Special Use airspace overlays refreshed every 5 minutes. HRRR, GFS, ICON, and NAM soaring forecast layers — thermal potential, boundary layer height, cloudbase, and wind at altitude. Powered by Open-Meteo.</p><span class="cap-badge cb-live">Live</span></div>
+      <div class="cap" style="--cg:rgba(0,230,118,.04)"><div class="cap-n">10</div><span class="cap-ico">🛡️</span><h3>Airspace &amp; Weather</h3><p>Live FAA airspace overlays and TFRs refreshed every 5 minutes. Six NOAA weather models with thermal forecasts, wind barbs, Skew-T soundings, and animated time scrubbing — a free alternative to XC Skies.</p><span class="cap-badge cb-live">Live</span></div>
       <div class="cap" style="--cg:rgba(255,59,48,.04)"><div class="cap-n">11</div><span class="cap-ico">🆘</span><h3>SOS Alerting</h3><p>One-tap SOS broadcasts through the Meshtastic mesh network — reaching safety directors even in valleys with zero cell signal. Best-effort emergency notification; not a substitute for proper safety equipment or emergency services.</p><span class="cap-badge cb-safety">Safety</span></div>
       <div class="cap" style="--cg:rgba(255,107,53,.04)"><div class="cap-n">12</div><span class="cap-ico">🌍</span><h3>Public View &amp; Results</h3><p>Public live-tracking links and per-event results — no account needed. Share a URL for spectators to watch the task live, and official results stay accessible permanently.</p><span class="cap-badge cb-live">Public</span></div>
     </div>
@@ -300,8 +300,8 @@
 <section class="section" id="forecast">
   <div class="inner">
     <div class="eyebrow ey-gold">Soaring forecast</div>
-    <h2 class="section-title">Weather intelligence on<br/>the task map.</h2>
-    <p class="section-body">Four weather models, thermal overlays, and wind-at-altitude layers — all without leaving your browser.</p>
+    <h2 class="section-title">XC Skies and Skylight —<br/>without the subscription.</h2>
+    <p class="section-body">Six weather models, physics-based thermal forecasts, interactive soundings, and wind barbs — integrated directly into your task map. Free and open-source.</p>
     <div class="forecast-wrap reveal">
       <div class="forecast-map">
         <svg viewBox="0 0 480 320" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
@@ -350,28 +350,20 @@
         </svg>
         <div class="forecast-models">
           <button class="fm-btn fm-active">HRRR</button>
+          <button class="fm-btn">NAM 3km</button>
+          <button class="fm-btn">RAP</button>
           <button class="fm-btn">GFS</button>
-          <button class="fm-btn">ICON</button>
           <button class="fm-btn">NAM</button>
+          <button class="fm-btn">NBM</button>
         </div>
       </div>
       <div class="fc-cards">
-        <div class="fc-card">
-          <h4>Four Weather Models</h4>
-          <p>HRRR 3km CONUS, GFS 25km global, ICON 11km Europe, and NAM 3km. Switch models in one click to cross-reference forecasts.</p>
-        </div>
-        <div class="fc-card">
-          <h4>Thermal Forecast Overlay</h4>
-          <p>Convective potential, boundary layer height, and estimated cloudbase rendered as a colour-coded overlay directly on the task map.</p>
-        </div>
-        <div class="fc-card">
-          <h4>Wind at Altitude</h4>
-          <p>Configurable altitude layers show wind speed and direction. Identify ridge lift alignment and cross-wind legs before task set.</p>
-        </div>
-        <div class="fc-card">
-          <h4>Powered by Open-Meteo</h4>
-          <p>Free and open-source weather data via Open-Meteo API. No API keys, no subscription costs, no rate limits for competition use.</p>
-        </div>
+        <div class="fc-card"><h4>Six Weather Models</h4><p>HRRR 3km, NAM 3km, RAP 13km, GFS 25km, NAM 12km, and NBM 2.5km. Switch models in one click to cross-reference forecasts. Hourly updates from NOAA via Herbie — no API keys, no subscriptions.</p></div>
+        <div class="fc-card"><h4>Thermal Forecast (W*)</h4><p>Deardorff convective velocity derived from sensible heat flux, boundary layer height, and virtual temperature. No ad-hoc cloud penalties — the physics does the work. Fixed color scales for day-to-day consistency.</p></div>
+        <div class="fc-card"><h4>Soaring Quality Index</h4><p>A composite 0–10 score blending thermal strength, boundary layer height, cloud cover, and surface wind. One glance tells you if the day is soarable — without juggling five different overlays.</p></div>
+        <div class="fc-card"><h4>Interactive Soundings</h4><p>Click anywhere on the map for a Skew-T diagram with temperature, dewpoint, dry adiabats, and pressure levels from 1000–200 hPa. Multi-model comparison at any point.</p></div>
+        <div class="fc-card"><h4>Wind Barbs at Altitude</h4><p>Meteorological wind barbs at 10m, 850 hPa, 700 hPa, and 500 hPa. Color-coded by speed with density-aware spacing. Proper convention — direction shows where wind blows from.</p></div>
+        <div class="fc-card"><h4>Animated Time Scrub</h4><p>Drag through the full forecast timeline or hit play to animate. Day headers, hour ticks, and a run-date badge so you always know which model cycle you're viewing.</p></div>
       </div>
     </div>
   </div>
