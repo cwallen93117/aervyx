@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 # Raster version must match the value in weather.py exactly.
-_RASTER_VERSION = "v8"
+_RASTER_VERSION = "v10"
 
 # How long after a model's init time before data is typically available on NOMADS.
 MODEL_AVAILABILITY_DELAY: dict[str, float] = {
