@@ -330,6 +330,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; scale_min: number; scale_max: number } | null>(null);
   const [tiers, setTiers] = useState<{ value: number; color: string }[] | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [showWindBarbs, setShowWindBarbs] = useState(true);
+  const [windBarbLevel, setWindBarbLevel] = useState("10m");
+  const windBarbsRef = useRef<{ lat: number; lng: number; u: number; v: number }[]>([]);
+  const barbCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const barbRafRef = useRef<number | null>(null);
+  const barbLoadingRef = useRef(false);
 
   const validTimes = activeRun?.valid_times ?? [];
 
@@ -485,6 +491,262 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     }
     return () => { if (playTimerRef.current) { clearInterval(playTimerRef.current); playTimerRef.current = null; } };
   }, [isPlaying, validTimes.length]);
+
+  /* ---------------------------------------------------------------- */
+  /* Wind barb canvas overlay                                         */
+  /* ---------------------------------------------------------------- */
+
+  // Draw wind barbs on the canvas overlay using the current map projection
+  const drawWindBarbs = useCallback(() => {
+    const map = mapRef.current;
+    const canvas = barbCanvasRef.current;
+    if (!map || !canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    if (!showWindBarbs || windBarbsRef.current.length === 0) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.scale(dpr, dpr);
+
+    const cssW = W / dpr;
+    const cssH = H / dpr;
+
+    // Track which screen cells are occupied to avoid over-dense barbs
+    const CELL = 28; // minimum pixel spacing between barb centers
+    const occupied = new Set<string>();
+
+    for (const pt of windBarbsRef.current) {
+      const px = map.project([pt.lng, pt.lat]);
+      const x = px.x;
+      const y = px.y;
+
+      // Skip points outside the visible canvas area (with margin)
+      if (x < -40 || x > cssW + 40 || y < -40 || y > cssH + 40) continue;
+
+      // Skip if cell already occupied
+      const cellKey = `${Math.floor(x / CELL)},${Math.floor(y / CELL)}`;
+      if (occupied.has(cellKey)) continue;
+      occupied.add(cellKey);
+
+      // Convert m/s to knots
+      const speedKt = Math.sqrt(pt.u * pt.u + pt.v * pt.v) * 1.94384;
+
+      // Meteorological convention: direction wind comes FROM (degrees clockwise from N)
+      // atan2(-u, -v) gives direction wind comes from in math convention;
+      // we add 180 to flip U/V to "from" direction
+      const dirRad = Math.atan2(-pt.u, -pt.v); // radians, math convention (0=North)
+      const dirDeg = (dirRad * 180 / Math.PI + 360) % 360;
+
+      // Color by speed
+      let color: string;
+      if (speedKt < 10) {
+        color = "rgba(200,230,255,0.82)";  // light blue — calm/light
+      } else if (speedKt < 25) {
+        color = "rgba(100,180,255,0.85)";  // medium blue
+      } else if (speedKt < 40) {
+        color = "rgba(255,170,50,0.88)";   // orange — strong
+      } else {
+        color = "rgba(255,60,60,0.90)";    // red — very strong
+      }
+
+      ctx.strokeStyle = color;
+      ctx.fillStyle = color;
+      ctx.lineWidth = 1.2;
+      ctx.lineCap = "round";
+
+      if (speedKt < 3) {
+        // Calm: draw a small circle only
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.stroke();
+        continue;
+      }
+
+      // Staff: line in the direction the wind comes FROM (into the wind)
+      const STAFF_LEN = 18;
+      const RAD = Math.PI / 180;
+      // dirDeg: 0=from N, 90=from E, 180=from S, 270=from W
+      // Screen: y increases downward, so "from N" means staff points upward (negative dy)
+      const sinD = Math.sin(dirDeg * RAD);
+      const cosD = Math.cos(dirDeg * RAD);
+
+      // Staff tip (the end where barbs are placed)
+      const tx = x + sinD * STAFF_LEN;
+      const ty = y - cosD * STAFF_LEN;
+
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+
+      // Now draw barbs along the staff from tip toward base
+      // Barb direction is to the LEFT of the staff (Northern Hemisphere convention)
+      // Left of staff = perpendicular rotated -90 degrees from staff direction
+      // Staff direction vector: (sinD, -cosD) in screen coords
+      // Left perpendicular: rotate +90° in screen space: (-(-cosD), sinD) = (cosD, sinD) ... wait
+      // In screen coords (y-down), rotate staff direction 90° CCW (which is left):
+      //   (dx, dy) -> (-dy, dx)
+      // Staff direction: dx=sinD, dy=-cosD
+      // Left perp: -(-cosD), sinD) = (cosD, sinD)
+      const BARB_W = 8;    // length of long barb
+      const BARB_SHORT = 4; // length of short barb (5kt)
+      const BARB_STEP = 5; // spacing along staff
+
+      let remaining = speedKt;
+      let pos = 0; // position along staff from tip
+
+      // Place 50-kt flags first (triangles)
+      while (remaining >= 50) {
+        const bx = tx - sinD * pos;
+        const by = ty + cosD * pos;
+        const bx2 = tx - sinD * (pos + BARB_STEP);
+        const by2 = ty + cosD * (pos + BARB_STEP);
+        // Flag tip
+        const ftx = bx + cosD * BARB_W;
+        const fty = by + sinD * BARB_W;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx2, by2);
+        ctx.lineTo(ftx, fty);
+        ctx.closePath();
+        ctx.fill();
+        pos += BARB_STEP + 2;
+        remaining -= 50;
+      }
+
+      // Add a gap after flags if any were drawn
+      if (speedKt >= 50) pos += 2;
+
+      // Long barbs (10kt each)
+      while (remaining >= 10) {
+        const bx = tx - sinD * pos;
+        const by = ty + cosD * pos;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + cosD * BARB_W, by + sinD * BARB_W);
+        ctx.stroke();
+        pos += BARB_STEP;
+        remaining -= 10;
+      }
+
+      // Short barb (5kt)
+      if (remaining >= 5) {
+        const bx = tx - sinD * pos;
+        const by = ty + cosD * pos;
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx + cosD * BARB_SHORT, by + sinD * BARB_SHORT);
+        ctx.stroke();
+      }
+    }
+
+    ctx.restore();
+  }, [showWindBarbs]);
+
+  // Schedule a redraw via rAF
+  const scheduleDrawBarbs = useCallback(() => {
+    if (barbRafRef.current !== null) return; // already scheduled
+    barbRafRef.current = requestAnimationFrame(() => {
+      barbRafRef.current = null;
+      drawWindBarbs();
+    });
+  }, [drawWindBarbs]);
+
+  // Create/resize the barb canvas when the map container mounts/resizes
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const canvas = document.createElement("canvas");
+    canvas.style.cssText = "position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:3";
+    container.appendChild(canvas);
+    barbCanvasRef.current = canvas;
+
+    const resizeCanvas = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const w = container.clientWidth;
+      const h = container.clientHeight;
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      scheduleDrawBarbs();
+    };
+
+    resizeCanvas();
+    const ro = new ResizeObserver(resizeCanvas);
+    ro.observe(container);
+
+    return () => {
+      ro.disconnect();
+      canvas.remove();
+      barbCanvasRef.current = null;
+      if (barbRafRef.current !== null) { cancelAnimationFrame(barbRafRef.current); barbRafRef.current = null; }
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Hook map move/zoom events to redraw barbs
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+
+    const onMove = () => scheduleDrawBarbs();
+    map.on("move", onMove);
+    map.on("zoom", onMove);
+    return () => { map.off("move", onMove); map.off("zoom", onMove); };
+  }, [mapReady, scheduleDrawBarbs]);
+
+  // Fetch wind barb data when relevant params change
+  useEffect(() => {
+    if (!mapReady || !activeRun || !showWindBarbs) {
+      if (!showWindBarbs) {
+        windBarbsRef.current = [];
+        scheduleDrawBarbs();
+      }
+      return;
+    }
+    if (activeModel === "nbm") {
+      windBarbsRef.current = [];
+      scheduleDrawBarbs();
+      return;
+    }
+
+    const vt = validTimes[selectedTimeIdx];
+    if (!vt) return;
+
+    const runDt = new Date(`${activeRun.date.slice(0,4)}-${activeRun.date.slice(4,6)}-${activeRun.date.slice(6,8)}T${activeRun.hour}:00:00Z`);
+    const fh = Math.round((new Date(vt).getTime() - runDt.getTime()) / 3600000);
+
+    const api = resolveApiBase();
+    const url = `${api}/api/weather/wind-barbs?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&level=${windBarbLevel}`;
+
+    let cancelled = false;
+    barbLoadingRef.current = true;
+
+    fetch(url)
+      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      .then((data: { points: { lat: number; lng: number; u: number; v: number }[] }) => {
+        if (cancelled) return;
+        windBarbsRef.current = data.points ?? [];
+        barbLoadingRef.current = false;
+        scheduleDrawBarbs();
+      })
+      .catch(() => {
+        if (!cancelled) { windBarbsRef.current = []; barbLoadingRef.current = false; scheduleDrawBarbs(); }
+      });
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbs, mapReady, validTimes]);
+
+  // Redraw when showWindBarbs toggles
+  useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, scheduleDrawBarbs]);
 
   // Click handler — open popup with Skew-T + point forecast values
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
@@ -826,6 +1088,47 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             <input type="range" className={styles.opacitySlider} min={0} max={100} value={opacity} onChange={e => setOpacity(Number(e.target.value))} />
             <span className={styles.opacityVal}>{opacity}%</span>
           </div>
+        </div>
+
+        {/* Wind barbs */}
+        <div className={styles.section}>
+          <p className={styles.sectionLabel}>Wind Barbs</p>
+          <label className={styles.windBarbToggle}>
+            <input
+              type="checkbox"
+              checked={showWindBarbs}
+              onChange={e => setShowWindBarbs(e.target.checked)}
+              style={{ marginRight: 6 }}
+            />
+            Show barbs
+          </label>
+          {showWindBarbs && (
+            <div className={styles.windBarbLevelRow}>
+              {[
+                { id: "10m",    label: "Surface" },
+                { id: "850hPa", label: "850 (~1500m)" },
+                { id: "700hPa", label: "700 (~3000m)" },
+                { id: "500hPa", label: "500 (~5500m)" },
+              ].map(lv => (
+                <button
+                  key={lv.id}
+                  className={[styles.windBarbLevelBtn, windBarbLevel === lv.id ? styles.windBarbLevelBtnActive : ""].join(" ")}
+                  onClick={() => setWindBarbLevel(lv.id)}
+                  disabled={activeModel === "nbm"}
+                >
+                  {lv.label}
+                </button>
+              ))}
+            </div>
+          )}
+          {showWindBarbs && (
+            <div className={styles.windBarbLegend}>
+              <span style={{ color: "rgba(200,230,255,0.95)" }}>&#9642;</span>&nbsp;&lt;10kt&ensp;
+              <span style={{ color: "rgba(100,180,255,0.95)" }}>&#9642;</span>&nbsp;10-25kt&ensp;
+              <span style={{ color: "rgba(255,170,50,0.95)" }}>&#9642;</span>&nbsp;25-40kt&ensp;
+              <span style={{ color: "rgba(255,60,60,0.95)" }}>&#9642;</span>&nbsp;&gt;40kt
+            </div>
+          )}
         </div>
 
       </div>

@@ -1290,3 +1290,183 @@ async def weather_variables():
             for k, v in VARIABLES.items()
         ]
     })
+
+
+# ---------------------------------------------------------------------------
+# Wind barb search strings per level
+# ---------------------------------------------------------------------------
+_WIND_BARB_LEVELS: dict[str, tuple[str, str, dict[str, str]]] = {
+    # level_id -> (ugrd_search, vgrd_search, product_overrides)
+    "10m":    (":UGRD:10 m above ground:", ":VGRD:10 m above ground:", {}),
+    "850hPa": (":UGRD:850 mb:",            ":VGRD:850 mb:",            {"hrrr": "prs"}),
+    "700hPa": (":UGRD:700 mb:",            ":VGRD:700 mb:",            {"hrrr": "prs"}),
+    "500hPa": (":UGRD:500 mb:",            ":VGRD:500 mb:",            {"hrrr": "prs"}),
+}
+
+# Target total barb count when subsampling
+_BARB_TARGET = 600
+
+# CONUS clip bounds — same as raster pipeline
+_BARB_LAT = (20.0, 55.0)
+_BARB_LON = (-130.0, -60.0)
+
+
+def _fetch_wind_barbs(
+    model: str,
+    run_date: str,
+    run_hour: str,
+    fxx: int,
+    level: str,
+) -> list[dict]:
+    """Synchronous Herbie fetch for U/V wind components.
+
+    Returns a list of {lat, lng, u, v} dicts subsampled to ~_BARB_TARGET points.
+    Runs in the thread-pool executor.
+    """
+    from herbie import Herbie
+
+    if level not in _WIND_BARB_LEVELS:
+        raise RuntimeError(f"Unknown wind barb level: {level}")
+
+    ugrd_search, vgrd_search, prod_overrides = _WIND_BARB_LEVELS[level]
+
+    cfg = MODEL_CONFIG[model]
+    default_product = cfg["default_product"]
+    product = prod_overrides.get(model, default_product)
+
+    dt_str = f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]} {run_hour}:00"
+
+    kwargs: dict[str, Any] = {"date": dt_str, "model": cfg["herbie_model"], "fxx": fxx}
+    if product:
+        kwargs["product"] = product
+
+    try:
+        H = Herbie(**kwargs)
+    except Exception as exc:
+        raise RuntimeError(f"Herbie init failed for {model} {dt_str} f{fxx:02d}: {exc}")
+
+    try:
+        ds_u = H.xarray(ugrd_search)
+        ds_v = H.xarray(vgrd_search)
+    except Exception as exc:
+        raise RuntimeError(f"Herbie wind barb fetch failed: {exc}")
+
+    u_arr = ds_u[list(ds_u.data_vars)[0]].values
+    v_arr = ds_v[list(ds_v.data_vars)[0]].values
+    lats = ds_u.latitude.values
+    lons = ds_u.longitude.values
+
+    # Normalize longitudes
+    lons = np.where(lons > 180, lons - 360, lons)
+
+    is_2d = lats.ndim == 2
+
+    if is_2d:
+        rows, cols = lats.shape
+        total = rows * cols
+        n_step = max(1, int(np.sqrt(total / _BARB_TARGET)))
+
+        points: list[dict] = []
+        for i in range(0, rows, n_step):
+            for j in range(0, cols, n_step):
+                lat_v = float(lats[i, j])
+                lon_v = float(lons[i, j])
+                if not (_BARB_LAT[0] <= lat_v <= _BARB_LAT[1] and _BARB_LON[0] <= lon_v <= _BARB_LON[1]):
+                    continue
+                u_v = float(u_arr[i, j])
+                v_v = float(v_arr[i, j])
+                if np.isnan(u_v) or np.isnan(v_v):
+                    continue
+                points.append({
+                    "lat": round(lat_v, 3),
+                    "lng": round(lon_v, 3),
+                    "u": round(u_v, 3),
+                    "v": round(v_v, 3),
+                })
+    else:
+        lats_1d = lats
+        lons_1d = lons
+
+        # Clip to CONUS
+        lat_mask = (lats_1d >= _BARB_LAT[0]) & (lats_1d <= _BARB_LAT[1])
+        lon_mask = (lons_1d >= _BARB_LON[0]) & (lons_1d <= _BARB_LON[1])
+        lat_idx_all = np.where(lat_mask)[0]
+        lon_idx_all = np.where(lon_mask)[0]
+
+        n_lat = len(lat_idx_all)
+        n_lon = len(lon_idx_all)
+        total = n_lat * n_lon
+        n_step = max(1, int(np.sqrt(total / _BARB_TARGET)))
+
+        points = []
+        for ii in range(0, n_lat, n_step):
+            for jj in range(0, n_lon, n_step):
+                i = int(lat_idx_all[ii])
+                j = int(lon_idx_all[jj])
+                u_v = float(u_arr[i, j]) if u_arr.ndim == 2 else float(u_arr[i])
+                v_v = float(v_arr[i, j]) if v_arr.ndim == 2 else float(v_arr[i])
+                if np.isnan(u_v) or np.isnan(v_v):
+                    continue
+                points.append({
+                    "lat": round(float(lats_1d[i]), 3),
+                    "lng": round(float(lons_1d[j]), 3),
+                    "u": round(u_v, 3),
+                    "v": round(v_v, 3),
+                })
+
+    return points
+
+
+# In-memory cache for wind barbs (same TTL as grid cache)
+_barb_cache: dict[str, tuple[list[dict], float]] = {}
+
+
+@router.get("/wind-barbs")
+async def weather_wind_barbs(
+    model: str = Query(...),
+    date: str = Query(..., description="YYYYMMDD"),
+    hour: str = Query(..., description="Run hour e.g. 12"),
+    fh: int = Query(..., description="Forecast hour"),
+    level: str = Query("10m", description="Wind level: 10m, 850hPa, 700hPa, 500hPa"),
+):
+    """Return a subsampled grid of U/V wind components for drawing wind barbs.
+
+    Response: {"points": [{lat, lng, u, v}, ...], "meta": {...}}
+    u/v are in m/s. The frontend converts to knots/direction for rendering.
+    """
+    if model not in MODEL_CONFIG:
+        raise HTTPException(400, f"Unknown model: {model}")
+    if level not in _WIND_BARB_LEVELS:
+        raise HTTPException(400, f"Unknown level: {level}. Valid: {list(_WIND_BARB_LEVELS)}")
+    if model == "nbm":
+        raise HTTPException(400, "Wind barbs not available for NBM")
+
+    cache_key = f"barbs:{model}:{date}:{hour}:{fh}:{level}"
+    now = time.time()
+
+    if cache_key in _barb_cache:
+        pts, ts = _barb_cache[cache_key]
+        if now - ts < GRID_TTL:
+            return JSONResponse({"points": pts, "meta": {"model": model, "level": level, "fh": fh, "count": len(pts)}})
+
+    loop = asyncio.get_event_loop()
+    try:
+        points = await loop.run_in_executor(
+            _executor, _fetch_wind_barbs, model, date, hour, fh, level
+        )
+    except RuntimeError as exc:
+        raise HTTPException(502, str(exc))
+    except Exception as exc:
+        raise HTTPException(500, f"Unexpected error: {exc}")
+
+    _barb_cache[cache_key] = (points, now)
+
+    # Prune stale barb cache entries
+    for k, (_, ts) in list(_barb_cache.items()):
+        if now - ts > GRID_TTL:
+            del _barb_cache[k]
+
+    return JSONResponse({
+        "points": points,
+        "meta": {"model": model, "level": level, "fh": fh, "count": len(points)},
+    })

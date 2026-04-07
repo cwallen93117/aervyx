@@ -20,6 +20,13 @@
 .opacitySlider { flex: 1; }
 .opacityVal { font-size: 0.75rem; color: var(--muted); min-width: 34px; text-align: right; }
 .windToggleLabel { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--ink); cursor: pointer; }
+.windBarbToggle { display: flex; align-items: center; font-size: 0.8125rem; color: var(--ink); cursor: pointer; margin-bottom: 8px; }
+.windBarbLevelRow { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
+.windBarbLevelBtn { font-size: 0.72rem; padding: 3px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: none; color: var(--ink); cursor: pointer; text-align: left; }
+.windBarbLevelBtn:hover:not(:disabled) { background: var(--wash); }
+.windBarbLevelBtn:disabled { opacity: 0.38; cursor: not-allowed; }
+.windBarbLevelBtnActive { background: rgba(59,130,246,0.12) !important; border-color: #3b82f6 !important; color: #2563eb !important; font-weight: 600; }
+.windBarbLegend { font-size: 0.62rem; color: var(--muted); line-height: 1.8; }
 .legend { padding: 12px 14px; margin-top: auto; border-top: 1px solid var(--line); }
 .legendBar { height: 10px; border-radius: 4px; margin: 6px 0 4px; }
 .legendLabels { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--muted); }
