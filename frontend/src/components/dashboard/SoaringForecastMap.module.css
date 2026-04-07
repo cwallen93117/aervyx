@@ -86,13 +86,15 @@
 
 /* Day headers row */
 .timelineDays {
-  display: flex;
+  position: relative;
   height: 17px;
-  align-items: center;
   border-bottom: 1px solid rgba(255,255,255,0.1);
 }
 
 .timelineDayCell {
+  position: absolute;
+  top: 0;
+  bottom: 0;
   font-size: 0.6rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -111,21 +113,21 @@
 /* Hour ticks row */
 .timelineHours {
   position: relative;
-  display: flex;
   height: 28px;
-  align-items: flex-start;
   cursor: pointer;
   touch-action: none;
   overflow: hidden;
 }
 
 .timelineTick {
-  position: relative;
+  position: absolute;
+  top: 0;
+  bottom: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   pointer-events: none;
-  min-width: 0;
+  transform: translateX(-50%);
 }
 
 .timelineTickMark {

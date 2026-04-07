@@ -244,27 +244,42 @@ type RunInfo = { date: string; hour: string; valid_times: string[]; max_fxx: num
 /* Timeline helpers                                                    */
 /* ------------------------------------------------------------------ */
 
-/** Group valid_times by UTC date string ("Mon 6", "Tue 7", etc.) */
-type DayGroup = { label: string; startIdx: number; count: number };
+/** Group valid_times by UTC date string ("Mon 6", "Tue 7", etc.)
+ *  startPct/endPct express position as % of the full time range */
+type DayGroup = { label: string; startPct: number; widthPct: number };
 
 function buildDayGroups(validTimes: string[]): DayGroup[] {
+  if (validTimes.length < 2) {
+    if (validTimes.length === 1) {
+      const d = new Date(validTimes[0]);
+      return [{ label: `${d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} ${d.getUTCDate()}`, startPct: 0, widthPct: 100 }];
+    }
+    return [];
+  }
+  const startMs = new Date(validTimes[0]).getTime();
+  const endMs = new Date(validTimes[validTimes.length - 1]).getTime();
+  const spanMs = endMs - startMs;
+
   const groups: DayGroup[] = [];
   let currentDate = "";
-  let startIdx = 0;
+  let groupStartMs = startMs;
   validTimes.forEach((iso, i) => {
     const d = new Date(iso);
     const dateKey = `${d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} ${d.getUTCDate()}`;
     if (dateKey !== currentDate) {
-      if (currentDate !== "") {
-        groups[groups.length - 1].count = i - startIdx;
+      if (currentDate !== "" && groups.length > 0) {
+        const prevEndMs = new Date(validTimes[i - 1]).getTime();
+        // Split at midpoint between last tick of prev day and first tick of this day
+        const boundaryMs = (prevEndMs + d.getTime()) / 2;
+        groups[groups.length - 1].widthPct = ((boundaryMs - groupStartMs) / spanMs) * 100;
+        groupStartMs = boundaryMs;
       }
       currentDate = dateKey;
-      startIdx = i;
-      groups.push({ label: dateKey, startIdx: i, count: 0 });
+      groups.push({ label: dateKey, startPct: ((groupStartMs - startMs) / spanMs) * 100, widthPct: 0 });
     }
   });
   if (groups.length > 0) {
-    groups[groups.length - 1].count = validTimes.length - groups[groups.length - 1].startIdx;
+    groups[groups.length - 1].widthPct = 100 - groups[groups.length - 1].startPct;
   }
   return groups;
 }
@@ -590,8 +605,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     if (!el || validTimes.length === 0) return 0;
     const rect = el.getBoundingClientRect();
     const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    return Math.round(frac * (validTimes.length - 1));
-  }, [validTimes.length]);
+    // Map frac to a timestamp, then find closest valid time
+    const startMs = new Date(validTimes[0]).getTime();
+    const endMs = new Date(validTimes[validTimes.length - 1]).getTime();
+    const targetMs = startMs + frac * (endMs - startMs);
+    let best = Infinity;
+    let bestIdx = 0;
+    validTimes.forEach((t, i) => {
+      const diff = Math.abs(new Date(t).getTime() - targetMs);
+      if (diff < best) { best = diff; bestIdx = i; }
+    });
+    return bestIdx;
+  }, [validTimes]);
 
   const handleTimelinePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
     isDraggingRef.current = true;
@@ -616,10 +641,23 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const dayGroups = buildDayGroups(validTimes);
 
   /* ---------------------------------------------------------------- */
-  /* Timeline rendering                                               */
+  /* Timeline rendering — position ticks by actual time               */
   /* ---------------------------------------------------------------- */
-  const scrubberPct = validTimes.length > 1
-    ? (selectedTimeIdx / (validTimes.length - 1)) * 100
+  // Compute time range for the full timeline
+  const timeRangeMs = (() => {
+    if (validTimes.length < 2) return { startMs: 0, spanMs: 1 };
+    const startMs = new Date(validTimes[0]).getTime();
+    const endMs = new Date(validTimes[validTimes.length - 1]).getTime();
+    return { startMs, spanMs: Math.max(endMs - startMs, 1) };
+  })();
+
+  const timePct = (iso: string) => {
+    const ms = new Date(iso).getTime();
+    return ((ms - timeRangeMs.startMs) / timeRangeMs.spanMs) * 100;
+  };
+
+  const scrubberPct = validTimes[selectedTimeIdx]
+    ? timePct(validTimes[selectedTimeIdx])
     : 0;
 
   // Which hour ticks to label (every 3h)
@@ -732,7 +770,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                     <div
                       key={dg.label}
                       className={styles.timelineDayCell}
-                      style={{ flex: dg.count }}
+                      style={{ position: "absolute", left: `${dg.startPct}%`, width: `${dg.widthPct}%` }}
                     >
                       {dg.label}
                     </div>
@@ -748,16 +786,17 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                   onPointerUp={handleTimelinePointerUp}
                   onPointerCancel={handleTimelinePointerUp}
                 >
-                  {/* Tick marks + labels */}
+                  {/* Tick marks — absolutely positioned at true time */}
                   {validTimes.map((iso, i) => {
                     const h = getHourUTC(iso);
                     const isLabel = LABEL_HOURS.has(h);
                     const isMidnight = h === 0;
+                    const pct = timePct(iso);
                     return (
                       <div
                         key={i}
                         className={styles.timelineTick}
-                        style={{ flex: 1 }}
+                        style={{ left: `${pct}%` }}
                       >
                         <div
                           className={[
@@ -858,7 +897,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                 <div className={styles.mapLegendVerticalLabelsCol}>
                   {labelVals.map((v, i) => (
                     <div key={i} className={styles.mapLegendVerticalLabelSlot} style={{ flex: 1 }}>
-                      <span className={styles.mapLegendVerticalLabel}>{legendValue(v, activeOv, units)}</span>
+                      <span className={styles.mapLegendVerticalLabel}>{v}</span>
                     </div>
                   ))}
                 </div>
