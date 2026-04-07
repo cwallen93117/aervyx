@@ -86,7 +86,7 @@ function steppedGradient(colors: string[]): string {
 }
 
 const OVERLAYS: OverlayDef[] = [
-  { id: "convective_cloud_top",  label: "Top of Lift",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 6096, gradient: steppedGradient([
+  { id: "convective_cloud_top",  label: "Cloud Top Height",             unit: "m",    unitType: "altitude", group: "Thermal / Lift",  variable: "convective_cloud_top",     legendMinVal: 0,   legendMaxVal: 6096, gradient: steppedGradient([
     "#645a78","#78649b","#a08cbe","#8278c8","#506ec8","#5a96d2","#64b9dc","#3cb4b4","#3cb98c","#46b45a",
     "#64c83c","#a0d232","#d2d232","#dcc846","#e1b432","#e6aa64","#dc9678","#d7a0a0","#c8c3c3","#d7d2d2","#f0f0e6"]),
     colors: [
@@ -465,6 +465,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             paint: {
               "raster-opacity": opacity / 100,
               "raster-fade-duration": 0,
+              "raster-resampling": "nearest",
             },
           });
 

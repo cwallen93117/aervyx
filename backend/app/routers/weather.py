@@ -613,20 +613,20 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         height_px = lats_sub.shape[0]
         width_px = lats_sub.shape[1]
 
-        # Corners from actual grid corners (after subsample)
-        w_lon = float(lons_sub[0, 0])
-        e_lon = float(lons_sub[0, -1])
-        n_lat = float(lats_sub[0, 0])
-        s_lat = float(lats_sub[-1, 0])
         # Detect if rows are south-to-north (first row has smaller lat)
         if lats_sub[0, 0] < lats_sub[-1, 0]:
             data_sub = np.flipud(data_sub)
             lats_sub = np.flipud(lats_sub)
-            n_lat = float(lats_sub[0, 0])
-            s_lat = float(lats_sub[-1, 0])
-            # Recompute corner lons after flip (same columns, just rows flipped)
-            w_lon = float(lons_sub[-1, 0])
-            e_lon = float(lons_sub[-1, -1])
+            lons_sub = np.flipud(lons_sub)
+
+        # Use cell EDGES (not centers) — expand by half a grid cell in each direction.
+        # For 2D grids, estimate cell spacing from adjacent points.
+        half_dlat = abs(float(lats_sub[0, 0] - lats_sub[1, 0])) / 2 if height_px > 1 else 0.015
+        half_dlon = abs(float(lons_sub[0, 1] - lons_sub[0, 0])) / 2 if width_px > 1 else 0.015
+        n_lat = float(np.max(lats_sub)) + half_dlat
+        s_lat = float(np.min(lats_sub)) - half_dlat
+        w_lon = float(np.min(lons_sub)) - half_dlon
+        e_lon = float(np.max(lons_sub)) + half_dlon
     else:
         # 1-D lat/lon arrays
         lat_idx = np.arange(0, len(lats), step)
@@ -649,10 +649,15 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         height_px = len(lats_1d)
         width_px = len(lons_1d)
 
-        n_lat = float(lats_1d.max())
-        s_lat = float(lats_1d.min())
-        w_lon = float(lons_1d.min())
-        e_lon = float(lons_1d.max())
+        # Use cell EDGES (not centers) so the image aligns correctly.
+        # Each pixel represents a grid cell; the image boundary should be
+        # half a cell beyond the outermost grid-point centers.
+        half_dlat = abs(float(lats_1d[1] - lats_1d[0])) / 2 if len(lats_1d) > 1 else 0.125
+        half_dlon = abs(float(lons_1d[1] - lons_1d[0])) / 2 if len(lons_1d) > 1 else 0.125
+        n_lat = float(lats_1d.max()) + half_dlat
+        s_lat = float(lats_1d.min()) - half_dlat
+        w_lon = float(lons_1d.min()) - half_dlon
+        e_lon = float(lons_1d.max()) + half_dlon
 
         # Ensure first image row = northernmost lat
         if lats_1d[0] < lats_1d[-1]:
@@ -1166,7 +1171,7 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v11"
+    _RASTER_VERSION = "v12"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
     # Check persistent cache first
