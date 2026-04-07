@@ -21,46 +21,51 @@
 .opacityVal { font-size: 0.75rem; color: var(--muted); min-width: 34px; text-align: right; }
 .windToggleLabel { display: flex; align-items: center; gap: 8px; font-size: 0.8125rem; color: var(--ink); cursor: pointer; }
 .windBarbToggle { display: flex; align-items: center; font-size: 0.8125rem; color: var(--ink); cursor: pointer; margin-bottom: 8px; }
-/* Windy-style vertical altitude slider for wind barbs */
-.windBarbSliderWrap { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+/* Horizontal altitude slider for wind barbs */
+.windBarbSliderWrap { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.windBarbSliderLabel {
+  font-size: 0.7rem;
+  color: #f59e0b;
+  font-weight: 600;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
+}
 .windBarbSliderTrack {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 140px;
+  height: 28px;
   background: rgba(15,23,42,0.75);
   border-radius: 14px;
   border: 1px solid rgba(255,255,255,0.12);
-  flex-shrink: 0;
-  padding: 6px 0;
+  padding: 0 8px;
 }
 .windBarbSlider {
-  -webkit-appearance: slider-vertical;
-  appearance: slider-vertical;
-  writing-mode: vertical-lr;
-  direction: rtl;
-  width: 4px;
-  height: 116px;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
   cursor: pointer;
-  background: transparent;
+  background: rgba(255,255,255,0.18);
+  border-radius: 2px;
   margin: 0;
   padding: 0;
   outline: none;
   border: none;
 }
-/* Track */
 .windBarbSlider::-webkit-slider-runnable-track {
-  width: 4px;
+  height: 4px;
   border-radius: 2px;
   background: rgba(255,255,255,0.18);
 }
 .windBarbSlider::-moz-range-track {
-  width: 4px;
+  height: 4px;
   border-radius: 2px;
   background: rgba(255,255,255,0.18);
 }
-/* Thumb — amber dot */
 .windBarbSlider::-webkit-slider-thumb {
   -webkit-appearance: none;
   width: 14px;
@@ -70,7 +75,7 @@
   border: 2px solid #fbbf24;
   box-shadow: 0 0 6px rgba(245,158,11,0.7);
   cursor: pointer;
-  margin-left: -5px;
+  margin-top: -5px;
 }
 .windBarbSlider::-moz-range-thumb {
   width: 14px;
@@ -84,17 +89,6 @@
 .windBarbSlider:disabled { opacity: 0.38; cursor: not-allowed; }
 .windBarbSlider:disabled::-webkit-slider-thumb { box-shadow: none; background: #64748b; border-color: #475569; }
 .windBarbSlider:disabled::-moz-range-thumb { box-shadow: none; background: #64748b; border-color: #475569; }
-.windBarbSliderLabel {
-  font-size: 0.7rem;
-  color: #f59e0b;
-  font-weight: 600;
-  line-height: 1.35;
-  padding-top: 4px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 190px;
-}
 /* Color-mode toggle row (still used for Colored/Black buttons) */
 .windBarbLevelRow { display: flex; flex-direction: column; gap: 3px; margin-bottom: 8px; }
 .windBarbLevelBtn { font-size: 0.72rem; padding: 3px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: none; color: var(--ink); cursor: pointer; text-align: left; }

@@ -534,8 +534,10 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // ~1 mm spacing at 96 dpi ≈ 4 px
-    const CELL = 4;
+    // Zoom-dependent: denser when zoomed in, sparser when zoomed out
+    // ~30px at zoom 4 (CONUS), ~4px at zoom 12+
+    const zoom = map.getZoom();
+    const CELL = Math.max(4, Math.round(48 - zoom * 4));
     const occupied = new Set<string>();
 
     for (const pt of windBarbsRef.current) {
@@ -1167,7 +1169,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                     value={safeIdx}
                     disabled={isDisabled}
                     onChange={e => setWindBarbLevel(BARB_LEVELS[Number(e.target.value)].id)}
-                    style={{ writingMode: "vertical-lr", direction: "rtl" }}
                   />
                 </div>
               </div>
