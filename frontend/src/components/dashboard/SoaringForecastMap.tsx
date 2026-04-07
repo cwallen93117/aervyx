@@ -332,6 +332,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showWindBarbs, setShowWindBarbs] = useState(true);
   const [windBarbLevel, setWindBarbLevel] = useState("10m");
+  const [barbColorMode, setBarbColorMode] = useState<"color" | "black">("color");
   const windBarbsRef = useRef<{ lat: number; lng: number; u: number; v: number }[]>([]);
   const barbCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const barbRafRef = useRef<number | null>(null);
@@ -527,8 +528,11 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // Track which screen cells are occupied to avoid over-dense barbs
-    const CELL = 14; // minimum pixel spacing between barb centers
+    // Dynamic cell size: target ~5 km spacing at map scale 1:10 000
+    const zoom = map.getZoom();
+    const centerLat = map.getCenter().lat;
+    const metersPerPx = 40075016.686 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, zoom + 8);
+    const CELL = Math.max(8, Math.round(5000 / metersPerPx));
     const occupied = new Set<string>();
 
     for (const pt of windBarbsRef.current) {
@@ -553,9 +557,11 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       const dirRad = Math.atan2(-pt.u, -pt.v); // radians, math convention (0=North)
       const dirDeg = (dirRad * 180 / Math.PI + 360) % 360;
 
-      // Color by speed
+      // Color by speed (or all black)
       let color: string;
-      if (speedKt < 10) {
+      if (barbColorMode === "black") {
+        color = "rgba(0,0,0,0.7)";
+      } else if (speedKt < 10) {
         color = "rgba(200,230,255,0.82)";  // light blue — calm/light
       } else if (speedKt < 25) {
         color = "rgba(100,180,255,0.85)";  // medium blue
@@ -654,10 +660,18 @@ export function SoaringForecastMap({ units }: { units: Units }) {
         ctx.lineTo(bx + cosD * BARB_SHORT, by + sinD * BARB_SHORT);
         ctx.stroke();
       }
+
+      // Speed label — small text offset to the right of the base
+      const labelText = Math.round(speedKt).toString();
+      ctx.font = "bold 8px sans-serif";
+      ctx.fillStyle = barbColorMode === "black" ? "rgba(0,0,0,0.65)" : color;
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      ctx.fillText(labelText, x + 6, y + 10);
     }
 
     ctx.restore();
-  }, [showWindBarbs]);
+  }, [showWindBarbs, barbColorMode]);
 
   // Schedule a redraw via rAF
   const scheduleDrawBarbs = useCallback(() => {
@@ -754,8 +768,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbs, mapReady, validTimes]);
 
-  // Redraw when showWindBarbs toggles
-  useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, scheduleDrawBarbs]);
+  // Redraw when showWindBarbs or barbColorMode toggles
+  useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, barbColorMode, scheduleDrawBarbs]);
 
   // Click handler — open popup with Skew-T + point forecast values
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
@@ -1131,6 +1145,19 @@ export function SoaringForecastMap({ units }: { units: Units }) {
             </div>
           )}
           {showWindBarbs && (
+            <div className={styles.windBarbLevelRow} style={{ marginTop: 6 }}>
+              {([["color", "Colored"], ["black", "Black"]] as const).map(([mode, label]) => (
+                <button
+                  key={mode}
+                  className={[styles.windBarbLevelBtn, barbColorMode === mode ? styles.windBarbLevelBtnActive : ""].join(" ")}
+                  onClick={() => setBarbColorMode(mode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+          {showWindBarbs && barbColorMode === "color" && (
             <div className={styles.windBarbLegend}>
               <span style={{ color: "rgba(200,230,255,0.95)" }}>&#9642;</span>&nbsp;&lt;10kt&ensp;
               <span style={{ color: "rgba(100,180,255,0.95)" }}>&#9642;</span>&nbsp;10-25kt&ensp;
