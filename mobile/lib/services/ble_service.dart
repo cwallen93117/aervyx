@@ -44,6 +44,7 @@ class BleService extends ChangeNotifier {
   MeshtasticDevice? _connectedDevice;
   bool _isScanning = false;
   bool _isConnecting = false;
+  String? _connectingDeviceId; // remoteId of the device being connected
   bool _isPushingConfig = false;
   String? _error;
   String? _statusMessage;
@@ -80,6 +81,7 @@ class BleService extends ChangeNotifier {
   MeshtasticDevice? get connectedDevice => _connectedDevice;
   bool get isScanning => _isScanning;
   bool get isConnecting => _isConnecting;
+  String? get connectingDeviceId => _connectingDeviceId;
   bool get isPushingConfig => _isPushingConfig;
   String? get error => _error;
   String? get statusMessage => _statusMessage;
@@ -238,6 +240,7 @@ class BleService extends ChangeNotifier {
     if (_isConnecting) return;
 
     _isConnecting = true;
+    _connectingDeviceId = meshDevice.device.remoteId.toString();
     _userDisconnected = false;
     _reconnectAttempts = 0;
     _isReconnecting = false;
@@ -310,6 +313,7 @@ class BleService extends ChangeNotifier {
     }
 
     _isConnecting = false;
+    _connectingDeviceId = null;
     notifyListeners();
   }
 
