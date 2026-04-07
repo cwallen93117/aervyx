@@ -479,7 +479,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
           if (next >= validTimes.length) return 0; // loop back
           return next;
         });
-      }, 500);
+      }, 1000);
     } else {
       if (playTimerRef.current) { clearInterval(playTimerRef.current); playTimerRef.current = null; }
     }
