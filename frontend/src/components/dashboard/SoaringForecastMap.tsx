@@ -474,7 +474,16 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes, mapReady]);
+  }, [activeModel, activeOverlay, selectedTimeIdx, activeRun, validTimes, mapReady]);
+
+  // Update opacity without refetching
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (map.getLayer(OVERLAY_LAYER)) {
+      map.setPaintProperty(OVERLAY_LAYER, "raster-opacity", opacity / 100);
+    }
+  }, [opacity, mapReady]);
 
   // Play/pause animation
   useEffect(() => {
