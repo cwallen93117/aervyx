@@ -1131,14 +1131,7 @@ async def weather_grid(
         ]
         return {**data, "features": clipped}
 
-    cache_key = f"{model}:{date}:{hour}:{fh}:{variable}:{step}"
-    now = time.time()
-
-    if cache_key in _grid_cache:
-        data, ts = _grid_cache[cache_key]
-        if now - ts < GRID_TTL:
-            return JSONResponse(_clip_features(data))
-
+    # No caching — always fetch live data for debugging
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
@@ -1148,13 +1141,6 @@ async def weather_grid(
         raise HTTPException(502, str(exc))
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}")
-
-    _grid_cache[cache_key] = (result, now)
-
-    # Prune old cache entries
-    for k, (_, ts) in list(_grid_cache.items()):
-        if now - ts > GRID_TTL:
-            del _grid_cache[k]
 
     return JSONResponse(_clip_features(result))
 
