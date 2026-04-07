@@ -78,6 +78,38 @@ function resolveApiBase() {
   }
   return configured ?? "/backend";
 }
+// ---------------------------------------------------------------------------
+// Airspace freshness indicator (shown in hero bar)
+// ---------------------------------------------------------------------------
+
+function AirspaceFreshnessStatus() {
+  const [status, setStatus] = useState<{ airspace?: string; tfr?: string } | null>(null);
+
+  useEffect(() => {
+    const api = resolveApiBase();
+    fetch(`${api}/api/faa-airspace/status`)
+      .then((r) => r.json())
+      .then((d) => {
+        const fmt = (iso: string | null) => {
+          if (!iso) return "—";
+          const dt = new Date(iso);
+          return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        };
+        const airspaceTs = d.sources?.class?.last_fetched_at ?? d.sources?.sua?.last_fetched_at;
+        const tfrTs = d.sources?.tfr?.last_fetched_at;
+        setStatus({ airspace: fmt(airspaceTs), tfr: fmt(tfrTs) });
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!status) return null;
+  return (
+    <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginLeft: 12, whiteSpace: "nowrap" }}>
+      Airspace: {status.airspace} &nbsp;·&nbsp; TFRs: {status.tfr}
+    </span>
+  );
+}
+
 const TOKEN_KEY = "flightcomp-platform-token";
 const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
@@ -2738,6 +2770,7 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
+                {activeSection === "airspace" && <AirspaceFreshnessStatus />}
                 {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
