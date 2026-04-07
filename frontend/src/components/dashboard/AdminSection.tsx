@@ -6,7 +6,7 @@ import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
 
-type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging" | "map_config";
+type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging" | "map_config" | "meshtastic";
 
 const MAP_CONTEXTS = [
   { key: "task_builder", label: "Task Builder" },
@@ -301,6 +301,13 @@ export default function AdminSection(props: AdminSectionProps) {
           onClick={() => setActiveTab("map_config")}
         >
           Map overlays
+        </button>
+        <button
+          type="button"
+          className={activeTab === "meshtastic" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("meshtastic")}
+        >
+          Meshtastic
         </button>
       </div>
       {activeTab === "platform_users" ? (
@@ -726,6 +733,115 @@ export default function AdminSection(props: AdminSectionProps) {
             </div>
           </div>
         </SectionCard>
+      ) : activeTab === "meshtastic" ? (
+        <SectionCard title="Meshtastic Configuration">
+          <div className="stack form-block compact-clusters">
+            {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
+            <fieldset className="fieldset-cluster">
+              <legend>MQTT / Mesh</legend>
+              <div className="cluster-stack">
+                <label className="stack compact">
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={siteSettings.mqtt_enabled ?? false}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          mqtt_enabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    MQTT enabled
+                  </span>
+                </label>
+                <label className="stack compact">
+                  <span>Broker mode</span>
+                  <select
+                    value={siteSettings.mqtt_broker_mode ?? "public"}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_broker_mode: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="public">Public (mqtt.meshtastic.org)</option>
+                    <option value="private">Private (custom broker)</option>
+                  </select>
+                </label>
+                {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
+                  <>
+                    <label className="stack compact">
+                      <span>MQTT host</span>
+                      <input
+                        type="text"
+                        placeholder="mqtt.example.com"
+                        value={siteSettings.mqtt_host ?? ""}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_host: event.target.value || null,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="stack compact">
+                      <span>MQTT port</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        step={1}
+                        value={siteSettings.mqtt_port ?? 1883}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_port: Number(event.target.value || 1883),
+                          }))
+                        }
+                      />
+                    </label>
+                  </>
+                )}
+                <label className="stack compact">
+                  <span>Topic prefix</span>
+                  <input
+                    type="text"
+                    placeholder="msh"
+                    value={siteSettings.mqtt_topic_prefix ?? "msh"}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_topic_prefix: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>Channel PSK</span>
+                  <input
+                    type="text"
+                    placeholder="Optional — for encrypted channels"
+                    value={siteSettings.mqtt_channel_psk ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_channel_psk: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
+              </div>
+            </fieldset>
+            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
+            <div className="button-row">
+              <button type="button" onClick={() => void saveSiteSettings()}>
+                Save Meshtastic settings
+              </button>
+            </div>
+          </div>
+        </SectionCard>
       ) : (
         <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">
@@ -826,106 +942,8 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                 </div>
               </fieldset>
-              <fieldset className="fieldset-cluster">
-                <legend>MQTT / Mesh</legend>
-                <div className="cluster-stack">
-                  <label className="stack compact">
-                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <input
-                        type="checkbox"
-                        checked={siteSettings.mqtt_enabled ?? false}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_enabled: event.target.checked,
-                          }))
-                        }
-                      />
-                      MQTT enabled
-                    </span>
-                  </label>
-                  <label className="stack compact">
-                    <span>Broker mode</span>
-                    <select
-                      value={siteSettings.mqtt_broker_mode ?? "public"}
-                      onChange={(event) =>
-                        setSiteSettings((current) => ({
-                          ...current,
-                          mqtt_broker_mode: event.target.value,
-                        }))
-                      }
-                    >
-                      <option value="public">Public (mqtt.meshtastic.org)</option>
-                      <option value="private">Private (custom broker)</option>
-                    </select>
-                  </label>
-                  {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
-                    <>
-                      <label className="stack compact">
-                        <span>MQTT host</span>
-                        <input
-                          type="text"
-                          placeholder="mqtt.example.com"
-                          value={siteSettings.mqtt_host ?? ""}
-                          onChange={(event) =>
-                            setSiteSettings((current) => ({
-                              ...current,
-                              mqtt_host: event.target.value || null,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="stack compact">
-                        <span>MQTT port</span>
-                        <input
-                          type="number"
-                          min={1}
-                          max={65535}
-                          step={1}
-                          value={siteSettings.mqtt_port ?? 1883}
-                          onChange={(event) =>
-                            setSiteSettings((current) => ({
-                              ...current,
-                              mqtt_port: Number(event.target.value || 1883),
-                            }))
-                          }
-                        />
-                      </label>
-                    </>
-                  )}
-                  <label className="stack compact">
-                    <span>Topic prefix</span>
-                    <input
-                      type="text"
-                      placeholder="msh"
-                      value={siteSettings.mqtt_topic_prefix ?? "msh"}
-                      onChange={(event) =>
-                        setSiteSettings((current) => ({
-                          ...current,
-                          mqtt_topic_prefix: event.target.value,
-                        }))
-                      }
-                    />
-                  </label>
-                  <label className="stack compact">
-                    <span>Channel PSK</span>
-                    <input
-                      type="text"
-                      placeholder="Optional — for encrypted channels"
-                      value={siteSettings.mqtt_channel_psk ?? ""}
-                      onChange={(event) =>
-                        setSiteSettings((current) => ({
-                          ...current,
-                          mqtt_channel_psk: event.target.value || null,
-                        }))
-                      }
-                    />
-                  </label>
-                </div>
-              </fieldset>
             </div>
             <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 85 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
-            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
             <div className="button-row">
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save site settings
@@ -1153,46 +1171,47 @@ type ProfileRowDef = {
   options?: string[];
   min?: number;
   max?: number;
+  description?: string;
 };
 
 const PROFILE_ROW_GROUPS: { group: string; rows: ProfileRowDef[] }[] = [
   {
     group: "Device",
     rows: [
-      { key: "role", label: "Role", kind: "select", options: ["client", "tracker", "router"] },
-      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"] },
-      { key: "power_saving", label: "Power saving", kind: "boolean" },
+      { key: "role", label: "Role", kind: "select", options: ["client", "tracker", "router"], description: "Device role determines how the node behaves on the mesh. Tracker: optimized for position reporting — best for pilots. Client: general-purpose node that sends and receives messages. Router: dedicated relay node that forwards packets for other devices, prioritizes mesh reliability over local use." },
+      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"], description: "Controls which packets this device will rebroadcast to extend mesh coverage. All: rebroadcast everything heard (recommended). All Skip Decoding: rebroadcast without decoding for fastest relay. Local Only: only rebroadcast locally-generated packets. Known Only: only relay from known senders. None: never rebroadcast. Core Portnums Only: relay only essential packet types." },
+      { key: "power_saving", label: "Power saving", kind: "boolean", description: "When enabled, the device enters low-power sleep mode between transmissions to extend battery life. Increases latency for receiving messages. Best for stationary devices or when battery conservation is critical. Not recommended for pilots who need real-time position updates." },
     ],
   },
   {
     group: "Position & GPS",
     rows: [
-      { key: "gps_mode", label: "GPS mode", kind: "select", options: ["disabled", "enabled", "not_present"] },
-      { key: "position_broadcast_secs", label: "Broadcast (s)", kind: "number", min: 0 },
-      { key: "smart_position_enabled", label: "Smart pos.", kind: "boolean" },
-      { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0 },
-      { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0 },
+      { key: "gps_mode", label: "GPS mode", kind: "select", options: ["disabled", "enabled", "not_present"], description: "Controls the internal GPS receiver. Enabled: GPS is active and provides position data for broadcasting. Disabled: GPS is turned off, no position updates will be sent. Not Present: indicates the device has no GPS hardware (e.g. a fixed repeater node)." },
+      { key: "position_broadcast_secs", label: "Broadcast (s)", kind: "number", min: 0, description: "How often (in seconds) the device broadcasts its GPS position to the mesh network. Lower values give more frequent updates but increase radio traffic and battery drain. Pilots typically use 30s, drivers 60-120s, repeaters 300s." },
+      { key: "smart_position_enabled", label: "Smart pos.", kind: "boolean", description: "When enabled, the device sends position updates early if it detects significant movement (based on min distance and min interval thresholds), rather than waiting for the full broadcast interval. Helps capture turns and altitude changes for pilots in flight." },
+      { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0, description: "Minimum distance traveled (in meters) before triggering a smart position update. Only applies when smart position is enabled. Lower values capture more detail but increase radio traffic. 100m is good for pilots, 200m for drivers." },
+      { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0, description: "Minimum time (in seconds) between smart position updates. Prevents excessive updates during rapid movement even if the distance threshold is met repeatedly. Only applies when smart position is enabled." },
     ],
   },
   {
     group: "Radio",
     rows: [
-      { key: "modem_preset", label: "Modem preset", kind: "select", options: ["long_fast", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "long_moderate", "short_turbo", "long_turbo"] },
-      { key: "hop_limit", label: "Hop limit", kind: "number", min: 0, max: 7 },
+      { key: "modem_preset", label: "Modem preset", kind: "select", options: ["long_fast", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "long_moderate", "short_turbo", "long_turbo"], description: "LoRa radio modulation settings that trade off range vs. data rate. Long Fast: good range with reasonable speed (recommended default). Long Slow: maximum range, slower data rate. Very Long Slow: extreme range, very slow. Short/Medium variants offer shorter range but faster throughput. Turbo variants prioritize speed over range. All devices on the mesh must use the same preset." },
+      { key: "hop_limit", label: "Hop limit", kind: "number", min: 0, max: 7, description: "Maximum number of times a packet can be relayed across the mesh (0-7). Higher values allow packets to reach further across multi-hop networks but increase radio traffic and latency. 3 is a good default for most competition deployments. Set lower in dense mesh networks to reduce congestion." },
     ],
   },
   {
     group: "Connectivity",
     rows: [
-      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean" },
-      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean" },
+      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean", description: "Whether Bluetooth Low Energy (BLE) is active on the device. Required for phone-to-device communication — the mobile app connects via BLE to configure the device and relay positions. Only disable on standalone repeater nodes that never need phone connectivity." },
+      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a WiFi network for direct MQTT over the internet (bypassing phone proxy). Uses significantly more power than BLE-only operation. Useful for fixed driver/repeater nodes with access to WiFi." },
     ],
   },
   {
     group: "Display & Telemetry",
     rows: [
-      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0 },
-      { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0 },
+      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0, description: "Seconds before the device screen turns off to save power. Set to 0 to keep the screen always off — useful for headless repeater nodes or devices worn in a harness where the screen isn't visible. Higher values keep the screen on longer for easy monitoring." },
+      { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0, description: "How often (in seconds) the device reports telemetry data to the mesh, including battery level, voltage, and signal quality metrics. Higher values reduce radio traffic. 900s (15 min) is typical for active devices, 3600s (1 hour) for repeaters." },
     ],
   },
 ];
@@ -1204,6 +1223,7 @@ function MeshProfilesTable({
   siteSettings: SiteSettingsRecord;
   setSiteSettings: (s: SiteSettingsRecord | ((c: SiteSettingsRecord) => SiteSettingsRecord)) => void;
 }) {
+  const [expandedInfo, setExpandedInfo] = useState<string | null>(null);
   const profiles = siteSettings.mesh_profiles ?? DEFAULT_MESH_PROFILES;
 
   function updateCell(profileKey: string, settingKey: string, newValue: unknown) {
@@ -1247,7 +1267,26 @@ function MeshProfilesTable({
                 </tr>
                 {rows.map((row) => (
                   <tr key={row.key} style={{ borderBottom: "1px solid var(--color-border-subtle, #f3f4f6)" }}>
-                    <td style={{ ...cellStyle, padding: "3px 8px", fontSize: "0.75rem", color: "var(--color-muted, #6b7280)", whiteSpace: "nowrap" }}>{row.label}</td>
+                    <td style={{ ...cellStyle, padding: "3px 8px", fontSize: "0.75rem", color: "var(--color-muted, #6b7280)" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                        {row.label}
+                        {row.description && (
+                          <button
+                            type="button"
+                            onClick={() => setExpandedInfo(expandedInfo === row.key ? null : row.key)}
+                            title={row.description}
+                            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", fontSize: "0.7rem", color: expandedInfo === row.key ? "var(--color-accent, #2563eb)" : "var(--color-hint, #9ca3af)", lineHeight: 1 }}
+                          >
+                            &#9432;
+                          </button>
+                        )}
+                      </span>
+                      {expandedInfo === row.key && row.description && (
+                        <div style={{ fontSize: "0.65rem", color: "var(--color-hint, #6b7280)", marginTop: "4px", whiteSpace: "normal", maxWidth: "260px", lineHeight: 1.4 }}>
+                          {row.description}
+                        </div>
+                      )}
+                    </td>
                     {PROFILE_KEYS.map((pk) => {
                       const rawVal = profiles[pk]?.[row.key];
                       return (
