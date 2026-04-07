@@ -241,12 +241,62 @@ function drawMiniSkewT(ctx: CanvasRenderingContext2D, sorted: SLevel[], useF: bo
 type RunInfo = { date: string; hour: string; valid_times: string[]; max_fxx: number; fxx_step: number };
 
 /* ------------------------------------------------------------------ */
+/* Timeline helpers                                                    */
+/* ------------------------------------------------------------------ */
+
+/** Group valid_times by UTC date string ("Mon 6", "Tue 7", etc.) */
+type DayGroup = { label: string; startIdx: number; count: number };
+
+function buildDayGroups(validTimes: string[]): DayGroup[] {
+  const groups: DayGroup[] = [];
+  let currentDate = "";
+  let startIdx = 0;
+  validTimes.forEach((iso, i) => {
+    const d = new Date(iso);
+    const dateKey = `${d.toLocaleDateString("en-US", { weekday: "short", timeZone: "UTC" })} ${d.getUTCDate()}`;
+    if (dateKey !== currentDate) {
+      if (currentDate !== "") {
+        groups[groups.length - 1].count = i - startIdx;
+      }
+      currentDate = dateKey;
+      startIdx = i;
+      groups.push({ label: dateKey, startIdx: i, count: 0 });
+    }
+  });
+  if (groups.length > 0) {
+    groups[groups.length - 1].count = validTimes.length - groups[groups.length - 1].startIdx;
+  }
+  return groups;
+}
+
+function getHourUTC(iso: string): number {
+  return new Date(iso).getUTCHours();
+}
+
+/* Find closest index in validTimes to a target ISO datetime string */
+function findClosestTimeIdx(validTimes: string[], target: string): number {
+  if (validTimes.length === 0) return 0;
+  const targetMs = new Date(target).getTime();
+  let best = Infinity;
+  let bestIdx = 0;
+  validTimes.forEach((t, i) => {
+    const diff = Math.abs(new Date(t).getTime() - targetMs);
+    if (diff < best) { best = diff; bestIdx = i; }
+  });
+  return bestIdx;
+}
+
+/* ------------------------------------------------------------------ */
 /* Component                                                           */
 /* ------------------------------------------------------------------ */
 export function SoaringForecastMap({ units }: { units: Units }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const blobUrlRef = useRef<string | null>(null);
+  const targetTimeRef = useRef<string | null>(null);
+  const timelineRef = useRef<HTMLDivElement>(null);
+  const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isDraggingRef = useRef(false);
 
   const [activeModel, setActiveModel] = useState<ModelId>("hrrr");
   const [activeRun, setActiveRun] = useState<RunInfo | null>(null);
@@ -259,6 +309,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [mapReady, setMapReady] = useState(0);
   const [dataRange, setDataRange] = useState<{ min: number; max: number; mean: number; scale_min: number; scale_max: number } | null>(null);
   const [tiers, setTiers] = useState<{ value: number; color: string }[] | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   const validTimes = activeRun?.valid_times ?? [];
 
@@ -295,9 +346,9 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { map.remove(); mapRef.current = null; setMapReady(0); };
   }, []);
 
-  // Fetch available runs when model changes — auto-select most recent
+  // Fetch available runs when model changes — snap to closest time, auto-select most recent
   useEffect(() => {
-    setActiveRun(null); setSelectedTimeIdx(0);
+    setActiveRun(null);
     setMetaError(null); setMetaLoading(true);
 
     const api = resolveApiBase();
@@ -305,7 +356,16 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then((d: { model: string; runs: RunInfo[] }) => {
         if (d.runs.length === 0) { setMetaError("No runs available"); return; }
-        setActiveRun(d.runs[0]);
+        const run = d.runs[0];
+        setActiveRun(run);
+        // Snap selectedTimeIdx to the saved target time if present
+        if (targetTimeRef.current && run.valid_times.length > 0) {
+          const snapIdx = findClosestTimeIdx(run.valid_times, targetTimeRef.current);
+          setSelectedTimeIdx(snapIdx);
+          targetTimeRef.current = null;
+        } else {
+          setSelectedTimeIdx(0);
+        }
       })
       .catch((e: unknown) => setMetaError(String(e)))
       .finally(() => setMetaLoading(false));
@@ -388,6 +448,22 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeModel, activeOverlay, selectedTimeIdx, opacity, activeRun, validTimes, mapReady]);
+
+  // Play/pause animation
+  useEffect(() => {
+    if (isPlaying && validTimes.length > 0) {
+      playTimerRef.current = setInterval(() => {
+        setSelectedTimeIdx(i => {
+          const next = i + 1;
+          if (next >= validTimes.length) return 0; // loop back
+          return next;
+        });
+      }, 500);
+    } else {
+      if (playTimerRef.current) { clearInterval(playTimerRef.current); playTimerRef.current = null; }
+    }
+    return () => { if (playTimerRef.current) { clearInterval(playTimerRef.current); playTimerRef.current = null; } };
+  }, [isPlaying, validTimes.length]);
 
   // Click handler — open popup with Skew-T
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
@@ -506,8 +582,48 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { map.off("click", handler); };
   }, [handleMapClick]);
 
+  /* ---------------------------------------------------------------- */
+  /* Timeline interaction helpers                                      */
+  /* ---------------------------------------------------------------- */
+  const getIdxFromPointer = useCallback((clientX: number): number => {
+    const el = timelineRef.current;
+    if (!el || validTimes.length === 0) return 0;
+    const rect = el.getBoundingClientRect();
+    const frac = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    return Math.round(frac * (validTimes.length - 1));
+  }, [validTimes.length]);
+
+  const handleTimelinePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    isDraggingRef.current = true;
+    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+    const idx = getIdxFromPointer(e.clientX);
+    setSelectedTimeIdx(idx);
+    setIsPlaying(false);
+  }, [getIdxFromPointer]);
+
+  const handleTimelinePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    const idx = getIdxFromPointer(e.clientX);
+    setSelectedTimeIdx(idx);
+  }, [getIdxFromPointer]);
+
+  const handleTimelinePointerUp = useCallback(() => {
+    isDraggingRef.current = false;
+  }, []);
+
   const groups = [...new Set(OVERLAYS.map(o => o.group))];
   const activeOv = OVERLAYS.find(o => o.id === activeOverlay);
+  const dayGroups = buildDayGroups(validTimes);
+
+  /* ---------------------------------------------------------------- */
+  /* Timeline rendering                                               */
+  /* ---------------------------------------------------------------- */
+  const scrubberPct = validTimes.length > 1
+    ? (selectedTimeIdx / (validTimes.length - 1)) * 100
+    : 0;
+
+  // Which hour ticks to label (every 3h)
+  const LABEL_HOURS = new Set([0, 3, 6, 9, 12, 15, 18, 21]);
 
   return (
     <div className={styles.shell}>
@@ -520,6 +636,10 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               <button key={id}
                 className={[styles.pill, id === activeModel ? styles.pillActive : ""].join(" ")}
                 onClick={() => {
+                  // Save current selected time before switching
+                  if (validTimes[selectedTimeIdx]) {
+                    targetTimeRef.current = validTimes[selectedTimeIdx];
+                  }
                   setActiveModel(id);
                   // If current overlay is excluded for the new model, switch to first available
                   const curOv = OVERLAYS.find(o => o.id === activeOverlay);
@@ -533,33 +653,6 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               </button>
             ))}
           </div>
-        </div>
-
-        {/* Run info */}
-        {activeRun && (
-          <div className={styles.section} style={{ paddingTop: 6, paddingBottom: 6 }}>
-            <p style={{ margin: 0, fontSize: "0.72rem", color: "var(--muted)" }}>
-              Run: {activeRun.date} {activeRun.hour}Z &middot; {activeRun.fxx_step}h steps &middot; {validTimes.length} forecasts
-            </p>
-          </div>
-        )}
-
-        {/* Forecast time slider */}
-        <div className={styles.section}>
-          <p className={styles.sectionLabel}>Forecast Time</p>
-          {metaLoading && <div className={styles.loadingState}>Loading model data\u2026</div>}
-          {metaError && <div className={styles.errorBadge}>{metaError}</div>}
-          {validTimes.length > 0 && (
-            <>
-              <p className={styles.timeLabel}>{formatVT(validTimes[selectedTimeIdx])}</p>
-              <p className={styles.timeRef}>+{selectedTimeIdx * (activeRun?.fxx_step ?? 1)}h forecast</p>
-              <div className={styles.timeNav}>
-                <button className={styles.timeNavBtn} disabled={selectedTimeIdx === 0} onClick={() => setSelectedTimeIdx(i => Math.max(0, i - 1))}>{"\u2039"}</button>
-                <input type="range" className={styles.timeSlider} min={0} max={validTimes.length - 1} value={selectedTimeIdx} onChange={e => setSelectedTimeIdx(Number(e.target.value))} />
-                <button className={styles.timeNavBtn} disabled={selectedTimeIdx === validTimes.length - 1} onClick={() => setSelectedTimeIdx(i => Math.min(validTimes.length - 1, i + 1))}>{"\u203a"}</button>
-              </div>
-            </>
-          )}
         </div>
 
         {/* Overlay list */}
@@ -595,14 +688,123 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
       </div>
 
-      {/* Map */}
+      {/* Map area — flex column: timeline on top, map below */}
       <div className={styles.mapContainer}>
-        <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+
+        {/* Timeline bar */}
+        <div className={styles.timelineBar}>
+          {/* Play button */}
+          <button
+            className={styles.timelinePlayBtn}
+            onClick={() => setIsPlaying(p => !p)}
+            disabled={validTimes.length === 0}
+            title={isPlaying ? "Pause" : "Play"}
+          >
+            {isPlaying ? (
+              /* Pause icon */
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <rect x="2" y="1" width="4" height="12" rx="1"/>
+                <rect x="8" y="1" width="4" height="12" rx="1"/>
+              </svg>
+            ) : (
+              /* Play icon */
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
+                <polygon points="2,1 12,7 2,13"/>
+              </svg>
+            )}
+          </button>
+
+          {/* Timeline track area */}
+          <div className={styles.timelineTrackArea}>
+            {/* Loading / error states */}
+            {metaLoading && (
+              <div className={styles.timelineStatus}>Loading model data&hellip;</div>
+            )}
+            {metaError && (
+              <div className={styles.timelineStatus} style={{ color: "#f87171" }}>{metaError}</div>
+            )}
+
+            {validTimes.length > 0 && (
+              <>
+                {/* Day headers row */}
+                <div className={styles.timelineDays}>
+                  {dayGroups.map((dg) => (
+                    <div
+                      key={dg.label}
+                      className={styles.timelineDayCell}
+                      style={{ flex: dg.count }}
+                    >
+                      {dg.label}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Hour ticks row — draggable */}
+                <div
+                  ref={timelineRef}
+                  className={styles.timelineHours}
+                  onPointerDown={handleTimelinePointerDown}
+                  onPointerMove={handleTimelinePointerMove}
+                  onPointerUp={handleTimelinePointerUp}
+                  onPointerCancel={handleTimelinePointerUp}
+                >
+                  {/* Tick marks + labels */}
+                  {validTimes.map((iso, i) => {
+                    const h = getHourUTC(iso);
+                    const isLabel = LABEL_HOURS.has(h);
+                    const isMidnight = h === 0;
+                    return (
+                      <div
+                        key={i}
+                        className={styles.timelineTick}
+                        style={{ flex: 1 }}
+                      >
+                        <div
+                          className={[
+                            styles.timelineTickMark,
+                            isMidnight ? styles.timelineTickMidnight : "",
+                            isLabel ? styles.timelineTickLabeled : "",
+                          ].join(" ")}
+                        />
+                        {isLabel && (
+                          <span className={styles.timelineTickLabel}>
+                            {String(h).padStart(2, "0")}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {/* Scrubber */}
+                  <div
+                    className={styles.timelineScrubber}
+                    style={{ left: `${scrubberPct}%` }}
+                  />
+                </div>
+
+                {/* Current time badge */}
+                <div className={styles.timelineCurrentLabel}>
+                  {validTimes[selectedTimeIdx]
+                    ? formatVT(validTimes[selectedTimeIdx])
+                    : ""}
+                  {activeRun && (
+                    <span className={styles.timelineRunBadge}>
+                      {activeRun.date.slice(0,4)}-{activeRun.date.slice(4,6)}-{activeRun.date.slice(6,8)} {activeRun.hour}Z
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Map */}
+        <div ref={containerRef} className={styles.mapFill} />
 
         {/* Loading indicator */}
         {gridLoading && (
-          <div style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", background: "rgba(15,23,42,0.85)", color: "#e2e8f0", padding: "6px 18px", borderRadius: 8, fontSize: "0.8rem", zIndex: 10 }}>
-            Loading {MODEL_LABELS[activeModel].label} data\u2026
+          <div style={{ position: "absolute", top: 70, left: "50%", transform: "translateX(-50%)", background: "rgba(15,23,42,0.85)", color: "#e2e8f0", padding: "6px 18px", borderRadius: 8, fontSize: "0.8rem", zIndex: 10 }}>
+            Loading {MODEL_LABELS[activeModel].label} data&hellip;
           </div>
         )}
 
@@ -656,7 +858,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
                 <div className={styles.mapLegendVerticalLabelsCol}>
                   {labelVals.map((v, i) => (
                     <div key={i} className={styles.mapLegendVerticalLabelSlot} style={{ flex: 1 }}>
-                      <span className={styles.mapLegendVerticalLabel}>{v}</span>
+                      <span className={styles.mapLegendVerticalLabel}>{legendValue(v, activeOv, units)}</span>
                     </div>
                   ))}
                 </div>
