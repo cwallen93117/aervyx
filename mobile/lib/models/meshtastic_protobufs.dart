@@ -285,7 +285,7 @@ class ProfileConfig {
       wifiEnabled: json['wifi_enabled'] as bool? ?? false,
       positionFlags: json['position_flags'] as int? ?? PositionFlags.altitude,
       displayTimeoutSecs: json['display_timeout_secs'] as int? ?? 30,
-      telemetryIntervalSecs: json['telemetry_interval_secs'] as int? ?? 900,
+      telemetryIntervalSecs: json['telemetry_interval_secs'] as int? ?? 86400,
     );
   }
 
@@ -383,7 +383,7 @@ class ProfileConfig {
       wifiEnabled: false,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 30,
-      telemetryIntervalSecs: 900,
+      telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.driver: const ProfileConfig(
       role: DeviceRole.client,
@@ -400,7 +400,7 @@ class ProfileConfig {
       wifiEnabled: false,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 60,
-      telemetryIntervalSecs: 900,
+      telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.driverWifi: const ProfileConfig(
       role: DeviceRole.client,
@@ -417,7 +417,7 @@ class ProfileConfig {
       wifiEnabled: true,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 60,
-      telemetryIntervalSecs: 900,
+      telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.repeater: const ProfileConfig(
       role: DeviceRole.router,
@@ -434,7 +434,7 @@ class ProfileConfig {
       wifiEnabled: true,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 0,
-      telemetryIntervalSecs: 3600,
+      telemetryIntervalSecs: 86400,
     ),
   };
 

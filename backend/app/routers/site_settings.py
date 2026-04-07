@@ -16,7 +16,7 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 100, "smart_min_interval": 30,
         "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
         "bluetooth_enabled": True, "wifi_enabled": False,
-        "position_flags": 1, "display_timeout_secs": 30, "telemetry_interval_secs": 900,
+        "position_flags": 1, "display_timeout_secs": 30, "telemetry_interval_secs": 86400,
     },
     "driver": {
         "role": "client", "rebroadcast_mode": "all", "gps_mode": "enabled",
@@ -24,7 +24,7 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 200, "smart_min_interval": 60,
         "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
         "bluetooth_enabled": True, "wifi_enabled": False,
-        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 900,
+        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 86400,
     },
     "driver_wifi": {
         "role": "client", "rebroadcast_mode": "all", "gps_mode": "enabled",
@@ -32,7 +32,7 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 200, "smart_min_interval": 30,
         "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
         "bluetooth_enabled": True, "wifi_enabled": True,
-        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 900,
+        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 86400,
     },
     "repeater": {
         "role": "router", "rebroadcast_mode": "all", "gps_mode": "enabled",
@@ -40,7 +40,7 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 0, "smart_min_interval": 0,
         "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
         "bluetooth_enabled": True, "wifi_enabled": True,
-        "position_flags": 1, "display_timeout_secs": 0, "telemetry_interval_secs": 3600,
+        "position_flags": 1, "display_timeout_secs": 0, "telemetry_interval_secs": 86400,
     },
 }
 

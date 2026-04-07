@@ -324,13 +324,16 @@ class _BleConnectionSection extends StatelessWidget {
             );
           }),
         ] else if (!ble.isConnected) ...[
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                'No Meshtastic devices found.\nTap Scan to search.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No Meshtastic devices found.\nTap Scan to search.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                ),
               ),
             ),
           ),
