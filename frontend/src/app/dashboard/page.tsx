@@ -14,7 +14,10 @@ import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection"
 import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
+import { WeatherSection } from "../../components/dashboard/WeatherSection";
+import { AirspaceSection } from "../../components/dashboard/AirspaceSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
+import DriverDashboard from "../../components/dashboard/DriverDashboard";
 import { ThemeToggle } from "../../components/ThemeToggle";
 import {
   type SidebarSection,
@@ -75,6 +78,38 @@ function resolveApiBase() {
   }
   return configured ?? "/backend";
 }
+// ---------------------------------------------------------------------------
+// Airspace freshness indicator (shown in hero bar)
+// ---------------------------------------------------------------------------
+
+function AirspaceFreshnessStatus() {
+  const [status, setStatus] = useState<{ airspace?: string; tfr?: string } | null>(null);
+
+  useEffect(() => {
+    const api = resolveApiBase();
+    fetch(`${api}/api/faa-airspace/status`)
+      .then((r) => r.json())
+      .then((d) => {
+        const fmt = (iso: string | null) => {
+          if (!iso) return "—";
+          const dt = new Date(iso);
+          return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+        };
+        const airspaceTs = d.sources?.class?.last_fetched_at ?? d.sources?.sua?.last_fetched_at;
+        const tfrTs = d.sources?.tfr?.last_fetched_at;
+        setStatus({ airspace: fmt(airspaceTs), tfr: fmt(tfrTs) });
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!status) return null;
+  return (
+    <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginLeft: 12, whiteSpace: "nowrap" }}>
+      Airspace: {status.airspace} &nbsp;·&nbsp; TFRs: {status.tfr}
+    </span>
+  );
+}
+
 const TOKEN_KEY = "flightcomp-platform-token";
 const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
@@ -89,6 +124,8 @@ const adminSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
+  { id: "weather", label: "Weather" },
+  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
@@ -99,6 +136,8 @@ const organizerSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
+  { id: "weather", label: "Weather" },
+  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
@@ -107,6 +146,8 @@ const pilotSidebarItems = [
   { id: "live_tracking", label: "Live Tracking" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
+  { id: "weather", label: "Weather" },
+  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const guestSidebarItems = [
@@ -116,18 +157,18 @@ const guestSidebarItems = [
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
   if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings") {
+    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
       return section;
     }
     return "tasks";
   }
   if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings") {
+    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
       return section;
     }
     return "events";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "settings" || section === "admin") {
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings" || section === "admin") {
     return section;
   }
   return "events";
@@ -425,14 +466,34 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
+function parseContentDispositionFilename(disposition: string | null): string | null {
+  if (!disposition) return null;
+  // Prefer RFC 5987 encoded filename* (supports non-ASCII + reserved chars like "#")
+  // e.g. `attachment; filename*=UTF-8''Charles-2026-04-05-%231.igc`
+  const extMatch = disposition.match(/filename\*=(?:([\w-]+)'[^']*')?([^;]+)/i);
+  if (extMatch && extMatch[2]) {
+    const raw = extMatch[2].trim().replace(/^"|"$/g, "");
+    try {
+      return decodeURIComponent(raw);
+    } catch {
+      return raw;
+    }
+  }
+  // Fallback to plain `filename="..."` / `filename=...`
+  const plain = disposition.match(/filename=("([^"\\]*(?:\\.[^"\\]*)*)"|([^;]+))/i);
+  if (plain) {
+    return (plain[2] ?? plain[3] ?? "").trim();
+  }
+  return null;
+}
+
 async function apiFetchBlob(path: string, token: string, init: RequestInit = {}): Promise<{ blob: Blob; filename: string | null }> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Authorization", `Bearer ${token}`);
   const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
-  const disposition = response.headers.get("content-disposition");
-  const match = disposition?.match(/filename="?([^"]+)"?/i);
-  return { blob: await response.blob(), filename: match?.[1] ?? null };
+  const filename = parseContentDispositionFilename(response.headers.get("content-disposition"));
+  return { blob: await response.blob(), filename };
 }
 
 function logbookImportFileKey(file: File) {
@@ -1520,6 +1581,16 @@ export default function HomePage() {
     }
   }
 
+  async function updateUserCredentials(userId: number, payload: { username?: string; password?: string }) {
+    if (!token) return;
+    const updated = await apiFetch<AdminUserRecord>(`/api/auth/users/${userId}/credentials`, token, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    setAdminUsers((current) => current.map((entry) => (entry.id === updated.id ? updated : entry)));
+    setAdminFeedback({ type: "success", text: `Updated credentials for ${updated.full_name || updated.username}.` });
+  }
+
   async function saveSiteSettings() {
     if (!token) return;
     setSiteSettingsFeedback(null);
@@ -1821,6 +1892,22 @@ export default function HomePage() {
     await loadEvent(token, selectedEventId);
     await refreshPilotDirectory(token);
     await refreshEvents(token);
+  }
+
+  async function updatePilot(pilotId: number, payload: { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string }) {
+    if (!token) return;
+    const body = {
+      first_name: payload.first_name,
+      last_name: payload.last_name,
+      email: payload.email || null,
+      nation: payload.nation || null,
+      competition_number: payload.competition_number || null,
+      civl_id: payload.civl_id || null,
+    };
+    const updated = await apiFetch<PilotRecord>(`/api/pilots/${pilotId}`, token, { method: "PUT", body: JSON.stringify(body) });
+    setMessage(`Updated ${updated.first_name} ${updated.last_name}.`);
+    if (selectedEventId) await loadEvent(token, selectedEventId);
+    await refreshPilotDirectory(token);
   }
 
   async function uploadFile<T>(path: string, file: File): Promise<T> {
@@ -2320,9 +2407,11 @@ export default function HomePage() {
         pilotForm={pilotForm}
         setPilotForm={setPilotForm}
         canManagePlatform={canManagePlatform ?? false}
+        isAdmin={isAdmin}
         assignExistingPilot={assignExistingPilot}
         createPilot={createPilot}
         removePilot={removePilot}
+        updatePilot={updatePilot}
         uploadFile={uploadFile}
         loadEvent={(t, id) => loadEvent(t, id)}
         refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
@@ -2550,7 +2639,17 @@ export default function HomePage() {
             />
           );
         case "drivers":
-          return <SectionCard title="Drivers" description="Driver logistics and tracking tools will be added here next."><p className="hint">This area is reserved for future driver support workflows.</p></SectionCard>;
+          return (
+            <DriverDashboard
+              token={token}
+              user={user}
+              selectedEventId={selectedEventId}
+              tasks={tasks}
+              pilots={pilots}
+              isAdmin={isAdmin}
+              canManagePlatform={canManagePlatform ?? false}
+            />
+          );
         case "logbook":
           return (
             <LogbookSection
@@ -2586,6 +2685,10 @@ export default function HomePage() {
               setFlightStar={setLogbookFlightStar}
             />
           );
+        case "weather":
+          return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} />;
+        case "airspace":
+          return <AirspaceSection />;
         case "settings":
           return (
             <SettingsSection
@@ -2612,6 +2715,7 @@ export default function HomePage() {
               adminFeedback={adminFeedback}
               saveAdminUser={saveAdminUser}
               deleteAdminUser={deleteAdminUser}
+              updateUserCredentials={updateUserCredentials}
               adminSites={adminSites}
               setAdminSites={setAdminSites}
               adminSitesFeedback={adminSitesFeedback}
@@ -2666,7 +2770,8 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" ? (
+                {activeSection === "airspace" && <AirspaceFreshnessStatus />}
+                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
                   </span>

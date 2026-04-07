@@ -263,6 +263,11 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN vario_unit VARCHAR(10) DEFAULT 'fpm'"))
         if "users" in table_names and "aircraft_icon" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN aircraft_icon VARCHAR(20) DEFAULT 'hang_glider'"))
+        if "users" in table_names and "mesh_device_id" not in user_columns:
+            connection.execute(text("ALTER TABLE users ADD COLUMN mesh_device_id VARCHAR(80)"))
+            existing_user_indexes = {idx["name"] for idx in inspector.get_indexes("users")}
+            if "uq_users_mesh_device_id" not in existing_user_indexes:
+                connection.execute(text("CREATE UNIQUE INDEX uq_users_mesh_device_id ON users (mesh_device_id)"))
         if "users" in table_names:
             connection.execute(text("UPDATE users SET altitude_unit = 'ft' WHERE altitude_unit IS NULL"))
             connection.execute(text("UPDATE users SET speed_unit = 'kph' WHERE speed_unit IS NULL"))
@@ -443,3 +448,53 @@ def ensure_runtime_schema(engine: Engine) -> None:
             ts_task_id_col = ts_columns.get("task_id")
             if ts_task_id_col and ts_task_id_col.get("nullable") is False:
                 connection.execute(text("ALTER TABLE tracking_sessions ALTER COLUMN task_id DROP NOT NULL"))
+
+        # -------------------------------------------------------------------
+        # FAA Airspace cache tables
+        # -------------------------------------------------------------------
+        if "faa_airspace_features" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE faa_airspace_features (
+                        id SERIAL PRIMARY KEY,
+                        source VARCHAR(10) NOT NULL,
+                        category VARCHAR(10) NOT NULL,
+                        name VARCHAR(200) NOT NULL,
+                        ident VARCHAR(40),
+                        upper_val FLOAT,
+                        upper_uom VARCHAR(10) DEFAULT 'FT',
+                        lower_val FLOAT,
+                        lower_uom VARCHAR(10) DEFAULT 'FT',
+                        upper_desc VARCHAR(100) DEFAULT '',
+                        lower_desc VARCHAR(100) DEFAULT '',
+                        city VARCHAR(100),
+                        state VARCHAR(10),
+                        min_lat FLOAT NOT NULL,
+                        max_lat FLOAT NOT NULL,
+                        min_lon FLOAT NOT NULL,
+                        max_lon FLOAT NOT NULL,
+                        geometry_json JSON NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_faa_airspace_source ON faa_airspace_features (source)"))
+            connection.execute(text("CREATE INDEX ix_faa_airspace_category ON faa_airspace_features (category)"))
+            connection.execute(text("CREATE INDEX ix_faa_airspace_bbox ON faa_airspace_features (min_lon, min_lat, max_lon, max_lat)"))
+
+        if "faa_airspace_meta" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE faa_airspace_meta (
+                        id SERIAL PRIMARY KEY,
+                        source VARCHAR(10) UNIQUE NOT NULL,
+                        last_edit_date VARCHAR(40),
+                        record_count INTEGER DEFAULT 0,
+                        last_fetched_at TIMESTAMP WITH TIME ZONE
+                    )
+                    """
+                )
+            )

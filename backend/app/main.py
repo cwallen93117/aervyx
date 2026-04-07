@@ -30,13 +30,51 @@ except ImportError:
     admin_debug = None
 
 try:
+    from app.routers import driver_routing
+except ImportError:
+    driver_routing = None
+
+try:
+    from app.routers import weather
+except ImportError:
+    weather = None
+
+try:
+    from app.services.raster_cache import prune_old_rasters
+except ImportError:
+    prune_old_rasters = None
+
+try:
+    from app.routers import faa_airspace as faa_airspace_router
+except ImportError:
+    faa_airspace_router = None
+
+try:
     from app.services.mqtt_subscriber import start_mqtt_subscriber
 except ImportError:
     start_mqtt_subscriber = None
 
+try:
+    from app.services.faa_airspace import start_faa_airspace_refresh
+except ImportError:
+    start_faa_airspace_refresh = None
+
+try:
+    from app.services.raster_scheduler import start_raster_scheduler
+except ImportError:
+    start_raster_scheduler = None
+
+try:
+    from app.services.demand_tracker import prune_stale_demands
+except ImportError:
+    prune_stale_demands = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema(engine)
     session = SessionLocal()
@@ -45,10 +83,35 @@ async def lifespan(app: FastAPI):
         session.commit()
     finally:
         session.close()
+
+    # Prune old raster cache entries on startup
+    if prune_old_rasters is not None:
+        try:
+            pruned = prune_old_rasters(keep_days=2)
+            if pruned:
+                _log.info("Pruned %d old raster cache entries on startup", pruned)
+        except Exception:
+            _log.warning("Raster cache prune failed on startup", exc_info=True)
+
+    # Prune stale demand tracking rows on startup
+    if prune_stale_demands is not None:
+        try:
+            pruned_d = prune_stale_demands(stale_days=30)
+            if pruned_d:
+                _log.info("Pruned %d stale demand tracker entries on startup", pruned_d)
+        except Exception:
+            _log.warning("Demand tracker prune failed on startup", exc_info=True)
+
     mqtt_task = await start_mqtt_subscriber() if start_mqtt_subscriber is not None else None
+    faa_task = await start_faa_airspace_refresh() if start_faa_airspace_refresh is not None else None
+    raster_task = await start_raster_scheduler() if start_raster_scheduler is not None else None
     yield
     if mqtt_task is not None:
         mqtt_task.cancel()
+    if faa_task is not None:
+        faa_task.cancel()
+    if raster_task is not None:
+        raster_task.cancel()
 
 
 settings = get_settings()
@@ -102,6 +165,12 @@ if buddies is not None:
     app.include_router(buddies.router)
 if admin_debug is not None:
     app.include_router(admin_debug.router)
+if driver_routing is not None:
+    app.include_router(driver_routing.router)
+if weather is not None:
+    app.include_router(weather.router)
+if faa_airspace_router is not None:
+    app.include_router(faa_airspace_router.router)
 
 
 @app.get('/health')

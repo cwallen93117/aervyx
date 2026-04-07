@@ -11,6 +11,7 @@
     "@deck.gl/core": "^9.2.11",
     "@deck.gl/layers": "^9.2.11",
     "@deck.gl/mapbox": "^9.2.11",
+    "@openmeteo/weather-map-layer": "^0.0.16",
     "maplibre-gl": "^5.9.0",
     "next": "15.3.1",
     "react": "19.1.0",

@@ -27,6 +27,7 @@ class User(Base):
     oauth_provider: Mapped[str | None] = mapped_column(String(40), nullable=True)
     oauth_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
+    mesh_device_id: Mapped[str | None] = mapped_column(String(80), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -485,3 +486,96 @@ class SosAlert(Base):
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DriverAssignment(Base):
+    __tablename__ = "driver_assignments"
+    __table_args__ = (
+        UniqueConstraint("task_id", "driver_user_id", "pilot_id", name="uq_driver_assignment"),
+        Index("ix_driver_assignments_task_driver", "task_id", "driver_user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    driver_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PilotLanding(Base):
+    __tablename__ = "pilot_landings"
+    __table_args__ = (
+        Index("ix_pilot_landings_task_pilot", "task_id", "pilot_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
+    pilot_id: Mapped[int] = mapped_column(ForeignKey("pilots.id", ondelete="CASCADE"), index=True)
+    landed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ready_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    lat: Mapped[float] = mapped_column(Double, nullable=False)
+    lon: Mapped[float] = mapped_column(Double, nullable=False)
+    alt: Mapped[float | None] = mapped_column(Float, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="landed")
+    picked_up_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    picked_up_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class DriverPosition(Base):
+    __tablename__ = "driver_positions"
+    __table_args__ = (
+        Index("ix_driver_positions_user_ts", "driver_user_id", "timestamp"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    driver_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
+    lat: Mapped[float] = mapped_column(Double, nullable=False)
+    lon: Mapped[float] = mapped_column(Double, nullable=False)
+    heading: Mapped[float | None] = mapped_column(Float, nullable=True)
+    speed: Mapped[float | None] = mapped_column(Float, nullable=True)
+    accuracy: Mapped[float | None] = mapped_column(Float, nullable=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+# ---------------------------------------------------------------------------
+# FAA Airspace cache
+# ---------------------------------------------------------------------------
+
+class FaaAirspaceFeature(Base):
+    __tablename__ = "faa_airspace_features"
+    __table_args__ = (
+        Index("ix_faa_airspace_bbox", "min_lon", "min_lat", "max_lon", "max_lat"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    category: Mapped[str] = mapped_column(String(10), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    ident: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    upper_val: Mapped[float | None] = mapped_column(Float, nullable=True)
+    upper_uom: Mapped[str] = mapped_column(String(10), default="FT")
+    lower_val: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lower_uom: Mapped[str] = mapped_column(String(10), default="FT")
+    upper_desc: Mapped[str] = mapped_column(String(100), default="")
+    lower_desc: Mapped[str] = mapped_column(String(100), default="")
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    min_lat: Mapped[float] = mapped_column(Float, nullable=False)
+    max_lat: Mapped[float] = mapped_column(Float, nullable=False)
+    min_lon: Mapped[float] = mapped_column(Float, nullable=False)
+    max_lon: Mapped[float] = mapped_column(Float, nullable=False)
+    geometry_json: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class FaaAirspaceMeta(Base):
+    __tablename__ = "faa_airspace_meta"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source: Mapped[str] = mapped_column(String(10), unique=True, nullable=False)
+    last_edit_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    record_count: Mapped[int] = mapped_column(Integer, default=0)
+    last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -244,35 +244,26 @@ export default function TasksSection(props: TasksSectionProps) {
     <SectionCard>
       <div className="stack form-block compact-clusters">
         <div className="task-toolbar">
-          <div className="task-toolbar-left">
-            <label className="stack compact task-toolbar-picker">
-              <span>Selected task</span>
-              <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-                <option value="">Select a task</option>
-                {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-              </select>
-            </label>
-            {canManagePlatform ? (
-              <>
-                <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
-                <button type="button" className="ghost-button" onClick={duplicateTask} disabled={!taskDraft.id}>Duplicate</button>
-              </>
-            ) : null}
-          </div>
+          <label className="stack compact task-toolbar-picker">
+            <span>Selected task</span>
+            <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
+              <option value="">Select a task</option>
+              {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+            </select>
+          </label>
           {canManagePlatform ? (
             <>
-              <div className="button-row task-toolbar-actions">
-                <button type="button" onClick={saveTask}>Save task</button>
-                <button
-                  type="button"
-                  className={`scoring-ops-footer-btn task-state-toggle ${taskIsPublished ? "state-official" : "state-unofficial"}`}
-                  onClick={taskIsPublished ? unpublishTask : publishTask}
-                  disabled={!taskDraft.id}
-                >
-                  {taskIsPublished ? "Published" : "Unpublished"}
-                </button>
-              </div>
-              <div className="task-toolbar-spacer" />
+              <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
+              <button type="button" className="ghost-button" onClick={duplicateTask} disabled={!taskDraft.id}>Duplicate</button>
+              <button type="button" className="primary-button" onClick={saveTask}>Save task</button>
+              <button
+                type="button"
+                className={`scoring-ops-footer-btn task-state-toggle ${taskIsPublished ? "state-official" : "state-unofficial"}`}
+                onClick={taskIsPublished ? unpublishTask : publishTask}
+                disabled={!taskDraft.id}
+              >
+                {taskIsPublished ? "Published" : "Unpublished"}
+              </button>
               <button type="button" className="ghost-button danger-button task-delete-button task-toolbar-delete" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
             </>
           ) : null}
@@ -320,24 +311,24 @@ export default function TasksSection(props: TasksSectionProps) {
                   </div>
                   <div className="cluster-stack">
                     <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
+                      <span>Gate interval (min)</span>
+                      <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
+                    </label>
+                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
                       <span>Start gates</span>
                       <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
                     </label>
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Gate interval</span>
-                      <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                    {startGateLabels.length ? (
-                      <div className="task-gate-times" aria-label="Start gate times">
-                        <strong>Start gate times</strong>
-                        <div className="task-gate-time-list">
-                          {startGateLabels.map((label) => (
-                            <span key={label} className="task-gate-time-chip">{label}</span>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
+                  {startGateLabels.length ? (
+                    <div className="task-gate-times" aria-label="Start gate times">
+                      <strong>Start gate times</strong>
+                      <div className="task-gate-time-list">
+                        {startGateLabels.map((label) => (
+                          <span key={label} className="task-gate-time-chip">{label}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
                 </>
               ) : (
                 <>

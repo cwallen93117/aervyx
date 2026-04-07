@@ -9,6 +9,7 @@ import {
   type MapTurnpoint,
   type MapUnitPreferences,
 } from "../../components/TaskMap";
+import { PilotRoleBadge } from "../../components/PilotRoleBadge";
 import {
   type LivePositionRecord,
   resolveApiBase,
@@ -119,6 +120,8 @@ export function LiveWatchClient() {
       source: pos.source ?? "unknown",
       color: colorForPilot(pilotId, activePilotIds),
       aircraftType: pos.aircraft_icon ?? "hang_glider",
+      profileType: pos.profile_type ?? "pilot",
+      positionSource: pos.position_source ?? "other",
     }));
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 
@@ -345,21 +348,28 @@ export function LiveWatchClient() {
           ) : null}
         </div>
 
-        {/* Pilot sidebar */}
-        {activePilotIds.length > 0 ? (
-          <div className="live-sidebar">
-            <div className="live-sidebar-header">
-              <strong>All active devices</strong>
-              <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
-            </div>
-            <div className="live-pilot-list">
-              {activePilotIds.map((pilotId) => {
+        {/* Pilot sidebar — always mounted so layout is stable from first frame */}
+        <div className="live-sidebar">
+          <div className="live-sidebar-header">
+            <strong>All active devices</strong>
+            <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
+          </div>
+          <div className="live-pilot-list">
+            {activePilotIds.length > 0 ? (
+              activePilotIds.map((pilotId) => {
                 const pos = livePositionsByPilot.get(pilotId);
                 const name = pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`;
                 const color = colorForPilot(pilotId, activePilotIds);
                 return (
                   <div key={pilotId} className="live-pilot-row">
-                    <span className="live-pilot-dot" style={{ background: color }} />
+                    <span className="live-pilot-badge" style={{ color }}>
+                      <PilotRoleBadge
+                        profileType={pos?.profile_type}
+                        aircraftType={pos?.aircraft_icon}
+                        color={color}
+                        size={16}
+                      />
+                    </span>
                     <div className="live-pilot-info">
                       <strong>{name}</strong>
                       <span className="live-pilot-stats">
@@ -370,10 +380,41 @@ export function LiveWatchClient() {
                     </div>
                   </div>
                 );
-              })}
+              })
+            ) : (
+              <div className="live-pilot-empty">
+                {loading ? "Connecting…" : "Waiting for pilots…"}
+              </div>
+            )}
+          </div>
+          <div className="live-sidebar-legend" aria-label="Map legend">
+            <div className="live-sidebar-legend-title">Legend</div>
+            <div className="live-sidebar-legend-row">
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="driver" color="#cbd5e1" size={14} />
+                Driver
+              </span>
+              <span className="live-sidebar-legend-item">
+                <PilotRoleBadge profileType="stationary_node" color="#cbd5e1" size={14} />
+                Node
+              </span>
+            </div>
+            <div className="live-sidebar-legend-row">
+              <span className="live-sidebar-legend-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                Cellular
+              </span>
+              <span className="live-sidebar-legend-item">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9" />
+                </svg>
+                Mesh
+              </span>
             </div>
           </div>
-        ) : null}
+        </div>
       </div>
     </div>
   );

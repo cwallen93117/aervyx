@@ -63,6 +63,22 @@ function SidebarIcon({ id }: { id: string }) {
           <path d="M9.5 12.2 11.2 14l3.6-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       );
+    case "weather":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <path d="M6.5 17a4 4 0 0 1 .5-8 5.5 5.5 0 0 1 10.5 1.5A3.5 3.5 0 1 1 17 18H7.5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round"/>
+          <path d="M10 20.5h4M9 22h6" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+        </svg>
+      );
+    case "airspace":
+      return (
+        <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeDasharray="3 2" />
+          <circle cx="12" cy="12" r="1.8" fill="currentColor" />
+          <path d="M12 3.5v2.5M12 18v2.5M3.5 12H6M18 12h2.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </svg>
+      );
     default:
       return <span>{id.slice(0, 1).toUpperCase()}</span>;
   }
@@ -75,6 +91,8 @@ const itemThemes: Record<string, string> = {
   live_tracking: "theme-live-tracking",
   drivers: "theme-drivers",
   logbook: "theme-logbook",
+  weather: "theme-weather",
+  airspace: "theme-airspace",
   settings: "theme-settings",
   admin: "theme-admin",
 };
@@ -94,7 +112,7 @@ export function AppSidebar({
   compact: boolean;
   onToggleCompact: () => void;
 }) {
-  const showEventContext = !compact && activeItem !== "admin" && activeItem !== "settings" && activeItem !== "logbook";
+  const showEventContext = !compact && activeItem !== "admin" && activeItem !== "settings" && activeItem !== "logbook" && activeItem !== "weather" && activeItem !== "airspace";
   return (
     <aside className={compact ? "panel nav-sidebar compact-mode" : "panel nav-sidebar"}>
       <div className="sidebar-brand">

@@ -1,6 +1,6 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 
-export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "settings" | "admin";
+export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "weather" | "airspace" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
@@ -189,7 +189,7 @@ export type EventRecord = {
   airspace_count: number;
   restricted_field_count: number;
 };
-export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; temp_password: string | null };
+export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null };
 export type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
 export type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
 export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };

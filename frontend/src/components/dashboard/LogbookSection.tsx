@@ -439,7 +439,6 @@ export default function LogbookSection(props: LogbookSectionProps) {
     <div className="section-stack">
       <SectionCard
         title="Pilot logbook"
-        description="Review every uploaded or manually recorded flight for the signed-in pilot."
         actions={
           hasPilotProfile ? (
             <div className="button-row compact">

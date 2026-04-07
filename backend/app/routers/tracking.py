@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
-from app.deps import get_current_user
+from app.deps import get_current_user, require_admin
 from app.models import Event, EventPilot, IGCUpload, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_all_active_positions,
@@ -22,6 +22,7 @@ from app.services.tracking import (
     get_live_positions_for_pilots,
     get_position_history,
     get_position_history_for_pilots,
+    normalize_position_source,
     store_position,
     subscribe,
     subscribe_pilots,
@@ -66,6 +67,8 @@ class PositionResponse(BaseModel):
     device_id: str | None
     battery_level: int | None
     aircraft_icon: str = "hang_glider"
+    profile_type: str = "pilot"
+    position_source: str = "other"
 
 
 class MeshConfigResponse(BaseModel):
@@ -88,6 +91,8 @@ class ActivePilotResponse(BaseModel):
     source: str | None = None
     battery_level: int | None = None
     aircraft_icon: str = "hang_glider"
+    profile_type: str = "pilot"
+    position_source: str = "other"
 
 
 class SosPayload(BaseModel):
@@ -191,6 +196,8 @@ def post_position(
         device_id=pos.device_id,
         battery_level=pos.battery_level,
         aircraft_icon=(user.aircraft_icon or "hang_glider"),
+        profile_type=(user.profile_type or "pilot"),
+        position_source=normalize_position_source(pos.source),
     )
 
 
@@ -498,18 +505,39 @@ def get_assigned_pilots(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[AssignedPilotResponse]:
-    """Return pilots in a task. First pass returns all event pilots for the task."""
+    """Return pilots assigned to this driver for a task.
+
+    Uses DriverAssignment table if assignments exist, otherwise falls back
+    to all event pilots for backward compatibility.
+    """
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    from app.models import Pilot
-    rows = session.execute(
-        select(Pilot)
-        .join(EventPilot, EventPilot.pilot_id == Pilot.id)
-        .where(EventPilot.event_id == task.event_id)
-        .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
-    ).scalars().all()
+    from app.models import DriverAssignment, Pilot, PilotLanding
+
+    # Try explicit driver assignments first
+    assigned_ids = session.scalars(
+        select(DriverAssignment.pilot_id).where(
+            DriverAssignment.task_id == task_id,
+            DriverAssignment.driver_user_id == user.id,
+        )
+    ).all()
+
+    if assigned_ids:
+        rows = session.execute(
+            select(Pilot)
+            .where(Pilot.id.in_(assigned_ids))
+            .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
+        ).scalars().all()
+    else:
+        # Fallback: all event pilots
+        rows = session.execute(
+            select(Pilot)
+            .join(EventPilot, EventPilot.pilot_id == Pilot.id)
+            .where(EventPilot.event_id == task.event_id)
+            .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
+        ).scalars().all()
 
     return [
         AssignedPilotResponse(
@@ -519,3 +547,83 @@ def get_assigned_pilots(
         )
         for p in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Stationary Meshtastic node registration (admin only)
+# ---------------------------------------------------------------------------
+
+class StationaryNodeCreate(BaseModel):
+    mesh_device_id: str
+    display_name: str
+
+
+class StationaryNodeResponse(BaseModel):
+    user_id: int
+    mesh_device_id: str
+    display_name: str
+    profile_type: str
+
+
+@router.post(
+    "/api/admin/stationary-nodes",
+    response_model=StationaryNodeResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_stationary_node(
+    payload: StationaryNodeCreate,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> StationaryNodeResponse:
+    """Register (or re-register) a stationary Meshtastic relay as a User row.
+
+    The node-type is never transmitted over the mesh; the backend identifies
+    the relay by joining ``LivePosition.device_id`` against ``users.mesh_device_id``
+    at query time. This endpoint exists so the mobile Meshtastic setup flow can
+    record the device ID → stationary_node mapping once, during pairing.
+    """
+    mesh_device_id = (payload.mesh_device_id or "").strip()
+    display_name = (payload.display_name or "").strip()
+    if not mesh_device_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="mesh_device_id is required")
+    if not display_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="display_name is required")
+
+    existing = session.scalar(select(User).where(User.mesh_device_id == mesh_device_id))
+    if existing is not None:
+        existing.full_name = display_name
+        existing.profile_type = "stationary_node"
+        existing.is_active = True
+        session.add(existing)
+        session.commit()
+        session.refresh(existing)
+        return StationaryNodeResponse(
+            user_id=existing.id,
+            mesh_device_id=mesh_device_id,
+            display_name=existing.full_name,
+            profile_type=existing.profile_type,
+        )
+
+    # Generate a synthetic username so there's no login conflict with pilots/drivers.
+    synthetic_username = f"mesh-node-{mesh_device_id}"[:80]
+    collision = session.scalar(select(User).where(User.username == synthetic_username))
+    if collision is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with that synthetic username already exists")
+
+    node = User(
+        username=synthetic_username,
+        full_name=display_name,
+        role="pilot",  # non-admin role; stationary nodes do not need elevated access
+        profile_type="stationary_node",
+        mesh_device_id=mesh_device_id,
+        is_active=True,
+    )
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+    return StationaryNodeResponse(
+        user_id=node.id,
+        mesh_device_id=mesh_device_id,
+        display_name=node.full_name,
+        profile_type=node.profile_type,
+    )

@@ -985,13 +985,6 @@ class BleService extends ChangeNotifier {
         screenOnSecs: config.displayTimeoutSecs,
       ));
 
-      // Bluetooth config
-      _statusMessage = 'Setting Bluetooth...';
-      notifyListeners();
-      await _writeAdmin(buildSetBluetoothConfig(
-        enabled: config.bluetoothEnabled,
-      ));
-
       // Network/Wi-Fi
       await _writeAdmin(buildSetNetworkConfig(
         wifiEnabled: config.wifiEnabled,
@@ -1031,6 +1024,12 @@ class BleService extends ChangeNotifier {
         role: 1, // PRIMARY
         uplinkEnabled: true,
         downlinkEnabled: true,
+      ));
+
+      // Bluetooth config — kept last before commit as defense-in-depth.
+      // All profiles now keep BLE on so the device remains reachable.
+      await _writeAdmin(buildSetBluetoothConfig(
+        enabled: config.bluetoothEnabled,
       ));
 
       // Commit batch edit (device reboots)
