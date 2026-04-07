@@ -138,8 +138,8 @@ function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string
 /* ------------------------------------------------------------------ */
 type SLevel = { pressure: number; temperature: number; dewpoint: number; windSpeed: number; windDirection: number; height: number };
 
-const SK_W = 180, SK_H = 200;
-const SK_PAD = { t: 20, b: 16, l: 28, r: 4 };
+const SK_W = 90, SK_H = 200;
+const SK_PAD = { t: 20, b: 16, l: 22, r: 2 };
 const SK_PW = SK_W - SK_PAD.l - SK_PAD.r;
 const SK_PH = SK_H - SK_PAD.t - SK_PAD.b;
 const SK_PTOP = 200, SK_PBOT = 1050;
@@ -795,7 +795,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     cvs.style.cssText = `width:${SK_W}px;height:${SK_H}px;cursor:crosshair;display:block`;
     wrap.appendChild(cvs);
 
-    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "330px" })
+    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "240px" })
       .setLngLat([lng, lat])
       .setDOMContent(wrap)
       .addTo(map);
