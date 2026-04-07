@@ -11,6 +11,7 @@ import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
 import 'flights_screen.dart';
 import 'live_view_screen.dart';
+import 'meshtastic_settings_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -723,20 +724,28 @@ class _MeshDetails extends StatelessWidget {
     final theme = Theme.of(context);
 
     if (!ble.isConnected) {
-      return Row(
-        children: [
-          Icon(Icons.bluetooth_disabled,
-              color: theme.colorScheme.onSurfaceVariant, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'No Meshtastic device paired.\nGo to Settings to connect.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+      return InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const MeshtasticSettingsScreen()),
+        ),
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            Icon(Icons.bluetooth_disabled,
+                color: theme.colorScheme.onSurfaceVariant, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'No Meshtastic device paired.\nTap to connect.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
               ),
             ),
-          ),
-        ],
+            Icon(Icons.arrow_forward_ios,
+                size: 14, color: theme.colorScheme.primary),
+          ],
+        ),
       );
     }
 

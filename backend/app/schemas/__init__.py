@@ -172,6 +172,13 @@ class SiteSettingsResponse(BaseModel):
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
+    mqtt_enabled: bool = True
+    mqtt_broker_mode: str = "public"
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_topic_prefix: str = "msh"
+    mqtt_channel_psk: str | None = None
+    mesh_profiles: dict | None = None
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -184,6 +191,13 @@ class SiteSettingsUpdate(BaseModel):
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
+    mqtt_enabled: bool = True
+    mqtt_broker_mode: str = "public"
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_topic_prefix: str = "msh"
+    mqtt_channel_psk: str | None = None
+    mesh_profiles: dict | None = None
 
 
 class FlightSiteCreate(BaseModel):

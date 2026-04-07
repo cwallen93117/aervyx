@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, IGCUpload, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
@@ -390,14 +390,44 @@ def get_igc_track(
 
 
 @router.get("/api/config/mesh", response_model=MeshConfigResponse)
-def get_mesh_config(user: User = Depends(get_current_user)) -> MeshConfigResponse:
-    settings = get_settings()
+def get_mesh_config(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshConfigResponse:
+    site = session.get(SiteSettings, 1)
+    if site is None:
+        # Fall back to env-based config if site_settings row doesn't exist yet
+        settings = get_settings()
+        return MeshConfigResponse(
+            channel_psk=getattr(settings, "mesh_channel_psk", None),
+            mqtt_host=getattr(settings, "mqtt_host", None),
+            mqtt_port=getattr(settings, "mqtt_port", 1883),
+            topic_prefix=getattr(settings, "mesh_mqtt_topic_prefix", "aervyx"),
+        )
+    mqtt_host = "mqtt.meshtastic.org" if site.mqtt_broker_mode == "public" else site.mqtt_host
     return MeshConfigResponse(
-        channel_psk=getattr(settings, "mesh_channel_psk", None),
-        mqtt_host=getattr(settings, "mqtt_host", None),
-        mqtt_port=getattr(settings, "mqtt_port", 1883),
-        topic_prefix=getattr(settings, "mesh_mqtt_topic_prefix", "aervyx"),
+        channel_psk=site.mqtt_channel_psk,
+        mqtt_host=mqtt_host,
+        mqtt_port=site.mqtt_port,
+        topic_prefix=site.mqtt_topic_prefix,
     )
+
+
+class MeshProfilesResponse(BaseModel):
+    profiles: dict
+    updated_at: str | None = None
+
+
+@router.get("/api/config/mesh-profiles", response_model=MeshProfilesResponse)
+def get_mesh_profiles(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshProfilesResponse:
+    from app.routers.site_settings import DEFAULT_MESH_PROFILES
+    site = session.get(SiteSettings, 1)
+    profiles = site.mesh_profiles if site and site.mesh_profiles else DEFAULT_MESH_PROFILES
+    updated = site.updated_at.isoformat() if site and site.updated_at else None
+    return MeshProfilesResponse(profiles=profiles, updated_at=updated)
 
 
 @router.get("/api/track/active-task", response_model=ActiveTaskResponse | None)

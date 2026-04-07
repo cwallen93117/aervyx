@@ -9,6 +9,42 @@ from app.schemas import SiteSettingsResponse, SiteSettingsUpdate
 router = APIRouter(prefix="/api/site-settings", tags=["site-settings"])
 
 
+DEFAULT_MESH_PROFILES = {
+    "pilot": {
+        "role": "tracker", "rebroadcast_mode": "all", "gps_mode": "enabled",
+        "position_broadcast_secs": 30, "smart_position_enabled": True,
+        "smart_min_distance": 100, "smart_min_interval": 30,
+        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
+        "bluetooth_enabled": True, "wifi_enabled": False,
+        "position_flags": 1, "display_timeout_secs": 30, "telemetry_interval_secs": 900,
+    },
+    "driver": {
+        "role": "client", "rebroadcast_mode": "all", "gps_mode": "enabled",
+        "position_broadcast_secs": 120, "smart_position_enabled": True,
+        "smart_min_distance": 200, "smart_min_interval": 60,
+        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
+        "bluetooth_enabled": True, "wifi_enabled": False,
+        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 900,
+    },
+    "driver_wifi": {
+        "role": "client", "rebroadcast_mode": "all", "gps_mode": "enabled",
+        "position_broadcast_secs": 60, "smart_position_enabled": True,
+        "smart_min_distance": 200, "smart_min_interval": 30,
+        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
+        "bluetooth_enabled": True, "wifi_enabled": True,
+        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 900,
+    },
+    "repeater": {
+        "role": "router", "rebroadcast_mode": "all", "gps_mode": "enabled",
+        "position_broadcast_secs": 300, "smart_position_enabled": False,
+        "smart_min_distance": 0, "smart_min_interval": 0,
+        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
+        "bluetooth_enabled": True, "wifi_enabled": True,
+        "position_flags": 1, "display_timeout_secs": 0, "telemetry_interval_secs": 3600,
+    },
+}
+
+
 def _get_site_settings(session: Session) -> SiteSettings:
     settings = session.get(SiteSettings, 1)
     if settings is None:
@@ -20,6 +56,11 @@ def _get_site_settings(session: Session) -> SiteSettings:
             telemetry_glide_ratio_smoothing_seconds=5,
             max_map_pitch_degrees=75,
             site_match_radius_m=1000,
+            mqtt_enabled=True,
+            mqtt_broker_mode="public",
+            mqtt_port=1883,
+            mqtt_topic_prefix="msh",
+            mesh_profiles=DEFAULT_MESH_PROFILES,
         )
         session.add(settings)
         session.commit()
@@ -45,7 +86,21 @@ def update_site_settings(
     settings.telemetry_glide_ratio_smoothing_seconds = payload.telemetry_glide_ratio_smoothing_seconds
     settings.max_map_pitch_degrees = payload.max_map_pitch_degrees
     settings.site_match_radius_m = payload.site_match_radius_m
+    settings.mqtt_enabled = payload.mqtt_enabled
+    settings.mqtt_broker_mode = payload.mqtt_broker_mode
+    settings.mqtt_host = payload.mqtt_host
+    settings.mqtt_port = payload.mqtt_port
+    settings.mqtt_topic_prefix = payload.mqtt_topic_prefix
+    settings.mqtt_channel_psk = payload.mqtt_channel_psk
+    if payload.mesh_profiles is not None:
+        settings.mesh_profiles = payload.mesh_profiles
     session.add(settings)
     session.commit()
     session.refresh(settings)
+
+    # Signal MQTT subscriber to reconnect with new settings
+    from app.services.mqtt_subscriber import mqtt_reconnect_event
+    if mqtt_reconnect_event is not None:
+        mqtt_reconnect_event.set()
+
     return SiteSettingsResponse.model_validate(settings)

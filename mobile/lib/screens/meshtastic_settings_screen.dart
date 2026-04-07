@@ -46,7 +46,16 @@ class MeshtasticSettingsScreen extends StatelessWidget {
             const SizedBox(height: 24),
 
             // ── Profile Quick Setup ──
-            _SectionHeader(title: 'Profile Quick Setup'),
+            Row(
+              children: [
+                Expanded(child: _SectionHeader(title: 'Profile Quick Setup')),
+                IconButton(
+                  icon: const Icon(Icons.info_outline, size: 20),
+                  tooltip: 'Compare profiles',
+                  onPressed: () => _showProfileComparison(context),
+                ),
+              ],
+            ),
             const SizedBox(height: 8),
             _ProfileSelector(),
 
@@ -80,10 +89,10 @@ class MeshtasticSettingsScreen extends StatelessWidget {
 
             const SizedBox(height: 24),
 
-            // ── MQTT ──
+            // ── MQTT (configured by platform) ──
             _SectionHeader(title: 'MQTT'),
             const SizedBox(height: 8),
-            _MqttSection(),
+            _MqttInfoCard(),
 
             const SizedBox(height: 24),
 
@@ -99,6 +108,98 @@ class MeshtasticSettingsScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Profile comparison dialog
+// ═══════════════════════════════════════════════════════════════════════════════
+
+void _showProfileComparison(BuildContext context) {
+  final profiles = ProfileConfig.presets;
+  final entries = [
+    MeshtasticProfile.pilot,
+    MeshtasticProfile.driver,
+    MeshtasticProfile.driverWifi,
+    MeshtasticProfile.repeater,
+  ];
+
+  String fmtBool(bool v) => v ? 'On' : 'Off';
+  String fmtSecs(int s) => s >= 60 ? '${s ~/ 60}min' : '${s}s';
+  String fmtSmart(ProfileConfig c) =>
+      c.smartPositionEnabled ? 'On (${c.smartMinDistance}m/${c.smartMinInterval}s)' : 'Off';
+  String fmtMqtt(ProfileConfig c) => c.wifiEnabled ? 'Direct' : 'Phone proxy';
+  String fmtDisplay(int s) => s == 0 ? 'Off' : '${s}s';
+
+  final rows = <_CompRow>[
+    _CompRow('Role', (c) => c.role.label),
+    _CompRow('Position interval', (c) => fmtSecs(c.positionBroadcastSecs)),
+    _CompRow('Smart position', (c) => fmtSmart(c)),
+    _CompRow('Wi-Fi', (c) => fmtBool(c.wifiEnabled)),
+    _CompRow('MQTT via', (c) => fmtMqtt(c)),
+    _CompRow('Power saving', (c) => fmtBool(c.powerSaving)),
+    _CompRow('Display timeout', (c) => fmtDisplay(c.displayTimeoutSecs)),
+    _CompRow('Telemetry interval', (c) => fmtSecs(c.telemetryIntervalSecs)),
+    _CompRow('Hop limit', (c) => '${c.hopLimit}'),
+    _CompRow('Modem preset', (c) => c.modemPreset.label),
+    _CompRow('Bluetooth', (c) => fmtBool(c.bluetoothEnabled)),
+    _CompRow('Rebroadcast', (c) => c.rebroadcastMode.label),
+  ];
+
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    builder: (ctx) {
+      final theme = Theme.of(ctx);
+      return DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.95,
+        expand: false,
+        builder: (_, controller) => Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Text('Profile Comparison',
+                  style: theme.textTheme.titleMedium),
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                controller: controller,
+                scrollDirection: Axis.horizontal,
+                child: DataTable(
+                  columnSpacing: 16,
+                  headingTextStyle: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  dataTextStyle: theme.textTheme.bodySmall,
+                  columns: [
+                    const DataColumn(label: Text('Setting')),
+                    ...entries.map((p) => DataColumn(label: Text(p.label))),
+                  ],
+                  rows: rows.map((row) {
+                    return DataRow(cells: [
+                      DataCell(Text(row.label,
+                          style: const TextStyle(fontWeight: FontWeight.w500))),
+                      ...entries.map((p) {
+                        final config = profiles[p]!;
+                        return DataCell(Text(row.getter(config)));
+                      }),
+                    ]);
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class _CompRow {
+  final String label;
+  final String Function(ProfileConfig) getter;
+  const _CompRow(this.label, this.getter);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -325,17 +426,6 @@ class _ProfileSelector extends StatelessWidget {
     MeshtasticProfile.repeater: Icons.cell_tower,
   };
 
-  static const _profileDescriptions = {
-    MeshtasticProfile.pilot:
-        'TRACKER role, 30s position, BLE on, phone MQTT proxy',
-    MeshtasticProfile.driver:
-        'CLIENT role, 120s position, BLE on, phone MQTT proxy',
-    MeshtasticProfile.driverWifi:
-        'CLIENT role, 60s position, Wi-Fi + direct MQTT',
-    MeshtasticProfile.repeater:
-        'ROUTER role, 300s position, Wi-Fi + MQTT + Store & Forward server',
-  };
-
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
@@ -371,19 +461,8 @@ class _ProfileSelector extends StatelessWidget {
                           : Icon(_profileIcons[profile], size: 20),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(profile.label,
-                                style: theme.textTheme.titleSmall),
-                            Text(
-                              _profileDescriptions[profile]!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
+                        child: Text(profile.label,
+                            style: theme.textTheme.titleSmall),
                       ),
                       const Icon(Icons.arrow_forward_ios, size: 14),
                     ],
@@ -910,43 +989,15 @@ class _LoraSection extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// MQTT
+// MQTT (read-only — configured by platform admin)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _MqttSection extends StatefulWidget {
-  @override
-  State<_MqttSection> createState() => _MqttSectionState();
-}
-
-class _MqttSectionState extends State<_MqttSection> {
-  late TextEditingController _addressCtl;
-  late TextEditingController _usernameCtl;
-  late TextEditingController _passwordCtl;
-  late TextEditingController _topicCtl;
-
-  @override
-  void initState() {
-    super.initState();
-    final ds = context.read<BleService>().deviceState;
-    _addressCtl = TextEditingController(text: ds.mqttAddress);
-    _usernameCtl = TextEditingController(text: ds.mqttUsername);
-    _passwordCtl = TextEditingController(text: ds.mqttPassword);
-    _topicCtl = TextEditingController(text: ds.mqttRootTopic);
-  }
-
-  @override
-  void dispose() {
-    _addressCtl.dispose();
-    _usernameCtl.dispose();
-    _passwordCtl.dispose();
-    _topicCtl.dispose();
-    super.dispose();
-  }
-
+class _MqttInfoCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final ble = context.watch<BleService>();
+    final ds = context.watch<BleService>().deviceState;
     final theme = Theme.of(context);
+    final broker = ds.mqttAddress.isNotEmpty ? ds.mqttAddress : 'mqtt.meshtastic.org';
 
     return Card(
       child: Padding(
@@ -959,66 +1010,24 @@ class _MqttSectionState extends State<_MqttSection> {
                 Icon(Icons.cloud_upload,
                     size: 20, color: theme.colorScheme.primary),
                 const SizedBox(width: 8),
-                Text('MQTT is always enabled',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    )),
+                Expanded(
+                  child: Text('Configured by platform',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      )),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _addressCtl,
-              decoration: const InputDecoration(
-                labelText: 'MQTT Server',
-                border: OutlineInputBorder(),
-                hintText: 'mqtt.meshtastic.org',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _topicCtl,
-              decoration: const InputDecoration(
-                labelText: 'Root Topic',
-                border: OutlineInputBorder(),
-                hintText: 'msh',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _usernameCtl,
-              decoration: const InputDecoration(
-                labelText: 'Username (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordCtl,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
             const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: ble.isPushingConfig
-                    ? null
-                    : () => ble.setMqttConfig(
-                          address: _addressCtl.text.trim(),
-                          rootTopic: _topicCtl.text.trim(),
-                          username: _usernameCtl.text.trim().isEmpty
-                              ? null
-                              : _usernameCtl.text.trim(),
-                          password: _passwordCtl.text.isEmpty
-                              ? null
-                              : _passwordCtl.text,
-                        ),
-                child: const Text('Save MQTT'),
-              ),
-            ),
+            _ConfigRow(label: 'Broker', value: broker, theme: theme),
+            _ConfigRow(
+                label: 'Root Topic',
+                value: ds.mqttRootTopic.isNotEmpty ? ds.mqttRootTopic : 'msh',
+                theme: theme),
+            _ConfigRow(
+                label: 'Encryption',
+                value: ds.mqttEncryptionEnabled ? 'Enabled' : 'Disabled',
+                theme: theme),
           ],
         ),
       ),

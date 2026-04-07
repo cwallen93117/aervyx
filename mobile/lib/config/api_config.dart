@@ -31,6 +31,7 @@ class ApiConfig {
 
   // Meshtastic mesh configuration
   static const String meshConfigPath = '/api/config/mesh';
+  static const String meshProfilesPath = '/api/config/mesh-profiles';
 
   // SOS — sent over cellular to the backend
   static const String sosPath = '/api/sos';

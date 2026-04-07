@@ -268,8 +268,107 @@ class ProfileConfig {
     required this.telemetryIntervalSecs,
   });
 
-  static const Map<MeshtasticProfile, ProfileConfig> presets = {
-    MeshtasticProfile.pilot: ProfileConfig(
+  /// Decode from server JSON (snake_case keys, string enum values).
+  factory ProfileConfig.fromJson(Map<String, dynamic> json) {
+    return ProfileConfig(
+      role: _roleFromString(json['role'] as String? ?? 'client'),
+      rebroadcastMode: _rebroadcastFromString(json['rebroadcast_mode'] as String? ?? 'all'),
+      gpsMode: _gpsModeFromString(json['gps_mode'] as String? ?? 'enabled'),
+      positionBroadcastSecs: json['position_broadcast_secs'] as int? ?? 30,
+      smartPositionEnabled: json['smart_position_enabled'] as bool? ?? true,
+      smartMinDistance: json['smart_min_distance'] as int? ?? 100,
+      smartMinInterval: json['smart_min_interval'] as int? ?? 30,
+      modemPreset: _modemFromString(json['modem_preset'] as String? ?? 'long_fast'),
+      hopLimit: json['hop_limit'] as int? ?? 3,
+      powerSaving: json['power_saving'] as bool? ?? false,
+      bluetoothEnabled: json['bluetooth_enabled'] as bool? ?? true,
+      wifiEnabled: json['wifi_enabled'] as bool? ?? false,
+      positionFlags: json['position_flags'] as int? ?? PositionFlags.altitude,
+      displayTimeoutSecs: json['display_timeout_secs'] as int? ?? 30,
+      telemetryIntervalSecs: json['telemetry_interval_secs'] as int? ?? 900,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'role': _roleToString(role),
+    'rebroadcast_mode': _rebroadcastToString(rebroadcastMode),
+    'gps_mode': _gpsModeToString(gpsMode),
+    'position_broadcast_secs': positionBroadcastSecs,
+    'smart_position_enabled': smartPositionEnabled,
+    'smart_min_distance': smartMinDistance,
+    'smart_min_interval': smartMinInterval,
+    'modem_preset': _modemToString(modemPreset),
+    'hop_limit': hopLimit,
+    'power_saving': powerSaving,
+    'bluetooth_enabled': bluetoothEnabled,
+    'wifi_enabled': wifiEnabled,
+    'position_flags': positionFlags,
+    'display_timeout_secs': displayTimeoutSecs,
+    'telemetry_interval_secs': telemetryIntervalSecs,
+  };
+
+  // ── String ↔ enum helpers ──
+
+  static DeviceRole _roleFromString(String s) => const {
+    'client': DeviceRole.client, 'tracker': DeviceRole.tracker,
+    'router': DeviceRole.router, 'client_mute': DeviceRole.clientMute,
+    'repeater': DeviceRole.repeater, 'sensor': DeviceRole.sensor,
+  }[s] ?? DeviceRole.client;
+
+  static String _roleToString(DeviceRole r) => const {
+    DeviceRole.client: 'client', DeviceRole.tracker: 'tracker',
+    DeviceRole.router: 'router', DeviceRole.clientMute: 'client_mute',
+    DeviceRole.repeater: 'repeater', DeviceRole.sensor: 'sensor',
+  }[r] ?? 'client';
+
+  static RebroadcastMode _rebroadcastFromString(String s) => const {
+    'all': RebroadcastMode.all,
+    'all_skip_decoding': RebroadcastMode.allSkipDecoding,
+    'local_only': RebroadcastMode.localOnly,
+    'known_only': RebroadcastMode.knownOnly,
+    'none': RebroadcastMode.none,
+    'core_portnums_only': RebroadcastMode.corePortnumsOnly,
+  }[s] ?? RebroadcastMode.all;
+
+  static String _rebroadcastToString(RebroadcastMode m) => const {
+    RebroadcastMode.all: 'all',
+    RebroadcastMode.allSkipDecoding: 'all_skip_decoding',
+    RebroadcastMode.localOnly: 'local_only',
+    RebroadcastMode.knownOnly: 'known_only',
+    RebroadcastMode.none: 'none',
+    RebroadcastMode.corePortnumsOnly: 'core_portnums_only',
+  }[m] ?? 'all';
+
+  static GpsMode _gpsModeFromString(String s) => const {
+    'disabled': GpsMode.disabled, 'enabled': GpsMode.enabled,
+    'not_present': GpsMode.notPresent,
+  }[s] ?? GpsMode.enabled;
+
+  static String _gpsModeToString(GpsMode m) => const {
+    GpsMode.disabled: 'disabled', GpsMode.enabled: 'enabled',
+    GpsMode.notPresent: 'not_present',
+  }[m] ?? 'enabled';
+
+  static ModemPreset _modemFromString(String s) => const {
+    'long_fast': ModemPreset.longFast, 'long_slow': ModemPreset.longSlow,
+    'very_long_slow': ModemPreset.veryLongSlow, 'medium_slow': ModemPreset.mediumSlow,
+    'medium_fast': ModemPreset.mediumFast, 'short_slow': ModemPreset.shortSlow,
+    'short_fast': ModemPreset.shortFast, 'long_moderate': ModemPreset.longModerate,
+    'short_turbo': ModemPreset.shortTurbo, 'long_turbo': ModemPreset.longTurbo,
+  }[s] ?? ModemPreset.longFast;
+
+  static String _modemToString(ModemPreset m) => const {
+    ModemPreset.longFast: 'long_fast', ModemPreset.longSlow: 'long_slow',
+    ModemPreset.veryLongSlow: 'very_long_slow', ModemPreset.mediumSlow: 'medium_slow',
+    ModemPreset.mediumFast: 'medium_fast', ModemPreset.shortSlow: 'short_slow',
+    ModemPreset.shortFast: 'short_fast', ModemPreset.longModerate: 'long_moderate',
+    ModemPreset.shortTurbo: 'short_turbo', ModemPreset.longTurbo: 'long_turbo',
+  }[m] ?? 'long_fast';
+
+  // ── Mutable presets (defaults overwritten by server sync) ──
+
+  static Map<MeshtasticProfile, ProfileConfig> presets = {
+    MeshtasticProfile.pilot: const ProfileConfig(
       role: DeviceRole.tracker,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
@@ -286,7 +385,7 @@ class ProfileConfig {
       displayTimeoutSecs: 30,
       telemetryIntervalSecs: 900,
     ),
-    MeshtasticProfile.driver: ProfileConfig(
+    MeshtasticProfile.driver: const ProfileConfig(
       role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
@@ -303,7 +402,7 @@ class ProfileConfig {
       displayTimeoutSecs: 60,
       telemetryIntervalSecs: 900,
     ),
-    MeshtasticProfile.driverWifi: ProfileConfig(
+    MeshtasticProfile.driverWifi: const ProfileConfig(
       role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
@@ -314,13 +413,13 @@ class ProfileConfig {
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
-      bluetoothEnabled: true, // Keep BLE on so device can be reconfigured
+      bluetoothEnabled: true,
       wifiEnabled: true,
       positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 60,
       telemetryIntervalSecs: 900,
     ),
-    MeshtasticProfile.repeater: ProfileConfig(
+    MeshtasticProfile.repeater: const ProfileConfig(
       role: DeviceRole.router,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
@@ -331,13 +430,31 @@ class ProfileConfig {
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
-      bluetoothEnabled: true, // Keep BLE on so device can be reconfigured
+      bluetoothEnabled: true,
       wifiEnabled: true,
       positionFlags: PositionFlags.altitude,
-      displayTimeoutSecs: 0, // screen off
+      displayTimeoutSecs: 0,
       telemetryIntervalSecs: 3600,
     ),
   };
+
+  /// Profile key mapping for server JSON (snake_case).
+  static const _profileKeys = {
+    'pilot': MeshtasticProfile.pilot,
+    'driver': MeshtasticProfile.driver,
+    'driver_wifi': MeshtasticProfile.driverWifi,
+    'repeater': MeshtasticProfile.repeater,
+  };
+
+  /// Replace presets with values from the server response.
+  static void updatePresetsFromServer(Map<String, dynamic> json) {
+    for (final entry in _profileKeys.entries) {
+      final data = json[entry.key];
+      if (data is Map<String, dynamic>) {
+        presets[entry.value] = ProfileConfig.fromJson(data);
+      }
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

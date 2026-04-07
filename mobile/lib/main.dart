@@ -32,6 +32,13 @@ void main() async {
     // If anything goes wrong, proceed to login screen
   }
 
+  // Sync platform config (MQTT + device profiles) in background after auth
+  final bleService = BleService(apiService);
+  if (authService.isLoggedIn) {
+    // Don't await — let it run in background so app opens immediately
+    bleService.syncPlatformConfig();
+  }
+
   runApp(
     MultiProvider(
       providers: [
@@ -41,9 +48,7 @@ void main() async {
         ChangeNotifierProvider<TrackingService>(
           create: (_) => TrackingService(apiService, authService, igcService),
         ),
-        ChangeNotifierProvider<BleService>(
-          create: (_) => BleService(apiService),
-        ),
+        ChangeNotifierProvider<BleService>.value(value: bleService),
         ChangeNotifierProvider<DriverService>(
           create: (_) => DriverService(apiService),
         ),

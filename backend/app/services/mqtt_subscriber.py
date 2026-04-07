@@ -1,8 +1,8 @@
 """Background MQTT subscriber for Meshtastic position messages.
 
-Connects to the Mosquitto broker, subscribes to ``<prefix>/#`` and persists
-incoming position reports into the ``live_positions`` table with
-``source='mqtt_gateway'``.
+Connects to the configured MQTT broker (read from site_settings DB),
+subscribes to ``<prefix>/#`` and persists incoming position reports into
+the ``live_positions`` table with ``source='mqtt_gateway'``.
 
 Supports two payload formats:
 
@@ -35,9 +35,10 @@ import struct
 from datetime import UTC, datetime
 
 import aiomqtt
+from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.db import SessionLocal
+from app.models import SiteSettings, User
 from app.services.tracking import store_position
 
 logger = logging.getLogger("aervyx.mqtt")
@@ -45,6 +46,9 @@ logger = logging.getLogger("aervyx.mqtt")
 # Module-level state exposed for the admin debug endpoint
 mqtt_connected: bool = False
 mqtt_last_message_at: datetime | None = None
+
+# Event set by the site_settings PATCH handler to trigger reconnection
+mqtt_reconnect_event: asyncio.Event | None = None
 
 
 def _parse_position(raw: bytes | bytearray) -> dict | None:
@@ -301,20 +305,69 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
         return None
 
 
-async def _subscribe_loop(host: str, port: int, topic_prefix: str) -> None:
-    """Connect to broker and process messages indefinitely."""
-    topic = f"{topic_prefix}/#"
-    logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
+def _resolve_pilot_id(session, device_id: str | None) -> int | None:
+    """Look up pilot_id from users.mesh_device_id for any user type."""
+    if not device_id:
+        return None
+    user = session.scalar(
+        select(User).where(User.mesh_device_id == device_id)
+    )
+    return user.pilot_id if user else None
 
-    global mqtt_connected, mqtt_last_message_at
+
+def _read_mqtt_config_from_db() -> tuple[str | None, int, str]:
+    """Read MQTT broker settings from the site_settings DB row.
+
+    Returns ``(host, port, topic_prefix)``.  If the row doesn't exist or
+    MQTT is disabled, ``host`` will be ``None``.
+    """
+    session = SessionLocal()
+    try:
+        site = session.get(SiteSettings, 1)
+        if site is None or not site.mqtt_enabled:
+            return None, 1883, "msh"
+        host = "mqtt.meshtastic.org" if site.mqtt_broker_mode == "public" else site.mqtt_host
+        return host, site.mqtt_port, site.mqtt_topic_prefix
+    finally:
+        session.close()
+
+
+async def _subscribe_loop() -> None:
+    """Connect to broker and process messages indefinitely.
+
+    Reads config from DB on each connection attempt and watches
+    ``mqtt_reconnect_event`` to trigger reconnection when admin changes
+    settings.
+    """
+    global mqtt_connected, mqtt_last_message_at, mqtt_reconnect_event
+
+    mqtt_reconnect_event = asyncio.Event()
 
     while True:
+        host, port, topic_prefix = _read_mqtt_config_from_db()
+        if not host:
+            logger.info("MQTT not configured or disabled — waiting for config change…")
+            mqtt_connected = False
+            await mqtt_reconnect_event.wait()
+            mqtt_reconnect_event.clear()
+            continue
+
+        topic = f"{topic_prefix}/#"
+        logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
+
         try:
             async with aiomqtt.Client(hostname=host, port=port) as client:
                 await client.subscribe(topic)
                 mqtt_connected = True
                 logger.info("MQTT subscribed to %s", topic)
+
                 async for message in client.messages:
+                    # Check if we need to reconnect with new settings
+                    if mqtt_reconnect_event.is_set():
+                        mqtt_reconnect_event.clear()
+                        logger.info("MQTT settings changed — reconnecting…")
+                        break  # exit message loop → reconnect with new config
+
                     payload = message.payload
                     if not isinstance(payload, (bytes, bytearray)):
                         continue
@@ -329,6 +382,9 @@ async def _subscribe_loop(host: str, port: int, topic_prefix: str) -> None:
 
                     session = SessionLocal()
                     try:
+                        # Resolve device_id → pilot_id if not already set
+                        if parsed.get("pilot_id") is None and parsed.get("device_id"):
+                            parsed["pilot_id"] = _resolve_pilot_id(session, parsed["device_id"])
                         store_position(session, **parsed)
                         session.commit()
                         mqtt_last_message_at = datetime.now(UTC)
@@ -351,17 +407,9 @@ async def _subscribe_loop(host: str, port: int, topic_prefix: str) -> None:
 async def start_mqtt_subscriber() -> asyncio.Task | None:
     """Launch the MQTT subscriber as a background asyncio task.
 
-    Returns the task handle, or ``None`` if MQTT is not configured.
+    Returns the task handle.  The subscriber reads config from the DB and
+    will wait for config changes if MQTT is not yet configured.
     """
-    settings = get_settings()
-    host = settings.mqtt_host
-    if not host:
-        logger.info("MQTT_HOST not set — MQTT subscriber disabled")
-        return None
-
-    port = settings.mqtt_port
-    prefix = settings.mesh_mqtt_topic_prefix
-
-    task = asyncio.create_task(_subscribe_loop(host, port, prefix))
+    task = asyncio.create_task(_subscribe_loop())
     logger.info("MQTT subscriber background task started")
     return task

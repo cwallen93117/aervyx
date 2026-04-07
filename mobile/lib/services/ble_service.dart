@@ -1,9 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:path_provider/path_provider.dart';
 
 import '../config/api_config.dart';
 import '../models/meshtastic_protobufs.dart';
@@ -98,7 +100,90 @@ class BleService extends ChangeNotifier {
     return _connectedDevice?.name ?? '';
   }
 
+  // ── Cached platform MQTT config (fetched from server) ──
+  String? _platformMqttHost;
+  int _platformMqttPort = 1883;
+  String _platformMqttTopicPrefix = 'msh';
+  String? _platformMqttPsk;
+
   BleService(this._api);
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Platform config sync — called once per app open when authenticated
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Fetch MQTT config and device profiles from the backend.
+  /// Silently uses cached/default values if the server is unreachable.
+  Future<void> syncPlatformConfig() async {
+    // Load from local cache first (instant, works offline)
+    await _loadCachedConfig();
+
+    // Then try to refresh from server
+    try {
+      // Fetch MQTT config
+      final meshConfig = await _api.get(ApiConfig.meshConfigPath);
+      _platformMqttHost = meshConfig['mqtt_host'] as String?;
+      _platformMqttPort = meshConfig['mqtt_port'] as int? ?? 1883;
+      _platformMqttTopicPrefix = meshConfig['topic_prefix'] as String? ?? 'msh';
+      _platformMqttPsk = meshConfig['channel_psk'] as String?;
+
+      // Fetch profiles
+      final profilesResp = await _api.get(ApiConfig.meshProfilesPath);
+      final profiles = profilesResp['profiles'];
+      if (profiles is Map<String, dynamic>) {
+        ProfileConfig.updatePresetsFromServer(profiles);
+      }
+
+      // Cache for offline use
+      await _saveCachedConfig(meshConfig, profiles);
+      notifyListeners();
+    } catch (_) {
+      // Server unreachable — use cached/default values silently
+    }
+  }
+
+  Future<File> get _cacheFile async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/platform_config.json');
+  }
+
+  Future<void> _loadCachedConfig() async {
+    try {
+      final file = await _cacheFile;
+      if (await file.exists()) {
+        final data = jsonDecode(await file.readAsString());
+        if (data is Map<String, dynamic>) {
+          final mqtt = data['mqtt'];
+          if (mqtt is Map<String, dynamic>) {
+            _platformMqttHost = mqtt['mqtt_host'] as String?;
+            _platformMqttPort = mqtt['mqtt_port'] as int? ?? 1883;
+            _platformMqttTopicPrefix = mqtt['topic_prefix'] as String? ?? 'msh';
+            _platformMqttPsk = mqtt['channel_psk'] as String?;
+          }
+          final profiles = data['profiles'];
+          if (profiles is Map<String, dynamic>) {
+            ProfileConfig.updatePresetsFromServer(profiles);
+          }
+        }
+      }
+    } catch (_) {
+      // Cache read failed — use defaults
+    }
+  }
+
+  Future<void> _saveCachedConfig(
+      Map<String, dynamic> mqtt, dynamic profiles) async {
+    try {
+      final file = await _cacheFile;
+      await file.writeAsString(jsonEncode({
+        'mqtt': mqtt,
+        'profiles': profiles,
+        'cached_at': DateTime.now().toUtc().toIso8601String(),
+      }));
+    } catch (_) {
+      // Cache write failed — non-critical
+    }
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // SOS
@@ -345,6 +430,9 @@ class BleService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   void _onUnexpectedDisconnect() {
+    // Guard against duplicate disconnect events while already reconnecting
+    if (_isReconnecting) return;
+
     // Clean up connection state
     _stopPhoneGpsSharing();
     _toRadio = null;
@@ -440,6 +528,7 @@ class BleService extends ChangeNotifier {
 
       _isReconnecting = false;
       _reconnectAttempts = 0;
+      _error = null;
       _statusMessage = 'Reconnected to ${device.name}';
       notifyListeners();
     } catch (e) {
@@ -994,16 +1083,12 @@ class BleService extends ChangeNotifier {
         wifiEnabled: config.wifiEnabled,
       ));
 
-      // MQTT — always on, proxy based on whether BLE is active
+      // MQTT — always on, use platform config from admin settings
       _statusMessage = 'Setting MQTT...';
       notifyListeners();
       await _writeAdmin(buildSetMqttConfig(
-        address: _deviceState.mqttAddress.isNotEmpty
-            ? _deviceState.mqttAddress
-            : 'mqtt.meshtastic.org',
-        rootTopic: _deviceState.mqttRootTopic.isNotEmpty
-            ? _deviceState.mqttRootTopic
-            : 'msh',
+        address: _platformMqttHost ?? 'mqtt.meshtastic.org',
+        rootTopic: _platformMqttTopicPrefix,
         encryptionEnabled: _deviceState.mqttEncryptionEnabled,
         proxyToClientEnabled: config.bluetoothEnabled, // Proxy when BLE on
       ));
