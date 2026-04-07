@@ -335,7 +335,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showWindBarbs, setShowWindBarbs] = useState(true);
   const [windBarbLevel, setWindBarbLevel] = useState("10m");
-  const [barbColorMode, setBarbColorMode] = useState<"color" | "black">("color");
+  // barbColorMode removed — always black
   const windBarbsRef = useRef<{ lat: number; lng: number; u: number; v: number }[]>([]);
   const barbCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const barbRafRef = useRef<number | null>(null);
@@ -531,10 +531,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // Zoom-dependent: denser when zoomed in, sparser when zoomed out
-    // ~30px at zoom 4 (CONUS), ~4px at zoom 12+
-    const zoom = map.getZoom();
-    const CELL = Math.max(4, Math.round(48 - zoom * 4));
+    // Tight spacing — ~2px between barb centers
+    const CELL = 2;
     const occupied = new Set<string>();
 
     for (const pt of windBarbsRef.current) {
@@ -559,19 +557,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       const dirRad = Math.atan2(-pt.u, -pt.v); // radians, math convention (0=North)
       const dirDeg = (dirRad * 180 / Math.PI + 360) % 360;
 
-      // Color by speed (or all black)
-      let color: string;
-      if (barbColorMode === "black") {
-        color = "rgba(0,0,0,0.7)";
-      } else if (speedKt < 10) {
-        color = "rgba(200,230,255,0.82)";  // light blue — calm/light
-      } else if (speedKt < 25) {
-        color = "rgba(100,180,255,0.85)";  // medium blue
-      } else if (speedKt < 40) {
-        color = "rgba(255,170,50,0.88)";   // orange — strong
-      } else {
-        color = "rgba(255,60,60,0.90)";    // red — very strong
-      }
+      const color = "rgba(0,0,0,0.7)";
 
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
@@ -666,14 +652,14 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       // Speed label — small text offset to the right of the base
       const labelText = Math.round(speedKt).toString();
       ctx.font = "bold 8px sans-serif";
-      ctx.fillStyle = barbColorMode === "black" ? "rgba(0,0,0,0.65)" : color;
+      ctx.fillStyle = "rgba(0,0,0,0.65)";
       ctx.textAlign = "left";
       ctx.textBaseline = "middle";
       ctx.fillText(labelText, x + 6, y + 10);
     }
 
     ctx.restore();
-  }, [showWindBarbs, barbColorMode]);
+  }, [showWindBarbs]);
 
   // Schedule a redraw via rAF
   const scheduleDrawBarbs = useCallback(() => {
@@ -770,8 +756,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbs, mapReady, validTimes]);
 
-  // Redraw when showWindBarbs or barbColorMode toggles
-  useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, barbColorMode, scheduleDrawBarbs]);
+  // Redraw when showWindBarbs toggles
+  useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, scheduleDrawBarbs]);
 
   // Click handler — open popup with Skew-T + point forecast values
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
@@ -1162,27 +1148,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
               </div>
             );
           })()}
-          {showWindBarbs && (
-            <div className={styles.windBarbLevelRow} style={{ marginTop: 6 }}>
-              {([["color", "Colored"], ["black", "Black"]] as const).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  className={[styles.windBarbLevelBtn, barbColorMode === mode ? styles.windBarbLevelBtnActive : ""].join(" ")}
-                  onClick={() => setBarbColorMode(mode)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          {showWindBarbs && barbColorMode === "color" && (
-            <div className={styles.windBarbLegend}>
-              <span style={{ color: "rgba(200,230,255,0.95)" }}>&#9642;</span>&nbsp;&lt;10kt&ensp;
-              <span style={{ color: "rgba(100,180,255,0.95)" }}>&#9642;</span>&nbsp;10-25kt&ensp;
-              <span style={{ color: "rgba(255,170,50,0.95)" }}>&#9642;</span>&nbsp;25-40kt&ensp;
-              <span style={{ color: "rgba(255,60,60,0.95)" }}>&#9642;</span>&nbsp;&gt;40kt
-            </div>
-          )}
+          {/* Color toggle and legend removed — barbs always black */}
         </div>
 
         {/* Opacity slider */}
