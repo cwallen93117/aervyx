@@ -154,6 +154,17 @@ class AdminUserCredentialsUpdate(BaseModel):
     password: str | None = None
 
 
+class MapOverlayConfigResponse(BaseModel):
+    config: dict
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MapOverlayConfigUpdate(BaseModel):
+    config: dict
+
+
 class SiteSettingsResponse(BaseModel):
     telemetry_vario_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)

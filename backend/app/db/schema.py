@@ -1,5 +1,56 @@
+import json
+
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+
+DEFAULT_MAP_OVERLAY_CONFIG = {
+    "task_builder": {
+        "turnpoints": True, "task_route": True, "task_cylinders": True,
+        "optimized_route": True, "leg_labels": True, "airspaces": True,
+        "airspace_labels": True, "flight_track": True, "distance_summary": True,
+        "fullscreen_toggle": True, "2d_3d_toggle": True, "basemap_selector": True,
+        "altitude_slider": True, "click_to_add_turnpoint": True, "fullscreen_editor_panel": True,
+    },
+    "scoring": {
+        "turnpoints": True, "task_route": True, "task_cylinders": True,
+        "optimized_route": True, "leg_labels": True, "airspaces": False,
+        "airspace_labels": False, "flight_track": True, "track_highlight": True,
+        "distance_summary": True, "fullscreen_toggle": True, "2d_3d_toggle": True,
+        "basemap_selector": True, "altitude_slider": True, "fullscreen_editor_panel": True,
+    },
+    "logbook_replay": {
+        "flight_track": True, "track_highlight": True, "replay_scrubber": True,
+        "replay_speed": True, "fullscreen_toggle": True, "2d_3d_toggle": True,
+        "basemap_selector": True, "altitude_slider": True,
+    },
+    "dashboard_live": {
+        "turnpoints": True, "task_route": True, "task_cylinders": True,
+        "airspaces": True, "airspace_labels": True, "flight_track": True,
+        "live_positions": True, "live_labels": True, "fullscreen_toggle": True,
+        "2d_3d_toggle": True, "basemap_selector": True, "altitude_slider": True,
+    },
+    "public_live": {
+        "turnpoints": True, "task_route": True, "task_cylinders": True,
+        "flight_track": True, "live_positions": True, "live_labels": True,
+        "gps_button": True, "fullscreen_toggle": True, "2d_3d_toggle": True,
+        "basemap_selector": True, "altitude_slider": True,
+    },
+    "airspace_explorer": {
+        "airspace_regions": True, "airspace_labels": True, "tfrs": True,
+        "tfr_labels": True, "category_toggles": True, "export_openair": True,
+        "2d_3d_toggle": True, "legend": True,
+    },
+    "soaring_forecast": {
+        "weather_raster": True, "wind_barbs": True, "sounding_popup": True,
+        "model_selector": True, "overlay_tabs": True, "wind_barb_toggle": True,
+        "opacity_slider": True, "time_scrubber": True, "model_run_selector": True,
+        "legend": True,
+    },
+    "admin_site_preview": {
+        "turnpoints": True, "fullscreen_toggle": True, "2d_3d_toggle": True,
+        "basemap_selector": True, "altitude_slider": True,
+    },
+}
 
 
 def ensure_runtime_schema(engine: Engine) -> None:
@@ -162,6 +213,41 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 )
             )
             connection.execute(text("CREATE INDEX ix_score_penalties_task_pilot ON score_penalties (task_id, pilot_id)"))
+
+        if "map_overlay_config" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE map_overlay_config (
+                      id INTEGER PRIMARY KEY,
+                      config TEXT NOT NULL DEFAULT '{}',
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO map_overlay_config (id, config) VALUES (1, :config)"
+                ),
+                {"config": json.dumps(DEFAULT_MAP_OVERLAY_CONFIG)},
+            )
+        else:
+            map_overlay_columns = {column["name"] for column in inspector.get_columns("map_overlay_config")}
+            if "config" not in map_overlay_columns:
+                connection.execute(text("ALTER TABLE map_overlay_config ADD COLUMN config TEXT NOT NULL DEFAULT '{}'"))
+            if "updated_at" not in map_overlay_columns:
+                connection.execute(text("ALTER TABLE map_overlay_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO map_overlay_config (id, config)
+                    SELECT 1, :config
+                    WHERE NOT EXISTS (SELECT 1 FROM map_overlay_config WHERE id = 1)
+                    """
+                ),
+                {"config": json.dumps(DEFAULT_MAP_OVERLAY_CONFIG)},
+            )
 
     if "events" not in table_names:
         return
