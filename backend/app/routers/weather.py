@@ -765,7 +765,7 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
     return features
 
 
-def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: str) -> dict:
+def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: str, step_override: int | None = None) -> dict:
     """Synchronous Herbie fetch — runs in thread pool."""
     from herbie import Herbie
 
@@ -784,7 +784,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
     except Exception as exc:
         raise RuntimeError(f"Herbie init failed for {model} {dt_str} f{fxx:02d}: {exc}")
 
-    step = SUBSAMPLE.get(model, 10)
+    step = step_override if step_override is not None else SUBSAMPLE.get(model, 10)
 
     # Wind speed: fetch U and V components, compute sqrt(u^2 + v^2)
     if vdef.get("is_wind_speed"):
@@ -901,6 +901,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
         lons = ds.longitude.values
         features = _build_geojson(lats, lons, arr, step)
 
+    vcfg = _VAR_SCALE.get(variable, {"scale_min": 0, "scale_max": 1})
     return {
         "type": "FeatureCollection",
         "features": features,
@@ -909,6 +910,8 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
             "variable": variable,
             "run": f"{run_date}T{run_hour}:00Z",
             "fxx": fxx,
+            "scale_min": vcfg.get("scale_min", 0),
+            "scale_max": vcfg.get("scale_max", 1),
         },
     }
 
@@ -1106,6 +1109,7 @@ async def weather_grid(
     hour: str = Query(..., description="Run hour e.g. 12"),
     fh: int = Query(..., description="Forecast hour"),
     variable: str = Query(..., description="Variable name"),
+    step: int | None = Query(None, description="Override subsample step (1=full resolution)"),
 ):
     """Fetch a model grid via Herbie and return subsampled GeoJSON."""
     if model not in MODEL_CONFIG:
@@ -1126,7 +1130,7 @@ async def weather_grid(
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
-            _executor, _fetch_grid, model, date, hour, fh, variable
+            _executor, _fetch_grid, model, date, hour, fh, variable, step
         )
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))

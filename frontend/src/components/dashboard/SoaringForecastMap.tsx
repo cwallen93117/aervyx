@@ -125,9 +125,38 @@ function formatVT(iso: string) {
 /* Map layer IDs                                                       */
 /* ------------------------------------------------------------------ */
 const OVERLAY_LAYER = "soaring-overlay-layer";
+const OVERLAY_LABELS_LAYER = "soaring-overlay-labels";
 const OVERLAY_SRC = "soaring-overlay-src";
 
+/** Convert raw SI value to display units for tier matching */
+function rawToDisplay(rawValue: number, ov: OverlayDef): number {
+  if (ov.unitType === "vario") return rawValue * 196.85;          // m/s → fpm
+  if (ov.unitType === "altitude") return rawValue * 3.28084;      // m → ft
+  return rawValue;
+}
+
+/** Discrete floor-step: find highest tierValue ≤ displayVal, return that tier's color */
+function getDebugColor(rawValue: number, ov: OverlayDef): string {
+  const displayVal = rawToDisplay(rawValue, ov);
+  const tiers = ov.tierValues ?? [];
+  const colors = ov.colors ?? [];
+  let idx = 0;
+  for (let i = tiers.length - 1; i >= 0; i--) {
+    if (displayVal >= tiers[i]) { idx = i; break; }
+  }
+  return colors[Math.min(idx, colors.length - 1)] ?? "#888";
+}
+
+/** Format a raw value into a short display label */
+function formatDebugLabel(rawValue: number, ov: OverlayDef): string {
+  const dv = rawToDisplay(rawValue, ov);
+  if (ov.unitType === "vario") return `${Math.round(dv)}`;
+  if (ov.unitType === "altitude") return `${Math.round(dv).toLocaleString()}`;
+  return dv.toFixed(1);
+}
+
 function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string | null>) {
+  try { if (map.getLayer(OVERLAY_LABELS_LAYER)) map.removeLayer(OVERLAY_LABELS_LAYER); } catch { /* */ }
   try { if (map.getLayer(OVERLAY_LAYER)) map.removeLayer(OVERLAY_LAYER); } catch { /* */ }
   try { if (map.getSource(OVERLAY_SRC)) map.removeSource(OVERLAY_SRC); } catch { /* */ }
   if (blobRef?.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
@@ -402,7 +431,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
       .finally(() => setMetaLoading(false));
   }, [activeModel]);
 
-  // Fetch raster overlay and display as image layer
+  // DEBUG: Fetch grid points and display as color-coded dots with value labels
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !activeRun) return;
@@ -418,63 +447,69 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     setGridLoading(true);
     const api = resolveApiBase();
-    const url = `${api}/api/weather/raster?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}`;
+    // Use grid endpoint with step=1 for full native resolution
+    const url = `${api}/api/weather/grid?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&variable=${ov.variable}&step=1`;
 
     let cancelled = false;
 
     fetch(url)
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then(async (data: { image: string; coordinates: [number, number][]; meta: Record<string, unknown>; data_range?: { min: number; max: number; mean: number; scale_min: number; scale_max: number }; tiers?: { value: number; color: string }[] }) => {
+      .then((data: { type: string; features: { type: string; geometry: { type: string; coordinates: number[] }; properties: { value: number } }[]; meta: Record<string, unknown> }) => {
         if (cancelled) return;
         safeRemove(map, blobUrlRef);
 
-        // Store data range and tier info for legend
-        if (data.data_range) setDataRange(data.data_range);
-        if (data.tiers) setTiers(data.tiers);
+        // Pre-compute color and label for each feature
+        for (const f of data.features) {
+          const raw = f.properties.value;
+          (f.properties as Record<string, unknown>).color = getDebugColor(raw, ov);
+          (f.properties as Record<string, unknown>).label = formatDebugLabel(raw, ov);
+        }
 
-        // Convert base64 data URI to blob URL for MapLibre compatibility
-        const b64 = (data.image as string).split(",")[1];
-        const bin = atob(b64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const blob = new Blob([bytes], { type: "image/png" });
-        const blobUrl = URL.createObjectURL(blob);
-
-        // Wait for the image to actually load before adding to map
-        await new Promise<void>((resolve, reject) => {
-          const img = new Image();
-          img.onload = () => resolve();
-          img.onerror = () => reject(new Error("Image load failed"));
-          img.src = blobUrl;
-        });
-
-        if (cancelled) { URL.revokeObjectURL(blobUrl); return; }
-
-        blobUrlRef.current = blobUrl;
         try {
-          const coords = data.coordinates as [[number, number], [number, number], [number, number], [number, number]];
           map.addSource(OVERLAY_SRC, {
-            type: "image",
-            url: blobUrl,
-            coordinates: coords,
+            type: "geojson",
+            data: data as unknown as GeoJSON.FeatureCollection,
           });
+
+          // Circle layer — 12px radius (4x previous debug size), colored by tier
           map.addLayer({
             id: OVERLAY_LAYER,
-            type: "raster",
+            type: "circle",
             source: OVERLAY_SRC,
             paint: {
-              "raster-opacity": opacity / 100,
-              "raster-fade-duration": 0,
-              "raster-resampling": "nearest",
+              "circle-radius": 12,
+              "circle-color": ["get", "color"],
+              "circle-opacity": opacity / 100,
+              "circle-stroke-width": 0.5,
+              "circle-stroke-color": "rgba(0,0,0,0.3)",
             },
           });
 
+          // Text label layer — show the value on top of each dot
+          map.addLayer({
+            id: OVERLAY_LABELS_LAYER,
+            type: "symbol",
+            source: OVERLAY_SRC,
+            layout: {
+              "text-field": ["get", "label"],
+              "text-size": 9,
+              "text-font": ["Open Sans Regular", "Arial Unicode MS Regular"],
+              "text-allow-overlap": true,
+              "text-ignore-placement": true,
+            },
+            paint: {
+              "text-color": "#000",
+              "text-halo-color": "rgba(255,255,255,0.85)",
+              "text-halo-width": 1,
+            },
+          });
+
+          console.log(`[SoaringForecast] DEBUG: ${data.features.length} grid points rendered`);
         } catch (err) {
-          console.warn("[SoaringForecast] raster layer error:", err);
-          URL.revokeObjectURL(blobUrl);
+          console.warn("[SoaringForecast] debug layer error:", err);
         }
       })
-      .catch(err => console.warn("[SoaringForecast] raster fetch error:", err))
+      .catch(err => console.warn("[SoaringForecast] grid fetch error:", err))
       .finally(() => { if (!cancelled) setGridLoading(false); });
 
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
@@ -486,7 +521,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const map = mapRef.current;
     if (!map || !mapReady) return;
     if (map.getLayer(OVERLAY_LAYER)) {
-      map.setPaintProperty(OVERLAY_LAYER, "raster-opacity", opacity / 100);
+      map.setPaintProperty(OVERLAY_LAYER, "circle-opacity", opacity / 100);
     }
   }, [opacity, mapReady]);
 
