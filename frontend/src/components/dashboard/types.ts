@@ -72,6 +72,13 @@ export type SiteSettingsRecord = {
   telemetry_glide_ratio_smoothing_seconds: number;
   max_map_pitch_degrees: number;
   site_match_radius_m: number;
+  mqtt_enabled: boolean;
+  mqtt_broker_mode: string;
+  mqtt_host: string | null;
+  mqtt_port: number;
+  mqtt_topic_prefix: string;
+  mqtt_channel_psk: string | null;
+  mesh_profiles: Record<string, Record<string, unknown>> | null;
   updated_at?: string | null;
 };
 export type LogbookFlightStatsRecord = {

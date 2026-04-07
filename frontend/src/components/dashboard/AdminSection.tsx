@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
@@ -826,8 +826,106 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                 </div>
               </fieldset>
+              <fieldset className="fieldset-cluster">
+                <legend>MQTT / Mesh</legend>
+                <div className="cluster-stack">
+                  <label className="stack compact">
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <input
+                        type="checkbox"
+                        checked={siteSettings.mqtt_enabled ?? false}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_enabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      MQTT enabled
+                    </span>
+                  </label>
+                  <label className="stack compact">
+                    <span>Broker mode</span>
+                    <select
+                      value={siteSettings.mqtt_broker_mode ?? "public"}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          mqtt_broker_mode: event.target.value,
+                        }))
+                      }
+                    >
+                      <option value="public">Public (mqtt.meshtastic.org)</option>
+                      <option value="private">Private (custom broker)</option>
+                    </select>
+                  </label>
+                  {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
+                    <>
+                      <label className="stack compact">
+                        <span>MQTT host</span>
+                        <input
+                          type="text"
+                          placeholder="mqtt.example.com"
+                          value={siteSettings.mqtt_host ?? ""}
+                          onChange={(event) =>
+                            setSiteSettings((current) => ({
+                              ...current,
+                              mqtt_host: event.target.value || null,
+                            }))
+                          }
+                        />
+                      </label>
+                      <label className="stack compact">
+                        <span>MQTT port</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={65535}
+                          step={1}
+                          value={siteSettings.mqtt_port ?? 1883}
+                          onChange={(event) =>
+                            setSiteSettings((current) => ({
+                              ...current,
+                              mqtt_port: Number(event.target.value || 1883),
+                            }))
+                          }
+                        />
+                      </label>
+                    </>
+                  )}
+                  <label className="stack compact">
+                    <span>Topic prefix</span>
+                    <input
+                      type="text"
+                      placeholder="msh"
+                      value={siteSettings.mqtt_topic_prefix ?? "msh"}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          mqtt_topic_prefix: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <label className="stack compact">
+                    <span>Channel PSK</span>
+                    <input
+                      type="text"
+                      placeholder="Optional — for encrypted channels"
+                      value={siteSettings.mqtt_channel_psk ?? ""}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          mqtt_channel_psk: event.target.value || null,
+                        }))
+                      }
+                    />
+                  </label>
+                </div>
+              </fieldset>
             </div>
             <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 85 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
+            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
             <div className="button-row">
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save site settings
@@ -1031,5 +1129,167 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
         </div>
       </div>
     </SectionCard>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Meshtastic Profiles table                                          */
+/* ------------------------------------------------------------------ */
+
+const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
+  pilot: { role: "tracker", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 30, smart_position_enabled: true, smart_min_distance: 100, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 30, telemetry_interval_secs: 900 },
+  driver: { role: "client", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 120, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 60, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 900 },
+  driver_wifi: { role: "client", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 60, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 900 },
+  repeater: { role: "router", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 300, smart_position_enabled: false, smart_min_distance: 0, smart_min_interval: 0, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 0, telemetry_interval_secs: 3600 },
+};
+
+const PROFILE_KEYS = ["pilot", "driver", "driver_wifi", "repeater"] as const;
+const PROFILE_LABELS: Record<string, string> = { pilot: "Pilot", driver: "Driver", driver_wifi: "Driver Wi-Fi", repeater: "Repeater" };
+
+type ProfileRowDef = {
+  key: string;
+  label: string;
+  kind: "select" | "number" | "boolean";
+  options?: string[];
+  min?: number;
+  max?: number;
+};
+
+const PROFILE_ROW_GROUPS: { group: string; rows: ProfileRowDef[] }[] = [
+  {
+    group: "Device",
+    rows: [
+      { key: "role", label: "Role", kind: "select", options: ["client", "tracker", "router"] },
+      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"] },
+      { key: "power_saving", label: "Power saving", kind: "boolean" },
+    ],
+  },
+  {
+    group: "Position & GPS",
+    rows: [
+      { key: "gps_mode", label: "GPS mode", kind: "select", options: ["disabled", "enabled", "not_present"] },
+      { key: "position_broadcast_secs", label: "Broadcast (s)", kind: "number", min: 0 },
+      { key: "smart_position_enabled", label: "Smart pos.", kind: "boolean" },
+      { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0 },
+      { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0 },
+    ],
+  },
+  {
+    group: "Radio",
+    rows: [
+      { key: "modem_preset", label: "Modem preset", kind: "select", options: ["long_fast", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "long_moderate", "short_turbo", "long_turbo"] },
+      { key: "hop_limit", label: "Hop limit", kind: "number", min: 0, max: 7 },
+    ],
+  },
+  {
+    group: "Connectivity",
+    rows: [
+      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean" },
+      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean" },
+    ],
+  },
+  {
+    group: "Display & Telemetry",
+    rows: [
+      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0 },
+      { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0 },
+    ],
+  },
+];
+
+function MeshProfilesTable({
+  siteSettings,
+  setSiteSettings,
+}: {
+  siteSettings: SiteSettingsRecord;
+  setSiteSettings: (s: SiteSettingsRecord | ((c: SiteSettingsRecord) => SiteSettingsRecord)) => void;
+}) {
+  const profiles = siteSettings.mesh_profiles ?? DEFAULT_MESH_PROFILES;
+
+  function updateCell(profileKey: string, settingKey: string, newValue: unknown) {
+    setSiteSettings((current) => ({
+      ...current,
+      mesh_profiles: {
+        ...(current.mesh_profiles ?? DEFAULT_MESH_PROFILES),
+        [profileKey]: {
+          ...(current.mesh_profiles ?? DEFAULT_MESH_PROFILES)[profileKey],
+          [settingKey]: newValue,
+        },
+      },
+    }));
+  }
+
+  const cellStyle = { padding: "2px 4px", verticalAlign: "middle" } as const;
+  const inputStyle = { fontSize: "0.75rem", padding: "2px 4px", width: "100%", minWidth: "80px", boxSizing: "border-box" } as const;
+  const selectStyle = { ...inputStyle, minWidth: "110px" } as const;
+  const groupHeaderStyle = { fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" as const, color: "var(--color-hint, #888)", background: "var(--color-surface-alt, #f4f4f5)", padding: "4px 8px", borderTop: "1px solid var(--color-border, #e5e7eb)" };
+
+  return (
+    <div style={{ marginTop: "16px" }}>
+      <div style={{ fontWeight: 600, fontSize: "0.875rem", marginBottom: "8px" }}>Meshtastic Profiles</div>
+      <div style={{ overflowX: "auto" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: "0.8rem", width: "100%", minWidth: "520px" }}>
+          <thead>
+            <tr>
+              <th style={{ textAlign: "left", padding: "4px 8px", fontSize: "0.75rem", fontWeight: 600, borderBottom: "1px solid var(--color-border, #e5e7eb)", minWidth: "130px" }}>Setting</th>
+              {PROFILE_KEYS.map((pk) => (
+                <th key={pk} style={{ textAlign: "center", padding: "4px 8px", fontSize: "0.75rem", fontWeight: 600, borderBottom: "1px solid var(--color-border, #e5e7eb)", minWidth: "110px" }}>
+                  {PROFILE_LABELS[pk]}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {PROFILE_ROW_GROUPS.map(({ group, rows }) => (
+              <Fragment key={group}>
+                <tr>
+                  <td colSpan={PROFILE_KEYS.length + 1} style={groupHeaderStyle}>{group}</td>
+                </tr>
+                {rows.map((row) => (
+                  <tr key={row.key} style={{ borderBottom: "1px solid var(--color-border-subtle, #f3f4f6)" }}>
+                    <td style={{ ...cellStyle, padding: "3px 8px", fontSize: "0.75rem", color: "var(--color-muted, #6b7280)", whiteSpace: "nowrap" }}>{row.label}</td>
+                    {PROFILE_KEYS.map((pk) => {
+                      const rawVal = profiles[pk]?.[row.key];
+                      return (
+                        <td key={pk} style={{ ...cellStyle, textAlign: "center" }}>
+                          {row.kind === "boolean" ? (
+                            <input
+                              type="checkbox"
+                              checked={Boolean(rawVal)}
+                              onChange={(e) => updateCell(pk, row.key, e.target.checked)}
+                              style={{ cursor: "pointer" }}
+                            />
+                          ) : row.kind === "select" ? (
+                            <select
+                              value={String(rawVal ?? "")}
+                              onChange={(e) => updateCell(pk, row.key, e.target.value)}
+                              style={selectStyle}
+                            >
+                              {(row.options ?? []).map((opt) => (
+                                <option key={opt} value={opt}>{opt}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              type="number"
+                              min={row.min}
+                              max={row.max}
+                              value={Number(rawVal ?? 0)}
+                              onChange={(e) => updateCell(pk, row.key, Number(e.target.value))}
+                              style={inputStyle}
+                            />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="hint" style={{ marginTop: "6px" }}>Profile defaults are applied when mesh_profiles is null. Edit cells to customise per-profile settings.</p>
+    </div>
   );
 }

@@ -247,6 +247,13 @@ function blankSiteSettingsForm(): SiteSettingsRecord {
     telemetry_glide_ratio_smoothing_seconds: 5,
     max_map_pitch_degrees: 75,
     site_match_radius_m: 1000,
+    mqtt_enabled: false,
+    mqtt_broker_mode: "public",
+    mqtt_host: null,
+    mqtt_port: 1883,
+    mqtt_topic_prefix: "msh",
+    mqtt_channel_psk: null,
+    mesh_profiles: null,
     updated_at: null,
   };
 }
@@ -1609,6 +1616,13 @@ export default function HomePage() {
           telemetry_glide_ratio_smoothing_seconds: siteSettings.telemetry_glide_ratio_smoothing_seconds,
           max_map_pitch_degrees: siteSettings.max_map_pitch_degrees,
           site_match_radius_m: siteSettings.site_match_radius_m,
+          mqtt_enabled: siteSettings.mqtt_enabled,
+          mqtt_broker_mode: siteSettings.mqtt_broker_mode,
+          mqtt_host: siteSettings.mqtt_host,
+          mqtt_port: siteSettings.mqtt_port,
+          mqtt_topic_prefix: siteSettings.mqtt_topic_prefix,
+          mqtt_channel_psk: siteSettings.mqtt_channel_psk,
+          mesh_profiles: siteSettings.mesh_profiles,
         }),
       });
       setSiteSettings(payload);
