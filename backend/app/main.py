@@ -59,9 +59,22 @@ try:
 except ImportError:
     start_faa_airspace_refresh = None
 
+try:
+    from app.services.raster_scheduler import start_raster_scheduler
+except ImportError:
+    start_raster_scheduler = None
+
+try:
+    from app.services.demand_tracker import prune_stale_demands
+except ImportError:
+    prune_stale_demands = None
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    import logging as _logging
+    _log = _logging.getLogger(__name__)
+
     Base.metadata.create_all(bind=engine)
     ensure_runtime_schema(engine)
     session = SessionLocal()
@@ -70,24 +83,35 @@ async def lifespan(app: FastAPI):
         session.commit()
     finally:
         session.close()
+
     # Prune old raster cache entries on startup
     if prune_old_rasters is not None:
         try:
             pruned = prune_old_rasters(keep_days=2)
             if pruned:
-                import logging
-                logging.getLogger(__name__).info("Pruned %d old raster cache entries on startup", pruned)
+                _log.info("Pruned %d old raster cache entries on startup", pruned)
         except Exception:
-            import logging
-            logging.getLogger(__name__).warning("Raster cache prune failed on startup", exc_info=True)
+            _log.warning("Raster cache prune failed on startup", exc_info=True)
+
+    # Prune stale demand tracking rows on startup
+    if prune_stale_demands is not None:
+        try:
+            pruned_d = prune_stale_demands(stale_days=30)
+            if pruned_d:
+                _log.info("Pruned %d stale demand tracker entries on startup", pruned_d)
+        except Exception:
+            _log.warning("Demand tracker prune failed on startup", exc_info=True)
 
     mqtt_task = await start_mqtt_subscriber() if start_mqtt_subscriber is not None else None
     faa_task = await start_faa_airspace_refresh() if start_faa_airspace_refresh is not None else None
+    raster_task = await start_raster_scheduler() if start_raster_scheduler is not None else None
     yield
     if mqtt_task is not None:
         mqtt_task.cancel()
     if faa_task is not None:
         faa_task.cancel()
+    if raster_task is not None:
+        raster_task.cancel()
 
 
 settings = get_settings()

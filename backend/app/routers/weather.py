@@ -1182,6 +1182,13 @@ async def weather_raster(
         import logging
         logging.getLogger(__name__).warning("Cache store failed for %s", cache_key, exc_info=True)
 
+    # Record demand so the scheduler can pre-warm this model/variable next cycle.
+    try:
+        from app.services.demand_tracker import record_view as _record_demand_view
+        _record_demand_view(model, variable)
+    except Exception:
+        pass  # demand tracking is best-effort; never block the response
+
     return JSONResponse(result)
 
 
