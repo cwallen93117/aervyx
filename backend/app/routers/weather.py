@@ -1447,6 +1447,8 @@ async def weather_wind_barbs(
     hour: str = Query(..., description="Run hour e.g. 12"),
     fh: int = Query(..., description="Forecast hour"),
     level: str = Query("10m", description="Wind level: 10m, 975-500hPa"),
+    lat_min: float | None = Query(None), lat_max: float | None = Query(None),
+    lon_min: float | None = Query(None), lon_max: float | None = Query(None),
 ):
     """Return a subsampled grid of U/V wind components for drawing wind barbs.
 
@@ -1463,10 +1465,16 @@ async def weather_wind_barbs(
     cache_key = f"barbs:{model}:{date}:{hour}:{fh}:{level}"
     now = time.time()
 
+    def _clip_bbox(pts: list[dict]) -> list[dict]:
+        if lat_min is None or lat_max is None or lon_min is None or lon_max is None:
+            return pts
+        return [p for p in pts if lat_min <= p["lat"] <= lat_max and lon_min <= p["lng"] <= lon_max]
+
     if cache_key in _barb_cache:
         pts, ts = _barb_cache[cache_key]
         if now - ts < GRID_TTL:
-            return JSONResponse({"points": pts, "meta": {"model": model, "level": level, "fh": fh, "count": len(pts)}})
+            clipped = _clip_bbox(pts)
+            return JSONResponse({"points": clipped, "meta": {"model": model, "level": level, "fh": fh, "count": len(clipped)}})
 
     loop = asyncio.get_event_loop()
     try:
@@ -1485,7 +1493,8 @@ async def weather_wind_barbs(
         if now - ts > GRID_TTL:
             del _barb_cache[k]
 
+    clipped = _clip_bbox(points)
     return JSONResponse({
-        "points": points,
-        "meta": {"model": model, "level": level, "fh": fh, "count": len(points)},
+        "points": clipped,
+        "meta": {"model": model, "level": level, "fh": fh, "count": len(clipped)},
     })

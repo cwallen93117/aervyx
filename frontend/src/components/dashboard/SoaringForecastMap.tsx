@@ -138,8 +138,8 @@ function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string
 /* ------------------------------------------------------------------ */
 type SLevel = { pressure: number; temperature: number; dewpoint: number; windSpeed: number; windDirection: number; height: number };
 
-const SK_W = 90, SK_H = 200;
-const SK_PAD = { t: 20, b: 16, l: 22, r: 2 };
+const SK_W = 135, SK_H = 200;
+const SK_PAD = { t: 20, b: 16, l: 26, r: 3 };
 const SK_PW = SK_W - SK_PAD.l - SK_PAD.r;
 const SK_PH = SK_H - SK_PAD.t - SK_PAD.b;
 const SK_PTOP = 200, SK_PBOT = 1050;
@@ -326,7 +326,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [selectedTimeIdx, setSelectedTimeIdx] = useState(0);
   const [metaLoading, setMetaLoading] = useState(false);
   const [metaError, setMetaError] = useState<string | null>(null);
-  const [activeOverlay, setActiveOverlay] = useState<string>("convective_cloud_top");
+  const [activeOverlay, setActiveOverlay] = useState<string>("thermal_strength");
   const [opacity, setOpacity] = useState(85);
   const [gridLoading, setGridLoading] = useState(false);
   const [mapReady, setMapReady] = useState(0);
@@ -335,7 +335,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [showWindBarbs, setShowWindBarbs] = useState(true);
   const [windBarbLevel, setWindBarbLevel] = useState("10m");
-  // barbColorMode removed — always black
+  const [barbBoundsKey, setBarbBoundsKey] = useState(0); // increments on moveend to trigger refetch
   const windBarbsRef = useRef<{ lat: number; lng: number; u: number; v: number }[]>([]);
   const barbCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const barbRafRef = useRef<number | null>(null);
@@ -695,15 +695,17 @@ export function SoaringForecastMap({ units }: { units: Units }) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Hook map move/zoom events to redraw barbs
+  // Hook map move/zoom events to redraw barbs + refetch on moveend
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
     const onMove = () => scheduleDrawBarbs();
+    const onMoveEnd = () => setBarbBoundsKey(k => k + 1);
     map.on("move", onMove);
     map.on("zoom", onMove);
-    return () => { map.off("move", onMove); map.off("zoom", onMove); };
+    map.on("moveend", onMoveEnd);
+    return () => { map.off("move", onMove); map.off("zoom", onMove); map.off("moveend", onMoveEnd); };
   }, [mapReady, scheduleDrawBarbs]);
 
   // Fetch wind barb data when relevant params change
@@ -727,8 +729,12 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const runDt = new Date(`${activeRun.date.slice(0,4)}-${activeRun.date.slice(4,6)}-${activeRun.date.slice(6,8)}T${activeRun.hour}:00:00Z`);
     const fh = Math.round((new Date(vt).getTime() - runDt.getTime()) / 3600000);
 
+    const map = mapRef.current;
     const api = resolveApiBase();
-    const url = `${api}/api/weather/wind-barbs?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&level=${windBarbLevel}`;
+    // Send viewport bounds so backend returns only visible points
+    const bounds = map?.getBounds();
+    const bboxParam = bounds ? `&lat_min=${bounds.getSouth().toFixed(2)}&lat_max=${bounds.getNorth().toFixed(2)}&lon_min=${bounds.getWest().toFixed(2)}&lon_max=${bounds.getEast().toFixed(2)}` : "";
+    const url = `${api}/api/weather/wind-barbs?model=${activeModel}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${fh}&level=${windBarbLevel}${bboxParam}`;
 
     let cancelled = false;
     barbLoadingRef.current = true;
@@ -747,7 +753,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbs, mapReady, validTimes]);
+  }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbs, mapReady, validTimes, barbBoundsKey]);
 
   // Redraw when showWindBarbs toggles
   useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, scheduleDrawBarbs]);
@@ -795,7 +801,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     cvs.style.cssText = `width:${SK_W}px;height:${SK_H}px;cursor:crosshair;display:block`;
     wrap.appendChild(cvs);
 
-    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "240px" })
+    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "290px" })
       .setLngLat([lng, lat])
       .setDOMContent(wrap)
       .addTo(map);
