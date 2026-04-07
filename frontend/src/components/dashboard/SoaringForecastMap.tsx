@@ -45,7 +45,7 @@ const MODEL_LABELS: Record<ModelId, { label: string; sub: string }> = {
 
 /* Open-Meteo model IDs for sounding (pressure-level point forecast) */
 const SOUNDING_MODEL: Record<ModelId, string | null> = {
-  gfs: "gfs_seamless", nam3km: "ncep_nam_conus", nam: "ncep_nam_conus", rap: null, hrrr: "ncep_hrrr_conus_15min", nbm: null,
+  gfs: "gfs_seamless", nam3km: null, nam: null, rap: null, hrrr: "ncep_hrrr_conus", nbm: null,
 };
 const SOUNDING_PRESSURES = [1000, 925, 850, 700, 600, 500, 400, 300, 250, 200];
 
@@ -486,7 +486,7 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     return () => { if (playTimerRef.current) { clearInterval(playTimerRef.current); playTimerRef.current = null; } };
   }, [isPlaying, validTimes.length]);
 
-  // Click handler — open popup with Skew-T
+  // Click handler — open popup with Skew-T + point forecast values
   const handleMapClick = useCallback((e: maplibregl.MapMouseEvent) => {
     const map = mapRef.current;
     if (!map) return;
@@ -496,19 +496,29 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     // Models that have sounding data
     const soundingModels = MODEL_IDS.filter(id => SOUNDING_MODEL[id] !== null);
 
+    // Compute current fh for point value fetch
+    const currentVt = validTimes[selectedTimeIdx];
+    const currentOv = OVERLAYS.find(o => o.id === activeOverlay);
+    let currentFh = 0;
+    if (activeRun && currentVt) {
+      const runDt = new Date(`${activeRun.date.slice(0,4)}-${activeRun.date.slice(4,6)}-${activeRun.date.slice(6,8)}T${activeRun.hour}:00:00Z`);
+      currentFh = Math.round((new Date(currentVt).getTime() - runDt.getTime()) / 3600000);
+    }
+
     // Build popup container: info left + skew-t right
     const wrap = document.createElement("div");
     wrap.style.cssText = "display:flex;gap:0";
 
-    // Left: info + model pills
+    // Left: info + point values + model pills
     const info = document.createElement("div");
-    info.style.cssText = "width:100px;padding:6px 8px;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:flex-start;gap:4px";
+    info.style.cssText = "width:118px;padding:6px 8px;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:flex-start;gap:4px;overflow:hidden";
 
-    const timeStr = formatVT(validTimes[selectedTimeIdx] || "");
+    const timeStr = formatVT(currentVt || "");
     info.innerHTML =
       `<strong class="skt-active-label" style="font-size:0.75rem">${MODEL_LABELS[activeModel].label}</strong>` +
       `<p style="font-size:0.6rem;color:#64748b;margin:0;line-height:1.3">${timeStr}</p>` +
       `<p class="sounding-status" style="font-size:0.58rem;color:#94a3b8;margin:0">Loading\u2026</p>` +
+      `<div class="pt-values-table" style="display:flex;flex-direction:column;gap:1px;border-top:1px solid #e2e8f0;padding-top:4px;margin-top:2px"><span style="font-size:0.55rem;color:#94a3b8">Loading values\u2026</span></div>` +
       `<div class="skt-model-pills" style="display:flex;flex-direction:column;gap:2px;margin-top:auto"></div>`;
     wrap.appendChild(info);
 
@@ -631,7 +641,58 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     }
 
     popup.on("close", () => { /* no-op */ });
-  }, [activeModel, selectedTimeIdx, validTimes, units]);
+
+    // Fetch point forecast values for the active overlay across all models
+    if (currentOv && activeRun) {
+      const ptTable = info.querySelector(".pt-values-table") as HTMLElement;
+
+      // Helper: convert a raw SI value to display string
+      function fmtPointVal(rawVal: number, ov: OverlayDef, u: Units): string {
+        let v = rawVal;
+        const du = displayUnit(ov, u);
+        if (ov.unitType === "vario" && u.vario === "fpm") v = Math.round(rawVal * 196.85);
+        else if (ov.unitType === "altitude" && u.altitude === "ft") v = Math.round(rawVal * 3.28084);
+        else if (ov.unitType === "speed") {
+          // raw is m/s, overlay unit is kt
+          v = Math.round(rawVal * 1.94384);
+        } else {
+          v = Math.round(rawVal * 10) / 10;
+        }
+        return du ? `${v} ${du}` : String(v);
+      }
+
+      const api = resolveApiBase();
+      const ptUrl = `${api}/api/weather/point?lat=${lat.toFixed(5)}&lng=${lng.toFixed(5)}&variable=${currentOv.variable}&date=${activeRun.date}&hour=${activeRun.hour}&fh=${currentFh}`;
+
+      fetch(ptUrl)
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then((d: { values: { model: string; label: string; value: number; unit: string }[] }) => {
+          if (!ptTable) return;
+          if (!d.values || d.values.length === 0) {
+            ptTable.style.display = "none";
+            return;
+          }
+          ptTable.innerHTML = "";
+          d.values.forEach(entry => {
+            const row = document.createElement("div");
+            const isActive = entry.model === activeModel;
+            row.style.cssText = `display:flex;justify-content:space-between;align-items:baseline;gap:6px;padding:1px 3px;border-radius:3px;background:${isActive ? "#eff6ff" : "transparent"}`;
+            const lbl = document.createElement("span");
+            lbl.style.cssText = `font-size:0.58rem;color:${isActive ? "#1d4ed8" : "#64748b"};white-space:nowrap;font-weight:${isActive ? "600" : "400"}`;
+            lbl.textContent = entry.label;
+            const val = document.createElement("span");
+            val.style.cssText = `font-size:0.6rem;color:${isActive ? "#1e40af" : "#0f172a"};font-weight:${isActive ? "700" : "500"};white-space:nowrap`;
+            val.textContent = fmtPointVal(entry.value, currentOv, units);
+            row.appendChild(lbl);
+            row.appendChild(val);
+            ptTable.appendChild(row);
+          });
+        })
+        .catch(() => {
+          if (ptTable) ptTable.style.display = "none";
+        });
+    }
+  }, [activeModel, activeOverlay, activeRun, selectedTimeIdx, validTimes, units]);
 
   // Bind click handler
   useEffect(() => {

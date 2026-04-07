@@ -900,6 +900,133 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
 
 
 # ---------------------------------------------------------------------------
+# Point value extraction (single nearest grid-point, no raster PNG)
+# ---------------------------------------------------------------------------
+
+def _fetch_point_value(model: str, run_date: str, run_hour: str, fxx: int, variable: str, lat: float, lng: float) -> float:
+    """Extract the nearest-grid-point value for a single model/variable.
+
+    Reuses the same Herbie fetch logic as _fetch_raster but returns a scalar.
+    """
+    from herbie import Herbie
+
+    cfg = MODEL_CONFIG[model]
+    vdef = VARIABLES[variable]
+    product = vdef["product_overrides"].get(model, cfg["default_product"])
+
+    dt_str = f"{run_date[:4]}-{run_date[4:6]}-{run_date[6:8]} {run_hour}:00"
+
+    kwargs: dict[str, Any] = {"date": dt_str, "model": cfg["herbie_model"], "fxx": fxx}
+    if product:
+        kwargs["product"] = product
+
+    H = Herbie(**kwargs)
+
+    def _nearest(lats_arr: Any, lons_arr: Any, data_arr: Any) -> float:
+        """Find the single nearest grid point and return its value."""
+        lons_norm = np.where(lons_arr > 180, lons_arr - 360, lons_arr)
+        dlat = lats_arr - lat
+        dlng = lons_norm - lng
+        dist2 = dlat ** 2 + dlng ** 2
+        idx = int(np.nanargmin(dist2))
+        return float(data_arr.ravel()[idx])
+
+    if vdef.get("is_wind_speed"):
+        ds_u = H.xarray(vdef["search"])
+        ds_v = H.xarray(vdef["search_v"])
+        u_arr = ds_u[list(ds_u.data_vars)[0]].values
+        v_arr = ds_v[list(ds_v.data_vars)[0]].values
+        arr = np.sqrt(u_arr ** 2 + v_arr ** 2)
+        lats_arr = ds_u.latitude.values
+        lons_arr = ds_u.longitude.values
+        return _nearest(lats_arr, lons_arr, arr)
+
+    if variable in ("thermal_updraft", "soaring_quality", "bsratio"):
+        from app.services.soaring_derivation import (
+            compute_wstar,
+            compute_wstar_cape_fallback,
+            compute_soaring_quality,
+            compute_bsratio,
+        )
+
+        def _sf(key: str) -> np.ndarray | None:
+            if key not in vdef:
+                return None
+            try:
+                _ds = H.xarray(vdef[key])
+                return _ds[list(_ds.data_vars)[0]].values
+            except Exception:
+                return None
+
+        shtfl_arr = _sf("search")
+        blh_arr   = _sf("search_blh")
+        t2m_arr   = _sf("search_t2m")
+        td2m_arr  = _sf("search_td2m")
+        tcdc_arr  = _sf("search_tcdc")
+        cape_arr  = _sf("search_cape")
+
+        ref_ds = None
+        for _key in ("search_t2m", "search_blh", "search"):
+            if _key in vdef:
+                try:
+                    ref_ds = H.xarray(vdef[_key])
+                    break
+                except Exception:
+                    continue
+        if ref_ds is None:
+            raise RuntimeError("Could not fetch any field for lat/lon grid")
+
+        lats_arr = ref_ds.latitude.values
+        lons_arr = ref_ds.longitude.values
+        _shape = lats_arr.shape if lats_arr.ndim == 2 else (len(lats_arr),)
+
+        if t2m_arr is None:
+            t2m_arr = np.full(_shape, 288.0)
+        if td2m_arr is None:
+            td2m_arr = t2m_arr - 10.0
+        if tcdc_arr is None:
+            tcdc_arr = np.zeros(_shape)
+        if blh_arr is None:
+            blh_arr = np.full(_shape, 1500.0)
+
+        shtfl_ok = shtfl_arr is not None and float(np.nanmax(shtfl_arr)) > 0.01
+        if shtfl_ok:
+            wstar = compute_wstar(np.maximum(shtfl_arr, 0.0), blh_arr, t2m_arr, td2m_arr, tcdc_arr)
+        elif cape_arr is not None and float(np.nanmax(cape_arr)) > 1.0:
+            wstar = compute_wstar_cape_fallback(cape_arr, blh_arr, t2m_arr, td2m_arr, tcdc_arr)
+        else:
+            wstar = np.zeros(_shape)
+
+        if variable == "soaring_quality":
+            u_arr = _sf("search_wind_u")
+            v_arr = _sf("search_wind_v")
+            wind_sfc = np.sqrt(u_arr ** 2 + v_arr ** 2) if (u_arr is not None and v_arr is not None) else None
+            arr = compute_soaring_quality(wstar, blh_arr, tcdc_arr, wind_sfc)
+        elif variable == "bsratio":
+            bl_u = _sf("search_wind_bl_u")
+            bl_v = _sf("search_wind_bl_v")
+            sf_u = _sf("search_wind_u")
+            sf_v = _sf("search_wind_v")
+            if bl_u is not None and bl_v is not None and sf_u is not None and sf_v is not None:
+                arr = compute_bsratio(wstar, bl_u, bl_v, sf_u, sf_v)
+            else:
+                arr = wstar
+        else:
+            arr = wstar
+
+        return _nearest(lats_arr, lons_arr, arr)
+
+    # Simple single-field fetch
+    ds = H.xarray(vdef["search"])
+    arr = ds[list(ds.data_vars)[0]].values
+    if variable == "vertical_velocity_700hPa":
+        arr = -arr / 10.0
+    lats_arr = ds.latitude.values
+    lons_arr = ds.longitude.values
+    return _nearest(lats_arr, lons_arr, arr)
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -1056,6 +1183,91 @@ async def weather_raster(
         logging.getLogger(__name__).warning("Cache store failed for %s", cache_key, exc_info=True)
 
     return JSONResponse(result)
+
+
+@router.get("/point")
+async def weather_point(
+    lat: float = Query(..., description="Latitude"),
+    lng: float = Query(..., description="Longitude"),
+    variable: str = Query(..., description="Variable name"),
+    date: str = Query(..., description="YYYYMMDD run date"),
+    hour: str = Query(..., description="Run hour e.g. 06"),
+    fh: int = Query(..., description="Forecast hour"),
+):
+    """Return the nearest-grid-point value for every applicable model.
+
+    Runs all model fetches in parallel via ThreadPoolExecutor and returns JSON:
+    {
+      "variable": "thermal_updraft",
+      "lat": 39.0,
+      "lng": -75.8,
+      "values": [
+        {"model": "gfs", "label": "GFS", "value": 3.13, "unit": "m/s"},
+        ...
+      ]
+    }
+
+    Models that are excluded for this variable or whose fetch fails are omitted
+    from the results silently (frontend handles missing models gracefully).
+    """
+    if variable not in VARIABLES:
+        raise HTTPException(400, f"Unknown variable: {variable}")
+
+    vdef = VARIABLES[variable]
+    excluded = set(vdef.get("exclude_models", []))
+    applicable = [m for m in MODEL_CONFIG if m not in excluded]
+
+    # Determine SI unit string for this variable
+    _UNITS: dict[str, str] = {
+        "thermal_updraft": "m/s",
+        "soaring_quality": "",
+        "bsratio": "",
+        "cape": "J/kg",
+        "boundary_layer_height": "m",
+        "convective_cloud_top": "m",
+        "convective_cloud_base": "m",
+        "lifted_index": "",
+        "cloud_cover": "%",
+        "precipitation": "mm",
+        "vertical_velocity_700hPa": "m/s",
+        "wind_speed_10m": "m/s",
+        "wind_speed_850hPa": "m/s",
+        "wind_speed_700hPa": "m/s",
+        "wind_speed_500hPa": "m/s",
+    }
+    unit = _UNITS.get(variable, "")
+
+    loop = asyncio.get_event_loop()
+
+    async def _fetch_one(model: str) -> dict | None:
+        try:
+            val = await loop.run_in_executor(
+                _executor, _fetch_point_value, model, date, hour, fh, variable, lat, lng
+            )
+            if np.isnan(val):
+                return None
+            return {
+                "model": model,
+                "label": MODEL_CONFIG[model]["label"],
+                "value": round(float(val), 4),
+                "unit": unit,
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(*[_fetch_one(m) for m in applicable])
+    values = [r for r in results if r is not None]
+
+    # Preserve display order matching MODEL_IDS
+    order = {m: i for i, m in enumerate(["gfs", "nam3km", "nam", "rap", "hrrr", "nbm"])}
+    values.sort(key=lambda r: order.get(r["model"], 99))
+
+    return JSONResponse({
+        "variable": variable,
+        "lat": lat,
+        "lng": lng,
+        "values": values,
+    })
 
 
 @router.get("/variables")
