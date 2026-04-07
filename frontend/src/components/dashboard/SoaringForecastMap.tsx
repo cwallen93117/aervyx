@@ -530,11 +530,8 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const cssW = W / dpr;
     const cssH = H / dpr;
 
-    // Dynamic cell size: target ~5 km spacing at map scale 1:10 000
-    const zoom = map.getZoom();
-    const centerLat = map.getCenter().lat;
-    const metersPerPx = 40075016.686 * Math.cos(centerLat * Math.PI / 180) / Math.pow(2, zoom + 8);
-    const CELL = Math.max(8, Math.round(5000 / metersPerPx));
+    // Dense fixed spacing — show a barb at nearly every grid point
+    const CELL = 22;
     const occupied = new Set<string>();
 
     for (const pt of windBarbsRef.current) {
