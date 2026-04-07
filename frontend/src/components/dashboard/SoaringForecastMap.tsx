@@ -135,8 +135,8 @@ function safeRemove(map: maplibregl.Map, blobRef?: React.MutableRefObject<string
 /* ------------------------------------------------------------------ */
 type SLevel = { pressure: number; temperature: number; dewpoint: number; windSpeed: number; windDirection: number; height: number };
 
-const SK_W = 240, SK_H = 260;
-const SK_PAD = { t: 24, b: 20, l: 32, r: 8 };
+const SK_W = 180, SK_H = 200;
+const SK_PAD = { t: 20, b: 16, l: 28, r: 4 };
 const SK_PW = SK_W - SK_PAD.l - SK_PAD.r;
 const SK_PH = SK_H - SK_PAD.t - SK_PAD.b;
 const SK_PTOP = 200, SK_PBOT = 1050;
@@ -493,18 +493,23 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     const { lat, lng } = e.lngLat;
     const useF = units.altitude === "ft";
 
+    // Models that have sounding data
+    const soundingModels = MODEL_IDS.filter(id => SOUNDING_MODEL[id] !== null);
+
     // Build popup container: info left + skew-t right
     const wrap = document.createElement("div");
-    wrap.style.cssText = "display:flex;gap:0;min-height:260px";
+    wrap.style.cssText = "display:flex;gap:0";
 
-    // Left: info
+    // Left: info + model pills
     const info = document.createElement("div");
-    info.style.cssText = "width:130px;padding:8px 10px;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:center";
+    info.style.cssText = "width:100px;padding:6px 8px;border-right:1px solid #e2e8f0;display:flex;flex-direction:column;justify-content:flex-start;gap:4px";
+
+    const timeStr = formatVT(validTimes[selectedTimeIdx] || "");
     info.innerHTML =
-      `<strong style="font-size:0.82rem">${MODEL_LABELS[activeModel].label}</strong>` +
-      `<p style="font-size:0.68rem;color:#64748b;margin:3px 0">${lat.toFixed(3)}\u00b0N<br>${Math.abs(lng).toFixed(3)}\u00b0${lng < 0 ? "W" : "E"}</p>` +
-      `<p style="font-size:0.68rem;color:#64748b;margin:3px 0">${formatVT(validTimes[selectedTimeIdx] || "")}</p>` +
-      `<p class="sounding-status" style="font-size:0.65rem;color:#94a3b8;margin:8px 0 0">Loading sounding\u2026</p>`;
+      `<strong class="skt-active-label" style="font-size:0.75rem">${MODEL_LABELS[activeModel].label}</strong>` +
+      `<p style="font-size:0.6rem;color:#64748b;margin:0;line-height:1.3">${timeStr}</p>` +
+      `<p class="sounding-status" style="font-size:0.58rem;color:#94a3b8;margin:0">Loading\u2026</p>` +
+      `<div class="skt-model-pills" style="display:flex;flex-direction:column;gap:2px;margin-top:auto"></div>`;
     wrap.appendChild(info);
 
     // Right: canvas
@@ -514,83 +519,117 @@ export function SoaringForecastMap({ units }: { units: Units }) {
     cvs.style.cssText = `width:${SK_W}px;height:${SK_H}px;cursor:crosshair;display:block`;
     wrap.appendChild(cvs);
 
-    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "420px" })
+    const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "330px" })
       .setLngLat([lng, lat])
       .setDOMContent(wrap)
       .addTo(map);
 
-    // Fetch sounding
+    // Sounding fetch + draw function (reusable for model switching)
+    function fetchAndDrawSounding(modelId: ModelId) {
+      const omModel = SOUNDING_MODEL[modelId];
+      if (!omModel) return;
+
+      // Update active label
+      const lbl = info.querySelector(".skt-active-label") as HTMLElement;
+      if (lbl) lbl.textContent = MODEL_LABELS[modelId].label;
+
+      const st = info.querySelector(".sounding-status") as HTMLElement;
+      if (st) st.textContent = "Loading\u2026";
+
+      // Update pill active states
+      info.querySelectorAll(".skt-pill").forEach(btn => {
+        (btn as HTMLElement).style.background = (btn as HTMLElement).dataset.model === modelId ? "#2563eb" : "none";
+        (btn as HTMLElement).style.color = (btn as HTMLElement).dataset.model === modelId ? "#fff" : "#64748b";
+      });
+
+      const tVars = SOUNDING_PRESSURES.map(p => `temperature_${p}hPa`).join(",");
+      const rhVars = SOUNDING_PRESSURES.map(p => `relative_humidity_${p}hPa`).join(",");
+      const wsVars = SOUNDING_PRESSURES.map(p => `windspeed_${p}hPa`).join(",");
+      const wdVars = SOUNDING_PRESSURES.map(p => `winddirection_${p}hPa`).join(",");
+      const ghVars = SOUNDING_PRESSURES.map(p => `geopotential_height_${p}hPa`).join(",");
+      const hourly = [tVars, rhVars, wsVars, wdVars, ghVars].join(",");
+
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=${hourly}&models=${omModel}&forecast_days=3&timezone=auto`)
+        .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+        .then((d: { hourly?: Record<string, (number | null)[]> }) => {
+          if (!d.hourly) throw new Error("No data");
+
+          const vt = validTimes[selectedTimeIdx];
+          const times = d.hourly.time as unknown as string[];
+          let timeIdx = 0;
+          if (vt && times) {
+            const vtMs = new Date(vt).getTime();
+            let best = Infinity;
+            times.forEach((t, i) => { const diff = Math.abs(new Date(t).getTime() - vtMs); if (diff < best) { best = diff; timeIdx = i; } });
+          }
+
+          const levels: SLevel[] = [];
+          for (const p of SOUNDING_PRESSURES) {
+            const t = d.hourly[`temperature_${p}hPa`]?.[timeIdx];
+            const rh = d.hourly[`relative_humidity_${p}hPa`]?.[timeIdx];
+            const ws = d.hourly[`windspeed_${p}hPa`]?.[timeIdx];
+            const wd = d.hourly[`winddirection_${p}hPa`]?.[timeIdx];
+            const gh = d.hourly[`geopotential_height_${p}hPa`]?.[timeIdx];
+            if (t == null || rh == null) continue;
+            levels.push({ pressure: p, temperature: t, dewpoint: dewpointFromRH(t, rh), windSpeed: ws != null ? ws / 3.6 : 0, windDirection: wd ?? 0, height: gh ?? 0 });
+          }
+
+          const sorted = levels.sort((a, b) => b.pressure - a.pressure);
+          if (st) {
+            if (sorted.length < 3) { st.textContent = "Insufficient data"; return; }
+            st.textContent = "";
+          }
+
+          // Draw
+          const ctx = cvs.getContext("2d")!;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+          drawMiniSkewT(ctx, sorted, useF, null);
+
+          // Interactive cursor
+          const moveHandler = (me: MouseEvent) => {
+            const rect = cvs.getBoundingClientRect();
+            const cy = (me.clientY - rect.top) * (SK_H / rect.height);
+            const c2 = cvs.getContext("2d")!;
+            c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawMiniSkewT(c2, sorted, useF, cy);
+          };
+          const leaveHandler = () => {
+            const c2 = cvs.getContext("2d")!;
+            c2.setTransform(dpr, 0, 0, dpr, 0, 0);
+            drawMiniSkewT(c2, sorted, useF, null);
+          };
+          // Remove old listeners by replacing canvas event listeners
+          cvs.onmousemove = moveHandler;
+          cvs.onmouseleave = leaveHandler;
+        })
+        .catch(() => {
+          if (st) st.textContent = "Fetch failed";
+        });
+    }
+
+    // Build model pills
+    const pillContainer = info.querySelector(".skt-model-pills") as HTMLElement;
+    soundingModels.forEach(id => {
+      const btn = document.createElement("button");
+      btn.className = "skt-pill";
+      btn.dataset.model = id;
+      btn.textContent = MODEL_LABELS[id].label;
+      btn.style.cssText = `font-size:0.58rem;padding:2px 6px;border:1px solid #e2e8f0;border-radius:3px;cursor:pointer;background:${id === activeModel ? "#2563eb" : "none"};color:${id === activeModel ? "#fff" : "#64748b"};white-space:nowrap`;
+      btn.addEventListener("click", () => fetchAndDrawSounding(id));
+      pillContainer.appendChild(btn);
+    });
+
+    // Initial fetch
     const omModel = SOUNDING_MODEL[activeModel];
     if (!omModel) {
       const st = info.querySelector(".sounding-status") as HTMLElement;
-      if (st) st.textContent = "Sounding unavailable for " + MODEL_LABELS[activeModel].label;
-      return;
+      if (st) st.textContent = "No sounding for " + MODEL_LABELS[activeModel].label;
+      // Auto-select first available model
+      if (soundingModels.length > 0) fetchAndDrawSounding(soundingModels[0]);
+    } else {
+      fetchAndDrawSounding(activeModel);
     }
 
-    const tVars = SOUNDING_PRESSURES.map(p => `temperature_${p}hPa`).join(",");
-    const rhVars = SOUNDING_PRESSURES.map(p => `relative_humidity_${p}hPa`).join(",");
-    const wsVars = SOUNDING_PRESSURES.map(p => `windspeed_${p}hPa`).join(",");
-    const wdVars = SOUNDING_PRESSURES.map(p => `winddirection_${p}hPa`).join(",");
-    const ghVars = SOUNDING_PRESSURES.map(p => `geopotential_height_${p}hPa`).join(",");
-    const hourly = [tVars, rhVars, wsVars, wdVars, ghVars].join(",");
-
-    fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lng.toFixed(4)}&hourly=${hourly}&models=${omModel}&forecast_days=3&timezone=auto`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: { hourly?: Record<string, (number | null)[]> }) => {
-        if (!d.hourly) throw new Error("No data");
-
-        // Find closest time index
-        const vt = validTimes[selectedTimeIdx];
-        const times = d.hourly.time as unknown as string[];
-        let timeIdx = 0;
-        if (vt && times) {
-          const vtMs = new Date(vt).getTime();
-          let best = Infinity;
-          times.forEach((t, i) => { const diff = Math.abs(new Date(t).getTime() - vtMs); if (diff < best) { best = diff; timeIdx = i; } });
-        }
-
-        const levels: SLevel[] = [];
-        for (const p of SOUNDING_PRESSURES) {
-          const t = d.hourly[`temperature_${p}hPa`]?.[timeIdx];
-          const rh = d.hourly[`relative_humidity_${p}hPa`]?.[timeIdx];
-          const ws = d.hourly[`windspeed_${p}hPa`]?.[timeIdx];
-          const wd = d.hourly[`winddirection_${p}hPa`]?.[timeIdx];
-          const gh = d.hourly[`geopotential_height_${p}hPa`]?.[timeIdx];
-          if (t == null || rh == null) continue;
-          levels.push({ pressure: p, temperature: t, dewpoint: dewpointFromRH(t, rh), windSpeed: ws != null ? ws / 3.6 : 0, windDirection: wd ?? 0, height: gh ?? 0 });
-        }
-
-        const sorted = levels.sort((a, b) => b.pressure - a.pressure);
-
-        const st = info.querySelector(".sounding-status") as HTMLElement;
-        if (sorted.length < 3) { if (st) st.textContent = "Insufficient data"; return; }
-        if (st) st.textContent = "Hover chart for values";
-
-        // Draw
-        const ctx = cvs.getContext("2d")!;
-        ctx.scale(dpr, dpr);
-        drawMiniSkewT(ctx, sorted, useF, null);
-
-        // Interactive cursor
-        cvs.addEventListener("mousemove", (me) => {
-          const rect = cvs.getBoundingClientRect();
-          const cy = (me.clientY - rect.top) * (SK_H / rect.height);
-          const c2 = cvs.getContext("2d")!;
-          c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-          drawMiniSkewT(c2, sorted, useF, cy);
-        });
-        cvs.addEventListener("mouseleave", () => {
-          const c2 = cvs.getContext("2d")!;
-          c2.setTransform(dpr, 0, 0, dpr, 0, 0);
-          drawMiniSkewT(c2, sorted, useF, null);
-        });
-      })
-      .catch(() => {
-        const st = info.querySelector(".sounding-status") as HTMLElement;
-        if (st) st.textContent = "Sounding fetch failed";
-      });
-
-    // Clean up popup ref (MapLibre handles DOM removal)
     popup.on("close", () => { /* no-op */ });
   }, [activeModel, selectedTimeIdx, validTimes, units]);
 
