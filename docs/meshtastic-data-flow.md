@@ -4,13 +4,13 @@ How positions get from devices in the field to the Aervyx live tracking map.
 
 ## Overview
 
-There are **3 paths** a position can take from a Meshtastic device to the live map:
+There are **3 paths** a position can take from the field to the live map:
 
-| Path | Trigger | Internet needed on | Latency |
-|------|---------|-------------------|---------|
-| **1 - Phone GPS** | Phone location services | Pilot's phone (cellular) | ~1s |
-| **2 - BLE Relay** | Mesh packets arrive via BLE | Pilot's phone (cellular) | ~2-5s |
-| **3 - MQTT** | Gateway publishes to broker | WiFi/Ethernet gateway node | ~5-15s |
+| Path | What sends the position | Internet needed on | Latency |
+|------|------------------------|-------------------|---------|
+| **1 - Phone Direct** | Phone sends its own location over cellular | Pilot's phone | ~1s |
+| **2 - BLE Relay** | Phone forwards mesh packets to Aervyx API | Pilot's phone | ~2-5s |
+| **3 - MQTT** | Gateway node publishes to MQTT broker | WiFi/Ethernet gateway | ~5-15s |
 
 ```mermaid
 flowchart TB
@@ -44,7 +44,7 @@ flowchart TB
     A_DEV <-->|"BLE"| A_PH
     B_DEV <-->|"BLE"| B_PH
 
-    B_PH -->|"PATH 1: Phone GPS\nHTTP POST source=app"| API
+    B_PH -->|"PATH 1: Phone Direct\nHTTP POST source=app\n(phone's own location)"| API
     B_PH -->|"PATH 2: BLE Relay\nHTTP POST source=mesh_relay\nforwards ALL heard packets"| API
 
     GW_DEV -->|"MQTT publish"| PUB
@@ -74,19 +74,21 @@ flowchart TB
 
 ---
 
-## Path 1 -- Phone GPS (cellular)
+## Path 1 -- Phone Direct (cellular)
 
 The pilot's phone has cell service. The Aervyx mobile app sends the phone's own
-GPS coordinates directly to the backend API.
+location directly to the backend over cellular data. No Meshtastic device is
+involved in this path -- it is pure phone-to-server.
 
 | Step | What happens |
 |------|-------------|
-| GPS fix | Android/iOS location services provide lat/lon/alt |
+| Phone location fix | Android/iOS location services provide lat/lon/alt |
 | HTTP POST | `POST /api/track/position` with `source=app` |
 | Auth | Bearer token identifies the pilot |
 | Store + broadcast | Position saved, SSE pushed to live map |
 
 **When it works:** Pilot has cell service. Lowest latency, simplest path.
+No mesh radio needed.
 
 ---
 
@@ -242,11 +244,11 @@ view but is not required for tracking to work.
 
 ## Requirements for each path
 
-| Requirement | Path 1 (GPS) | Path 2 (BLE) | Path 3 (MQTT) |
+| Requirement | Path 1 (Phone Direct) | Path 2 (BLE Relay) | Path 3 (MQTT) |
 |-------------|:---:|:---:|:---:|
-| Phone has cell service | Required | Required | Not needed |
-| Meshtastic device paired via BLE | Not needed | Required | Not needed |
-| MQTT gateway node exists | No | No | Required |
-| Device auto-registered to user | No | Yes (auto) | Yes (auto) |
+| Meshtastic device needed | No | Yes (paired via BLE) | Yes (any node with MQTT) |
+| Phone has cell service | Yes | Yes | No |
+| MQTT gateway node exists | No | No | Yes |
+| Device auto-registered to user | No | Yes (auto on connect) | Yes (auto on connect) |
 | Pilot registered for active task | No | No | No |
-| Internet source | Phone | Phone | Gateway node |
+| What provides internet | Phone cellular | Phone cellular | Gateway WiFi/Ethernet |
