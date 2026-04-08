@@ -254,6 +254,20 @@ class BleService extends ChangeNotifier {
     }
   }
 
+  /// Clear the current user's mesh_device_id (e.g. after applying a Repeater
+  /// profile — infrastructure devices don't need pilot association).
+  Future<void> _unregisterMeshDevice() async {
+    try {
+      await _api.put(
+        ApiConfig.meshDeviceRegisterPath,
+        body: {'mesh_device_id': null},
+      );
+      debugPrint('Unregistered mesh device from user');
+    } catch (e) {
+      debugPrint('Failed to unregister mesh device: $e');
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // SOS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -453,8 +467,13 @@ class BleService extends ChangeNotifier {
       _statusMessage = 'Connected to ${meshDevice.name}';
       _configLoaded = true;
 
-      // Auto-register this device's node ID against the logged-in user
-      _registerMeshDevice();
+      // Auto-register only if the device looks like a personal tracker.
+      // Infrastructure devices (router/repeater) skip — they'll get
+      // explicitly registered or unregistered when a profile is applied.
+      if (_deviceState.role == DeviceRole.tracker ||
+          _deviceState.role == DeviceRole.client) {
+        _registerMeshDevice();
+      }
 
       // Start mesh position relay (always — captures all mesh traffic)
       _startMeshPositionRelay();
@@ -1232,6 +1251,15 @@ class BleService extends ChangeNotifier {
       _deviceState.telemetryDeviceInterval = config.telemetryIntervalSecs;
 
       _statusMessage = '${profile.label} profile applied. Device rebooting...';
+
+      // Register or unregister device based on profile type.
+      // Pilot, Driver, Driver Wi-Fi all track a person → register.
+      // Repeater is pure infrastructure → unregister.
+      if (profile == MeshtasticProfile.repeater) {
+        _unregisterMeshDevice();
+      } else {
+        _registerMeshDevice();
+      }
     } catch (e) {
       _error = 'Profile apply failed: $e';
       _statusMessage = null;
