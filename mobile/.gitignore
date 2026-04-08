@@ -18,3 +18,4 @@ ios/.symlinks/
 ios/Flutter/flutter_export_environment.sh
 ios/Runner.xcworkspace/
 *.jks
+android/key.properties

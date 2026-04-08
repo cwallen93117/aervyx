@@ -78,6 +78,14 @@ class BleService extends ChangeNotifier {
   StreamSubscription<List<int>>? _fromNumSubscription;
   Timer? _meshPollTimer;
 
+  // ── Device GPS state (from own mesh position packets) ──
+  double? _deviceGpsLat;
+  double? _deviceGpsLon;
+  double? _deviceGpsAlt;
+  DateTime? _deviceGpsLastFix;
+  int? _deviceGpsSats;
+  double? _deviceGpsPdop; // Positional Dilution of Precision
+
   // ── SOS ──
   String _sosMessage = 'SOS — Pilot needs immediate assistance';
   bool _isSendingSos = false;
@@ -102,6 +110,40 @@ class BleService extends ChangeNotifier {
   String get deviceDisplayName {
     if (_deviceState.longName.isNotEmpty) return _deviceState.longName;
     return _connectedDevice?.name ?? '';
+  }
+
+  /// True if the device has a GPS module (not GpsMode.notPresent).
+  bool get deviceHasGps =>
+      _configLoaded && _deviceState.gpsMode != GpsMode.notPresent;
+
+  /// True if the device's GPS is enabled and active.
+  bool get deviceGpsEnabled =>
+      _configLoaded && _deviceState.gpsMode == GpsMode.enabled;
+
+  /// True if the device has produced at least one GPS fix.
+  bool get deviceHasGpsFix => _deviceGpsLastFix != null;
+
+  /// Device GPS last fix timestamp.
+  DateTime? get deviceGpsLastFix => _deviceGpsLastFix;
+
+  /// Device's last known position from its own GPS.
+  double? get deviceGpsLat => _deviceGpsLat;
+  double? get deviceGpsLon => _deviceGpsLon;
+  double? get deviceGpsAlt => _deviceGpsAlt;
+
+  /// Satellite count from device's last GPS fix.
+  int? get deviceGpsSats => _deviceGpsSats;
+
+  /// PDOP from device's last GPS fix (lower is better; <2 = excellent).
+  double? get deviceGpsPdop => _deviceGpsPdop;
+
+  /// Describes the current GPS source priority state for display.
+  String get gpsSourceLabel {
+    if (!_configLoaded) return 'Unknown';
+    if (_deviceState.gpsMode == GpsMode.notPresent) return 'Phone only (no device GPS)';
+    if (_deviceState.gpsMode == GpsMode.disabled) return 'Phone only (device GPS disabled)';
+    if (_deviceGpsLastFix != null) return 'Device GPS';
+    return 'Phone GPS (device searching...)';
   }
 
   // ── Cached platform MQTT config (fetched from server) ──
@@ -414,9 +456,17 @@ class BleService extends ChangeNotifier {
       // Auto-register this device's node ID against the logged-in user
       _registerMeshDevice();
 
-      // Start phone GPS sharing and mesh position relay
-      _startPhoneGpsSharing();
+      // Start mesh position relay (always — captures all mesh traffic)
       _startMeshPositionRelay();
+
+      // Only share phone GPS to the device if it lacks its own GPS.
+      // If the device has GPS, it handles its own position broadcasts.
+      if (_deviceState.gpsMode == GpsMode.notPresent) {
+        _startPhoneGpsSharing();
+        debugPrint('Device has no GPS — sharing phone GPS');
+      } else {
+        debugPrint('Device has GPS (${_deviceState.gpsMode.label}) — not sharing phone GPS');
+      }
     } catch (e) {
       _error = 'Connection failed: $e';
       _statusMessage = null;
@@ -985,39 +1035,43 @@ class BleService extends ChangeNotifier {
   }
 
   void _parseChannel(ProtoReader reader) {
+    // Protobuf fields can arrive in any order, so collect index and settings
+    // bytes first, then parse settings only for the primary channel (index 0).
     int? index;
+    Uint8List? settingsBytes;
+
     while (reader.hasMore) {
       final (field, wireType) = reader.readTag();
       switch (field) {
         case 1: // index
           index = reader.readVarint();
           break;
-        case 2: // settings
-          if (index == 0) {
-            // Primary channel
-            final sub = reader.readMessageReader();
-            while (sub.hasMore) {
-              final (sf, swt) = sub.readTag();
-              switch (sf) {
-                case 3: // name (ChannelSettings field 3)
-                  _deviceState.channelName = sub.readString();
-                  break;
-                case 5: // uplink_enabled
-                  _deviceState.channelUplinkEnabled = sub.readBool();
-                  break;
-                case 6: // downlink_enabled
-                  _deviceState.channelDownlinkEnabled = sub.readBool();
-                  break;
-                default:
-                  sub.skip(swt);
-              }
-            }
-          } else {
-            reader.skip(wireType);
-          }
+        case 2: // settings (raw bytes — defer parsing until index is known)
+          settingsBytes = Uint8List.fromList(reader.readBytes());
           break;
         default:
           reader.skip(wireType);
+      }
+    }
+
+    // Only parse settings for the primary channel (index 0 or unset = 0)
+    if ((index ?? 0) != 0 || settingsBytes == null) return;
+
+    final sub = ProtoReader(settingsBytes);
+    while (sub.hasMore) {
+      final (sf, swt) = sub.readTag();
+      switch (sf) {
+        case 3: // name (ChannelSettings field 3)
+          _deviceState.channelName = sub.readString();
+          break;
+        case 5: // uplink_enabled
+          _deviceState.channelUplinkEnabled = sub.readBool();
+          break;
+        case 6: // downlink_enabled
+          _deviceState.channelDownlinkEnabled = sub.readBool();
+          break;
+        default:
+          sub.skip(swt);
       }
     }
   }
@@ -1471,7 +1525,7 @@ class BleService extends ChangeNotifier {
 
       // Parse Position message
       final posReader = ProtoReader(payload);
-      int? latI, lonI, alt, time, speed, heading;
+      int? latI, lonI, alt, time, speed, heading, pdop, satsInView;
 
       while (posReader.hasMore) {
         final (field, wireType) = posReader.readTag();
@@ -1494,6 +1548,12 @@ class BleService extends ChangeNotifier {
           case 9: // ground_track (varint)
             heading = posReader.readVarint();
             break;
+          case 10: // PDOP (varint, ×100)
+            pdop = posReader.readVarint();
+            break;
+          case 13: // sats_in_view (varint)
+            satsInView = posReader.readVarint();
+            break;
           default:
             posReader.skip(wireType);
         }
@@ -1506,6 +1566,19 @@ class BleService extends ChangeNotifier {
       if (lat == 0 && lon == 0) return; // No fix
 
       final deviceId = fromNode != null ? '!${fromNode.toRadixString(16).padLeft(8, '0')}' : null;
+
+      // Track this device's own GPS fix for source priority
+      if (fromNode != null && fromNode == _deviceState.myNodeNum) {
+        _deviceGpsLat = lat;
+        _deviceGpsLon = lon;
+        _deviceGpsAlt = alt?.toDouble();
+        _deviceGpsLastFix = time != null
+            ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
+            : DateTime.now().toUtc();
+        _deviceGpsSats = satsInView;
+        _deviceGpsPdop = pdop != null ? pdop / 100.0 : null;
+        notifyListeners();
+      }
 
       // POST to backend
       _relayPositionToBackend(

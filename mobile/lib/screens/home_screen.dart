@@ -851,12 +851,31 @@ class _MeshDetails extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: _StatTile(
-                    icon: Icons.gps_fixed,
+                    icon: ds.gpsMode == GpsMode.notPresent
+                        ? Icons.gps_off
+                        : Icons.gps_fixed,
                     label: 'GPS',
-                    value: ds.gpsMode.label,
+                    value: ds.gpsMode == GpsMode.notPresent
+                        ? 'No GPS on device'
+                        : ds.gpsMode == GpsMode.disabled
+                            ? 'Disabled'
+                            : ble.deviceHasGpsFix
+                                ? 'Active'
+                                : 'Searching...',
                   ),
                 ),
-                const SizedBox.shrink(),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  child: _StatTile(
+                    icon: Icons.satellite_alt,
+                    label: 'Accuracy',
+                    value: ble.deviceHasGpsFix
+                        ? _formatDeviceGpsAccuracy(ble)
+                        : ds.gpsMode == GpsMode.notPresent
+                            ? 'N/A'
+                            : '--',
+                  ),
+                ),
               ],
             ),
           ],
@@ -996,6 +1015,26 @@ class _SosButton extends StatelessWidget {
 }
 
 // ── Stat Tile (shared) ──
+
+/// Format device GPS accuracy from PDOP and satellite count.
+String _formatDeviceGpsAccuracy(BleService ble) {
+  final parts = <String>[];
+  if (ble.deviceGpsSats != null) {
+    parts.add('${ble.deviceGpsSats} sats');
+  }
+  if (ble.deviceGpsPdop != null) {
+    final pdop = ble.deviceGpsPdop!;
+    final quality = pdop < 2.0
+        ? 'excellent'
+        : pdop < 5.0
+            ? 'good'
+            : pdop < 10.0
+                ? 'fair'
+                : 'poor';
+    parts.add('$quality');
+  }
+  return parts.isEmpty ? 'Active' : parts.join(' · ');
+}
 
 class _StatTile extends StatelessWidget {
   final IconData icon;
