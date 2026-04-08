@@ -206,33 +206,51 @@ class HomeScreen extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // Error message
+              // Notification message (success / warning / error)
               if (tracking.error != null &&
                   !tracking.error!.startsWith('Landing detected'))
-                Card(
-                  color: colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded,
-                            color: colorScheme.onErrorContainer, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            tracking.error!,
-                            style: TextStyle(
-                              color: colorScheme.onErrorContainer,
-                              fontSize: 12,
+                Builder(builder: (_) {
+                  final Color bgColor;
+                  final Color fgColor;
+                  final IconData icon;
+                  switch (tracking.notificationLevel) {
+                    case NotificationLevel.success:
+                      bgColor = colorScheme.primaryContainer;
+                      fgColor = colorScheme.onPrimaryContainer;
+                      icon = Icons.check_circle;
+                      break;
+                    case NotificationLevel.warning:
+                      bgColor = colorScheme.tertiaryContainer;
+                      fgColor = colorScheme.onTertiaryContainer;
+                      icon = Icons.warning_amber_rounded;
+                      break;
+                    case NotificationLevel.error:
+                      bgColor = colorScheme.errorContainer;
+                      fgColor = colorScheme.onErrorContainer;
+                      icon = Icons.error;
+                      break;
+                  }
+                  return Card(
+                    color: bgColor,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Icon(icon, color: fgColor, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              tracking.error!,
+                              style: TextStyle(color: fgColor, fontSize: 12),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                }),
 
               // Logout button at bottom
               TextButton.icon(
@@ -821,7 +839,7 @@ class _MeshDetails extends StatelessWidget {
                     icon: Icons.cell_tower,
                     label: 'Channel',
                     value: ds.channelName.isNotEmpty
-                        ? ds.channelName
+                        ? '${ds.channelName} · ${ds.modemPreset.label}'
                         : ds.modemPreset.label,
                   ),
                 ),
@@ -832,9 +850,9 @@ class _MeshDetails extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 6),
                   child: _StatTile(
-                    icon: Icons.radio,
-                    label: 'Modem',
-                    value: ds.modemPreset.label,
+                    icon: Icons.public,
+                    label: 'Region',
+                    value: ds.region.label,
                   ),
                 ),
                 Padding(

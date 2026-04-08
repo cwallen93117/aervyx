@@ -114,6 +114,8 @@ class MeshtasticSettingsScreen extends StatelessWidget {
 // Profile comparison dialog
 // ═══════════════════════════════════════════════════════════════════════════════
 
+const double _kRowHeight = 40.0;
+
 void _showProfileComparison(BuildContext context) {
   final profiles = ProfileConfig.presets;
   final entries = [
@@ -171,31 +173,58 @@ void _showProfileComparison(BuildContext context) {
                   style: theme.textTheme.titleMedium),
             ),
             Expanded(
-              child: ListView.builder(
+              child: SingleChildScrollView(
                 controller: controller,
-                itemCount: rows.length + 1, // +1 for header
-                itemBuilder: (_, index) {
-                  if (index == 0) {
-                    // Header row
-                    return _CompTableRow(
-                      label: 'Setting',
-                      values: entries.map((p) => p.label).toList(),
-                      isHeader: true,
-                      theme: theme,
-                    );
-                  }
-                  final row = rows[index - 1];
-                  return _CompTableRow(
-                    label: row.label,
-                    values: entries.map((p) {
-                      final config = profiles[p]!;
-                      return row.getter(config);
-                    }).toList(),
-                    isHeader: false,
-                    theme: theme,
-                    info: row.info,
-                  );
-                },
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // ── Frozen label column ──
+                    SizedBox(
+                      width: 120,
+                      child: Column(
+                        children: [
+                          _LabelCell(
+                            label: 'Setting',
+                            isHeader: true,
+                            theme: theme,
+                          ),
+                          ...rows.map((row) => _LabelCell(
+                            label: row.label,
+                            isHeader: false,
+                            theme: theme,
+                            info: row.info,
+                          )),
+                        ],
+                      ),
+                    ),
+                    // ── Scrollable value columns ──
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: entries.length * 90.0,
+                          child: Column(
+                            children: [
+                              _ValueRow(
+                                values: entries.map((p) => p.label).toList(),
+                                isHeader: true,
+                                theme: theme,
+                              ),
+                              ...rows.map((row) => _ValueRow(
+                                values: entries.map((p) {
+                                  final config = profiles[p]!;
+                                  return row.getter(config);
+                                }).toList(),
+                                isHeader: false,
+                                theme: theme,
+                              )),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -205,17 +234,15 @@ void _showProfileComparison(BuildContext context) {
   );
 }
 
-/// A single row in the comparison table with frozen Setting column.
-class _CompTableRow extends StatelessWidget {
+/// A single cell in the frozen label column of the comparison table.
+class _LabelCell extends StatelessWidget {
   final String label;
-  final List<String> values;
   final bool isHeader;
   final ThemeData theme;
   final String? info;
 
-  const _CompTableRow({
+  const _LabelCell({
     required this.label,
-    required this.values,
     required this.isHeader,
     required this.theme,
     this.info,
@@ -226,82 +253,91 @@ class _CompTableRow extends StatelessWidget {
     final labelStyle = isHeader
         ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
         : theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500);
-    final valueStyle = isHeader
-        ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodySmall;
-    final bgColor = isHeader
-        ? theme.colorScheme.surfaceContainerHighest
-        : null;
     final borderSide = BorderSide(
       color: theme.dividerColor.withValues(alpha: 0.3),
       width: 0.5,
     );
 
     return Container(
+      height: _kRowHeight,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: bgColor,
-        border: Border(bottom: borderSide),
+        color: isHeader
+            ? theme.colorScheme.surfaceContainerHighest
+            : theme.colorScheme.surfaceContainerLow,
+        border: Border(bottom: borderSide, right: borderSide),
       ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // Frozen setting label column
-            Container(
-              width: 120,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                border: Border(right: borderSide),
-                color: isHeader ? null : theme.colorScheme.surfaceContainerLow,
-              ),
-              child: Row(
-                children: [
-                  Expanded(child: Text(label, style: labelStyle)),
-                  if (info != null)
-                    GestureDetector(
-                      onTap: () => _showInfoDialog(context, label, info!),
-                      child: Padding(
-                        padding: const EdgeInsets.only(left: 4),
-                        child: Icon(Icons.info_outline,
-                            size: 14, color: theme.colorScheme.primary),
-                      ),
-                    ),
-                ],
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(label, style: labelStyle, overflow: TextOverflow.ellipsis),
+          ),
+          if (info != null)
+            GestureDetector(
+              onTap: () => _showCompInfoDialog(context, label, info!),
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(Icons.info_outline,
+                    size: 14, color: theme.colorScheme.primary),
               ),
             ),
-            // Horizontally scrollable value columns
-            Expanded(
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: values.map((v) => Container(
-                    width: 90,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 10),
-                    alignment: Alignment.center,
-                    child: Text(v, style: valueStyle, textAlign: TextAlign.center),
-                  )).toList(),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  static void _showInfoDialog(BuildContext context, String title, String body) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title, style: Theme.of(ctx).textTheme.titleSmall),
-        content: Text(body, style: Theme.of(ctx).textTheme.bodySmall),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
         ],
       ),
     );
   }
+}
+
+/// A row of value cells in the scrollable area of the comparison table.
+class _ValueRow extends StatelessWidget {
+  final List<String> values;
+  final bool isHeader;
+  final ThemeData theme;
+
+  const _ValueRow({
+    required this.values,
+    required this.isHeader,
+    required this.theme,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final valueStyle = isHeader
+        ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
+        : theme.textTheme.bodySmall;
+    final borderSide = BorderSide(
+      color: theme.dividerColor.withValues(alpha: 0.3),
+      width: 0.5,
+    );
+
+    return Container(
+      height: _kRowHeight,
+      decoration: BoxDecoration(
+        color: isHeader ? theme.colorScheme.surfaceContainerHighest : null,
+        border: Border(bottom: borderSide),
+      ),
+      child: Row(
+        children: values.map((v) => Container(
+          width: 90,
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          alignment: Alignment.center,
+          child: Text(v, style: valueStyle, textAlign: TextAlign.center),
+        )).toList(),
+      ),
+    );
+  }
+}
+
+void _showCompInfoDialog(BuildContext context, String title, String body) {
+  showDialog(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: Text(title, style: Theme.of(ctx).textTheme.titleSmall),
+      content: Text(body, style: Theme.of(ctx).textTheme.bodySmall),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
+      ],
+    ),
+  );
 }
 
 class _CompRow {
