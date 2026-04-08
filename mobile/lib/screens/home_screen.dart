@@ -820,8 +820,9 @@ class _MeshDetails extends StatelessWidget {
                   child: _StatTile(
                     icon: Icons.cell_tower,
                     label: 'Channel',
-                    value:
-                        ds.channelName.isNotEmpty ? ds.channelName : '--',
+                    value: ds.channelName.isNotEmpty
+                        ? ds.channelName
+                        : ds.modemPreset.label,
                   ),
                 ),
               ],
