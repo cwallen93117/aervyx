@@ -46,16 +46,7 @@ class MeshtasticSettingsScreen extends StatelessWidget {
             const SizedBox(height: 24),
 
             // ── Profile Quick Setup ──
-            Row(
-              children: [
-                Expanded(child: _SectionHeader(title: 'Profile Quick Setup')),
-                IconButton(
-                  icon: const Icon(Icons.info_outline, size: 20),
-                  tooltip: 'Compare profiles',
-                  onPressed: () => _showProfileComparison(context),
-                ),
-              ],
-            ),
+            _SectionHeader(title: 'Device Role'),
             const SizedBox(height: 8),
             _ProfileSelector(),
 
@@ -108,243 +99,6 @@ class MeshtasticSettingsScreen extends StatelessWidget {
       ),
     );
   }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Profile comparison dialog
-// ═══════════════════════════════════════════════════════════════════════════════
-
-const double _kRowHeight = 40.0;
-
-void _showProfileComparison(BuildContext context) {
-  final profiles = ProfileConfig.presets;
-  final entries = [
-    MeshtasticProfile.pilot,
-    MeshtasticProfile.driver,
-    MeshtasticProfile.driverWifi,
-    MeshtasticProfile.repeater,
-  ];
-
-  String fmtBool(bool v) => v ? 'On' : 'Off';
-  String fmtSecs(int s) {
-    if (s >= 86400) return '${s ~/ 86400}d';
-    if (s >= 3600) return '${s ~/ 3600}h';
-    if (s >= 60) return '${s ~/ 60}min';
-    return '${s}s';
-  }
-  String fmtDisplay(int s) => s == 0 ? 'Default' : '${s}s';
-
-  final rows = <_CompRow>[
-    _CompRow('Role', (c) => c.role.label),
-    _CompRow('Rebroadcast', (c) => c.rebroadcastMode.label),
-    _CompRow('Power saving', (c) => fmtBool(c.powerSaving)),
-    _CompRow('GPS mode', (c) => c.gpsMode.label),
-    _CompRow('Position interval', (c) => fmtSecs(c.positionBroadcastSecs)),
-    _CompRow('Smart position', (c) => fmtBool(c.smartPositionEnabled),
-        info: 'When enabled, the device sends position updates early if it '
-            'detects significant movement based on the min distance and min '
-            'interval thresholds, rather than waiting for the full broadcast '
-            'interval. Helps capture turns and altitude changes in flight.'),
-    _CompRow('Smart min distance', (c) => '${c.smartMinDistance}m'),
-    _CompRow('Smart min interval', (c) => '${c.smartMinInterval}s'),
-    _CompRow('Modem preset', (c) => c.modemPreset.label),
-    _CompRow('Hop limit', (c) => '${c.hopLimit}'),
-    _CompRow('Bluetooth', (c) => fmtBool(c.bluetoothEnabled)),
-    _CompRow('Wi-Fi', (c) => fmtBool(c.wifiEnabled)),
-    _CompRow('Display timeout', (c) => fmtDisplay(c.displayTimeoutSecs)),
-    _CompRow('Telemetry interval', (c) => fmtSecs(c.telemetryIntervalSecs)),
-  ];
-
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    builder: (ctx) {
-      final theme = Theme.of(ctx);
-      return DraggableScrollableSheet(
-        initialChildSize: 0.7,
-        minChildSize: 0.4,
-        maxChildSize: 0.95,
-        expand: false,
-        builder: (_, controller) => Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Text('Profile Comparison',
-                  style: theme.textTheme.titleMedium),
-            ),
-            Expanded(
-              child: SingleChildScrollView(
-                controller: controller,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ── Frozen label column ──
-                    SizedBox(
-                      width: 120,
-                      child: Column(
-                        children: [
-                          _LabelCell(
-                            label: 'Setting',
-                            isHeader: true,
-                            theme: theme,
-                          ),
-                          ...rows.map((row) => _LabelCell(
-                            label: row.label,
-                            isHeader: false,
-                            theme: theme,
-                            info: row.info,
-                          )),
-                        ],
-                      ),
-                    ),
-                    // ── Scrollable value columns ──
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: SizedBox(
-                          width: entries.length * 90.0,
-                          child: Column(
-                            children: [
-                              _ValueRow(
-                                values: entries.map((p) => p.label).toList(),
-                                isHeader: true,
-                                theme: theme,
-                              ),
-                              ...rows.map((row) => _ValueRow(
-                                values: entries.map((p) {
-                                  final config = profiles[p]!;
-                                  return row.getter(config);
-                                }).toList(),
-                                isHeader: false,
-                                theme: theme,
-                              )),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-    },
-  );
-}
-
-/// A single cell in the frozen label column of the comparison table.
-class _LabelCell extends StatelessWidget {
-  final String label;
-  final bool isHeader;
-  final ThemeData theme;
-  final String? info;
-
-  const _LabelCell({
-    required this.label,
-    required this.isHeader,
-    required this.theme,
-    this.info,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final labelStyle = isHeader
-        ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w500);
-    final borderSide = BorderSide(
-      color: theme.dividerColor.withValues(alpha: 0.3),
-      width: 0.5,
-    );
-
-    return Container(
-      height: _kRowHeight,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isHeader
-            ? theme.colorScheme.surfaceContainerHighest
-            : theme.colorScheme.surfaceContainerLow,
-        border: Border(bottom: borderSide, right: borderSide),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label, style: labelStyle, overflow: TextOverflow.ellipsis),
-          ),
-          if (info != null)
-            GestureDetector(
-              onTap: () => _showCompInfoDialog(context, label, info!),
-              child: Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: Icon(Icons.info_outline,
-                    size: 14, color: theme.colorScheme.primary),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// A row of value cells in the scrollable area of the comparison table.
-class _ValueRow extends StatelessWidget {
-  final List<String> values;
-  final bool isHeader;
-  final ThemeData theme;
-
-  const _ValueRow({
-    required this.values,
-    required this.isHeader,
-    required this.theme,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final valueStyle = isHeader
-        ? theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.bold)
-        : theme.textTheme.bodySmall;
-    final borderSide = BorderSide(
-      color: theme.dividerColor.withValues(alpha: 0.3),
-      width: 0.5,
-    );
-
-    return Container(
-      height: _kRowHeight,
-      decoration: BoxDecoration(
-        color: isHeader ? theme.colorScheme.surfaceContainerHighest : null,
-        border: Border(bottom: borderSide),
-      ),
-      child: Row(
-        children: values.map((v) => Container(
-          width: 90,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-          alignment: Alignment.center,
-          child: Text(v, style: valueStyle, textAlign: TextAlign.center),
-        )).toList(),
-      ),
-    );
-  }
-}
-
-void _showCompInfoDialog(BuildContext context, String title, String body) {
-  showDialog(
-    context: context,
-    builder: (ctx) => AlertDialog(
-      title: Text(title, style: Theme.of(ctx).textTheme.titleSmall),
-      content: Text(body, style: Theme.of(ctx).textTheme.bodySmall),
-      actions: [
-        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('OK')),
-      ],
-    ),
-  );
-}
-
-class _CompRow {
-  final String label;
-  final String Function(ProfileConfig) getter;
-  final String? info;
-  const _CompRow(this.label, this.getter, {this.info});
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -489,147 +243,85 @@ class _BleConnectionSection extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Profile Quick Setup
+// Device Role & Settings
 // ═══════════════════════════════════════════════════════════════════════════════
 
-/// Custom hang glider icon — delta wing with pilot.
-class _HangGliderIcon extends StatelessWidget {
-  final double size;
-  final Color? color;
-  const _HangGliderIcon({this.size = 20, this.color});
-
+class _ProfileSelector extends StatefulWidget {
   @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size),
-      painter: _HangGliderPainter(
-        color: color ?? Theme.of(context).colorScheme.onSurface,
-      ),
-    );
-  }
+  State<_ProfileSelector> createState() => _ProfileSelectorState();
 }
 
-class _HangGliderPainter extends CustomPainter {
-  final Color color;
-  _HangGliderPainter({required this.color});
+class _ProfileSelectorState extends State<_ProfileSelector> {
+  bool _isTracker = true;
+  int _broadcastSecs = 30;
+  bool _smartEnabled = true;
+  int _smartMinDistance = 100;
+  int _smartMinInterval = 30;
+  bool _wifiEnabled = false;
+  int _displayTimeout = 30;
+
+  static const _broadcastOptions = [15, 30, 60, 120, 300];
+  static const _displayOptions = [0, 15, 30, 60, 120];
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final w = size.width;
-    final h = size.height;
-
-    // Delta wing (triangle)
-    final wing = Path()
-      ..moveTo(w * 0.5, h * 0.15) // nose
-      ..lineTo(w * 0.02, h * 0.55) // left wingtip
-      ..lineTo(w * 0.98, h * 0.55) // right wingtip
-      ..close();
-    canvas.drawPath(wing, paint);
-
-    // Control bar (A-frame) lines
-    final linePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    // Left bar
-    canvas.drawLine(
-      Offset(w * 0.5, h * 0.35),
-      Offset(w * 0.35, h * 0.75),
-      linePaint,
-    );
-    // Right bar
-    canvas.drawLine(
-      Offset(w * 0.5, h * 0.35),
-      Offset(w * 0.65, h * 0.75),
-      linePaint,
-    );
-    // Base bar
-    canvas.drawLine(
-      Offset(w * 0.35, h * 0.75),
-      Offset(w * 0.65, h * 0.75),
-      linePaint,
-    );
-
-    // Pilot (small circle)
-    canvas.drawCircle(
-      Offset(w * 0.5, h * 0.85),
-      w * 0.06,
-      paint,
-    );
+  void initState() {
+    super.initState();
+    final ds = context.read<BleService>().deviceState;
+    _isTracker = ds.role != DeviceRole.router;
+    _broadcastSecs = ds.positionBroadcastSecs;
+    _smartEnabled = ds.smartPositionEnabled;
+    _smartMinDistance = ds.smartMinDistance;
+    _smartMinInterval = ds.smartMinInterval;
+    _wifiEnabled = ds.wifiEnabled;
+    _displayTimeout = ds.screenOnSecs;
   }
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _ProfileSelector extends StatelessWidget {
-  static const _profileIcons = {
-    MeshtasticProfile.driver: Icons.directions_car,
-    MeshtasticProfile.driverWifi: Icons.wifi,
-    MeshtasticProfile.repeater: Icons.cell_tower,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final ble = context.watch<BleService>();
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Apply a preset profile to configure all settings at once.',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 12),
-            ...MeshtasticProfile.values.map((profile) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: OutlinedButton(
-                  onPressed: ble.isPushingConfig
-                      ? null
-                      : () => _confirmApply(context, ble, profile),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                  ),
-                  child: Row(
-                    children: [
-                      profile == MeshtasticProfile.pilot
-                          ? const _HangGliderIcon(size: 20)
-                          : Icon(_profileIcons[profile], size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(profile.label,
-                            style: theme.textTheme.titleSmall),
-                      ),
-                      const Icon(Icons.arrow_forward_ios, size: 14),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ],
-        ),
-      ),
-    );
+  void _setRole(bool tracker) {
+    setState(() {
+      _isTracker = tracker;
+      if (tracker) {
+        _broadcastSecs = 30;
+        _smartEnabled = true;
+        _smartMinDistance = 100;
+        _smartMinInterval = 30;
+        _wifiEnabled = false;
+        _displayTimeout = 30;
+      } else {
+        _broadcastSecs = 300;
+        _smartEnabled = false;
+        _smartMinDistance = 0;
+        _smartMinInterval = 0;
+        _wifiEnabled = true;
+        _displayTimeout = 0;
+      }
+    });
   }
 
-  void _confirmApply(
-      BuildContext context, BleService ble, MeshtasticProfile profile) {
+  void _apply(BleService ble) {
+    final config = ProfileConfig(
+      role: _isTracker ? DeviceRole.tracker : DeviceRole.router,
+      rebroadcastMode: RebroadcastMode.all,
+      gpsMode: GpsMode.enabled,
+      positionBroadcastSecs: _broadcastSecs,
+      smartPositionEnabled: _smartEnabled,
+      smartMinDistance: _smartMinDistance,
+      smartMinInterval: _smartMinInterval,
+      modemPreset: ModemPreset.longFast,
+      hopLimit: 3,
+      powerSaving: false,
+      bluetoothEnabled: true,
+      wifiEnabled: _wifiEnabled,
+      positionFlags: PositionFlags.altitude,
+      displayTimeoutSecs: _displayTimeout,
+      telemetryIntervalSecs: 86400,
+    );
+    final profile =
+        _isTracker ? MeshtasticProfile.pilot : MeshtasticProfile.repeater;
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('Apply ${profile.label} profile?'),
+        title: Text('Apply ${_isTracker ? "Tracker" : "Router"} config?'),
         content: const Text(
           'This will overwrite all device settings and reboot the device.',
         ),
@@ -641,10 +333,247 @@ class _ProfileSelector extends StatelessWidget {
           FilledButton(
             onPressed: () {
               Navigator.pop(ctx);
-              ble.applyProfile(profile);
+              ble.applyProfile(profile, customConfig: config);
             },
             child: const Text('Apply'),
           ),
+        ],
+      ),
+    );
+  }
+
+  String _fmtSecs(int s) {
+    if (s >= 60) return '${s ~/ 60} min';
+    return '${s}s';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+    final dimStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurface.withAlpha(100),
+    );
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Role selector ──
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(
+                  value: true,
+                  label: Text('Tracker'),
+                  icon: Icon(Icons.gps_fixed, size: 18),
+                ),
+                ButtonSegment(
+                  value: false,
+                  label: Text('Router'),
+                  icon: Icon(Icons.cell_tower, size: 18),
+                ),
+              ],
+              selected: {_isTracker},
+              onSelectionChanged: ble.isPushingConfig
+                  ? null
+                  : (v) => _setRole(v.first),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _isTracker
+                  ? 'Optimised for position tracking (pilots & drivers)'
+                  : 'Always-on relay for mesh coverage (repeaters & gateways)',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+            Text('Settings',
+                style: theme.textTheme.labelMedium
+                    ?.copyWith(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+
+            // ── Broadcast interval ──
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Position interval', style: theme.textTheme.bodyMedium),
+                DropdownButton<int>(
+                  value: _broadcastOptions.contains(_broadcastSecs)
+                      ? _broadcastSecs
+                      : _broadcastOptions.first,
+                  onChanged: ble.isPushingConfig
+                      ? null
+                      : (v) => setState(() => _broadcastSecs = v!),
+                  items: _broadcastOptions
+                      .map((s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(_fmtSecs(s)),
+                          ))
+                      .toList(),
+                ),
+              ],
+            ),
+
+            // ── Smart position ──
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Smart position', style: theme.textTheme.bodyMedium),
+                Switch(
+                  value: _smartEnabled,
+                  onChanged: ble.isPushingConfig
+                      ? null
+                      : (v) => setState(() => _smartEnabled = v),
+                ),
+              ],
+            ),
+            if (_smartEnabled) ...[
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Min distance', style: theme.textTheme.bodySmall),
+                    SizedBox(
+                      width: 70,
+                      child: TextField(
+                        controller: TextEditingController(
+                            text: '$_smartMinDistance'),
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.bodySmall,
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding:
+                              EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          border: OutlineInputBorder(),
+                          suffixText: 'm',
+                        ),
+                        onChanged: (v) =>
+                            _smartMinDistance = int.tryParse(v) ?? _smartMinDistance,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(left: 16),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Min interval', style: theme.textTheme.bodySmall),
+                    SizedBox(
+                      width: 70,
+                      child: TextField(
+                        controller: TextEditingController(
+                            text: '$_smartMinInterval'),
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.bodySmall,
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding:
+                              EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                          border: OutlineInputBorder(),
+                          suffixText: 's',
+                        ),
+                        onChanged: (v) =>
+                            _smartMinInterval = int.tryParse(v) ?? _smartMinInterval,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // ── Wi-Fi ──
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Wi-Fi', style: theme.textTheme.bodyMedium),
+                Switch(
+                  value: _wifiEnabled,
+                  onChanged: ble.isPushingConfig
+                      ? null
+                      : (v) => setState(() => _wifiEnabled = v),
+                ),
+              ],
+            ),
+
+            // ── Display timeout ──
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text('Display timeout', style: theme.textTheme.bodyMedium),
+                DropdownButton<int>(
+                  value: _displayOptions.contains(_displayTimeout)
+                      ? _displayTimeout
+                      : _displayOptions.first,
+                  onChanged: ble.isPushingConfig
+                      ? null
+                      : (v) => setState(() => _displayTimeout = v!),
+                  items: _displayOptions
+                      .map((s) => DropdownMenuItem(
+                            value: s,
+                            child: Text(s == 0 ? 'Always on' : '${s}s'),
+                          ))
+                      .toList(),
+                ),
+              ],
+            ),
+
+            // ── Platform-managed (read-only) ──
+            const SizedBox(height: 12),
+            Text('Platform managed',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurface.withAlpha(100),
+                )),
+            const SizedBox(height: 4),
+            _DimRow('GPS mode', 'Enabled', dimStyle),
+            _DimRow('Modem preset', 'LONG_FAST', dimStyle),
+            _DimRow('Hop limit', '3', dimStyle),
+            _DimRow('Rebroadcast', 'All', dimStyle),
+            _DimRow('Bluetooth', 'On', dimStyle),
+            _DimRow('Power saving', 'Off', dimStyle),
+
+            // ── Apply button ──
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: ble.isPushingConfig ? null : () => _apply(ble),
+                icon: const Icon(Icons.check, size: 18),
+                label: Text(
+                    'Apply ${_isTracker ? "Tracker" : "Router"} Config'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DimRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final TextStyle? style;
+  const _DimRow(this.label, this.value, this.style);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: style),
+          Text(value, style: style?.copyWith(fontWeight: FontWeight.w600)),
         ],
       ),
     );

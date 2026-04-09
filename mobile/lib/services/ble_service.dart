@@ -1126,14 +1126,18 @@ class BleService extends ChangeNotifier {
   }
 
   /// Apply a full profile preset to the connected device.
-  Future<void> applyProfile(MeshtasticProfile profile) async {
+  ///
+  /// If [customConfig] is provided it overrides the built-in preset, allowing
+  /// the UI to let the user tweak individual settings before applying.
+  Future<void> applyProfile(MeshtasticProfile profile,
+      {ProfileConfig? customConfig}) async {
     if (_toRadio == null) {
       _error = 'No device connected';
       notifyListeners();
       return;
     }
 
-    final config = ProfileConfig.presets[profile]!;
+    final config = customConfig ?? ProfileConfig.presets[profile]!;
     _isPushingConfig = true;
     _error = null;
     _statusMessage = 'Applying ${profile.label} profile...';
