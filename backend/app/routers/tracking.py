@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, IGCUpload, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, LivePosition, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
@@ -92,6 +92,22 @@ class ActivePilotResponse(BaseModel):
     battery_level: int | None = None
     aircraft_icon: str = "hang_glider"
     profile_type: str = "pilot"
+    position_source: str = "other"
+
+
+class MeshNodeResponse(BaseModel):
+    device_id: str
+    pilot_id: int | None = None
+    pilot_name: str | None = None
+    profile_type: str | None = None
+    lat: float
+    lon: float
+    alt: float | None = None
+    speed: float | None = None
+    heading: float | None = None
+    battery_level: int | None = None
+    timestamp: str
+    source: str | None = None
     position_source: str = "other"
 
 
@@ -657,3 +673,87 @@ def register_stationary_node(
         display_name=node.full_name,
         profile_type=node.profile_type,
     )
+
+
+@router.get("/api/admin/mesh-nodes", response_model=list[MeshNodeResponse])
+def get_mesh_nodes(
+    minutes: int = Query(default=60, ge=1, le=1440),
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> list[MeshNodeResponse]:
+    """Return the latest position for every device_id that reported a position recently.
+
+    Unlike the active-pilots endpoint this query is keyed on device_id rather
+    than pilot_id, so bare mesh nodes (relays, stationary nodes, unregistered
+    handsets) that never linked to a pilot account still appear on the map.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import func as sa_func
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+
+    # Window function: rank rows per device_id by descending timestamp so we
+    # can pick only the most-recent position for each device in one query.
+    row_num = sa_func.row_number().over(
+        partition_by=LivePosition.device_id,
+        order_by=LivePosition.timestamp.desc(),
+    ).label("rn")
+
+    subq = (
+        select(LivePosition, row_num)
+        .where(
+            LivePosition.device_id.isnot(None),
+            LivePosition.device_id != "",
+            LivePosition.timestamp >= cutoff,
+        )
+        .subquery()
+    )
+
+    rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
+
+    if not rows:
+        return []
+
+    # Resolve pilot names / profile types via pilot_id when available.
+    pilot_ids = [r.pilot_id for r in rows if r.pilot_id is not None]
+    users_by_pilot: dict[int, User] = {}
+    if pilot_ids:
+        for u in session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all():
+            if u.pilot_id is not None:
+                users_by_pilot[u.pilot_id] = u
+
+    # Fall back to device_id → User lookup for positions with no pilot_id.
+    unlinked_device_ids = [r.device_id for r in rows if r.pilot_id is None and r.device_id]
+    users_by_device: dict[str, User] = {}
+    if unlinked_device_ids:
+        for u in session.scalars(select(User).where(User.mesh_device_id.in_(unlinked_device_ids))).all():
+            if u.mesh_device_id:
+                users_by_device[u.mesh_device_id] = u
+
+    results: list[MeshNodeResponse] = []
+    for row in rows:
+        u = (
+            users_by_pilot.get(row.pilot_id)
+            if row.pilot_id is not None
+            else users_by_device.get(row.device_id)
+        )
+        results.append(
+            MeshNodeResponse(
+                device_id=row.device_id,
+                pilot_id=row.pilot_id,
+                pilot_name=u.full_name if u else None,
+                profile_type=u.profile_type if u else None,
+                lat=row.lat,
+                lon=row.lon,
+                alt=row.alt,
+                speed=row.speed,
+                heading=row.heading,
+                battery_level=row.battery_level,
+                timestamp=row.timestamp.isoformat(),
+                source=row.source,
+                position_source=normalize_position_source(row.source),
+            )
+        )
+
+    return results

@@ -2,11 +2,27 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
-import { type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
+import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging" | "map_config" | "meshtastic";
+
+type MeshNode = {
+  device_id: string;
+  pilot_id: number | null;
+  pilot_name: string | null;
+  profile_type: string | null;
+  lat: number;
+  lon: number;
+  alt: number | null;
+  speed: number | null;
+  heading: number | null;
+  battery_level: number | null;
+  timestamp: string;
+  source: string | null;
+  position_source: string;
+};
 
 const MAP_CONTEXTS = [
   { key: "task_builder", label: "Task Builder" },
@@ -85,6 +101,8 @@ export interface AdminSectionProps {
   setMapOverlayConfig: (config: MapOverlayConfigRecord | ((current: MapOverlayConfigRecord) => MapOverlayConfigRecord)) => void;
   mapOverlayConfigFeedback: { type: "success" | "error"; text: string } | null;
   saveMapOverlayConfig: () => void;
+  token: string;
+  apiBase: string;
 }
 
 export default function AdminSection(props: AdminSectionProps) {
@@ -113,8 +131,13 @@ export default function AdminSection(props: AdminSectionProps) {
     setMapOverlayConfig,
     mapOverlayConfigFeedback,
     saveMapOverlayConfig,
+    token,
+    apiBase,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
+  const [meshSubTab, setMeshSubTab] = useState<"config" | "nodes">("config");
+  const [meshNodes, setMeshNodes] = useState<MeshNode[]>([]);
+  const [meshNodesLoading, setMeshNodesLoading] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [userSortField, setUserSortField] = useState<UserSortField>("last_name");
   const [userSortDir, setUserSortDir] = useState<SortDir>("asc");
@@ -195,6 +218,32 @@ export default function AdminSection(props: AdminSectionProps) {
     }, 5000);
     return () => clearInterval(interval);
   }, [activeTab, refreshDebugStatus]);
+
+  useEffect(() => {
+    if (activeTab !== "meshtastic" || meshSubTab !== "nodes") return;
+    let cancelled = false;
+    const load = async () => {
+      setMeshNodesLoading(true);
+      try {
+        const res = await fetch(`${apiBase}/api/admin/mesh-nodes?minutes=60`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok && !cancelled) {
+          setMeshNodes((await res.json()) as MeshNode[]);
+        }
+      } catch {
+        // ignore
+      } finally {
+        if (!cancelled) setMeshNodesLoading(false);
+      }
+    };
+    void load();
+    const interval = setInterval(load, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [activeTab, meshSubTab, token, apiBase]);
 
   const selectedSite = useMemo(
     () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
@@ -749,114 +798,224 @@ export default function AdminSection(props: AdminSectionProps) {
           </div>
         </SectionCard>
       ) : activeTab === "meshtastic" ? (
-        <SectionCard title="Meshtastic Configuration">
-          <div className="stack form-block compact-clusters">
-            {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
-            <fieldset className="fieldset-cluster">
-              <legend>MQTT / Mesh</legend>
-              <div className="cluster-stack">
-                <label className="stack compact">
-                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    <input
-                      type="checkbox"
-                      checked={siteSettings.mqtt_enabled ?? false}
-                      onChange={(event) =>
-                        setSiteSettings((current) => ({
-                          ...current,
-                          mqtt_enabled: event.target.checked,
-                        }))
-                      }
-                    />
-                    MQTT enabled
-                  </span>
-                </label>
-                <label className="stack compact">
-                  <span>Broker mode</span>
-                  <select
-                    value={siteSettings.mqtt_broker_mode ?? "public"}
-                    onChange={(event) =>
-                      setSiteSettings((current) => ({
-                        ...current,
-                        mqtt_broker_mode: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="public">Public (mqtt.meshtastic.org)</option>
-                    <option value="private">Private (custom broker)</option>
-                  </select>
-                </label>
-                {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
-                  <>
+        <>
+          {/* Sub-tab bar */}
+          <div className="sub-tab-bar">
+            <button
+              type="button"
+              className={meshSubTab === "config" ? "tab-button active" : "tab-button"}
+              onClick={() => setMeshSubTab("config")}
+            >
+              Configuration
+            </button>
+            <button
+              type="button"
+              className={meshSubTab === "nodes" ? "tab-button active" : "tab-button"}
+              onClick={() => setMeshSubTab("nodes")}
+            >
+              Nodes
+            </button>
+          </div>
+          {meshSubTab === "config" ? (
+            <SectionCard title="Meshtastic Configuration">
+              <div className="stack form-block compact-clusters">
+                {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
+                <fieldset className="fieldset-cluster">
+                  <legend>MQTT / Mesh</legend>
+                  <div className="cluster-stack">
                     <label className="stack compact">
-                      <span>MQTT host</span>
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <input
+                          type="checkbox"
+                          checked={siteSettings.mqtt_enabled ?? false}
+                          onChange={(event) =>
+                            setSiteSettings((current) => ({
+                              ...current,
+                              mqtt_enabled: event.target.checked,
+                            }))
+                          }
+                        />
+                        MQTT enabled
+                      </span>
+                    </label>
+                    <label className="stack compact">
+                      <span>Broker mode</span>
+                      <select
+                        value={siteSettings.mqtt_broker_mode ?? "public"}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_broker_mode: event.target.value,
+                          }))
+                        }
+                      >
+                        <option value="public">Public (mqtt.meshtastic.org)</option>
+                        <option value="private">Private (custom broker)</option>
+                      </select>
+                    </label>
+                    {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
+                      <>
+                        <label className="stack compact">
+                          <span>MQTT host</span>
+                          <input
+                            type="text"
+                            placeholder="mqtt.example.com"
+                            value={siteSettings.mqtt_host ?? ""}
+                            onChange={(event) =>
+                              setSiteSettings((current) => ({
+                                ...current,
+                                mqtt_host: event.target.value || null,
+                              }))
+                            }
+                          />
+                        </label>
+                        <label className="stack compact">
+                          <span>MQTT port</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={65535}
+                            step={1}
+                            value={siteSettings.mqtt_port ?? 1883}
+                            onChange={(event) =>
+                              setSiteSettings((current) => ({
+                                ...current,
+                                mqtt_port: Number(event.target.value || 1883),
+                              }))
+                            }
+                          />
+                        </label>
+                      </>
+                    )}
+                    <label className="stack compact">
+                      <span>Topic prefix</span>
                       <input
                         type="text"
-                        placeholder="mqtt.example.com"
-                        value={siteSettings.mqtt_host ?? ""}
+                        placeholder="msh"
+                        value={siteSettings.mqtt_topic_prefix ?? "msh"}
                         onChange={(event) =>
                           setSiteSettings((current) => ({
                             ...current,
-                            mqtt_host: event.target.value || null,
+                            mqtt_topic_prefix: event.target.value,
                           }))
                         }
                       />
                     </label>
                     <label className="stack compact">
-                      <span>MQTT port</span>
+                      <span>Channel PSK</span>
                       <input
-                        type="number"
-                        min={1}
-                        max={65535}
-                        step={1}
-                        value={siteSettings.mqtt_port ?? 1883}
+                        type="text"
+                        placeholder="Optional — for encrypted channels"
+                        value={siteSettings.mqtt_channel_psk ?? ""}
                         onChange={(event) =>
                           setSiteSettings((current) => ({
                             ...current,
-                            mqtt_port: Number(event.target.value || 1883),
+                            mqtt_channel_psk: event.target.value || null,
                           }))
                         }
                       />
                     </label>
+                  </div>
+                </fieldset>
+                <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
+                <div className="button-row">
+                  <button type="button" onClick={() => void saveSiteSettings()}>
+                    Save Meshtastic settings
+                  </button>
+                </div>
+              </div>
+            </SectionCard>
+          ) : (
+            <SectionCard title="Meshtastic Nodes">
+              <div className="stack form-block">
+                <p className="hint">
+                  Live Meshtastic devices that reported a position in the last 60 minutes.
+                  Refreshes every 30 seconds.
+                </p>
+                {meshNodesLoading && meshNodes.length === 0 ? (
+                  <p style={{ color: "var(--muted)" }}>Loading nodes...</p>
+                ) : meshNodes.length === 0 ? (
+                  <p style={{ color: "var(--muted)" }}>No mesh nodes have reported positions in the last 60 minutes.</p>
+                ) : (
+                  <>
+                    {/* Map showing node positions */}
+                    <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
+                      <TaskMap
+                        turnpoints={meshNodes.map((n, i): MapTurnpoint => ({
+                          id: i,
+                          name: n.pilot_name ?? n.device_id,
+                          code: null,
+                          latitude: n.lat,
+                          longitude: n.lon,
+                        }))}
+                        taskPoints={[]}
+                        optimizedRoute={[]}
+                        legMetrics={[]}
+                        totalDistanceKm={0}
+                        optimizedDistanceKm={0}
+                        track={null}
+                        editable={false}
+                        hideDistanceSummary
+                        livePositions={meshNodes.map((n): MapLivePosition => ({
+                          id: n.device_id,
+                          pilotId: n.pilot_id,
+                          pilotName: n.pilot_name ?? n.device_id,
+                          latitude: n.lat,
+                          longitude: n.lon,
+                          altitudeM: n.alt,
+                          speedKmh: n.speed,
+                          heading: n.heading,
+                          timestamp: n.timestamp,
+                          batteryLevel: n.battery_level,
+                          source: n.source,
+                          aircraftType: "hang_glider",
+                          profileType: (n.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
+                          positionSource: (n.position_source ?? "mesh") as "cellular" | "mesh" | "other",
+                        }))}
+                        fitKey={`mesh-nodes-${meshNodes.length}`}
+                      />
+                    </div>
+                    {/* Table of nodes */}
+                    <div style={{ overflowX: "auto" }}>
+                      <table className="participant-table" style={{ fontSize: "0.82rem" }}>
+                        <thead>
+                          <tr>
+                            <th>Device ID</th>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Lat</th>
+                            <th>Lon</th>
+                            <th>Alt</th>
+                            <th>Speed</th>
+                            <th>Battery</th>
+                            <th>Source</th>
+                            <th>Last seen</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {meshNodes.map((n) => (
+                            <tr key={n.device_id}>
+                              <td style={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{n.device_id}</td>
+                              <td>{n.pilot_name ?? "—"}</td>
+                              <td>{n.profile_type ?? "—"}</td>
+                              <td>{n.lat.toFixed(5)}</td>
+                              <td>{n.lon.toFixed(5)}</td>
+                              <td>{n.alt != null ? `${Math.round(n.alt)}` : "—"}</td>
+                              <td>{n.speed != null ? `${n.speed.toFixed(1)}` : "—"}</td>
+                              <td>{n.battery_level != null ? `${n.battery_level}%` : "—"}</td>
+                              <td>{n.position_source}</td>
+                              <td>{new Date(n.timestamp).toLocaleTimeString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </>
                 )}
-                <label className="stack compact">
-                  <span>Topic prefix</span>
-                  <input
-                    type="text"
-                    placeholder="msh"
-                    value={siteSettings.mqtt_topic_prefix ?? "msh"}
-                    onChange={(event) =>
-                      setSiteSettings((current) => ({
-                        ...current,
-                        mqtt_topic_prefix: event.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <label className="stack compact">
-                  <span>Channel PSK</span>
-                  <input
-                    type="text"
-                    placeholder="Optional — for encrypted channels"
-                    value={siteSettings.mqtt_channel_psk ?? ""}
-                    onChange={(event) =>
-                      setSiteSettings((current) => ({
-                        ...current,
-                        mqtt_channel_psk: event.target.value || null,
-                      }))
-                    }
-                  />
-                </label>
               </div>
-            </fieldset>
-            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
-            <div className="button-row">
-              <button type="button" onClick={() => void saveSiteSettings()}>
-                Save Meshtastic settings
-              </button>
-            </div>
-          </div>
-        </SectionCard>
+            </SectionCard>
+          )}
+        </>
       ) : (
         <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">

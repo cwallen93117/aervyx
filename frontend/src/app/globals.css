@@ -2078,6 +2078,23 @@ button[type="submit"]:hover,
   font-weight: 700;
 }
 
+.sub-tab-bar {
+  display: inline-flex;
+  background: #f1f5fb;
+  border: 1px solid #dce5f0;
+  border-radius: 14px;
+  padding: 4px;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.sub-tab-bar .tab-button {
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: 10px;
+  font-size: 0.775rem;
+}
+
 .scoring-nav {
   display: flex;
   flex-wrap: wrap;
@@ -6073,6 +6090,11 @@ html[data-theme="dark"] .tab-button.active {
   background: rgba(59, 130, 246, 0.12);
   color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .sub-tab-bar {
+  background: #172033;
+  border-color: rgba(255, 255, 255, 0.07);
 }
 
 html[data-theme="dark"] .scoring-nav {

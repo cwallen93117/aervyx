@@ -2773,6 +2773,8 @@ export default function HomePage() {
               setMapOverlayConfig={setMapOverlayConfig}
               mapOverlayConfigFeedback={mapOverlayConfigFeedback}
               saveMapOverlayConfig={saveMapOverlayConfig}
+              token={token}
+              apiBase={resolveApiBase()}
             />
           ) : (
             <SettingsSection
