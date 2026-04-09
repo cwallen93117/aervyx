@@ -6464,3 +6464,39 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
     font-size: 1.5rem;
   }
 }
+
+/* Live Tracking sub-rows */
+.tracking-sub-row td {
+  background: var(--wash, rgba(255,255,255,0.03));
+  font-size: 0.8rem;
+  padding-left: 24px;
+}
+.tracking-sub-row td:first-child {
+  padding-left: 32px;
+}
+.tracking-source-pill {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  margin-right: 4px;
+}
+.tracking-source-pill.phone {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+.tracking-source-pill.mesh {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+.tracking-expand-toggle {
+  cursor: pointer;
+  user-select: none;
+  width: 24px;
+  text-align: center;
+  transition: transform 0.15s;
+}
+.tracking-expand-toggle.expanded {
+  transform: rotate(90deg);
+}

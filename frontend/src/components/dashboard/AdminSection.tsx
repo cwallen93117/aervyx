@@ -6,7 +6,7 @@ import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } f
 import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
 
-type AdminTab = "platform_users" | "site_settings" | "sites_database" | "debugging" | "map_config" | "meshtastic";
+type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic";
 
 type MeshNode = {
   device_id: string;
@@ -22,6 +22,19 @@ type MeshNode = {
   timestamp: string;
   source: string | null;
   position_source: string;
+};
+
+type UnifiedDevice = {
+  key: string;
+  pilot_id: number | null;
+  pilot_name: string;
+  profile_type: string | null;
+  session: import("./types").DebugActiveSession | null;
+  meshNode: MeshNode | null;
+  hasPhone: boolean;
+  hasMesh: boolean;
+  isOnline: boolean;
+  lastSeenAt: string | null;
 };
 
 const MAP_CONTEXTS = [
@@ -135,7 +148,6 @@ export default function AdminSection(props: AdminSectionProps) {
     apiBase,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
-  const [meshSubTab, setMeshSubTab] = useState<"config" | "nodes">("config");
   const [meshNodes, setMeshNodes] = useState<MeshNode[]>([]);
   const [meshNodesLoading, setMeshNodesLoading] = useState(false);
   const [userSearch, setUserSearch] = useState("");
@@ -211,7 +223,7 @@ export default function AdminSection(props: AdminSectionProps) {
   }, [isEditingSiteMatchRadius, siteSettings.site_match_radius_m]);
 
   useEffect(() => {
-    if (activeTab !== "debugging") return;
+    if (activeTab !== "live_tracking") return;
     refreshDebugStatus();
     const interval = setInterval(() => {
       refreshDebugStatus();
@@ -220,7 +232,7 @@ export default function AdminSection(props: AdminSectionProps) {
   }, [activeTab, refreshDebugStatus]);
 
   useEffect(() => {
-    if (activeTab !== "meshtastic" || meshSubTab !== "nodes") return;
+    if (activeTab !== "live_tracking") return;
     let cancelled = false;
     const load = async () => {
       setMeshNodesLoading(true);
@@ -238,12 +250,12 @@ export default function AdminSection(props: AdminSectionProps) {
       }
     };
     void load();
-    const interval = setInterval(load, 30_000);
+    const interval = setInterval(load, 10_000);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [activeTab, meshSubTab, token, apiBase]);
+  }, [activeTab, token, apiBase]);
 
   const selectedSite = useMemo(
     () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
@@ -353,10 +365,10 @@ export default function AdminSection(props: AdminSectionProps) {
         </button>
         <button
           type="button"
-          className={activeTab === "debugging" ? "tab-button active" : "tab-button"}
-          onClick={() => setActiveTab("debugging")}
+          className={activeTab === "live_tracking" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("live_tracking")}
         >
-          Debugging
+          Live Tracking
         </button>
       </div>
       {activeTab === "platform_users" ? (
@@ -740,8 +752,6 @@ export default function AdminSection(props: AdminSectionProps) {
             </div>
           </div>
         </SectionCard>
-      ) : activeTab === "debugging" ? (
-        <DebugTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} />
       ) : activeTab === "map_config" ? (
         <SectionCard title="Map overlay configuration">
           <div className="stack form-block">
@@ -798,224 +808,116 @@ export default function AdminSection(props: AdminSectionProps) {
           </div>
         </SectionCard>
       ) : activeTab === "meshtastic" ? (
-        <>
-          {/* Sub-tab bar */}
-          <div className="sub-tab-bar">
-            <button
-              type="button"
-              className={meshSubTab === "config" ? "tab-button active" : "tab-button"}
-              onClick={() => setMeshSubTab("config")}
-            >
-              Configuration
-            </button>
-            <button
-              type="button"
-              className={meshSubTab === "nodes" ? "tab-button active" : "tab-button"}
-              onClick={() => setMeshSubTab("nodes")}
-            >
-              Nodes
-            </button>
-          </div>
-          {meshSubTab === "config" ? (
-            <SectionCard title="Meshtastic Configuration">
-              <div className="stack form-block compact-clusters">
-                {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
-                <fieldset className="fieldset-cluster">
-                  <legend>MQTT / Mesh</legend>
-                  <div className="cluster-stack">
-                    <label className="stack compact">
-                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <input
-                          type="checkbox"
-                          checked={siteSettings.mqtt_enabled ?? false}
-                          onChange={(event) =>
-                            setSiteSettings((current) => ({
-                              ...current,
-                              mqtt_enabled: event.target.checked,
-                            }))
-                          }
-                        />
-                        MQTT enabled
-                      </span>
-                    </label>
-                    <label className="stack compact">
-                      <span>Broker mode</span>
-                      <select
-                        value={siteSettings.mqtt_broker_mode ?? "public"}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_broker_mode: event.target.value,
-                          }))
-                        }
-                      >
-                        <option value="public">Public (mqtt.meshtastic.org)</option>
-                        <option value="private">Private (custom broker)</option>
-                      </select>
-                    </label>
-                    {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
-                      <>
-                        <label className="stack compact">
-                          <span>MQTT host</span>
-                          <input
-                            type="text"
-                            placeholder="mqtt.example.com"
-                            value={siteSettings.mqtt_host ?? ""}
-                            onChange={(event) =>
-                              setSiteSettings((current) => ({
-                                ...current,
-                                mqtt_host: event.target.value || null,
-                              }))
-                            }
-                          />
-                        </label>
-                        <label className="stack compact">
-                          <span>MQTT port</span>
-                          <input
-                            type="number"
-                            min={1}
-                            max={65535}
-                            step={1}
-                            value={siteSettings.mqtt_port ?? 1883}
-                            onChange={(event) =>
-                              setSiteSettings((current) => ({
-                                ...current,
-                                mqtt_port: Number(event.target.value || 1883),
-                              }))
-                            }
-                          />
-                        </label>
-                      </>
-                    )}
-                    <label className="stack compact">
-                      <span>Topic prefix</span>
-                      <input
-                        type="text"
-                        placeholder="msh"
-                        value={siteSettings.mqtt_topic_prefix ?? "msh"}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_topic_prefix: event.target.value,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="stack compact">
-                      <span>Channel PSK</span>
-                      <input
-                        type="text"
-                        placeholder="Optional — for encrypted channels"
-                        value={siteSettings.mqtt_channel_psk ?? ""}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_channel_psk: event.target.value || null,
-                          }))
-                        }
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-                <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
-                <div className="button-row">
-                  <button type="button" onClick={() => void saveSiteSettings()}>
-                    Save Meshtastic settings
-                  </button>
-                </div>
-              </div>
-            </SectionCard>
-          ) : (
-            <SectionCard title="Meshtastic Nodes">
-              <div className="stack form-block">
-                <p className="hint">
-                  Live Meshtastic devices that reported a position in the last 60 minutes.
-                  Refreshes every 30 seconds.
-                </p>
-                {meshNodesLoading && meshNodes.length === 0 ? (
-                  <p style={{ color: "var(--muted)" }}>Loading nodes...</p>
-                ) : meshNodes.length === 0 ? (
-                  <p style={{ color: "var(--muted)" }}>No mesh nodes have reported positions in the last 60 minutes.</p>
-                ) : (
+        <SectionCard title="Meshtastic Configuration">
+          <div className="stack form-block compact-clusters">
+            {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
+            <fieldset className="fieldset-cluster">
+              <legend>MQTT / Mesh</legend>
+              <div className="cluster-stack">
+                <label className="stack compact">
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={siteSettings.mqtt_enabled ?? false}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          mqtt_enabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    MQTT enabled
+                  </span>
+                </label>
+                <label className="stack compact">
+                  <span>Broker mode</span>
+                  <select
+                    value={siteSettings.mqtt_broker_mode ?? "public"}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_broker_mode: event.target.value,
+                      }))
+                    }
+                  >
+                    <option value="public">Public (mqtt.meshtastic.org)</option>
+                    <option value="private">Private (custom broker)</option>
+                  </select>
+                </label>
+                {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
                   <>
-                    {/* Map showing node positions */}
-                    <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
-                      <TaskMap
-                        turnpoints={meshNodes.map((n, i): MapTurnpoint => ({
-                          id: i,
-                          name: n.pilot_name ?? n.device_id,
-                          code: null,
-                          latitude: n.lat,
-                          longitude: n.lon,
-                        }))}
-                        taskPoints={[]}
-                        optimizedRoute={[]}
-                        legMetrics={[]}
-                        totalDistanceKm={0}
-                        optimizedDistanceKm={0}
-                        track={null}
-                        editable={false}
-                        hideDistanceSummary
-                        livePositions={meshNodes.map((n): MapLivePosition => ({
-                          id: n.device_id,
-                          pilotId: n.pilot_id,
-                          pilotName: n.pilot_name ?? n.device_id,
-                          latitude: n.lat,
-                          longitude: n.lon,
-                          altitudeM: n.alt,
-                          speedKmh: n.speed,
-                          heading: n.heading,
-                          timestamp: n.timestamp,
-                          batteryLevel: n.battery_level,
-                          source: n.source,
-                          aircraftType: "hang_glider",
-                          profileType: (n.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
-                          positionSource: (n.position_source ?? "mesh") as "cellular" | "mesh" | "other",
-                        }))}
-                        fitKey={`mesh-nodes-${meshNodes.length}`}
+                    <label className="stack compact">
+                      <span>MQTT host</span>
+                      <input
+                        type="text"
+                        placeholder="mqtt.example.com"
+                        value={siteSettings.mqtt_host ?? ""}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_host: event.target.value || null,
+                          }))
+                        }
                       />
-                    </div>
-                    {/* Table of nodes */}
-                    <div style={{ overflowX: "auto" }}>
-                      <table className="participant-table" style={{ fontSize: "0.82rem" }}>
-                        <thead>
-                          <tr>
-                            <th>Device ID</th>
-                            <th>Name</th>
-                            <th>Type</th>
-                            <th>Lat</th>
-                            <th>Lon</th>
-                            <th>Alt</th>
-                            <th>Speed</th>
-                            <th>Battery</th>
-                            <th>Source</th>
-                            <th>Last seen</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {meshNodes.map((n) => (
-                            <tr key={n.device_id}>
-                              <td style={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{n.device_id}</td>
-                              <td>{n.pilot_name ?? "—"}</td>
-                              <td>{n.profile_type ?? "—"}</td>
-                              <td>{n.lat.toFixed(5)}</td>
-                              <td>{n.lon.toFixed(5)}</td>
-                              <td>{n.alt != null ? `${Math.round(n.alt)}` : "—"}</td>
-                              <td>{n.speed != null ? `${n.speed.toFixed(1)}` : "—"}</td>
-                              <td>{n.battery_level != null ? `${n.battery_level}%` : "—"}</td>
-                              <td>{n.position_source}</td>
-                              <td>{new Date(n.timestamp).toLocaleTimeString()}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                    </label>
+                    <label className="stack compact">
+                      <span>MQTT port</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        step={1}
+                        value={siteSettings.mqtt_port ?? 1883}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_port: Number(event.target.value || 1883),
+                          }))
+                        }
+                      />
+                    </label>
                   </>
                 )}
+                <label className="stack compact">
+                  <span>Topic prefix</span>
+                  <input
+                    type="text"
+                    placeholder="msh"
+                    value={siteSettings.mqtt_topic_prefix ?? "msh"}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_topic_prefix: event.target.value,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>Channel PSK</span>
+                  <input
+                    type="text"
+                    placeholder="Optional — for encrypted channels"
+                    value={siteSettings.mqtt_channel_psk ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_channel_psk: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
               </div>
-            </SectionCard>
-          )}
-        </>
+            </fieldset>
+            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
+            <div className="button-row">
+              <button type="button" onClick={() => void saveSiteSettings()}>
+                Save Meshtastic settings
+              </button>
+            </div>
+          </div>
+        </SectionCard>
+      ) : activeTab === "live_tracking" ? (
+        <LiveTrackingTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} meshNodes={meshNodes} meshNodesLoading={meshNodesLoading} />
       ) : (
         <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">
@@ -1168,99 +1070,324 @@ function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange"
   return "red";
 }
 
-function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./types").DebugStatusResponse | null; refreshDebugStatus: () => void }) {
-  if (!debugStatus) {
-    return (
-      <SectionCard title="Debugging">
-        <div className="stack form-block">
-          <div className="status-chip pending">Loading debug status...</div>
-        </div>
-      </SectionCard>
-    );
-  }
+function LiveTrackingTab({
+  debugStatus,
+  refreshDebugStatus,
+  meshNodes,
+  meshNodesLoading,
+}: {
+  debugStatus: import("./types").DebugStatusResponse | null;
+  refreshDebugStatus: () => void;
+  meshNodes: MeshNode[];
+  meshNodesLoading: boolean;
+}) {
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 
-  const { sse_subscriber_count, active_sessions, recent_sos_alerts, position_stats } = debugStatus;
+  const unified = useMemo<UnifiedDevice[]>(() => {
+    const byPilot = new Map<number, UnifiedDevice>();
+
+    for (const session of (debugStatus?.active_sessions ?? [])) {
+      byPilot.set(session.pilot_id, {
+        key: `pilot-${session.pilot_id}`,
+        pilot_id: session.pilot_id,
+        pilot_name: session.pilot_name,
+        profile_type: null,
+        session,
+        meshNode: null,
+        hasPhone: true,
+        hasMesh: false,
+        isOnline: session.is_online,
+        lastSeenAt: session.last_seen_at,
+      });
+    }
+
+    for (const node of meshNodes) {
+      if (node.pilot_id != null && byPilot.has(node.pilot_id)) {
+        const existing = byPilot.get(node.pilot_id)!;
+        const nodeTs = node.timestamp;
+        const sessionTs = existing.lastSeenAt;
+        const nodeIsNewer = !sessionTs || new Date(nodeTs).getTime() > new Date(sessionTs).getTime();
+        byPilot.set(node.pilot_id, {
+          ...existing,
+          meshNode: node,
+          hasMesh: true,
+          profile_type: node.profile_type,
+          lastSeenAt: nodeIsNewer ? nodeTs : sessionTs,
+        });
+      } else if (node.pilot_id != null) {
+        byPilot.set(node.pilot_id, {
+          key: `pilot-${node.pilot_id}`,
+          pilot_id: node.pilot_id,
+          pilot_name: node.pilot_name ?? node.device_id,
+          profile_type: node.profile_type,
+          session: null,
+          meshNode: node,
+          hasPhone: false,
+          hasMesh: true,
+          isOnline: false,
+          lastSeenAt: node.timestamp,
+        });
+      } else {
+        const deviceKey = `device-${node.device_id}`;
+        byPilot.set(-(Math.random() * 1e9) | 0, {
+          key: deviceKey,
+          pilot_id: null,
+          pilot_name: node.pilot_name ?? node.device_id,
+          profile_type: node.profile_type,
+          session: null,
+          meshNode: node,
+          hasPhone: false,
+          hasMesh: true,
+          isOnline: false,
+          lastSeenAt: node.timestamp,
+        });
+      }
+    }
+
+    const list = Array.from(byPilot.values());
+    list.sort((a, b) => {
+      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
+      const ta = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+      const tb = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+      return tb - ta;
+    });
+    return list;
+  }, [debugStatus, meshNodes]);
+
+  // Default-expand rows that have both phone and mesh
+  useEffect(() => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      for (const d of unified) {
+        if (d.hasPhone && d.hasMesh) next.add(d.key);
+      }
+      return next;
+    });
+  }, [unified]);
+
+  const livePositions = useMemo<MapLivePosition[]>(() => {
+    return unified.map((d): MapLivePosition => {
+      // Prefer most-recent position source
+      const useNode = d.meshNode != null && (
+        !d.session?.last_seen_at ||
+        new Date(d.meshNode.timestamp).getTime() > new Date(d.session.last_seen_at).getTime()
+      );
+      const lat = useNode ? d.meshNode!.lat : (d.session?.last_position?.lat ?? 0);
+      const lon = useNode ? d.meshNode!.lon : (d.session?.last_position?.lon ?? 0);
+      const alt = useNode ? d.meshNode!.alt : (d.session?.last_position?.alt ?? null);
+      const speed = useNode ? d.meshNode!.speed : (d.session?.last_position?.speed ?? null);
+      const heading = useNode ? (d.meshNode!.heading ?? null) : null;
+      const battery = useNode ? d.meshNode!.battery_level : (d.session?.battery_level ?? null);
+      const ts = d.lastSeenAt ?? new Date().toISOString();
+      const posSource = useNode
+        ? ((d.meshNode!.position_source ?? "mesh") as "cellular" | "mesh" | "other")
+        : "cellular";
+      return {
+        id: d.key,
+        pilotId: d.pilot_id,
+        pilotName: d.pilot_name,
+        latitude: lat,
+        longitude: lon,
+        altitudeM: alt,
+        speedKmh: speed,
+        heading: heading,
+        timestamp: ts,
+        batteryLevel: battery,
+        source: useNode ? d.meshNode!.source : (d.session?.source ?? null),
+        aircraftType: "hang_glider",
+        profileType: (d.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
+        positionSource: posSource,
+      };
+    }).filter((p) => p.latitude !== 0 || p.longitude !== 0);
+  }, [unified]);
+
+  const active_sessions = debugStatus?.active_sessions ?? [];
+  const recent_sos_alerts = debugStatus?.recent_sos_alerts ?? [];
+  const position_stats = debugStatus?.position_stats ?? { last_hour_total: 0, last_hour_cellular: 0, last_hour_mesh: 0 };
+  const sse_subscriber_count = debugStatus?.sse_subscriber_count ?? 0;
   const meshRatio = position_stats.last_hour_total > 0 ? Math.round((position_stats.last_hour_mesh / position_stats.last_hour_total) * 100) : 0;
 
+  function toggleExpand(key: string) {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   return (
-    <SectionCard title="Debugging" description="Live tracking system diagnostics and connected device status.">
+    <SectionCard title="Live Tracking" description="Unified view of all active tracking sessions and mesh nodes.">
       <div className="stack form-block">
-        {/* Status cards row */}
+        {/* A) Status cards */}
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "140px", padding: "12px 16px" }}>
             <div className="hint" style={{ marginBottom: "4px" }}>Live Viewers</div>
             <strong style={{ fontSize: "1.25rem" }}>{sse_subscriber_count}</strong>
           </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "160px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>Connected Devices</div>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "140px", padding: "12px 16px" }}>
+            <div className="hint" style={{ marginBottom: "4px" }}>Connected Sessions</div>
             <strong style={{ fontSize: "1.25rem" }}>{active_sessions.length}</strong>
+          </div>
+          <div className="section-card" style={{ flex: "1 1 0", minWidth: "140px", padding: "12px 16px" }}>
+            <div className="hint" style={{ marginBottom: "4px" }}>Mesh Nodes</div>
+            <strong style={{ fontSize: "1.25rem" }}>{meshNodesLoading && meshNodes.length === 0 ? "…" : meshNodes.length}</strong>
           </div>
         </div>
 
-        {/* Connected Devices table */}
+        {/* B) Map */}
+        {livePositions.length > 0 && (
+          <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
+            <TaskMap
+              turnpoints={[]}
+              taskPoints={[]}
+              optimizedRoute={[]}
+              legMetrics={[]}
+              totalDistanceKm={0}
+              optimizedDistanceKm={0}
+              track={null}
+              editable={false}
+              hideDistanceSummary
+              livePositions={livePositions}
+              fitKey={`live-tracking-${livePositions.length}`}
+            />
+          </div>
+        )}
+
+        {/* C) Unified tracking table */}
         <div className="participant-table-wrap">
-          <table className="participant-table">
+          <table className="participant-table" style={{ fontSize: "0.82rem" }}>
             <thead>
               <tr>
+                <th style={{ width: "24px" }}></th>
                 <th>Status</th>
                 <th>Pilot</th>
-                <th>Source</th>
-                <th>Mesh</th>
+                <th>Sources</th>
                 <th>Task</th>
                 <th>Positions</th>
+                <th>Battery</th>
                 <th>Interval</th>
                 <th>Last Fix</th>
               </tr>
             </thead>
             <tbody>
-              {active_sessions.length ? (
-                active_sessions.map((session) => {
-                  const color = lastSeenColor(session.last_seen_at);
+              {unified.length ? (
+                unified.map((d) => {
+                  const color = lastSeenColor(d.lastSeenAt);
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
-                  const interval = session.positions_last_60s > 0 ? Math.round(60 / session.positions_last_60s) : null;
-                  const sourceLabel = session.source === "app" ? "App (cellular)" : session.source === "mqtt_gateway" ? "Mesh (MQTT)" : session.source ?? "\u2014";
                   const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
+                  const isExpanded = expandedKeys.has(d.key);
+                  const canExpand = d.hasPhone && d.hasMesh;
+
+                  // Summary values: prefer session for task/positions/interval; fallback to mesh
+                  const interval = d.session && d.session.positions_last_60s > 0
+                    ? Math.round(60 / d.session.positions_last_60s)
+                    : null;
+
+                  // Battery: pick whichever source is most recent
+                  let battery: number | null = null;
+                  if (d.hasPhone && d.hasMesh) {
+                    const sessionTs = d.session?.last_seen_at ? new Date(d.session.last_seen_at).getTime() : 0;
+                    const meshTs = d.meshNode?.timestamp ? new Date(d.meshNode.timestamp).getTime() : 0;
+                    battery = sessionTs >= meshTs ? (d.session?.battery_level ?? null) : (d.meshNode?.battery_level ?? null);
+                  } else if (d.hasPhone) {
+                    battery = d.session?.battery_level ?? null;
+                  } else {
+                    battery = d.meshNode?.battery_level ?? null;
+                  }
+
+                  const deviceIdHint = d.session?.device_id ?? d.meshNode?.device_id ?? null;
+
                   return (
-                    <tr key={session.pilot_id} style={{ borderLeft: `3px solid ${borderColor}` }}>
-                      <td>
-                        <span style={{
-                          display: "inline-block",
-                          width: 10,
-                          height: 10,
-                          borderRadius: "50%",
-                          backgroundColor: session.is_online ? "#22c55e" : "#6b7280",
-                          boxShadow: session.is_online ? "0 0 6px #22c55e80" : undefined,
-                        }} title={session.is_online ? "Online" : "Offline"} />
-                      </td>
-                      <td><strong>{session.pilot_name}</strong></td>
-                      <td>{sourceLabel}</td>
-                      <td>
-                        <span style={{
-                          display: "inline-block",
-                          width: 10,
-                          height: 10,
-                          borderRadius: "50%",
-                          backgroundColor: session.has_mesh ? "#22c55e" : "#6b7280",
-                          boxShadow: session.has_mesh ? "0 0 6px #22c55e80" : undefined,
-                        }} title={session.has_mesh ? "Meshtastic active" : "No mesh"} />
-                      </td>
-                      <td>{session.task_name ?? "Free flight"}</td>
-                      <td>{session.position_count.toLocaleString()}</td>
-                      <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
-                      <td style={{ color: lastFixColor }}>{relativeTime(session.last_seen_at)}</td>
-                    </tr>
+                    <Fragment key={d.key}>
+                      <tr style={{ borderLeft: `3px solid ${borderColor}` }}>
+                        <td
+                          className={canExpand ? `tracking-expand-toggle${isExpanded ? " expanded" : ""}` : ""}
+                          onClick={canExpand ? () => toggleExpand(d.key) : undefined}
+                        >
+                          {canExpand ? (isExpanded ? "▾" : "▸") : ""}
+                        </td>
+                        <td>
+                          <span style={{
+                            display: "inline-block",
+                            width: 10,
+                            height: 10,
+                            borderRadius: "50%",
+                            backgroundColor: d.isOnline ? "#22c55e" : color === "orange" ? "#f59e0b" : "#6b7280",
+                            boxShadow: d.isOnline ? "0 0 6px #22c55e80" : undefined,
+                          }} title={d.isOnline ? "Online" : "Offline"} />
+                        </td>
+                        <td>
+                          <strong>{d.pilot_name}</strong>
+                          {deviceIdHint && (
+                            <div style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{deviceIdHint}</div>
+                          )}
+                        </td>
+                        <td>
+                          {d.hasPhone && <span className="tracking-source-pill phone">Phone</span>}
+                          {d.hasMesh && <span className="tracking-source-pill mesh">Mesh</span>}
+                        </td>
+                        <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
+                        <td>{d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
+                        <td>{battery != null ? `${battery}%` : "\u2014"}</td>
+                        <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
+                        <td style={{ color: lastFixColor }}>{relativeTime(d.lastSeenAt)}</td>
+                      </tr>
+                      {canExpand && isExpanded && (
+                        <>
+                          {/* Phone sub-row */}
+                          <tr className="tracking-sub-row">
+                            <td></td>
+                            <td>
+                              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
+                            </td>
+                            <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Phone</td>
+                            <td colSpan={2}>
+                              {d.session?.last_position
+                                ? `${d.session.last_position.lat.toFixed(5)}, ${d.session.last_position.lon.toFixed(5)}`
+                                : "\u2014"}
+                              {d.session?.last_position?.alt != null && ` · ${Math.round(d.session.last_position.alt)}m`}
+                              {d.session?.last_position?.speed != null && ` · ${d.session.last_position.speed.toFixed(1)} km/h`}
+                            </td>
+                            <td>{d.session?.battery_level != null ? `${d.session.battery_level}%` : "\u2014"}</td>
+                            <td colSpan={2} style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                              {relativeTime(d.session?.last_seen_at)}
+                            </td>
+                          </tr>
+                          {/* Mesh sub-row */}
+                          <tr className="tracking-sub-row">
+                            <td></td>
+                            <td>
+                              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", marginRight: "4px" }} />
+                            </td>
+                            <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Mesh</td>
+                            <td colSpan={2}>
+                              {d.meshNode
+                                ? `${d.meshNode.lat.toFixed(5)}, ${d.meshNode.lon.toFixed(5)}`
+                                : "\u2014"}
+                              {d.meshNode?.alt != null && ` · ${Math.round(d.meshNode.alt)}m`}
+                              {d.meshNode?.speed != null && ` · ${d.meshNode.speed.toFixed(1)} km/h`}
+                            </td>
+                            <td>{d.meshNode?.battery_level != null ? `${d.meshNode.battery_level}%` : "\u2014"}</td>
+                            <td colSpan={2} style={{ color: lastSeenColor(d.meshNode?.timestamp) === "green" ? "inherit" : lastSeenColor(d.meshNode?.timestamp) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                              {relativeTime(d.meshNode?.timestamp)}
+                            </td>
+                          </tr>
+                        </>
+                      )}
+                    </Fragment>
                   );
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} className="participant-table-empty">No active tracking sessions. Enable Debug Mode in the mobile app to test.</td>
+                  <td colSpan={9} className="participant-table-empty">No active tracking sessions or mesh nodes.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
 
-        {/* Bottom row: SOS Alerts + Position Sources */}
+        {/* D) Bottom cards: SOS Alerts + Position Sources */}
         <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
           <div
             className="section-card"
@@ -1314,6 +1441,7 @@ function DebugTab({ debugStatus, refreshDebugStatus }: { debugStatus: import("./
           </div>
         </div>
 
+        {/* E) Refresh */}
         <div className="button-row">
           <button type="button" className="ghost-button" onClick={refreshDebugStatus}>
             Refresh now
