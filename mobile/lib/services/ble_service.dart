@@ -1198,6 +1198,8 @@ class BleService extends ChangeNotifier {
         rootTopic: _platformMqttTopicPrefix,
         encryptionEnabled: _deviceState.mqttEncryptionEnabled,
         proxyToClientEnabled: config.bluetoothEnabled, // Proxy when BLE on
+        mapReportingEnabled: config.wifiEnabled, // WiFi profiles publish to MQTT map
+        mapReportIntervalSecs: config.positionBroadcastSecs, // Match radio interval
       ));
 
       // Telemetry
