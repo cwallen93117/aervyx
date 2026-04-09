@@ -866,8 +866,6 @@ Uint8List buildSetMqttConfig({
   bool encryptionEnabled = true,
   bool tlsEnabled = false,
   bool proxyToClientEnabled = false,
-  bool mapReportingEnabled = false,
-  int mapReportIntervalSecs = 0,
 }) {
   final mqtt = ProtoWriter();
   mqtt.writeBool(1, true); // enabled — always on
@@ -878,12 +876,6 @@ Uint8List buildSetMqttConfig({
   mqtt.writeBool(7, tlsEnabled); // tls_enabled
   mqtt.writeString(8, rootTopic); // root
   mqtt.writeBool(9, proxyToClientEnabled); // proxy_to_client_enabled
-  if (mapReportingEnabled) {
-    mqtt.writeBool(10, true); // map_reporting_enabled
-    final mapSettings = ProtoWriter();
-    mapSettings.writeVarint(1, mapReportIntervalSecs); // publish_interval_secs
-    mqtt.writeMessage(11, mapSettings); // map_report_settings
-  }
 
   final module = ProtoWriter();
   module.writeMessage(1, mqtt); // mqtt (ModuleConfig field 1)

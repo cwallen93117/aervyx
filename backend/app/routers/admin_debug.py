@@ -91,7 +91,7 @@ def admin_debug_status(
             .select_from(LivePosition)
             .where(
                 LivePosition.pilot_id == ts.pilot_id,
-                LivePosition.source == "mqtt_gateway",
+                LivePosition.source.in_(["mqtt_gateway", "mesh_relay"]),
             )
         ) or 0
 
@@ -172,7 +172,7 @@ def admin_debug_status(
 
     source_map: dict[str | None, int] = {src: cnt for src, cnt in source_counts}
     last_hour_cellular = source_map.get("app", 0)
-    last_hour_mesh = source_map.get("mqtt_gateway", 0)
+    last_hour_mesh = source_map.get("mqtt_gateway", 0) + source_map.get("mesh_relay", 0)
 
     return {
         "mqtt_connected": mqtt_connected,

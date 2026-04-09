@@ -333,19 +333,23 @@ def _resolve_active_task_id(session, pilot_id: int | None) -> int | None:
     return task.id if task else None
 
 
-def _read_mqtt_config_from_db() -> tuple[str | None, int, str]:
+def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str | None]:
     """Read MQTT broker settings from the site_settings DB row.
 
-    Returns ``(host, port, topic_prefix)``.  If the row doesn't exist or
-    MQTT is disabled, ``host`` will be ``None``.
+    Returns ``(host, port, topic_prefix, username, password)``.  If the row
+    doesn't exist or MQTT is disabled, ``host`` will be ``None``.
     """
     session = SessionLocal()
     try:
         site = session.get(SiteSettings, 1)
         if site is None or not site.mqtt_enabled:
-            return None, 1883, "msh"
-        host = "mqtt.meshtastic.org" if site.mqtt_broker_mode == "public" else site.mqtt_host
-        return host, site.mqtt_port, site.mqtt_topic_prefix
+            return None, 1883, "msh", None, None
+        is_public = site.mqtt_broker_mode == "public"
+        host = "mqtt.meshtastic.org" if is_public else site.mqtt_host
+        # Public Meshtastic broker requires well-known credentials
+        username = "meshdev" if is_public else None
+        password = "large4cats" if is_public else None
+        return host, site.mqtt_port, site.mqtt_topic_prefix, username, password
     finally:
         session.close()
 
@@ -362,7 +366,7 @@ async def _subscribe_loop() -> None:
     mqtt_reconnect_event = asyncio.Event()
 
     while True:
-        host, port, topic_prefix = _read_mqtt_config_from_db()
+        host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
         if not host:
             logger.info("MQTT not configured or disabled — waiting for config change…")
             mqtt_connected = False
@@ -374,7 +378,12 @@ async def _subscribe_loop() -> None:
         logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
 
         try:
-            async with aiomqtt.Client(hostname=host, port=port) as client:
+            async with aiomqtt.Client(
+                hostname=host,
+                port=port,
+                username=username,
+                password=password,
+            ) as client:
                 await client.subscribe(topic)
                 mqtt_connected = True
                 logger.info("MQTT subscribed to %s", topic)

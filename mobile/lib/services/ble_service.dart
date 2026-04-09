@@ -1197,10 +1197,8 @@ class BleService extends ChangeNotifier {
       await _writeAdmin(buildSetMqttConfig(
         address: _platformMqttHost ?? 'mqtt.meshtastic.org',
         rootTopic: _platformMqttTopicPrefix,
-        encryptionEnabled: _deviceState.mqttEncryptionEnabled,
+        encryptionEnabled: false, // Plaintext so our backend can parse
         proxyToClientEnabled: config.bluetoothEnabled, // Proxy when BLE on
-        mapReportingEnabled: config.wifiEnabled, // WiFi profiles publish to MQTT map
-        mapReportIntervalSecs: config.positionBroadcastSecs, // Match radio interval
       ));
 
       // Telemetry

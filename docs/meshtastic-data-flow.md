@@ -66,7 +66,7 @@ flowchart TB
         DB   --> SSE["SSE fan-out"]
     end
 
-    PUB  -->|"PATH 3a: subscribe\nmsh/+/+/position"| MSUB
+    PUB  -->|"PATH 3a: subscribe\n{topic_prefix}/#"| MSUB
     PRIV -.->|"PATH 3b: subscribe"| MSUB
 
     SSE --> MAP["Live Tracking Map"]
@@ -128,11 +128,17 @@ The Aervyx backend subscribes to that broker.
 | Mesh relay | Other nodes rebroadcast (up to `hop_limit`) |
 | Gateway receives | Any MQTT-enabled node with internet hears the packet |
 | MQTT publish | Gateway publishes to broker topic `msh/US/2/e/position/...` |
+| Decryption | Channel uplink sends plaintext (encryption_enabled=false) so backend can parse |
 | Aervyx subscribes | MQTT subscriber receives the ServiceEnvelope message |
 | Protobuf parse | ServiceEnvelope -> MeshPacket -> Position |
 | pilot_id lookup | `from_node` -> `!XXXXXXXX` -> `users.mesh_device_id` |
 | task_id lookup | Active task resolution from event registration |
 | Store + broadcast | Position saved, SSE pushed to live map |
+
+**MQTT encryption:** Our profiles set `encryption_enabled=false` on the MQTT config
+so that channel packets arrive in plaintext on the broker. The backend parser only
+handles unencrypted ServiceEnvelope payloads — encrypted packets are silently
+dropped. Position privacy on the public mesh is not a concern for competition use.
 
 ---
 
@@ -162,6 +168,24 @@ Your devices --> mesh --> only YOUR configured nodes --> your broker
 - No benefit from public nodes -- strangers cannot relay to your broker because
   they do not have your credentials
 - You must run and maintain the broker infrastructure
+
+---
+
+## Radio relay vs MQTT uplink
+
+These are two different things:
+
+- **Radio relay** happens at the LoRa level. Every Meshtastic device in range
+  rebroadcasts packets it hears, up to `hop_limit`. No internet, no decryption,
+  no channel matching needed. A stranger's device on a mountaintop extends your
+  mesh range automatically.
+
+- **MQTT uplink** happens at the application level. A device with internet +
+  channel uplink enabled forwards channel traffic to an MQTT broker. This is how
+  positions reach the Aervyx backend via Path 3.
+
+A stranger's device always helps with radio relay. It only helps with MQTT uplink
+if it is on the same channel with uplink enabled and connected to the same broker.
 
 ---
 
@@ -206,6 +230,12 @@ account. No manual configuration is needed.
 If the pilot switches to a different device, the new device ID overwrites the
 old one. This means the MQTT subscriber and BLE relay can always resolve
 incoming mesh positions to the correct pilot.
+
+Infrastructure devices (Repeater profile) are a special case: when a user applies
+the Repeater profile, the app unregisters the device from their account. This
+prevents a stationary relay node from being tracked as a pilot. When the same
+phone later connects to a personal tracker, the new device is auto-registered
+normally.
 
 ```mermaid
 sequenceDiagram
