@@ -397,14 +397,12 @@ def _paho_subscribe_loop() -> None:
         topic = f"{topic_prefix}/#"
         logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
 
-        client = paho_mqtt.Client(
-            paho_mqtt.CallbackAPIVersion.VERSION2,
-            client_id=f"aervyx-{threading.get_ident()}",
-        )
+        # Use paho-mqtt v1 callback API (deprecated but reliable)
+        client = paho_mqtt.Client(client_id=f"aervyx-{threading.get_ident()}")
         if username:
             client.username_pw_set(username, password)
 
-        def on_connect(client, userdata, flags, rc, properties=None):
+        def on_connect(client, userdata, flags, rc):
             global mqtt_connected
             if rc == 0:
                 mqtt_connected = True
@@ -413,7 +411,7 @@ def _paho_subscribe_loop() -> None:
             else:
                 logger.warning("MQTT CONNACK rc=%s", rc)
 
-        def on_disconnect(client, userdata, flags, rc, properties=None):
+        def on_disconnect(client, userdata, rc):
             global mqtt_connected
             mqtt_connected = False
             logger.warning("MQTT disconnected rc=%s", rc)
