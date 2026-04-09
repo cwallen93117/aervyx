@@ -369,7 +369,7 @@ class ProfileConfig {
 
   static Map<MeshtasticProfile, ProfileConfig> presets = {
     MeshtasticProfile.pilot: const ProfileConfig(
-      role: DeviceRole.tracker,
+      role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
       positionBroadcastSecs: 30,
