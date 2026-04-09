@@ -383,8 +383,8 @@ class _ProfileSelectorState extends State<_ProfileSelector> {
             const SizedBox(height: 4),
             Text(
               _isTracker
-                  ? 'Optimised for position tracking (pilots & drivers)'
-                  : 'Always-on relay for mesh coverage (repeaters & gateways)',
+                  ? 'Optimised for position tracking (pilots)'
+                  : 'Always-on relay for mesh coverage (drivers & repeaters)',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
