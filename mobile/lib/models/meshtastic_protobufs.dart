@@ -550,6 +550,12 @@ class ProtoReader {
 
   int readVarint() => _readRawVarint();
 
+  /// Read a zigzag-encoded signed varint (sint32/sint64).
+  int readSignedVarint() {
+    final n = _readRawVarint();
+    return (n >> 1) ^ -(n & 1);
+  }
+
   bool readBool() => _readRawVarint() != 0;
 
   String readString() {

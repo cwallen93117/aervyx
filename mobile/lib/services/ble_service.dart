@@ -1493,7 +1493,7 @@ class BleService extends ChangeNotifier {
       while (reader.hasMore) {
         final (field, wireType) = reader.readTag();
         if (field == 2) {
-          // MeshPacket
+          // MeshPacket (field 2 in FromRadio)
           final packetBytes = reader.readBytes();
           _handleMeshPacket(Uint8List.fromList(packetBytes));
         } else {
@@ -1521,7 +1521,13 @@ class BleService extends ChangeNotifier {
               mp.skip(wireType);
             }
             break;
-          case 3: // decoded Data (length-delimited)
+          case 2: // to (fixed32)
+            mp.skip(wireType);
+            break;
+          case 3: // channel (varint)
+            mp.skip(wireType);
+            break;
+          case 4: // decoded Data (length-delimited)
             decodedData = Uint8List.fromList(mp.readBytes());
             break;
           default:
@@ -1550,7 +1556,7 @@ class BleService extends ChangeNotifier {
         }
       }
 
-      if (portnum != 3 || payload == null) return; // Not a position packet
+      if (portnum != 3 || payload == null) return;
 
       // Parse Position message
       final posReader = ProtoReader(payload);
@@ -1560,28 +1566,68 @@ class BleService extends ChangeNotifier {
         final (field, wireType) = posReader.readTag();
         switch (field) {
           case 1: // latitude_i (sfixed32, wire type 5)
-            latI = wireType == 5 ? posReader.readSfixed32() : (posReader.skip(wireType) as dynamic);
+            if (wireType == 5) {
+              latI = posReader.readSfixed32();
+            } else if (wireType == 0) {
+              latI = posReader.readSignedVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
           case 2: // longitude_i (sfixed32, wire type 5)
-            lonI = wireType == 5 ? posReader.readSfixed32() : (posReader.skip(wireType) as dynamic);
+            if (wireType == 5) {
+              lonI = posReader.readSfixed32();
+            } else if (wireType == 0) {
+              lonI = posReader.readSignedVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
-          case 3: // altitude (varint)
-            alt = posReader.readVarint();
+          case 3: // altitude (int32, wire type 0)
+            if (wireType == 0) {
+              alt = posReader.readVarint();
+            } else if (wireType == 5) {
+              alt = posReader.readSfixed32();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
-          case 4: // time (varint)
-            time = posReader.readVarint();
+          case 4: // time (fixed32, wire type 5)
+            if (wireType == 5) {
+              time = posReader.readFixed32();
+            } else if (wireType == 0) {
+              time = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
-          case 8: // ground_speed (varint)
-            speed = posReader.readVarint();
+          case 8: // ground_speed (uint32, wire type 0)
+            if (wireType == 0) {
+              speed = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
-          case 9: // ground_track (varint)
-            heading = posReader.readVarint();
+          case 9: // ground_track (uint32, wire type 0)
+            if (wireType == 0) {
+              heading = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
-          case 10: // PDOP (varint, ×100)
-            pdop = posReader.readVarint();
+          case 10: // PDOP (uint32, wire type 0, ×100)
+            if (wireType == 0) {
+              pdop = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
-          case 13: // sats_in_view (varint)
-            satsInView = posReader.readVarint();
+          case 13: // sats_in_view (uint32, wire type 0)
+            if (wireType == 0) {
+              satsInView = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
             break;
           default:
             posReader.skip(wireType);
@@ -1621,8 +1667,8 @@ class BleService extends ChangeNotifier {
             ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
             : null,
       );
-    } catch (_) {
-      // Malformed mesh packet — skip
+    } catch (e) {
+      debugPrint('[BLE] mesh position parse error: $e');
     }
   }
 
