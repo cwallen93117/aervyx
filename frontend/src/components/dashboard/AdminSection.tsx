@@ -1154,12 +1154,12 @@ function LiveTrackingTab({
     return list;
   }, [debugStatus, meshNodes]);
 
-  // Default-expand rows that have both phone and mesh
+  // Default-expand all rows to show position detail
   useEffect(() => {
     setExpandedKeys((prev) => {
       const next = new Set(prev);
       for (const d of unified) {
-        if (d.hasPhone && d.hasMesh) next.add(d.key);
+        next.add(d.key);
       }
       return next;
     });
@@ -1236,23 +1236,21 @@ function LiveTrackingTab({
         </div>
 
         {/* B) Map */}
-        {livePositions.length > 0 && (
-          <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
-            <TaskMap
-              turnpoints={[]}
-              taskPoints={[]}
-              optimizedRoute={[]}
-              legMetrics={[]}
-              totalDistanceKm={0}
-              optimizedDistanceKm={0}
-              track={null}
-              editable={false}
-              hideDistanceSummary
-              livePositions={livePositions}
-              fitKey={`live-tracking-${livePositions.length}`}
-            />
-          </div>
-        )}
+        <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
+          <TaskMap
+            turnpoints={[]}
+            taskPoints={[]}
+            optimizedRoute={[]}
+            legMetrics={[]}
+            totalDistanceKm={0}
+            optimizedDistanceKm={0}
+            track={null}
+            editable={false}
+            hideDistanceSummary
+            livePositions={livePositions}
+            fitKey={`live-tracking-${livePositions.length}`}
+          />
+        </div>
 
         {/* C) Unified tracking table */}
         <div className="participant-table-wrap">
@@ -1277,7 +1275,7 @@ function LiveTrackingTab({
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
                   const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
                   const isExpanded = expandedKeys.has(d.key);
-                  const canExpand = d.hasPhone && d.hasMesh;
+                  const canExpand = true; // Always expandable for position detail
 
                   // Summary values: prefer session for task/positions/interval; fallback to mesh
                   const interval = d.session && d.session.positions_last_60s > 0
@@ -1333,46 +1331,50 @@ function LiveTrackingTab({
                         <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
                         <td style={{ color: lastFixColor }}>{relativeTime(d.lastSeenAt)}</td>
                       </tr>
-                      {canExpand && isExpanded && (
+                      {isExpanded && (
                         <>
                           {/* Phone sub-row */}
-                          <tr className="tracking-sub-row">
-                            <td></td>
-                            <td>
-                              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
-                            </td>
-                            <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Phone</td>
-                            <td colSpan={2}>
-                              {d.session?.last_position
-                                ? `${d.session.last_position.lat.toFixed(5)}, ${d.session.last_position.lon.toFixed(5)}`
-                                : "\u2014"}
-                              {d.session?.last_position?.alt != null && ` · ${Math.round(d.session.last_position.alt)}m`}
-                              {d.session?.last_position?.speed != null && ` · ${d.session.last_position.speed.toFixed(1)} km/h`}
-                            </td>
-                            <td>{d.session?.battery_level != null ? `${d.session.battery_level}%` : "\u2014"}</td>
-                            <td colSpan={2} style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
-                              {relativeTime(d.session?.last_seen_at)}
-                            </td>
-                          </tr>
+                          {d.hasPhone && (
+                            <tr className="tracking-sub-row">
+                              <td></td>
+                              <td>
+                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
+                              </td>
+                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Phone</td>
+                              <td colSpan={2}>
+                                {d.session?.last_position
+                                  ? `${d.session.last_position.lat.toFixed(5)}, ${d.session.last_position.lon.toFixed(5)}`
+                                  : "\u2014"}
+                                {d.session?.last_position?.alt != null && ` · ${Math.round(d.session.last_position.alt)}m`}
+                                {d.session?.last_position?.speed != null && ` · ${d.session.last_position.speed.toFixed(1)} km/h`}
+                              </td>
+                              <td>{d.session?.battery_level != null ? `${d.session.battery_level}%` : "\u2014"}</td>
+                              <td colSpan={2} style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                                {relativeTime(d.session?.last_seen_at)}
+                              </td>
+                            </tr>
+                          )}
                           {/* Mesh sub-row */}
-                          <tr className="tracking-sub-row">
-                            <td></td>
-                            <td>
-                              <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", marginRight: "4px" }} />
-                            </td>
-                            <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Mesh</td>
-                            <td colSpan={2}>
-                              {d.meshNode
-                                ? `${d.meshNode.lat.toFixed(5)}, ${d.meshNode.lon.toFixed(5)}`
-                                : "\u2014"}
-                              {d.meshNode?.alt != null && ` · ${Math.round(d.meshNode.alt)}m`}
-                              {d.meshNode?.speed != null && ` · ${d.meshNode.speed.toFixed(1)} km/h`}
-                            </td>
-                            <td>{d.meshNode?.battery_level != null ? `${d.meshNode.battery_level}%` : "\u2014"}</td>
-                            <td colSpan={2} style={{ color: lastSeenColor(d.meshNode?.timestamp) === "green" ? "inherit" : lastSeenColor(d.meshNode?.timestamp) === "orange" ? "#f59e0b" : "#ef4444" }}>
-                              {relativeTime(d.meshNode?.timestamp)}
-                            </td>
-                          </tr>
+                          {d.hasMesh && (
+                            <tr className="tracking-sub-row">
+                              <td></td>
+                              <td>
+                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", marginRight: "4px" }} />
+                              </td>
+                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Mesh</td>
+                              <td colSpan={2}>
+                                {d.meshNode
+                                  ? `${d.meshNode.lat.toFixed(5)}, ${d.meshNode.lon.toFixed(5)}`
+                                  : "\u2014"}
+                                {d.meshNode?.alt != null && ` · ${Math.round(d.meshNode.alt)}m`}
+                                {d.meshNode?.speed != null && ` · ${d.meshNode.speed.toFixed(1)} km/h`}
+                              </td>
+                              <td>{d.meshNode?.battery_level != null ? `${d.meshNode.battery_level}%` : "\u2014"}</td>
+                              <td colSpan={2} style={{ color: lastSeenColor(d.meshNode?.timestamp) === "green" ? "inherit" : lastSeenColor(d.meshNode?.timestamp) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                                {relativeTime(d.meshNode?.timestamp)}
+                              </td>
+                            </tr>
+                          )}
                         </>
                       )}
                     </Fragment>
