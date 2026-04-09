@@ -34,7 +34,9 @@ import logging
 import struct
 from datetime import UTC, datetime
 
-import aiomqtt
+import threading
+
+import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
 from app.db import SessionLocal
@@ -354,94 +356,98 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
         session.close()
 
 
-async def _subscribe_loop() -> None:
-    """Connect to broker and process messages indefinitely.
+def _handle_message(payload: bytes) -> None:
+    """Process a single MQTT message payload."""
+    parsed = _parse_position(payload)
+    if parsed is None:
+        parsed = _parse_protobuf_position(payload)
+    if parsed is None:
+        return
 
-    Reads config from DB on each connection attempt and watches
-    ``mqtt_reconnect_event`` to trigger reconnection when admin changes
-    settings.
-    """
-    global mqtt_connected, mqtt_last_message_at, mqtt_reconnect_event
+    global mqtt_last_message_at
 
-    mqtt_reconnect_event = asyncio.Event()
+    session = SessionLocal()
+    try:
+        if parsed.get("pilot_id") is None and parsed.get("device_id"):
+            parsed["pilot_id"] = _resolve_pilot_id(session, parsed["device_id"])
+        if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
+            parsed["task_id"] = _resolve_active_task_id(session, parsed["pilot_id"])
+        store_position(session, **parsed)
+        session.commit()
+        mqtt_last_message_at = datetime.now(UTC)
+    except Exception:
+        logger.exception("Failed to store MQTT position")
+        session.rollback()
+    finally:
+        session.close()
+
+
+def _paho_subscribe_loop() -> None:
+    """Blocking loop using paho-mqtt (runs in a daemon thread)."""
+    global mqtt_connected
 
     while True:
         host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
         if not host:
-            logger.info("MQTT not configured or disabled — waiting for config change…")
+            logger.info("MQTT not configured or disabled — sleeping 30s…")
             mqtt_connected = False
-            await mqtt_reconnect_event.wait()
-            mqtt_reconnect_event.clear()
+            import time; time.sleep(30)
             continue
 
         topic = f"{topic_prefix}/#"
         logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
 
-        try:
-            async with aiomqtt.Client(
-                hostname=host,
-                port=port,
-                username=username,
-                password=password,
-                keepalive=60,
-                timeout=30,
-            ) as client:
-                await client.subscribe(topic)
+        client = paho_mqtt.Client(
+            paho_mqtt.CallbackAPIVersion.VERSION2,
+            client_id=f"aervyx-{threading.get_ident()}",
+        )
+        if username:
+            client.username_pw_set(username, password)
+
+        def on_connect(client, userdata, flags, rc, properties=None):
+            global mqtt_connected
+            if rc == 0:
                 mqtt_connected = True
+                client.subscribe(topic)
                 logger.info("MQTT subscribed to %s", topic)
+            else:
+                logger.warning("MQTT CONNACK rc=%s", rc)
 
-                async for message in client.messages:
-                    # Check if we need to reconnect with new settings
-                    if mqtt_reconnect_event.is_set():
-                        mqtt_reconnect_event.clear()
-                        logger.info("MQTT settings changed — reconnecting…")
-                        break  # exit message loop → reconnect with new config
-
-                    payload = message.payload
-                    if not isinstance(payload, (bytes, bytearray)):
-                        continue
-
-                    # Try JSON first, then fall back to protobuf
-                    parsed = _parse_position(payload)
-                    if parsed is None:
-                        parsed = _parse_protobuf_position(payload)
-
-                    if parsed is None:
-                        continue
-
-                    session = SessionLocal()
-                    try:
-                        # Resolve device_id → pilot_id if not already set
-                        if parsed.get("pilot_id") is None and parsed.get("device_id"):
-                            parsed["pilot_id"] = _resolve_pilot_id(session, parsed["device_id"])
-                        # Resolve pilot_id → task_id if not already set
-                        if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
-                            parsed["task_id"] = _resolve_active_task_id(session, parsed["pilot_id"])
-                        store_position(session, **parsed)
-                        session.commit()
-                        mqtt_last_message_at = datetime.now(UTC)
-                    except Exception:
-                        logger.exception("Failed to store MQTT position")
-                        session.rollback()
-                    finally:
-                        session.close()
-
-        except aiomqtt.MqttError as exc:
+        def on_disconnect(client, userdata, flags, rc, properties=None):
+            global mqtt_connected
             mqtt_connected = False
-            logger.warning("MQTT connection lost (%s), reconnecting in 5s…", exc)
-            await asyncio.sleep(5)
-        except Exception:
+            logger.warning("MQTT disconnected rc=%s", rc)
+
+        def on_message(client, userdata, msg):
+            payload = msg.payload
+            if isinstance(payload, (bytes, bytearray)):
+                _handle_message(payload)
+
+        client.on_connect = on_connect
+        client.on_disconnect = on_disconnect
+        client.on_message = on_message
+
+        try:
+            client.connect(host, port, keepalive=60)
+            client.loop_forever()
+        except Exception as exc:
             mqtt_connected = False
-            logger.exception("Unexpected MQTT error, reconnecting in 10s…")
-            await asyncio.sleep(10)
+            logger.warning("MQTT connection error (%s), reconnecting in 5s…", exc)
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+        import time; time.sleep(5)
 
 
-async def start_mqtt_subscriber() -> asyncio.Task | None:
-    """Launch the MQTT subscriber as a background asyncio task.
+async def start_mqtt_subscriber() -> None:
+    """Launch the MQTT subscriber as a background daemon thread.
 
-    Returns the task handle.  The subscriber reads config from the DB and
-    will wait for config changes if MQTT is not yet configured.
+    Uses paho-mqtt directly for reliable connections to the public
+    Meshtastic broker.
     """
-    task = asyncio.create_task(_subscribe_loop())
-    logger.info("MQTT subscriber background task started")
-    return task
+    thread = threading.Thread(target=_paho_subscribe_loop, daemon=True)
+    thread.start()
+    logger.info("MQTT subscriber background thread started")
