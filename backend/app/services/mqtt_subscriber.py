@@ -389,32 +389,45 @@ def _paho_subscribe_loop() -> None:
     while True:
         host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
         if not host:
-            logger.info("MQTT not configured or disabled — sleeping 30s…")
+            print("[MQTT] Not configured or disabled — sleeping 30s", flush=True)
             mqtt_connected = False
             time.sleep(30)
             continue
 
         topic = f"{topic_prefix}/#"
-        logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
+        print(f"[MQTT] Connecting to {host}:{port} topic={topic} user={username}", flush=True)
 
-        # Use paho-mqtt v1 callback API (deprecated but reliable)
-        client = paho_mqtt.Client(client_id=f"aervyx-{threading.get_ident()}")
+        # Explicit VERSION1 callback API for paho-mqtt 2.x compatibility
+        try:
+            from paho.mqtt.enums import CallbackAPIVersion
+            client = paho_mqtt.Client(
+                callback_api_version=CallbackAPIVersion.VERSION1,
+                client_id=f"aervyx-{int(time.time()) % 100000}",
+            )
+        except ImportError:
+            # Fallback for paho-mqtt 1.x
+            client = paho_mqtt.Client(client_id=f"aervyx-{int(time.time()) % 100000}")
+
         if username:
             client.username_pw_set(username, password)
 
+        connected_event = threading.Event()
+
         def on_connect(client, userdata, flags, rc):
             global mqtt_connected
+            print(f"[MQTT] on_connect: rc={rc} flags={flags}", flush=True)
             if rc == 0:
                 mqtt_connected = True
                 client.subscribe(topic)
-                logger.info("MQTT subscribed to %s", topic)
+                connected_event.set()
+                print(f"[MQTT] Subscribed to {topic}", flush=True)
             else:
-                logger.warning("MQTT CONNACK rc=%s", rc)
+                print(f"[MQTT] CONNECT REFUSED rc={rc}", flush=True)
 
         def on_disconnect(client, userdata, rc):
             global mqtt_connected
             mqtt_connected = False
-            logger.warning("MQTT disconnected rc=%s", rc)
+            print(f"[MQTT] Disconnected rc={rc}", flush=True)
 
         def on_message(client, userdata, msg):
             payload = msg.payload
@@ -428,19 +441,34 @@ def _paho_subscribe_loop() -> None:
         try:
             client.connect(host, port, keepalive=60)
             client.loop_start()
-            # Stay in this loop while connected; check for reconnect signal
+
+            # Wait for CONNACK with timeout instead of polling is_connected()
+            if not connected_event.wait(timeout=15):
+                print("[MQTT] Timed out waiting for CONNACK after 15s", flush=True)
+                client.loop_stop()
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+                time.sleep(5)
+                continue
+
+            print("[MQTT] Connected and subscribed, monitoring…", flush=True)
+
+            # Stay connected; check for reconnect signal
             while True:
-                time.sleep(2)
+                time.sleep(5)
                 if not client.is_connected():
+                    print("[MQTT] Connection lost, will reconnect", flush=True)
                     break
                 if mqtt_reconnect_event is not None and mqtt_reconnect_event.is_set():
                     mqtt_reconnect_event.clear()
-                    logger.info("MQTT settings changed — reconnecting…")
+                    print("[MQTT] Settings changed — reconnecting…", flush=True)
                     break
             client.loop_stop()
         except Exception as exc:
             mqtt_connected = False
-            logger.warning("MQTT connection error (%s), reconnecting in 5s…", exc)
+            print(f"[MQTT] Connection error: {exc}", flush=True)
         finally:
             try:
                 client.disconnect()
