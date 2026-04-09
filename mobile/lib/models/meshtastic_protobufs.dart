@@ -369,7 +369,7 @@ class ProfileConfig {
 
   static Map<MeshtasticProfile, ProfileConfig> presets = {
     MeshtasticProfile.pilot: const ProfileConfig(
-      role: DeviceRole.client,
+      role: DeviceRole.tracker,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
       positionBroadcastSecs: 30,
@@ -386,7 +386,7 @@ class ProfileConfig {
       telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.driver: const ProfileConfig(
-      role: DeviceRole.client,
+      role: DeviceRole.router,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
       positionBroadcastSecs: 120,
@@ -403,7 +403,7 @@ class ProfileConfig {
       telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.driverWifi: const ProfileConfig(
-      role: DeviceRole.client,
+      role: DeviceRole.router,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
       positionBroadcastSecs: 60,

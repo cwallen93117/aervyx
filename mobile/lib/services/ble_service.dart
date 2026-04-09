@@ -467,12 +467,10 @@ class BleService extends ChangeNotifier {
       _statusMessage = 'Connected to ${meshDevice.name}';
       _configLoaded = true;
 
-      // Auto-register unless the device is an infrastructure node (router).
-      // Repeaters configured by us use DeviceRole.router; everything else
-      // (pilot, driver, driver-wifi, unconfigured) uses client.
-      if (_deviceState.role != DeviceRole.router) {
-        _registerMeshDevice();
-      }
+      // Auto-register on every connect. If the user applies a Repeater
+      // profile, applyProfile() will unregister it. This keeps the common
+      // case (pilot/driver reconnecting) instant and correct.
+      _registerMeshDevice();
 
       // Start mesh position relay (always — captures all mesh traffic)
       _startMeshPositionRelay();
