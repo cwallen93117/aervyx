@@ -290,13 +290,6 @@ export default function AdminSection(props: AdminSectionProps) {
         </button>
         <button
           type="button"
-          className={activeTab === "debugging" ? "tab-button active" : "tab-button"}
-          onClick={() => setActiveTab("debugging")}
-        >
-          Debugging
-        </button>
-        <button
-          type="button"
           className={activeTab === "map_config" ? "tab-button active" : "tab-button"}
           onClick={() => setActiveTab("map_config")}
         >
@@ -308,6 +301,13 @@ export default function AdminSection(props: AdminSectionProps) {
           onClick={() => setActiveTab("meshtastic")}
         >
           Meshtastic
+        </button>
+        <button
+          type="button"
+          className={activeTab === "debugging" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("debugging")}
+        >
+          Debugging
         </button>
       </div>
       {activeTab === "platform_users" ? (
