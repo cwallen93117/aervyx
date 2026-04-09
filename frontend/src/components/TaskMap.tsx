@@ -39,6 +39,7 @@ export type MapLivePosition = {
   aircraftType?: "hang_glider" | "paraglider" | "sailplane" | null;
   profileType?: MapLivePositionProfileType | null;
   positionSource?: MapLivePositionSource | null;
+  deviceId?: string | null;
 };
 type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
@@ -1059,6 +1060,7 @@ export const TaskMap = React.memo(function TaskMap({
   },
   showGpsButton = false,
   overlayConfig,
+  focusPosition,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1085,12 +1087,14 @@ export const TaskMap = React.memo(function TaskMap({
   telemetrySmoothing?: MapTelemetrySmoothing;
   showGpsButton?: boolean;
   overlayConfig?: Record<string, boolean>;
+  focusPosition?: { lat: number; lon: number; key: string | number } | null;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const scaleControlRef = useRef<maplibregl.ScaleControl | null>(null);
+  const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
   const taskPointsRef = useRef(taskPoints);
   const optimizedRouteRef = useRef(optimizedRoute);
@@ -2342,6 +2346,21 @@ export const TaskMap = React.memo(function TaskMap({
     });
     lastCenteredHighlightRef.current = highlightedTrackUploadId;
   }, [highlightedTrackSnapshot, highlightedTrackUploadId, isPerspective3D]);
+
+  // Fly to a specific position when the parent requests it (e.g. pilot row click).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusPosition) return;
+    if (lastFocusPositionKeyRef.current === focusPosition.key) return;
+    programmaticCameraMoveRef.current = true;
+    map.easeTo({
+      center: [focusPosition.lon, focusPosition.lat],
+      zoom: Math.max(map.getZoom(), 14),
+      duration: 600,
+      easing: (t: number) => 1 - Math.pow(1 - t, 3),
+    });
+    lastFocusPositionKeyRef.current = focusPosition.key;
+  }, [focusPosition]);
 
   const telemetryOverlay = displayedHighlightedTrackSnapshot ? (
     <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">

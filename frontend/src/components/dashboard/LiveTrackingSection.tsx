@@ -85,6 +85,7 @@ export default function LiveTrackingSection({
   const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
   const [trackingSource, setTrackingSource] = useState<TrackingSource>(null);
   const [allUsersNameById, setAllUsersNameById] = useState<Map<number, string>>(new Map());
+  const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
 
   // Fetch buddy groups on mount
   useEffect(() => {
@@ -444,6 +445,7 @@ export default function LiveTrackingSection({
       aircraftType: position.aircraft_icon ?? "hang_glider",
       profileType: position.profile_type ?? "pilot",
       positionSource: position.position_source ?? "other",
+      deviceId: position.device_id,
     }));
   }, [livePositionsByPilot, activePilotNameById]);
 
@@ -457,6 +459,10 @@ export default function LiveTrackingSection({
       return left.pilotName.localeCompare(right.pilotName);
     });
   }, [livePositions]);
+
+  const handlePilotClick = useCallback((pilot: MapLivePosition) => {
+    setFocusPosition({ lat: pilot.latitude, lon: pilot.longitude, key: `${pilot.pilotId}-${Date.now()}` });
+  }, []);
 
   // Status label for the current tracking source
   const sourceLabel = useMemo(() => {
@@ -555,7 +561,11 @@ export default function LiveTrackingSection({
                 <div className="results-task-map-pilot-items">
                   {livePilotRows.length ? (
                     livePilotRows.map((pilot) => (
-                      <div key={pilot.id} className="results-task-map-pilot-item live-tracking-pilot-item">
+                      <div
+                        key={pilot.id}
+                        className="results-task-map-pilot-item live-tracking-pilot-item"
+                        onClick={() => handlePilotClick(pilot)}
+                      >
                         <span className="results-task-map-pilot-rank">
                           <PilotRoleBadge
                             profileType={pilot.profileType}
@@ -566,14 +576,19 @@ export default function LiveTrackingSection({
                         </span>
                         <span className="results-task-map-pilot-copy">
                           <strong style={{ color: pilot.color ?? "#2563eb" }}>{pilot.pilotName}</strong>
-                          <small>
-                            {convertAltitude(pilot.altitudeM, units.altitude)} · {convertSpeed(pilot.speedKmh, units.speed)}
+                          <small className="live-tracking-pilot-source">
+                            {pilot.positionSource === "mesh" ? "Mesh" : pilot.positionSource === "cellular" ? "Phone" : ""}
+                            {pilot.positionSource === "mesh" && pilot.deviceId ? (
+                              <span className="live-tracking-device-id">{pilot.deviceId}</span>
+                            ) : null}
                           </small>
                         </span>
                         <span className="live-tracking-pilot-meta">
-                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span> : null}
-                          <span>{formatRelativeTime(pilot.timestamp)}</span>
-                          {pilot.batteryLevel != null ? <span>{pilot.batteryLevel}%</span> : null}
+                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? (
+                            <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span>
+                          ) : null}
+                          <span className="live-tracking-meta-time">{formatRelativeTime(pilot.timestamp)}</span>
+                          <span className="live-tracking-meta-battery">{pilot.batteryLevel != null ? `${pilot.batteryLevel}%` : ""}</span>
                         </span>
                       </div>
                     ))
@@ -602,6 +617,7 @@ export default function LiveTrackingSection({
                   mode="live"
                   units={units}
                   overlayConfig={overlayConfig}
+                  focusPosition={focusPosition}
                   fitKey={
                     trackingSource.type === "task"
                       ? `live-${trackingSource.taskId}`
