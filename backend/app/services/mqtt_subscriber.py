@@ -383,6 +383,8 @@ async def _subscribe_loop() -> None:
                 port=port,
                 username=username,
                 password=password,
+                keepalive=60,
+                timeout=30,
             ) as client:
                 await client.subscribe(topic)
                 mqtt_connected = True
