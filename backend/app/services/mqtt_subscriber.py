@@ -394,7 +394,14 @@ def _paho_subscribe_loop() -> None:
             time.sleep(30)
             continue
 
-        topic = f"{topic_prefix}/#"
+        # For the public Meshtastic broker, subscribing to "msh/#" is too
+        # broad — the broker drops the connection under the firehose of
+        # global traffic.  Subscribe to the default LongFast channel for the
+        # US region instead.  Private brokers use the prefix as-is.
+        if host == "mqtt.meshtastic.org":
+            topic = f"{topic_prefix}/US/2/e/LongFast/#"
+        else:
+            topic = f"{topic_prefix}/#"
         print(f"[MQTT] Connecting to {host}:{port} topic={topic} user={username}", flush=True)
 
         # Explicit VERSION1 callback API for paho-mqtt 2.x compatibility
@@ -429,7 +436,12 @@ def _paho_subscribe_loop() -> None:
             mqtt_connected = False
             print(f"[MQTT] Disconnected rc={rc}", flush=True)
 
+        _msg_count = [0]
+
         def on_message(client, userdata, msg):
+            _msg_count[0] += 1
+            if _msg_count[0] <= 3 or _msg_count[0] % 100 == 0:
+                print(f"[MQTT] Message #{_msg_count[0]}: {msg.topic} ({len(msg.payload)} bytes)", flush=True)
             payload = msg.payload
             if isinstance(payload, (bytes, bytearray)):
                 _handle_message(payload)
