@@ -32,9 +32,9 @@ import asyncio
 import json
 import logging
 import struct
-from datetime import UTC, datetime
-
 import threading
+import time
+from datetime import UTC, datetime
 
 import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
@@ -391,7 +391,7 @@ def _paho_subscribe_loop() -> None:
         if not host:
             logger.info("MQTT not configured or disabled — sleeping 30s…")
             mqtt_connected = False
-            import time; time.sleep(30)
+            time.sleep(30)
             continue
 
         topic = f"{topic_prefix}/#"
@@ -427,7 +427,17 @@ def _paho_subscribe_loop() -> None:
 
         try:
             client.connect(host, port, keepalive=60)
-            client.loop_forever()
+            client.loop_start()
+            # Stay in this loop while connected; check for reconnect signal
+            while True:
+                time.sleep(2)
+                if not client.is_connected():
+                    break
+                if mqtt_reconnect_event is not None and mqtt_reconnect_event.is_set():
+                    mqtt_reconnect_event.clear()
+                    logger.info("MQTT settings changed — reconnecting…")
+                    break
+            client.loop_stop()
         except Exception as exc:
             mqtt_connected = False
             logger.warning("MQTT connection error (%s), reconnecting in 5s…", exc)
@@ -437,7 +447,7 @@ def _paho_subscribe_loop() -> None:
             except Exception:
                 pass
 
-        import time; time.sleep(5)
+        time.sleep(5)
 
 
 async def start_mqtt_subscriber() -> None:
