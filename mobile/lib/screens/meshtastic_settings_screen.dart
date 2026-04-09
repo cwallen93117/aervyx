@@ -534,12 +534,12 @@ class _ProfileSelectorState extends State<_ProfileSelector> {
                   color: theme.colorScheme.onSurface.withAlpha(100),
                 )),
             const SizedBox(height: 4),
-            _DimRow('GPS mode', 'Enabled', dimStyle),
-            _DimRow('Modem preset', 'LONG_FAST', dimStyle),
-            _DimRow('Hop limit', '3', dimStyle),
-            _DimRow('Rebroadcast', 'All', dimStyle),
-            _DimRow('Bluetooth', 'On', dimStyle),
-            _DimRow('Power saving', 'Off', dimStyle),
+            _DimRow('GPS mode', ble.deviceState.gpsMode.label, dimStyle),
+            _DimRow('Modem preset', ble.deviceState.modemPreset.label, dimStyle),
+            _DimRow('Hop limit', '${ble.deviceState.hopLimit}', dimStyle),
+            _DimRow('Rebroadcast', ble.deviceState.rebroadcastMode.label, dimStyle),
+            _DimRow('Bluetooth', ble.deviceState.bluetoothEnabled ? 'On' : 'Off', dimStyle),
+            _DimRow('Power saving', ble.deviceState.isPowerSaving ? 'On' : 'Off', dimStyle),
 
             // ── Apply button ──
             const SizedBox(height: 16),
