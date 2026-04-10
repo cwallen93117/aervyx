@@ -719,7 +719,6 @@ def update_user_account(
     target.role = role
     target.profile_type = profile_type
     target.is_active = payload.is_active
-    target.mesh_device_id = (payload.mesh_device_id.strip() or None) if payload.mesh_device_id else None
     session.add(target)
     session.commit()
     session.refresh(target)
@@ -740,6 +739,25 @@ def update_user_account(
         is_active=target.is_active,
         created_at=target.created_at,
     )
+
+
+@router.delete("/users/{user_id}/mesh-device", status_code=204)
+def clear_user_mesh_device(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> None:
+    """Admin-only: clear a user's mesh device pairing (e.g. lost or stolen device).
+    Device assignment happens automatically when the user pairs via BLE — this
+    endpoint only exists to remove an association, never to create one.
+    """
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    target.mesh_device_id = None
+    session.add(target)
+    session.commit()
+    logger.info("Admin %s cleared mesh_device_id for user %s", admin.username, target.username)
 
 
 @router.patch("/users/{user_id}/credentials", response_model=AdminUserResponse)

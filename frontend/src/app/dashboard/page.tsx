@@ -1584,13 +1584,26 @@ export default function HomePage() {
           role: userRecord.role,
           profile_type: userRecord.profile_type,
           is_active: userRecord.is_active,
-          mesh_device_id: userRecord.mesh_device_id,
         }),
       });
       setAdminUsers((current) => current.map((entry) => (entry.id === payload.id ? payload : entry)));
       setAdminFeedback({ type: "success", text: `Updated ${payload.full_name}.` });
     } catch (caught) {
       setAdminFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update that user." });
+    }
+  }
+
+  async function clearAdminUserDevice(userId: number) {
+    if (!token) return;
+    setAdminFeedback(null);
+    try {
+      await apiFetch(`/api/auth/users/${userId}/mesh-device`, token, { method: "DELETE" });
+      setAdminUsers((current) =>
+        current.map((u) => (u.id === userId ? { ...u, mesh_device_id: null } : u))
+      );
+      setAdminFeedback({ type: "success", text: "Device pairing cleared." });
+    } catch (caught) {
+      setAdminFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not clear device." });
     }
   }
 
@@ -2755,6 +2768,7 @@ export default function HomePage() {
               adminFeedback={adminFeedback}
               saveAdminUser={saveAdminUser}
               deleteAdminUser={deleteAdminUser}
+              clearAdminUserDevice={clearAdminUserDevice}
               updateUserCredentials={updateUserCredentials}
               adminSites={adminSites}
               setAdminSites={setAdminSites}

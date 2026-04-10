@@ -148,7 +148,6 @@ class AdminUserUpdate(BaseModel):
     role: str
     profile_type: str
     is_active: bool = True
-    mesh_device_id: str | None = None
 
 
 class AdminUserCredentialsUpdate(BaseModel):

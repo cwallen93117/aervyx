@@ -96,6 +96,7 @@ export interface AdminSectionProps {
   adminFeedback: { type: "success" | "error"; text: string } | null;
   saveAdminUser: (userRecord: AdminUserRecord) => void;
   deleteAdminUser: (userRecord: AdminUserRecord) => void;
+  clearAdminUserDevice: (userId: number) => void;
   updateUserCredentials: (userId: number, payload: { username?: string; password?: string }) => Promise<void>;
   adminSites: AdminSiteRecord[];
   setAdminSites: (sites: AdminSiteRecord[] | ((current: AdminSiteRecord[]) => AdminSiteRecord[])) => void;
@@ -126,6 +127,7 @@ export default function AdminSection(props: AdminSectionProps) {
     adminFeedback,
     saveAdminUser,
     deleteAdminUser,
+    clearAdminUserDevice,
     updateUserCredentials,
     adminSites,
     setAdminSites,
@@ -487,18 +489,25 @@ export default function AdminSection(props: AdminSectionProps) {
                           </label>
                         </td>
                         <td>
-                          <input
-                            type="text"
-                            placeholder="auto"
-                            value={account.mesh_device_id ?? ""}
-                            title="Auto-registered when user connects via BLE. Admin can override."
-                            style={{ fontSize: "0.75rem", width: "90px", padding: "2px 4px", fontFamily: "monospace" }}
-                            onChange={(event) => {
-                              const updated = { ...account, mesh_device_id: event.target.value || null };
-                              setAdminUsers((current) => current.map((entry) => entry.id === account.id ? updated : entry));
-                            }}
-                            onBlur={() => void saveAdminUser(account)}
-                          />
+                          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <span
+                              title="Auto-assigned when user pairs via the Aervyx app. BLE pairing always wins."
+                              style={{ fontSize: "0.75rem", fontFamily: "monospace", opacity: account.mesh_device_id ? 1 : 0.4 }}
+                            >
+                              {account.mesh_device_id ?? "—"}
+                            </span>
+                            {account.mesh_device_id && (
+                              <button
+                                type="button"
+                                className="ghost-button danger-button"
+                                title="Clear device pairing (lost or stolen device)"
+                                style={{ fontSize: "0.65rem", padding: "1px 4px", lineHeight: 1 }}
+                                onClick={() => void clearAdminUserDevice(account.id)}
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td className="participant-table-actions">
                           <div className="compact-slot-actions">
