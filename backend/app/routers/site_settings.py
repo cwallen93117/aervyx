@@ -9,38 +9,202 @@ from app.schemas import SiteSettingsResponse, SiteSettingsUpdate
 router = APIRouter(prefix="/api/site-settings", tags=["site-settings"])
 
 
+# Curated set of Meshtastic device settings exposed per profile.
+# Mirrors the categories in the official Meshtastic Android app
+# (Device / Position / LoRa / Power / Bluetooth / Network / Display / Modules).
+# Mobile + frontend share this exact key set — keep them in lockstep.
 DEFAULT_MESH_PROFILES = {
     "pilot": {
-        "role": "tracker", "rebroadcast_mode": "all", "gps_mode": "enabled",
-        "position_broadcast_secs": 30, "smart_position_enabled": True,
-        "smart_min_distance": 100, "smart_min_interval": 30,
-        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
-        "bluetooth_enabled": True, "wifi_enabled": False,
-        "position_flags": 1, "display_timeout_secs": 30, "telemetry_interval_secs": 86400,
+        # Device
+        "role": "tracker",
+        "rebroadcast_mode": "all",
+        "node_info_broadcast_secs": 10800,
+        "serial_enabled": True,
+        # Position
+        "gps_mode": "enabled",
+        "gps_update_interval": 30,
+        "position_broadcast_secs": 30,
+        "smart_position_enabled": True,
+        "smart_min_distance": 100,
+        "smart_min_interval": 30,
+        "position_flags": 1,
+        # LoRa
+        "region": "unset",
+        "modem_preset": "long_fast",
+        "hop_limit": 3,
+        "tx_power": 0,
+        "tx_enabled": True,
+        "sx126x_rx_boosted_gain": True,
+        # Power
+        "power_saving": False,
+        "on_battery_shutdown_after_secs": 0,
+        "ls_secs": 300,
+        "wait_bluetooth_secs": 60,
+        # Bluetooth
+        "bluetooth_enabled": True,
+        "bluetooth_mode": "random_pin",
+        "bluetooth_fixed_pin": 123456,
+        # Network
+        "wifi_enabled": False,
+        "wifi_ssid": "",
+        "wifi_psk": "",
+        "eth_enabled": False,
+        # Display
+        "display_timeout_secs": 30,
+        "auto_screen_carousel_secs": 0,
+        "wake_on_tap_or_motion": True,
+        # Modules
+        "telemetry_interval_secs": 86400,
+        "device_telemetry_enabled": True,
+        "environment_telemetry_enabled": False,
+        "neighbor_info_enabled": False,
+        "neighbor_info_interval_secs": 14400,
+        "store_forward_enabled": False,
+        "store_forward_is_server": False,
     },
     "driver": {
-        "role": "client", "rebroadcast_mode": "all", "gps_mode": "enabled",
-        "position_broadcast_secs": 120, "smart_position_enabled": True,
-        "smart_min_distance": 200, "smart_min_interval": 60,
-        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
-        "bluetooth_enabled": True, "wifi_enabled": False,
-        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 86400,
+        # Device
+        "role": "client",
+        "rebroadcast_mode": "all",
+        "node_info_broadcast_secs": 10800,
+        "serial_enabled": True,
+        # Position
+        "gps_mode": "enabled",
+        "gps_update_interval": 60,
+        "position_broadcast_secs": 120,
+        "smart_position_enabled": True,
+        "smart_min_distance": 200,
+        "smart_min_interval": 60,
+        "position_flags": 1,
+        # LoRa
+        "region": "unset",
+        "modem_preset": "long_fast",
+        "hop_limit": 3,
+        "tx_power": 0,
+        "tx_enabled": True,
+        "sx126x_rx_boosted_gain": True,
+        # Power
+        "power_saving": False,
+        "on_battery_shutdown_after_secs": 0,
+        "ls_secs": 300,
+        "wait_bluetooth_secs": 60,
+        # Bluetooth
+        "bluetooth_enabled": True,
+        "bluetooth_mode": "random_pin",
+        "bluetooth_fixed_pin": 123456,
+        # Network
+        "wifi_enabled": False,
+        "wifi_ssid": "",
+        "wifi_psk": "",
+        "eth_enabled": False,
+        # Display
+        "display_timeout_secs": 60,
+        "auto_screen_carousel_secs": 0,
+        "wake_on_tap_or_motion": True,
+        # Modules
+        "telemetry_interval_secs": 86400,
+        "device_telemetry_enabled": True,
+        "environment_telemetry_enabled": False,
+        "neighbor_info_enabled": False,
+        "neighbor_info_interval_secs": 14400,
+        "store_forward_enabled": False,
+        "store_forward_is_server": False,
     },
     "driver_wifi": {
-        "role": "client", "rebroadcast_mode": "all", "gps_mode": "enabled",
-        "position_broadcast_secs": 60, "smart_position_enabled": True,
-        "smart_min_distance": 200, "smart_min_interval": 30,
-        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
-        "bluetooth_enabled": True, "wifi_enabled": True,
-        "position_flags": 1, "display_timeout_secs": 60, "telemetry_interval_secs": 86400,
+        # Device
+        "role": "client",
+        "rebroadcast_mode": "all",
+        "node_info_broadcast_secs": 10800,
+        "serial_enabled": True,
+        # Position
+        "gps_mode": "enabled",
+        "gps_update_interval": 30,
+        "position_broadcast_secs": 60,
+        "smart_position_enabled": True,
+        "smart_min_distance": 200,
+        "smart_min_interval": 30,
+        "position_flags": 1,
+        # LoRa
+        "region": "unset",
+        "modem_preset": "long_fast",
+        "hop_limit": 3,
+        "tx_power": 0,
+        "tx_enabled": True,
+        "sx126x_rx_boosted_gain": True,
+        # Power
+        "power_saving": False,
+        "on_battery_shutdown_after_secs": 0,
+        "ls_secs": 300,
+        "wait_bluetooth_secs": 60,
+        # Bluetooth (ESP32: WiFi takes precedence — BT is auto-disabled)
+        "bluetooth_enabled": False,
+        "bluetooth_mode": "random_pin",
+        "bluetooth_fixed_pin": 123456,
+        # Network
+        "wifi_enabled": True,
+        "wifi_ssid": "",
+        "wifi_psk": "",
+        "eth_enabled": False,
+        # Display
+        "display_timeout_secs": 60,
+        "auto_screen_carousel_secs": 0,
+        "wake_on_tap_or_motion": True,
+        # Modules
+        "telemetry_interval_secs": 86400,
+        "device_telemetry_enabled": True,
+        "environment_telemetry_enabled": False,
+        "neighbor_info_enabled": False,
+        "neighbor_info_interval_secs": 14400,
+        "store_forward_enabled": False,
+        "store_forward_is_server": False,
     },
     "repeater": {
-        "role": "router", "rebroadcast_mode": "all", "gps_mode": "enabled",
-        "position_broadcast_secs": 300, "smart_position_enabled": False,
-        "smart_min_distance": 0, "smart_min_interval": 0,
-        "modem_preset": "long_fast", "hop_limit": 3, "power_saving": False,
-        "bluetooth_enabled": True, "wifi_enabled": True,
-        "position_flags": 1, "display_timeout_secs": 0, "telemetry_interval_secs": 86400,
+        # Device
+        "role": "router",
+        "rebroadcast_mode": "all",
+        "node_info_broadcast_secs": 10800,
+        "serial_enabled": True,
+        # Position
+        "gps_mode": "enabled",
+        "gps_update_interval": 0,
+        "position_broadcast_secs": 300,
+        "smart_position_enabled": False,
+        "smart_min_distance": 0,
+        "smart_min_interval": 0,
+        "position_flags": 1,
+        # LoRa
+        "region": "unset",
+        "modem_preset": "long_fast",
+        "hop_limit": 3,
+        "tx_power": 0,
+        "tx_enabled": True,
+        "sx126x_rx_boosted_gain": True,
+        # Power (repeaters are mains-powered — never auto-shutdown)
+        "power_saving": False,
+        "on_battery_shutdown_after_secs": 0,
+        "ls_secs": 300,
+        "wait_bluetooth_secs": 60,
+        # Bluetooth
+        "bluetooth_enabled": True,
+        "bluetooth_mode": "random_pin",
+        "bluetooth_fixed_pin": 123456,
+        # Network
+        "wifi_enabled": True,
+        "wifi_ssid": "",
+        "wifi_psk": "",
+        "eth_enabled": False,
+        # Display (off by default — headless repeater)
+        "display_timeout_secs": 0,
+        "auto_screen_carousel_secs": 0,
+        "wake_on_tap_or_motion": False,
+        # Modules — repeaters carry the network's neighbor + store-forward state
+        "telemetry_interval_secs": 86400,
+        "device_telemetry_enabled": True,
+        "environment_telemetry_enabled": False,
+        "neighbor_info_enabled": True,
+        "neighbor_info_interval_secs": 14400,
+        "store_forward_enabled": True,
+        "store_forward_is_server": True,
     },
 }
 

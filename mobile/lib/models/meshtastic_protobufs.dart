@@ -233,78 +233,207 @@ enum MeshtasticProfile {
 }
 
 /// Preset config values for each profile.
+///
+/// Mirrors the curated 38-field set the admin dashboard exposes per profile.
+/// Field names match the snake_case keys in
+/// `backend/app/routers/site_settings.py:DEFAULT_MESH_PROFILES`. The class is
+/// grouped by category (Device / Position / LoRa / Power / Bluetooth /
+/// Network / Display / Modules) to mirror the official Meshtastic Android app.
 class ProfileConfig {
+  // Device
   final DeviceRole role;
   final RebroadcastMode rebroadcastMode;
+  final int nodeInfoBroadcastSecs;
+  final bool serialEnabled;
+
+  // Position
   final GpsMode gpsMode;
+  final int gpsUpdateInterval;
   final int positionBroadcastSecs;
   final bool smartPositionEnabled;
   final int smartMinDistance;
   final int smartMinInterval;
+  final int positionFlags;
+
+  // LoRa
+  final RegionCode region;
   final ModemPreset modemPreset;
   final int hopLimit;
+  final int txPower;
+  final bool txEnabled;
+  final bool sx126xRxBoostedGain;
+
+  // Power
   final bool powerSaving;
+  final int onBatteryShutdownAfterSecs;
+  final int lsSecs;
+  final int waitBluetoothSecs;
+
+  // Bluetooth
   final bool bluetoothEnabled;
+  final BlePairingMode bluetoothMode;
+  final int bluetoothFixedPin;
+
+  // Network
   final bool wifiEnabled;
-  final int positionFlags;
+  final String wifiSsid;
+  final String wifiPsk;
+  final bool ethEnabled;
+
+  // Display
   final int displayTimeoutSecs;
+  final int autoScreenCarouselSecs;
+  final bool wakeOnTapOrMotion;
+
+  // Modules
   final int telemetryIntervalSecs;
+  final bool deviceTelemetryEnabled;
+  final bool environmentTelemetryEnabled;
+  final bool neighborInfoEnabled;
+  final int neighborInfoIntervalSecs;
+  final bool storeForwardEnabled;
+  final bool storeForwardIsServer;
 
   const ProfileConfig({
     required this.role,
     required this.rebroadcastMode,
+    this.nodeInfoBroadcastSecs = 10800,
+    this.serialEnabled = true,
     required this.gpsMode,
+    this.gpsUpdateInterval = 0,
     required this.positionBroadcastSecs,
     required this.smartPositionEnabled,
     required this.smartMinDistance,
     required this.smartMinInterval,
+    required this.positionFlags,
+    this.region = RegionCode.unset,
     required this.modemPreset,
     required this.hopLimit,
+    this.txPower = 0,
+    this.txEnabled = true,
+    this.sx126xRxBoostedGain = true,
     required this.powerSaving,
+    this.onBatteryShutdownAfterSecs = 0,
+    this.lsSecs = 300,
+    this.waitBluetoothSecs = 60,
     required this.bluetoothEnabled,
+    this.bluetoothMode = BlePairingMode.randomPin,
+    this.bluetoothFixedPin = 123456,
     required this.wifiEnabled,
-    required this.positionFlags,
+    this.wifiSsid = '',
+    this.wifiPsk = '',
+    this.ethEnabled = false,
     required this.displayTimeoutSecs,
+    this.autoScreenCarouselSecs = 0,
+    this.wakeOnTapOrMotion = true,
     required this.telemetryIntervalSecs,
+    this.deviceTelemetryEnabled = true,
+    this.environmentTelemetryEnabled = false,
+    this.neighborInfoEnabled = false,
+    this.neighborInfoIntervalSecs = 14400,
+    this.storeForwardEnabled = false,
+    this.storeForwardIsServer = false,
   });
 
   /// Decode from server JSON (snake_case keys, string enum values).
   factory ProfileConfig.fromJson(Map<String, dynamic> json) {
     return ProfileConfig(
+      // Device
       role: _roleFromString(json['role'] as String? ?? 'client'),
       rebroadcastMode: _rebroadcastFromString(json['rebroadcast_mode'] as String? ?? 'all'),
+      nodeInfoBroadcastSecs: json['node_info_broadcast_secs'] as int? ?? 10800,
+      serialEnabled: json['serial_enabled'] as bool? ?? true,
+      // Position
       gpsMode: _gpsModeFromString(json['gps_mode'] as String? ?? 'enabled'),
+      gpsUpdateInterval: json['gps_update_interval'] as int? ?? 0,
       positionBroadcastSecs: json['position_broadcast_secs'] as int? ?? 30,
       smartPositionEnabled: json['smart_position_enabled'] as bool? ?? true,
       smartMinDistance: json['smart_min_distance'] as int? ?? 100,
       smartMinInterval: json['smart_min_interval'] as int? ?? 30,
+      positionFlags: json['position_flags'] as int? ?? PositionFlags.altitude,
+      // LoRa
+      region: _regionFromString(json['region'] as String? ?? 'unset'),
       modemPreset: _modemFromString(json['modem_preset'] as String? ?? 'long_fast'),
       hopLimit: json['hop_limit'] as int? ?? 3,
+      txPower: json['tx_power'] as int? ?? 0,
+      txEnabled: json['tx_enabled'] as bool? ?? true,
+      sx126xRxBoostedGain: json['sx126x_rx_boosted_gain'] as bool? ?? true,
+      // Power
       powerSaving: json['power_saving'] as bool? ?? false,
+      onBatteryShutdownAfterSecs: json['on_battery_shutdown_after_secs'] as int? ?? 0,
+      lsSecs: json['ls_secs'] as int? ?? 300,
+      waitBluetoothSecs: json['wait_bluetooth_secs'] as int? ?? 60,
+      // Bluetooth
       bluetoothEnabled: json['bluetooth_enabled'] as bool? ?? true,
+      bluetoothMode: _blePairingFromString(json['bluetooth_mode'] as String? ?? 'random_pin'),
+      bluetoothFixedPin: json['bluetooth_fixed_pin'] as int? ?? 123456,
+      // Network
       wifiEnabled: json['wifi_enabled'] as bool? ?? false,
-      positionFlags: json['position_flags'] as int? ?? PositionFlags.altitude,
+      wifiSsid: json['wifi_ssid'] as String? ?? '',
+      wifiPsk: json['wifi_psk'] as String? ?? '',
+      ethEnabled: json['eth_enabled'] as bool? ?? false,
+      // Display
       displayTimeoutSecs: json['display_timeout_secs'] as int? ?? 30,
+      autoScreenCarouselSecs: json['auto_screen_carousel_secs'] as int? ?? 0,
+      wakeOnTapOrMotion: json['wake_on_tap_or_motion'] as bool? ?? true,
+      // Modules
       telemetryIntervalSecs: json['telemetry_interval_secs'] as int? ?? 86400,
+      deviceTelemetryEnabled: json['device_telemetry_enabled'] as bool? ?? true,
+      environmentTelemetryEnabled: json['environment_telemetry_enabled'] as bool? ?? false,
+      neighborInfoEnabled: json['neighbor_info_enabled'] as bool? ?? false,
+      neighborInfoIntervalSecs: json['neighbor_info_interval_secs'] as int? ?? 14400,
+      storeForwardEnabled: json['store_forward_enabled'] as bool? ?? false,
+      storeForwardIsServer: json['store_forward_is_server'] as bool? ?? false,
     );
   }
 
   Map<String, dynamic> toJson() => {
+    // Device
     'role': _roleToString(role),
     'rebroadcast_mode': _rebroadcastToString(rebroadcastMode),
+    'node_info_broadcast_secs': nodeInfoBroadcastSecs,
+    'serial_enabled': serialEnabled,
+    // Position
     'gps_mode': _gpsModeToString(gpsMode),
+    'gps_update_interval': gpsUpdateInterval,
     'position_broadcast_secs': positionBroadcastSecs,
     'smart_position_enabled': smartPositionEnabled,
     'smart_min_distance': smartMinDistance,
     'smart_min_interval': smartMinInterval,
+    'position_flags': positionFlags,
+    // LoRa
+    'region': _regionToString(region),
     'modem_preset': _modemToString(modemPreset),
     'hop_limit': hopLimit,
+    'tx_power': txPower,
+    'tx_enabled': txEnabled,
+    'sx126x_rx_boosted_gain': sx126xRxBoostedGain,
+    // Power
     'power_saving': powerSaving,
+    'on_battery_shutdown_after_secs': onBatteryShutdownAfterSecs,
+    'ls_secs': lsSecs,
+    'wait_bluetooth_secs': waitBluetoothSecs,
+    // Bluetooth
     'bluetooth_enabled': bluetoothEnabled,
+    'bluetooth_mode': _blePairingToString(bluetoothMode),
+    'bluetooth_fixed_pin': bluetoothFixedPin,
+    // Network
     'wifi_enabled': wifiEnabled,
-    'position_flags': positionFlags,
+    'wifi_ssid': wifiSsid,
+    'wifi_psk': wifiPsk,
+    'eth_enabled': ethEnabled,
+    // Display
     'display_timeout_secs': displayTimeoutSecs,
+    'auto_screen_carousel_secs': autoScreenCarouselSecs,
+    'wake_on_tap_or_motion': wakeOnTapOrMotion,
+    // Modules
     'telemetry_interval_secs': telemetryIntervalSecs,
+    'device_telemetry_enabled': deviceTelemetryEnabled,
+    'environment_telemetry_enabled': environmentTelemetryEnabled,
+    'neighbor_info_enabled': neighborInfoEnabled,
+    'neighbor_info_interval_secs': neighborInfoIntervalSecs,
+    'store_forward_enabled': storeForwardEnabled,
+    'store_forward_is_server': storeForwardIsServer,
   };
 
   // ── String ↔ enum helpers ──
@@ -365,6 +494,38 @@ class ProfileConfig {
     ModemPreset.shortTurbo: 'short_turbo', ModemPreset.longTurbo: 'long_turbo',
   }[m] ?? 'long_fast';
 
+  static RegionCode _regionFromString(String s) => const {
+    'unset': RegionCode.unset, 'us': RegionCode.us,
+    'eu_433': RegionCode.eu433, 'eu_868': RegionCode.eu868,
+    'cn': RegionCode.cn, 'jp': RegionCode.jp, 'anz': RegionCode.anz,
+    'kr': RegionCode.kr, 'tw': RegionCode.tw, 'ru': RegionCode.ru,
+    'in': RegionCode.ind, 'nz_865': RegionCode.nz865, 'th': RegionCode.th,
+    'lora_24': RegionCode.lora24,
+    'ua_433': RegionCode.ua433, 'ua_868': RegionCode.ua868,
+  }[s] ?? RegionCode.unset;
+
+  static String _regionToString(RegionCode r) => const {
+    RegionCode.unset: 'unset', RegionCode.us: 'us',
+    RegionCode.eu433: 'eu_433', RegionCode.eu868: 'eu_868',
+    RegionCode.cn: 'cn', RegionCode.jp: 'jp', RegionCode.anz: 'anz',
+    RegionCode.kr: 'kr', RegionCode.tw: 'tw', RegionCode.ru: 'ru',
+    RegionCode.ind: 'in', RegionCode.nz865: 'nz_865', RegionCode.th: 'th',
+    RegionCode.lora24: 'lora_24',
+    RegionCode.ua433: 'ua_433', RegionCode.ua868: 'ua_868',
+  }[r] ?? 'unset';
+
+  static BlePairingMode _blePairingFromString(String s) => const {
+    'random_pin': BlePairingMode.randomPin,
+    'fixed_pin': BlePairingMode.fixedPin,
+    'no_pin': BlePairingMode.noPin,
+  }[s] ?? BlePairingMode.randomPin;
+
+  static String _blePairingToString(BlePairingMode m) => const {
+    BlePairingMode.randomPin: 'random_pin',
+    BlePairingMode.fixedPin: 'fixed_pin',
+    BlePairingMode.noPin: 'no_pin',
+  }[m] ?? 'random_pin';
+
   // ── Mutable presets (defaults overwritten by server sync) ──
 
   static Map<MeshtasticProfile, ProfileConfig> presets = {
@@ -372,16 +533,17 @@ class ProfileConfig {
       role: DeviceRole.tracker,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
+      gpsUpdateInterval: 30,
       positionBroadcastSecs: 30,
       smartPositionEnabled: true,
       smartMinDistance: 100,
       smartMinInterval: 30,
+      positionFlags: PositionFlags.altitude,
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
       bluetoothEnabled: true,
       wifiEnabled: false,
-      positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 30,
       telemetryIntervalSecs: 86400,
     ),
@@ -389,16 +551,17 @@ class ProfileConfig {
       role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
+      gpsUpdateInterval: 60,
       positionBroadcastSecs: 120,
       smartPositionEnabled: true,
       smartMinDistance: 200,
       smartMinInterval: 60,
+      positionFlags: PositionFlags.altitude,
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
       bluetoothEnabled: true,
       wifiEnabled: false,
-      positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 60,
       telemetryIntervalSecs: 86400,
     ),
@@ -406,16 +569,17 @@ class ProfileConfig {
       role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
+      gpsUpdateInterval: 30,
       positionBroadcastSecs: 60,
       smartPositionEnabled: true,
       smartMinDistance: 200,
       smartMinInterval: 30,
+      positionFlags: PositionFlags.altitude,
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
-      bluetoothEnabled: true,
+      bluetoothEnabled: false, // WiFi takes precedence on ESP32
       wifiEnabled: true,
-      positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 60,
       telemetryIntervalSecs: 86400,
     ),
@@ -423,18 +587,23 @@ class ProfileConfig {
       role: DeviceRole.router,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
+      gpsUpdateInterval: 0,
       positionBroadcastSecs: 300,
       smartPositionEnabled: false,
       smartMinDistance: 0,
       smartMinInterval: 0,
+      positionFlags: PositionFlags.altitude,
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
       bluetoothEnabled: true,
       wifiEnabled: true,
-      positionFlags: PositionFlags.altitude,
       displayTimeoutSecs: 0,
+      wakeOnTapOrMotion: false,
       telemetryIntervalSecs: 86400,
+      neighborInfoEnabled: true,
+      storeForwardEnabled: true,
+      storeForwardIsServer: true,
     ),
   };
 
@@ -737,13 +906,21 @@ Uint8List buildSetOwner({required String longName, required String shortName}) {
 }
 
 /// AdminMessage: set_config (field 34) with DeviceConfig (Config field 1).
+///
+/// Tag numbers per upstream meshtastic/protobufs/meshtastic/config.proto.
 Uint8List buildSetDeviceConfig({
   required DeviceRole role,
   required RebroadcastMode rebroadcastMode,
+  bool? serialEnabled,
+  int? nodeInfoBroadcastSecs,
 }) {
   final device = ProtoWriter();
   device.writeVarint(1, role.value); // role
+  if (serialEnabled != null) device.writeBool(2, serialEnabled); // serial_enabled
   device.writeVarint(6, rebroadcastMode.value); // rebroadcast_mode
+  if (nodeInfoBroadcastSecs != null) {
+    device.writeVarint(7, nodeInfoBroadcastSecs); // node_info_broadcast_secs
+  }
 
   final config = ProtoWriter();
   config.writeMessage(1, device); // device (Config field 1)
@@ -761,10 +938,14 @@ Uint8List buildSetPositionConfig({
   required int smartMinInterval,
   required GpsMode gpsMode,
   required int positionFlags,
+  int? gpsUpdateInterval,
 }) {
   final pos = ProtoWriter();
   pos.writeVarint(1, positionBroadcastSecs); // position_broadcast_secs
   pos.writeBool(2, smartEnabled); // position_broadcast_smart_enabled
+  if (gpsUpdateInterval != null) {
+    pos.writeVarint(5, gpsUpdateInterval); // gps_update_interval
+  }
   pos.writeVarint(7, positionFlags); // position_flags
   pos.writeVarint(10, smartMinDistance); // broadcast_smart_minimum_distance
   pos.writeVarint(11, smartMinInterval); // broadcast_smart_minimum_interval_secs
@@ -779,9 +960,23 @@ Uint8List buildSetPositionConfig({
 }
 
 /// AdminMessage: set_config with PowerConfig (Config field 3).
-Uint8List buildSetPowerConfig({required bool isPowerSaving}) {
+Uint8List buildSetPowerConfig({
+  required bool isPowerSaving,
+  int? onBatteryShutdownAfterSecs,
+  int? waitBluetoothSecs,
+  int? lsSecs,
+}) {
   final power = ProtoWriter();
   power.writeBool(1, isPowerSaving); // is_power_saving
+  if (onBatteryShutdownAfterSecs != null) {
+    power.writeVarint(2, onBatteryShutdownAfterSecs); // on_battery_shutdown_after_secs
+  }
+  if (waitBluetoothSecs != null) {
+    power.writeVarint(4, waitBluetoothSecs); // wait_bluetooth_secs
+  }
+  if (lsSecs != null) {
+    power.writeVarint(7, lsSecs); // ls_secs
+  }
 
   final config = ProtoWriter();
   config.writeMessage(3, power); // power (Config field 3)
@@ -796,11 +991,13 @@ Uint8List buildSetNetworkConfig({
   required bool wifiEnabled,
   String? wifiSsid,
   String? wifiPsk,
+  bool? ethEnabled,
 }) {
   final net = ProtoWriter();
   net.writeBool(1, wifiEnabled); // wifi_enabled
   if (wifiSsid != null) net.writeString(3, wifiSsid); // wifi_ssid
   if (wifiPsk != null) net.writeString(4, wifiPsk); // wifi_psk
+  if (ethEnabled != null) net.writeBool(6, ethEnabled); // eth_enabled
 
   final config = ProtoWriter();
   config.writeMessage(4, net); // network (Config field 4)
@@ -811,9 +1008,19 @@ Uint8List buildSetNetworkConfig({
 }
 
 /// AdminMessage: set_config with DisplayConfig (Config field 5).
-Uint8List buildSetDisplayConfig({required int screenOnSecs}) {
+Uint8List buildSetDisplayConfig({
+  required int screenOnSecs,
+  int? autoScreenCarouselSecs,
+  bool? wakeOnTapOrMotion,
+}) {
   final display = ProtoWriter();
   display.writeVarint(1, screenOnSecs); // screen_on_secs
+  if (autoScreenCarouselSecs != null) {
+    display.writeVarint(3, autoScreenCarouselSecs); // auto_screen_carousel_secs
+  }
+  if (wakeOnTapOrMotion != null) {
+    display.writeBool(10, wakeOnTapOrMotion); // wake_on_tap_or_motion
+  }
 
   final config = ProtoWriter();
   config.writeMessage(5, display); // display (Config field 5)
@@ -829,6 +1036,8 @@ Uint8List buildSetLoraConfig({
   required RegionCode region,
   required int hopLimit,
   bool txEnabled = true,
+  int? txPower,
+  bool? sx126xRxBoostedGain,
 }) {
   final lora = ProtoWriter();
   lora.writeBool(1, true); // use_preset
@@ -836,6 +1045,10 @@ Uint8List buildSetLoraConfig({
   lora.writeVarint(7, region.value); // region
   lora.writeVarint(8, hopLimit); // hop_limit
   lora.writeBool(9, txEnabled); // tx_enabled
+  if (txPower != null) lora.writeVarint(10, txPower); // tx_power
+  if (sx126xRxBoostedGain != null) {
+    lora.writeBool(13, sx126xRxBoostedGain); // sx126x_rx_boosted_gain
+  }
 
   final config = ProtoWriter();
   config.writeMessage(6, lora); // lora (Config field 6)
@@ -849,10 +1062,12 @@ Uint8List buildSetLoraConfig({
 Uint8List buildSetBluetoothConfig({
   required bool enabled,
   BlePairingMode mode = BlePairingMode.randomPin,
+  int? fixedPin,
 }) {
   final bt = ProtoWriter();
   bt.writeBool(1, enabled); // enabled
   bt.writeVarint(2, mode.value); // mode
+  if (fixedPin != null) bt.writeVarint(3, fixedPin); // fixed_pin
 
   final config = ProtoWriter();
   config.writeMessage(7, bt); // bluetooth (Config field 7)
@@ -892,9 +1107,15 @@ Uint8List buildSetMqttConfig({
 }
 
 /// AdminMessage: set_module_config with TelemetryConfig (ModuleConfig field 6).
-Uint8List buildSetTelemetryConfig({required int deviceUpdateInterval}) {
+Uint8List buildSetTelemetryConfig({
+  required int deviceUpdateInterval,
+  bool? environmentMeasurementEnabled,
+}) {
   final tel = ProtoWriter();
   tel.writeVarint(1, deviceUpdateInterval); // device_update_interval
+  if (environmentMeasurementEnabled != null) {
+    tel.writeBool(3, environmentMeasurementEnabled); // environment_measurement_enabled
+  }
 
   final module = ProtoWriter();
   module.writeMessage(6, tel); // telemetry (ModuleConfig field 6)
@@ -919,9 +1140,15 @@ Uint8List buildSetStoreForwardConfig({required bool enabled, bool isServer = fal
 }
 
 /// AdminMessage: set_module_config with NeighborInfoConfig (ModuleConfig field 10).
-Uint8List buildSetNeighborInfoConfig({required bool enabled}) {
+Uint8List buildSetNeighborInfoConfig({
+  required bool enabled,
+  int? updateIntervalSecs,
+}) {
   final ni = ProtoWriter();
   ni.writeBool(1, enabled); // enabled
+  if (updateIntervalSecs != null) {
+    ni.writeVarint(2, updateIntervalSecs); // update_interval
+  }
 
   final module = ProtoWriter();
   module.writeMessage(10, ni); // neighbor_info (ModuleConfig field 10)
