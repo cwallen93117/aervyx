@@ -40,14 +40,15 @@ DEFAULT_MESH_PROFILES = {
         "on_battery_shutdown_after_secs": 0,
         "ls_secs": 300,
         "wait_bluetooth_secs": 60,
-        # Bluetooth
+        # Bluetooth — keep enabled + fixed-PIN across every profile so a
+        # headless device can never lock admins out (random PIN requires a
+        # display, no PIN is insecure).
         "bluetooth_enabled": True,
-        "bluetooth_mode": "random_pin",
+        "bluetooth_mode": "fixed_pin",
         "bluetooth_fixed_pin": 123456,
-        # Network
+        # Network (Wi-Fi SSID/PSK are device-specific — set per device on
+        # the phone app, never fleet-wide)
         "wifi_enabled": False,
-        "wifi_ssid": "",
-        "wifi_psk": "",
         "eth_enabled": False,
         # Display
         "display_timeout_secs": 30,
@@ -90,12 +91,10 @@ DEFAULT_MESH_PROFILES = {
         "wait_bluetooth_secs": 60,
         # Bluetooth
         "bluetooth_enabled": True,
-        "bluetooth_mode": "random_pin",
+        "bluetooth_mode": "fixed_pin",
         "bluetooth_fixed_pin": 123456,
-        # Network
+        # Network (Wi-Fi credentials stay device-specific)
         "wifi_enabled": False,
-        "wifi_ssid": "",
-        "wifi_psk": "",
         "eth_enabled": False,
         # Display
         "display_timeout_secs": 60,
@@ -136,14 +135,14 @@ DEFAULT_MESH_PROFILES = {
         "on_battery_shutdown_after_secs": 0,
         "ls_secs": 300,
         "wait_bluetooth_secs": 60,
-        # Bluetooth (ESP32: WiFi takes precedence — BT is auto-disabled)
-        "bluetooth_enabled": False,
-        "bluetooth_mode": "random_pin",
+        # Bluetooth — stays on so headless devices can't lock admins out.
+        # On ESP32 with Wi-Fi enabled the firmware may still disable BT at
+        # runtime, but we declare our intent here.
+        "bluetooth_enabled": True,
+        "bluetooth_mode": "fixed_pin",
         "bluetooth_fixed_pin": 123456,
-        # Network
+        # Network (Wi-Fi credentials stay device-specific)
         "wifi_enabled": True,
-        "wifi_ssid": "",
-        "wifi_psk": "",
         "eth_enabled": False,
         # Display
         "display_timeout_secs": 60,
@@ -186,12 +185,10 @@ DEFAULT_MESH_PROFILES = {
         "wait_bluetooth_secs": 60,
         # Bluetooth
         "bluetooth_enabled": True,
-        "bluetooth_mode": "random_pin",
+        "bluetooth_mode": "fixed_pin",
         "bluetooth_fixed_pin": 123456,
-        # Network
+        # Network (Wi-Fi credentials stay device-specific)
         "wifi_enabled": True,
-        "wifi_ssid": "",
-        "wifi_psk": "",
         "eth_enabled": False,
         # Display (off by default — headless repeater)
         "display_timeout_secs": 0,

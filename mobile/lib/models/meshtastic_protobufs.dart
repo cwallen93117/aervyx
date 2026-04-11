@@ -274,10 +274,9 @@ class ProfileConfig {
   final BlePairingMode bluetoothMode;
   final int bluetoothFixedPin;
 
-  // Network
+  // Network (Wi-Fi SSID / PSK are device-specific and set per device
+  // from the mobile Meshtastic settings screen, not fleet-wide.)
   final bool wifiEnabled;
-  final String wifiSsid;
-  final String wifiPsk;
   final bool ethEnabled;
 
   // Display
@@ -317,11 +316,9 @@ class ProfileConfig {
     this.lsSecs = 300,
     this.waitBluetoothSecs = 60,
     required this.bluetoothEnabled,
-    this.bluetoothMode = BlePairingMode.randomPin,
+    this.bluetoothMode = BlePairingMode.fixedPin,
     this.bluetoothFixedPin = 123456,
     required this.wifiEnabled,
-    this.wifiSsid = '',
-    this.wifiPsk = '',
     this.ethEnabled = false,
     required this.displayTimeoutSecs,
     this.autoScreenCarouselSecs = 0,
@@ -365,12 +362,10 @@ class ProfileConfig {
       waitBluetoothSecs: json['wait_bluetooth_secs'] as int? ?? 60,
       // Bluetooth
       bluetoothEnabled: json['bluetooth_enabled'] as bool? ?? true,
-      bluetoothMode: _blePairingFromString(json['bluetooth_mode'] as String? ?? 'random_pin'),
+      bluetoothMode: _blePairingFromString(json['bluetooth_mode'] as String? ?? 'fixed_pin'),
       bluetoothFixedPin: json['bluetooth_fixed_pin'] as int? ?? 123456,
       // Network
       wifiEnabled: json['wifi_enabled'] as bool? ?? false,
-      wifiSsid: json['wifi_ssid'] as String? ?? '',
-      wifiPsk: json['wifi_psk'] as String? ?? '',
       ethEnabled: json['eth_enabled'] as bool? ?? false,
       // Display
       displayTimeoutSecs: json['display_timeout_secs'] as int? ?? 30,
@@ -419,8 +414,6 @@ class ProfileConfig {
     'bluetooth_fixed_pin': bluetoothFixedPin,
     // Network
     'wifi_enabled': wifiEnabled,
-    'wifi_ssid': wifiSsid,
-    'wifi_psk': wifiPsk,
     'eth_enabled': ethEnabled,
     // Display
     'display_timeout_secs': displayTimeoutSecs,
@@ -578,7 +571,10 @@ class ProfileConfig {
       modemPreset: ModemPreset.longFast,
       hopLimit: 3,
       powerSaving: false,
-      bluetoothEnabled: false, // WiFi takes precedence on ESP32
+      // Bluetooth stays on so headless devices can't lock admins out.
+      // On ESP32 with Wi-Fi enabled, the firmware may still disable BT at
+      // runtime, but we declare our intent here.
+      bluetoothEnabled: true,
       wifiEnabled: true,
       displayTimeoutSecs: 60,
       telemetryIntervalSecs: 86400,
