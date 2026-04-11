@@ -1201,15 +1201,11 @@ class BleService extends ChangeNotifier {
         wakeOnTapOrMotion: config.wakeOnTapOrMotion,
       ));
 
-      // Network/Wi-Fi (push SSID/PSK from the profile if Wi-Fi is enabled)
+      // Network/Wi-Fi toggle (SSID/PSK are device-specific — set per device
+      // from the Meshtastic settings screen via setWifi(), never from the
+      // fleet-wide profile).
       await _writeAdmin(buildSetNetworkConfig(
         wifiEnabled: config.wifiEnabled,
-        wifiSsid: config.wifiEnabled && config.wifiSsid.isNotEmpty
-            ? config.wifiSsid
-            : null,
-        wifiPsk: config.wifiEnabled && config.wifiPsk.isNotEmpty
-            ? config.wifiPsk
-            : null,
         ethEnabled: config.ethEnabled,
       ));
 

@@ -1482,10 +1482,10 @@ const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
     region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
     // Power
     power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
-    // Bluetooth
-    bluetooth_enabled: true, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
-    // Network
-    wifi_enabled: false, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    // Bluetooth — always on + fixed PIN so headless devices can't lock admins out
+    bluetooth_enabled: true, bluetooth_mode: "fixed_pin", bluetooth_fixed_pin: 123456,
+    // Network (Wi-Fi SSID/PSK are device-specific, set per device on the phone app)
+    wifi_enabled: false, eth_enabled: false,
     // Display
     display_timeout_secs: 30, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: true,
     // Modules
@@ -1499,8 +1499,8 @@ const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
     smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 60, position_flags: 1,
     region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
     power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
-    bluetooth_enabled: true, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
-    wifi_enabled: false, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    bluetooth_enabled: true, bluetooth_mode: "fixed_pin", bluetooth_fixed_pin: 123456,
+    wifi_enabled: false, eth_enabled: false,
     display_timeout_secs: 60, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: true,
     telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
     neighbor_info_enabled: false, neighbor_info_interval_secs: 14400,
@@ -1512,8 +1512,8 @@ const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
     smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 30, position_flags: 1,
     region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
     power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
-    bluetooth_enabled: false, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
-    wifi_enabled: true, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    bluetooth_enabled: true, bluetooth_mode: "fixed_pin", bluetooth_fixed_pin: 123456,
+    wifi_enabled: true, eth_enabled: false,
     display_timeout_secs: 60, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: true,
     telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
     neighbor_info_enabled: false, neighbor_info_interval_secs: 14400,
@@ -1525,8 +1525,8 @@ const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
     smart_position_enabled: false, smart_min_distance: 0, smart_min_interval: 0, position_flags: 1,
     region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
     power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
-    bluetooth_enabled: true, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
-    wifi_enabled: true, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    bluetooth_enabled: true, bluetooth_mode: "fixed_pin", bluetooth_fixed_pin: 123456,
+    wifi_enabled: true, eth_enabled: false,
     display_timeout_secs: 0, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: false,
     telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
     neighbor_info_enabled: true, neighbor_info_interval_secs: 14400,
@@ -1546,7 +1546,7 @@ const ROLE_OPTIONS_OTHER = ["tracker", "router", "client"] as const;
 type ProfileRowDef = {
   key: string;
   label: string;
-  kind: "select" | "number" | "boolean" | "string";
+  kind: "select" | "number" | "boolean" | "string" | "flag_bit";
   options?: string[];
   // Optional override: per-profile-key option lists.
   // When present, takes precedence over `options` for that profile column.
@@ -1556,7 +1556,23 @@ type ProfileRowDef = {
   description?: string;
   // Mark text inputs that should hide their value (Wi-Fi PSK, etc.).
   secret?: boolean;
+  // For flag_bit rows: name of the backing bitmask field + the bit to toggle.
+  storageKey?: string;
+  bit?: number;
 };
+
+// Meshtastic PositionFlags bitmask — mirrors the official config.proto.
+// Each bit toggles whether that field is included in outgoing position packets.
+const POSITION_FLAG_ALTITUDE = 0x01;
+const POSITION_FLAG_ALTITUDE_MSL = 0x02;
+const POSITION_FLAG_GEOIDAL_SEPARATION = 0x04;
+const POSITION_FLAG_DOP = 0x08;
+const POSITION_FLAG_HVDOP = 0x10;
+const POSITION_FLAG_SATELLITES_IN_VIEW = 0x20;
+const POSITION_FLAG_SEQ_NO = 0x40;
+const POSITION_FLAG_TIMESTAMP = 0x80;
+const POSITION_FLAG_HEADING = 0x100;
+const POSITION_FLAG_SPEED = 0x200;
 
 // Shared option lists for enum-typed fields. Snake-case values match the
 // strings the backend stores and the mobile app's _xxxFromString helpers.
@@ -1599,7 +1615,19 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
       { key: "smart_position_enabled", label: "Smart pos.", kind: "boolean", description: "When enabled, the device sends position updates early if it detects significant movement (based on min distance and min interval thresholds), rather than waiting for the full broadcast interval. Helps capture turns and altitude changes for pilots in flight." },
       { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0, description: "Minimum distance traveled (in meters) before triggering a smart position update. Only applies when smart position is enabled. Setting to 0 reverts to firmware default (100m)." },
       { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0, description: "Minimum time (in seconds) between smart position updates. Prevents excessive updates during rapid movement even if the distance threshold is met repeatedly. Setting to 0 reverts to firmware default (30s)." },
-      { key: "position_flags", label: "Position flags", kind: "number", min: 0, description: "Bitmask telling the firmware which extra fields to include in each position packet (altitude, heading, speed, satellites, etc.). 1 = altitude only (default for pilots), 0 = position only. See Meshtastic POSITION_APP docs for the full bitmask." },
+      // Position packet contents — each toggle flips a bit in the
+      // `position_flags` bitmask stored on the server. Mirrors the fields the
+      // Meshtastic firmware can attach to each outgoing POSITION packet.
+      { key: "pflag_altitude", label: "· Send altitude", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_ALTITUDE, description: "Include GPS altitude (HAE, ellipsoid) in every position packet. Required for competition scoring." },
+      { key: "pflag_altitude_msl", label: "· Send altitude MSL", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_ALTITUDE_MSL, description: "Include mean-sea-level altitude alongside the HAE altitude. Most devices only provide one; leave off unless your receiver specifically needs MSL." },
+      { key: "pflag_geoidal", label: "· Send geoidal sep.", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_GEOIDAL_SEPARATION, description: "Include the geoidal separation (HAE − MSL) so receivers can convert between the two. Adds a few bytes per packet." },
+      { key: "pflag_dop", label: "· Send DOP", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_DOP, description: "Include a combined GPS dilution-of-precision value. Useful for debugging fix quality." },
+      { key: "pflag_hvdop", label: "· Send HDOP/VDOP", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_HVDOP, description: "Include horizontal + vertical DOP as separate values. Mutually exclusive with the combined DOP above." },
+      { key: "pflag_sats", label: "· Send satellite count", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_SATELLITES_IN_VIEW, description: "Include the number of satellites currently in view. Handy for signal-quality overlays on the map." },
+      { key: "pflag_seq_no", label: "· Send sequence #", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_SEQ_NO, description: "Include a monotonic packet sequence number so receivers can detect missed packets." },
+      { key: "pflag_timestamp", label: "· Send timestamp", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_TIMESTAMP, description: "Include the GPS fix timestamp (UTC seconds). Required for accurate competition track replay." },
+      { key: "pflag_heading", label: "· Send heading", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_HEADING, description: "Include the current course-over-ground heading in degrees." },
+      { key: "pflag_speed", label: "· Send speed", kind: "flag_bit", storageKey: "position_flags", bit: POSITION_FLAG_SPEED, description: "Include the current speed-over-ground. Small packet size cost, useful for driver tracking." },
     ],
   },
   {
@@ -1633,9 +1661,7 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   {
     group: "Network",
     rows: [
-      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a Wi-Fi network for direct MQTT over the internet (bypassing phone proxy). On ESP32 devices, Wi-Fi takes precedence and disables Bluetooth." },
-      { key: "wifi_ssid", label: "Wi-Fi SSID", kind: "string", description: "Wi-Fi network name. Only used when Wi-Fi is enabled. Max 32 characters." },
-      { key: "wifi_psk", label: "Wi-Fi password", kind: "string", secret: true, description: "Wi-Fi pre-shared key (password). Stored on the device and pushed via BLE on profile apply." },
+      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a Wi-Fi network for direct MQTT over the internet (bypassing phone proxy). Wi-Fi SSID / password are device-specific — set them per device from the mobile app." },
       { key: "eth_enabled", label: "Ethernet", kind: "boolean", description: "Enable wired Ethernet on devices that support it. No-op on devices without an Ethernet port." },
     ],
   },
@@ -1733,12 +1759,27 @@ function MeshProfilesTable({
                       )}
                     </td>
                     {PROFILE_KEYS.map((pk) => {
-                      const rawVal = profiles[pk]?.[row.key];
+                      const rawVal = row.kind === "flag_bit"
+                        ? profiles[pk]?.[row.storageKey ?? ""]
+                        : profiles[pk]?.[row.key];
                       const options = row.perProfileOptions?.[pk] ?? row.options ?? [];
                       const lockedSelect = row.kind === "select" && options.length === 1;
                       return (
                         <td key={pk} style={{ ...cellStyle, textAlign: "center" }}>
-                          {row.kind === "boolean" ? (
+                          {row.kind === "flag_bit" ? (
+                            <input
+                              type="checkbox"
+                              checked={((Number(rawVal ?? 0)) & (row.bit ?? 0)) !== 0}
+                              onChange={(e) => {
+                                const current = Number(profiles[pk]?.[row.storageKey ?? ""] ?? 0);
+                                const next = e.target.checked
+                                  ? current | (row.bit ?? 0)
+                                  : current & ~(row.bit ?? 0);
+                                updateCell(pk, row.storageKey ?? "", next);
+                              }}
+                              style={{ cursor: "pointer" }}
+                            />
+                          ) : row.kind === "boolean" ? (
                             <input
                               type="checkbox"
                               checked={Boolean(rawVal)}
