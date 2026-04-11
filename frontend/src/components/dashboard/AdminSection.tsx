@@ -820,6 +820,7 @@ export default function AdminSection(props: AdminSectionProps) {
         <SectionCard title="Meshtastic Configuration">
           <div className="stack form-block compact-clusters">
             {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
+            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
             <fieldset className="fieldset-cluster">
               <legend>MQTT / Mesh</legend>
               <div className="cluster-stack">
@@ -917,7 +918,6 @@ export default function AdminSection(props: AdminSectionProps) {
                 </label>
               </div>
             </fieldset>
-            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
             <div className="button-row">
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save Meshtastic settings
@@ -1469,19 +1469,28 @@ function LiveTrackingTab({
 
 const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
   pilot: { role: "tracker", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 30, smart_position_enabled: true, smart_min_distance: 100, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 30, telemetry_interval_secs: 86400 },
-  driver: { role: "router", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 120, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 60, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 86400 },
-  driver_wifi: { role: "router", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 60, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 86400 },
+  driver: { role: "client", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 120, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 60, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 86400 },
+  driver_wifi: { role: "client", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 60, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 86400 },
   repeater: { role: "router", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 300, smart_position_enabled: false, smart_min_distance: 0, smart_min_interval: 0, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 0, telemetry_interval_secs: 86400 },
 };
 
 const PROFILE_KEYS = ["pilot", "driver", "driver_wifi", "repeater"] as const;
 const PROFILE_LABELS: Record<string, string> = { pilot: "Pilot", driver: "Driver", driver_wifi: "Driver Wi-Fi", repeater: "Repeater" };
 
+// Role options shown in the dropdown, per-profile.
+// Pilots are always trackers — picking anything else would break the firmware's
+// position-priority handling. Every other profile gets the full set.
+const ROLE_OPTIONS_PILOT = ["tracker"] as const;
+const ROLE_OPTIONS_OTHER = ["tracker", "router", "client"] as const;
+
 type ProfileRowDef = {
   key: string;
   label: string;
   kind: "select" | "number" | "boolean";
   options?: string[];
+  // Optional override: per-profile-key option lists.
+  // When present, takes precedence over `options` for that profile column.
+  perProfileOptions?: Record<string, readonly string[]>;
   min?: number;
   max?: number;
   description?: string;
@@ -1491,7 +1500,19 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   {
     group: "Role",
     rows: [
-      { key: "role", label: "Role", kind: "select", options: ["tracker", "router"], description: "Tracker: firmware prioritizes position packets — use for pilots. Router: always-on radio relay that extends mesh coverage — use for drivers, driver-wifi, and repeaters." },
+      {
+        key: "role",
+        label: "Role",
+        kind: "select",
+        options: [...ROLE_OPTIONS_OTHER],
+        perProfileOptions: {
+          pilot: ROLE_OPTIONS_PILOT,
+          driver: ROLE_OPTIONS_OTHER,
+          driver_wifi: ROLE_OPTIONS_OTHER,
+          repeater: ROLE_OPTIONS_OTHER,
+        },
+        description: "Tracker: firmware prioritizes position packets — required for pilots. Router: always-on radio relay that extends mesh coverage — best for repeaters. Client: standard node, lower power draw — suitable for drivers and base stations. Pilot is locked to Tracker.",
+      },
     ],
   },
   {
@@ -1501,6 +1522,7 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
       { key: "smart_position_enabled", label: "Smart pos.", kind: "boolean", description: "When enabled, the device sends position updates early if it detects significant movement (based on min distance and min interval thresholds), rather than waiting for the full broadcast interval. Helps capture turns and altitude changes for pilots in flight." },
       { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0, description: "Minimum distance traveled (in meters) before triggering a smart position update. Only applies when smart position is enabled. Setting to 0 reverts to firmware default (100m). Lower values capture more detail but increase radio traffic. 100m is good for pilots, 200m for drivers." },
       { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0, description: "Minimum time (in seconds) between smart position updates. Prevents excessive updates during rapid movement even if the distance threshold is met repeatedly. Setting to 0 reverts to firmware default (30s). Only applies when smart position is enabled." },
+      { key: "position_flags", label: "Position flags", kind: "number", min: 0, description: "Bitmask telling the firmware which extra fields to include in each position packet (altitude, heading, speed, satellites, etc.). 1 = altitude only (default for pilots), 0 = position only. See Meshtastic POSITION_APP docs for the full bitmask. Most installs should leave this at 1." },
     ],
   },
   {
@@ -1508,19 +1530,23 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
     rows: [
       { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a WiFi network for direct MQTT over the internet (bypassing phone proxy). Uses significantly more power than BLE-only. Note: on ESP32 devices, WiFi takes precedence and disables Bluetooth automatically." },
       { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0, description: "Seconds before the device screen turns off to save power. Setting to 0 reverts to firmware default (600s / 10 minutes), it does NOT disable the screen. Use a very low value like 1 for effectively no screen, or use power saving mode for headless nodes." },
+      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean", description: "BLE is required for phone-to-device communication. Disabling will prevent the Aervyx app from configuring the device. Only disable for headless repeaters running entirely over Wi-Fi." },
     ],
   },
   {
-    group: "Platform managed",
-    readonly: true,
+    group: "LoRa radio",
     rows: [
-      { key: "gps_mode", label: "GPS mode", kind: "select", options: ["disabled", "enabled", "not_present"], description: "Controls the internal GPS receiver. Enabled: GPS is active and provides position data for broadcasting." },
-      { key: "modem_preset", label: "Modem preset", kind: "select", options: ["long_fast", "long_moderate", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "short_turbo", "long_turbo"], description: "LoRa radio modulation settings. All devices on the mesh must use the same preset." },
-      { key: "hop_limit", label: "Hop limit", kind: "number", min: 1, max: 7, description: "Maximum number of times a packet can be relayed across the mesh (1-7)." },
-      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"], description: "Controls which packets this device will rebroadcast. All is recommended." },
-      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean", description: "BLE is required for phone-to-device communication." },
-      { key: "power_saving", label: "Power saving", kind: "boolean", description: "Aggressively conserves power — not recommended for competition devices." },
-      { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0, description: "How often the device reports telemetry data to the mesh. High value (86400) suppresses unnecessary traffic." },
+      { key: "modem_preset", label: "Modem preset", kind: "select", options: ["long_fast", "long_moderate", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "short_turbo", "long_turbo"], description: "LoRa radio modulation settings. All devices on the same mesh must use the same preset or they will not see each other. Long Fast is the standard competition preset." },
+      { key: "hop_limit", label: "Hop limit", kind: "number", min: 1, max: 7, description: "Maximum number of times a packet can be relayed across the mesh (1-7). 3 is the standard value — higher values increase coverage but add congestion." },
+      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"], description: "Which packets this device will relay onward. \"all\" is the recommended default. \"none\" turns the device into a leaf node." },
+      { key: "gps_mode", label: "GPS mode", kind: "select", options: ["disabled", "enabled", "not_present"], description: "Controls the internal GPS receiver. \"enabled\" lets the device produce its own position fixes. \"not_present\" tells the firmware there is no GPS at all (e.g. base station fed by phone)." },
+    ],
+  },
+  {
+    group: "Power & telemetry",
+    rows: [
+      { key: "power_saving", label: "Power saving", kind: "boolean", description: "Aggressively conserves power. Not recommended for competition devices that need to be responsive — drops radio responsiveness." },
+      { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0, description: "How often the device reports telemetry (battery, voltage, temperature) to the mesh. A high value (86400 = 24 hours) effectively suppresses unnecessary traffic during a competition." },
     ],
   },
 ];
@@ -1569,17 +1595,14 @@ function MeshProfilesTable({
             </tr>
           </thead>
           <tbody>
-            {PROFILE_ROW_GROUPS.map(({ group, readonly, rows }) => (
+            {PROFILE_ROW_GROUPS.map(({ group, rows }) => (
               <Fragment key={group}>
                 <tr>
                   <td colSpan={PROFILE_KEYS.length + 1} style={groupHeaderStyle}>{group}</td>
                 </tr>
-                {rows.map((row) => {
-                  const dimmed = Boolean(readonly);
-                  const labelColor = dimmed ? "var(--color-hint, #bbb)" : "var(--color-muted, #6b7280)";
-                  return (
+                {rows.map((row) => (
                   <tr key={row.key} style={{ borderBottom: "1px solid var(--color-border-subtle, #f3f4f6)" }}>
-                    <td style={{ ...cellStyle, padding: "3px 8px", fontSize: "0.75rem", color: labelColor }}>
+                    <td style={{ ...cellStyle, padding: "3px 8px", fontSize: "0.75rem", color: "var(--color-muted, #6b7280)" }}>
                       <span style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
                         {row.label}
                         {row.description && (
@@ -1601,14 +1624,8 @@ function MeshProfilesTable({
                     </td>
                     {PROFILE_KEYS.map((pk) => {
                       const rawVal = profiles[pk]?.[row.key];
-                      if (dimmed) {
-                        const display = row.kind === "boolean" ? (rawVal ? "On" : "Off") : String(rawVal ?? "");
-                        return (
-                          <td key={pk} style={{ ...cellStyle, textAlign: "center", color: "var(--color-hint, #bbb)", fontSize: "0.75rem" }}>
-                            {display}
-                          </td>
-                        );
-                      }
+                      const options = row.perProfileOptions?.[pk] ?? row.options ?? [];
+                      const lockedSelect = row.kind === "select" && options.length === 1;
                       return (
                         <td key={pk} style={{ ...cellStyle, textAlign: "center" }}>
                           {row.kind === "boolean" ? (
@@ -1623,8 +1640,10 @@ function MeshProfilesTable({
                               value={String(rawVal ?? "")}
                               onChange={(e) => updateCell(pk, row.key, e.target.value)}
                               style={selectStyle}
+                              disabled={lockedSelect}
+                              title={lockedSelect ? "Locked — pilots must always be trackers." : undefined}
                             >
-                              {(row.options ?? []).map((opt) => (
+                              {options.map((opt) => (
                                 <option key={opt} value={opt}>{opt}</option>
                               ))}
                             </select>
@@ -1642,8 +1661,7 @@ function MeshProfilesTable({
                       );
                     })}
                   </tr>
-                  );
-                })}
+                ))}
               </Fragment>
             ))}
           </tbody>

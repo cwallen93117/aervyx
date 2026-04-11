@@ -386,7 +386,7 @@ class ProfileConfig {
       telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.driver: const ProfileConfig(
-      role: DeviceRole.router,
+      role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
       positionBroadcastSecs: 120,
@@ -403,7 +403,7 @@ class ProfileConfig {
       telemetryIntervalSecs: 86400,
     ),
     MeshtasticProfile.driverWifi: const ProfileConfig(
-      role: DeviceRole.router,
+      role: DeviceRole.client,
       rebroadcastMode: RebroadcastMode.all,
       gpsMode: GpsMode.enabled,
       positionBroadcastSecs: 60,
