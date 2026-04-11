@@ -18,7 +18,8 @@ interface AppVersionResponse {
 
 async function fetchReleases(): Promise<AppVersionResponse[] | null> {
   try {
-    const res = await fetch("https://api.aervyx.net/api/app/releases", {
+    const apiBase = process.env.BACKEND_INTERNAL_URL || "http://backend:8000";
+    const res = await fetch(`${apiBase}/api/app/releases`, {
       next: { revalidate: 300 },
     });
     if (!res.ok) return null;

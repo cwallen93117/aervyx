@@ -86,7 +86,10 @@ export default function AppDownloadPage() {
           <h1 style={styles.title}>Aervyx</h1>
           <p style={styles.tagline}>Competition companion for hang gliding & paragliding</p>
           {info && (
-            <span style={styles.versionBadge}>v{info.version}</span>
+            <div style={styles.versionRow}>
+              <span style={styles.versionBadge}>v{info.version}+{info.version_code}</span>
+              <a href="/changelog" style={styles.changelogLink}>View changelog →</a>
+            </div>
           )}
         </div>
 
@@ -244,6 +247,14 @@ const styles: Record<string, React.CSSProperties> = {
     margin: 0,
     maxWidth: 300,
   },
+  versionRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    flexWrap: "wrap" as const,
+    justifyContent: "center",
+    marginTop: 4,
+  },
   versionBadge: {
     display: "inline-block",
     padding: "4px 14px",
@@ -253,6 +264,14 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     fontWeight: 600,
     letterSpacing: "0.04em",
+    fontFamily: "'JetBrains Mono', monospace",
+  },
+  changelogLink: {
+    fontSize: 13,
+    color: "rgba(0,229,255,0.7)",
+    textDecoration: "none",
+    fontWeight: 500,
+    transition: "color 0.15s",
   },
   downloadBtn: {
     display: "flex",
