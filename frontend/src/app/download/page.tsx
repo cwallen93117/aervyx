@@ -197,6 +197,18 @@ export default async function DownloadPage() {
           border-color:rgba(255,255,255,0.1);
           color:rgba(255,255,255,0.45);
         }
+        .dl-badge-changelog{
+          background:transparent;
+          border-color:rgba(0,229,255,0.22);
+          color:rgba(0,229,255,0.8);
+          text-decoration:none;
+          transition:background .18s,color .18s,border-color .18s;
+        }
+        .dl-badge-changelog:hover{
+          background:rgba(0,229,255,0.08);
+          color:#00e5ff;
+          border-color:rgba(0,229,255,0.45);
+        }
         /* Size info */
         .dl-size{
           font-size:0.8rem;
@@ -434,7 +446,7 @@ export default async function DownloadPage() {
                       <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
                         <circle cx="4" cy="4" r="3.5" fill="#00e5ff" opacity="0.7" />
                       </svg>
-                      v{app.version}
+                      v{app.version}+{app.version_code}
                     </span>
                     <span className="dl-badge dl-badge-android">Android</span>
                     {app.release_date && (
@@ -442,6 +454,9 @@ export default async function DownloadPage() {
                         {formatDate(app.release_date)}
                       </span>
                     )}
+                    <a href="/changelog" className="dl-badge dl-badge-changelog">
+                      View changelog →
+                    </a>
                   </div>
 
                   {/* File size */}
@@ -455,7 +470,7 @@ export default async function DownloadPage() {
                   <a
                     href={app.download_url}
                     className="dl-btn"
-                    aria-label={`Download Aervyx Pilot v${app.version} APK`}
+                    aria-label={`Download Aervyx Pilot v${app.version}+${app.version_code} APK`}
                   >
                     <svg
                       width="18"

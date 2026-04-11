@@ -76,6 +76,29 @@ def get_version() -> AppVersionResponse:
     )
 
 
+@router.get("/releases")
+def list_releases() -> list[AppVersionResponse]:
+    """Return metadata for all releases, newest first.  Public — no auth."""
+    releases = _read_releases()
+    if not releases:
+        return []
+
+    settings = get_settings()
+    # releases.json stores oldest first (append order) — reverse so newest is first
+    return [
+        AppVersionResponse(
+            version=release["version"],
+            version_code=release["version_code"],
+            download_url=f"{settings.api_public_url}/api/app/download",
+            release_notes=release.get("release_notes", ""),
+            release_date=release["release_date"],
+            min_supported_version=release.get("min_supported_version", release["version"]),
+            file_size_bytes=release.get("file_size_bytes"),
+        )
+        for release in reversed(releases)
+    ]
+
+
 @router.get("/download")
 def download_apk():
     """Serve the latest APK.  Public — no auth."""
