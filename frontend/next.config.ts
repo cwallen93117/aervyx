@@ -24,6 +24,19 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // /download was a short-lived duplicate of /app. Keep a permanent
+      // redirect so APKs already installed in the wild (whose Settings
+      // "Download latest app" link points at /download) still land on the
+      // real download page.
+      {
+        source: "/download",
+        destination: "/app",
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
