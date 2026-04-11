@@ -429,7 +429,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 12),
                   GestureDetector(
                     onTap: () => launchUrl(
-                      Uri.parse('https://aervyx.net/download'),
+                      Uri.parse('https://aervyx.net/app'),
                       mode: LaunchMode.externalApplication,
                     ),
                     child: Row(

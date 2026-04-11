@@ -323,7 +323,7 @@ export default async function ChangelogPage() {
               Aervyx<span className="cl-nav-tld">.net</span>
             </span>
           </a>
-          <a href="/download" className="cl-nav-back">
+          <a href="/app" className="cl-nav-back">
             &larr; Back to download
           </a>
         </nav>
@@ -340,7 +340,7 @@ export default async function ChangelogPage() {
                 Every version of the Aervyx Pilot Android app
               </p>
               {latest && (
-                <a href="/download" className="cl-header-btn">
+                <a href="/app" className="cl-header-btn">
                   <svg
                     width="14"
                     height="14"
