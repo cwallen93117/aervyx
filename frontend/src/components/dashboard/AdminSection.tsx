@@ -1467,11 +1467,71 @@ function LiveTrackingTab({
 /*  Meshtastic Profiles table                                          */
 /* ------------------------------------------------------------------ */
 
+// Curated set of Meshtastic device settings exposed per profile.
+// Mirrors the categories in the official Meshtastic Android app.
+// MUST stay in lockstep with backend/app/routers/site_settings.py
+// and mobile/lib/models/meshtastic_protobufs.dart.
 const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
-  pilot: { role: "tracker", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 30, smart_position_enabled: true, smart_min_distance: 100, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 30, telemetry_interval_secs: 86400 },
-  driver: { role: "client", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 120, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 60, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: false, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 86400 },
-  driver_wifi: { role: "client", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 60, smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 30, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 60, telemetry_interval_secs: 86400 },
-  repeater: { role: "router", rebroadcast_mode: "all", gps_mode: "enabled", position_broadcast_secs: 300, smart_position_enabled: false, smart_min_distance: 0, smart_min_interval: 0, modem_preset: "long_fast", hop_limit: 3, power_saving: false, bluetooth_enabled: true, wifi_enabled: true, position_flags: 1, display_timeout_secs: 0, telemetry_interval_secs: 86400 },
+  pilot: {
+    // Device
+    role: "tracker", rebroadcast_mode: "all", node_info_broadcast_secs: 10800, serial_enabled: true,
+    // Position
+    gps_mode: "enabled", gps_update_interval: 30, position_broadcast_secs: 30,
+    smart_position_enabled: true, smart_min_distance: 100, smart_min_interval: 30, position_flags: 1,
+    // LoRa
+    region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
+    // Power
+    power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
+    // Bluetooth
+    bluetooth_enabled: true, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
+    // Network
+    wifi_enabled: false, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    // Display
+    display_timeout_secs: 30, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: true,
+    // Modules
+    telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
+    neighbor_info_enabled: false, neighbor_info_interval_secs: 14400,
+    store_forward_enabled: false, store_forward_is_server: false,
+  },
+  driver: {
+    role: "client", rebroadcast_mode: "all", node_info_broadcast_secs: 10800, serial_enabled: true,
+    gps_mode: "enabled", gps_update_interval: 60, position_broadcast_secs: 120,
+    smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 60, position_flags: 1,
+    region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
+    power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
+    bluetooth_enabled: true, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
+    wifi_enabled: false, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    display_timeout_secs: 60, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: true,
+    telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
+    neighbor_info_enabled: false, neighbor_info_interval_secs: 14400,
+    store_forward_enabled: false, store_forward_is_server: false,
+  },
+  driver_wifi: {
+    role: "client", rebroadcast_mode: "all", node_info_broadcast_secs: 10800, serial_enabled: true,
+    gps_mode: "enabled", gps_update_interval: 30, position_broadcast_secs: 60,
+    smart_position_enabled: true, smart_min_distance: 200, smart_min_interval: 30, position_flags: 1,
+    region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
+    power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
+    bluetooth_enabled: false, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
+    wifi_enabled: true, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    display_timeout_secs: 60, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: true,
+    telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
+    neighbor_info_enabled: false, neighbor_info_interval_secs: 14400,
+    store_forward_enabled: false, store_forward_is_server: false,
+  },
+  repeater: {
+    role: "router", rebroadcast_mode: "all", node_info_broadcast_secs: 10800, serial_enabled: true,
+    gps_mode: "enabled", gps_update_interval: 0, position_broadcast_secs: 300,
+    smart_position_enabled: false, smart_min_distance: 0, smart_min_interval: 0, position_flags: 1,
+    region: "unset", modem_preset: "long_fast", hop_limit: 3, tx_power: 0, tx_enabled: true, sx126x_rx_boosted_gain: true,
+    power_saving: false, on_battery_shutdown_after_secs: 0, ls_secs: 300, wait_bluetooth_secs: 60,
+    bluetooth_enabled: true, bluetooth_mode: "random_pin", bluetooth_fixed_pin: 123456,
+    wifi_enabled: true, wifi_ssid: "", wifi_psk: "", eth_enabled: false,
+    display_timeout_secs: 0, auto_screen_carousel_secs: 0, wake_on_tap_or_motion: false,
+    telemetry_interval_secs: 86400, device_telemetry_enabled: true, environment_telemetry_enabled: false,
+    neighbor_info_enabled: true, neighbor_info_interval_secs: 14400,
+    store_forward_enabled: true, store_forward_is_server: true,
+  },
 };
 
 const PROFILE_KEYS = ["pilot", "driver", "driver_wifi", "repeater"] as const;
@@ -1486,7 +1546,7 @@ const ROLE_OPTIONS_OTHER = ["tracker", "router", "client"] as const;
 type ProfileRowDef = {
   key: string;
   label: string;
-  kind: "select" | "number" | "boolean";
+  kind: "select" | "number" | "boolean" | "string";
   options?: string[];
   // Optional override: per-profile-key option lists.
   // When present, takes precedence over `options` for that profile column.
@@ -1494,11 +1554,23 @@ type ProfileRowDef = {
   min?: number;
   max?: number;
   description?: string;
+  // Mark text inputs that should hide their value (Wi-Fi PSK, etc.).
+  secret?: boolean;
 };
 
+// Shared option lists for enum-typed fields. Snake-case values match the
+// strings the backend stores and the mobile app's _xxxFromString helpers.
+const REBROADCAST_OPTIONS = ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"];
+const GPS_MODE_OPTIONS = ["disabled", "enabled", "not_present"];
+const MODEM_PRESET_OPTIONS = ["long_fast", "long_moderate", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "short_turbo", "long_turbo"];
+const REGION_OPTIONS = ["unset", "us", "eu_433", "eu_868", "cn", "jp", "anz", "kr", "tw", "ru", "in", "nz_865", "th", "lora_24", "ua_433", "ua_868"];
+const BLUETOOTH_MODE_OPTIONS = ["random_pin", "fixed_pin", "no_pin"];
+
+// Groups mirror the official Meshtastic Android app: Device, Position, LoRa,
+// Power, Bluetooth, Network, Display, Modules. ~38 fields total.
 const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowDef[] }[] = [
   {
-    group: "Role",
+    group: "Device",
     rows: [
       {
         key: "role",
@@ -1513,40 +1585,78 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
         },
         description: "Tracker: firmware prioritizes position packets — required for pilots. Router: always-on radio relay that extends mesh coverage — best for repeaters. Client: standard node, lower power draw — suitable for drivers and base stations. Pilot is locked to Tracker.",
       },
+      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: REBROADCAST_OPTIONS, description: "Which packets this device will relay onward. \"all\" is the recommended default. \"none\" turns the device into a leaf node." },
+      { key: "node_info_broadcast_secs", label: "Node info (s)", kind: "number", min: 0, description: "How often the device announces its NodeInfo (name, hardware, role) on the mesh. Default 10800 (3 hours). Lower values speed up new-node discovery but add traffic." },
+      { key: "serial_enabled", label: "Serial console", kind: "boolean", description: "Enable the USB serial console / API on the device. Required for hardwired flashing and CLI access. Safe to leave enabled." },
     ],
   },
   {
     group: "Position",
     rows: [
+      { key: "gps_mode", label: "GPS mode", kind: "select", options: GPS_MODE_OPTIONS, description: "Controls the internal GPS receiver. \"enabled\" lets the device produce its own position fixes. \"not_present\" tells the firmware there is no GPS at all (e.g. base station fed by phone)." },
+      { key: "gps_update_interval", label: "GPS poll (s)", kind: "number", min: 0, description: "How often the GPS chip is sampled (seconds). 0 = firmware default (120s). Lower values increase battery drain but produce fresher fixes." },
       { key: "position_broadcast_secs", label: "Broadcast (s)", kind: "number", min: 0, description: "How often (in seconds) the device broadcasts its GPS position to the mesh network. Lower values give more frequent updates but increase radio traffic and battery drain. Setting to 0 reverts to firmware default (900s / 15 min). Pilots typically use 30s, drivers 60-120s, repeaters 300s." },
       { key: "smart_position_enabled", label: "Smart pos.", kind: "boolean", description: "When enabled, the device sends position updates early if it detects significant movement (based on min distance and min interval thresholds), rather than waiting for the full broadcast interval. Helps capture turns and altitude changes for pilots in flight." },
-      { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0, description: "Minimum distance traveled (in meters) before triggering a smart position update. Only applies when smart position is enabled. Setting to 0 reverts to firmware default (100m). Lower values capture more detail but increase radio traffic. 100m is good for pilots, 200m for drivers." },
-      { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0, description: "Minimum time (in seconds) between smart position updates. Prevents excessive updates during rapid movement even if the distance threshold is met repeatedly. Setting to 0 reverts to firmware default (30s). Only applies when smart position is enabled." },
-      { key: "position_flags", label: "Position flags", kind: "number", min: 0, description: "Bitmask telling the firmware which extra fields to include in each position packet (altitude, heading, speed, satellites, etc.). 1 = altitude only (default for pilots), 0 = position only. See Meshtastic POSITION_APP docs for the full bitmask. Most installs should leave this at 1." },
+      { key: "smart_min_distance", label: "Min dist (m)", kind: "number", min: 0, description: "Minimum distance traveled (in meters) before triggering a smart position update. Only applies when smart position is enabled. Setting to 0 reverts to firmware default (100m)." },
+      { key: "smart_min_interval", label: "Min interval (s)", kind: "number", min: 0, description: "Minimum time (in seconds) between smart position updates. Prevents excessive updates during rapid movement even if the distance threshold is met repeatedly. Setting to 0 reverts to firmware default (30s)." },
+      { key: "position_flags", label: "Position flags", kind: "number", min: 0, description: "Bitmask telling the firmware which extra fields to include in each position packet (altitude, heading, speed, satellites, etc.). 1 = altitude only (default for pilots), 0 = position only. See Meshtastic POSITION_APP docs for the full bitmask." },
     ],
   },
   {
-    group: "Connectivity",
+    group: "LoRa",
     rows: [
-      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a WiFi network for direct MQTT over the internet (bypassing phone proxy). Uses significantly more power than BLE-only. Note: on ESP32 devices, WiFi takes precedence and disables Bluetooth automatically." },
-      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0, description: "Seconds before the device screen turns off to save power. Setting to 0 reverts to firmware default (600s / 10 minutes), it does NOT disable the screen. Use a very low value like 1 for effectively no screen, or use power saving mode for headless nodes." },
-      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean", description: "BLE is required for phone-to-device communication. Disabling will prevent the Aervyx app from configuring the device. Only disable for headless repeaters running entirely over Wi-Fi." },
-    ],
-  },
-  {
-    group: "LoRa radio",
-    rows: [
-      { key: "modem_preset", label: "Modem preset", kind: "select", options: ["long_fast", "long_moderate", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "short_turbo", "long_turbo"], description: "LoRa radio modulation settings. All devices on the same mesh must use the same preset or they will not see each other. Long Fast is the standard competition preset." },
+      { key: "region", label: "Region", kind: "select", options: REGION_OPTIONS, description: "Radio frequency region. MUST match the country/regulatory zone the device operates in. \"unset\" forces the user to pick on first boot. All devices on the same mesh must use the same region." },
+      { key: "modem_preset", label: "Modem preset", kind: "select", options: MODEM_PRESET_OPTIONS, description: "LoRa radio modulation settings. All devices on the same mesh must use the same preset or they will not see each other. Long Fast is the standard competition preset." },
       { key: "hop_limit", label: "Hop limit", kind: "number", min: 1, max: 7, description: "Maximum number of times a packet can be relayed across the mesh (1-7). 3 is the standard value — higher values increase coverage but add congestion." },
-      { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"], description: "Which packets this device will relay onward. \"all\" is the recommended default. \"none\" turns the device into a leaf node." },
-      { key: "gps_mode", label: "GPS mode", kind: "select", options: ["disabled", "enabled", "not_present"], description: "Controls the internal GPS receiver. \"enabled\" lets the device produce its own position fixes. \"not_present\" tells the firmware there is no GPS at all (e.g. base station fed by phone)." },
+      { key: "tx_power", label: "TX power (dBm)", kind: "number", min: 0, max: 30, description: "Transmit power in dBm (0-30). 0 = use the legal maximum for the selected region. Lower values reduce range and battery drain." },
+      { key: "tx_enabled", label: "TX enabled", kind: "boolean", description: "Master transmit kill-switch. When false the device receives only — useful for monitor-only base stations." },
+      { key: "sx126x_rx_boosted_gain", label: "RX boosted gain", kind: "boolean", description: "On SX126x radios, enables boosted receive gain. Increases sensitivity at the cost of slightly higher idle current. Recommended on for trackers." },
     ],
   },
   {
-    group: "Power & telemetry",
+    group: "Power",
     rows: [
-      { key: "power_saving", label: "Power saving", kind: "boolean", description: "Aggressively conserves power. Not recommended for competition devices that need to be responsive — drops radio responsiveness." },
+      { key: "power_saving", label: "Power saving", kind: "boolean", description: "Aggressively conserves power by disabling BLE / Wi-Fi / serial when idle. Not recommended for competition devices that need to be responsive." },
+      { key: "on_battery_shutdown_after_secs", label: "Shutdown on battery (s)", kind: "number", min: 0, description: "Auto-shutdown delay (seconds) after the device starts running on battery. 0 = never auto-shutdown. Useful for solar-powered repeaters that should sleep when the panel stops charging." },
+      { key: "ls_secs", label: "Light sleep (s)", kind: "number", min: 0, description: "Light sleep duration on ESP32 devices, in seconds (default 300). Higher values save more power but increase wake latency." },
+      { key: "wait_bluetooth_secs", label: "BT wait (s)", kind: "number", min: 0, description: "How long the device keeps Bluetooth on at boot before sleeping it (default 60s). Increase if you have trouble pairing on cold boot." },
+    ],
+  },
+  {
+    group: "Bluetooth",
+    rows: [
+      { key: "bluetooth_enabled", label: "Bluetooth", kind: "boolean", description: "BLE is required for phone-to-device communication. Disabling will prevent the Aervyx app from configuring the device. ESP32 devices auto-disable BT when Wi-Fi is on." },
+      { key: "bluetooth_mode", label: "Pairing mode", kind: "select", options: BLUETOOTH_MODE_OPTIONS, description: "BLE pairing security: random_pin (display shows a fresh PIN each time), fixed_pin (always uses the same PIN below), no_pin (no PIN — least secure)." },
+      { key: "bluetooth_fixed_pin", label: "Fixed PIN", kind: "number", min: 0, max: 999999, description: "PIN used when pairing mode is fixed_pin. Six digits, default 123456. Ignored in random_pin / no_pin modes." },
+    ],
+  },
+  {
+    group: "Network",
+    rows: [
+      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a Wi-Fi network for direct MQTT over the internet (bypassing phone proxy). On ESP32 devices, Wi-Fi takes precedence and disables Bluetooth." },
+      { key: "wifi_ssid", label: "Wi-Fi SSID", kind: "string", description: "Wi-Fi network name. Only used when Wi-Fi is enabled. Max 32 characters." },
+      { key: "wifi_psk", label: "Wi-Fi password", kind: "string", secret: true, description: "Wi-Fi pre-shared key (password). Stored on the device and pushed via BLE on profile apply." },
+      { key: "eth_enabled", label: "Ethernet", kind: "boolean", description: "Enable wired Ethernet on devices that support it. No-op on devices without an Ethernet port." },
+    ],
+  },
+  {
+    group: "Display",
+    rows: [
+      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0, description: "Seconds before the device screen turns off to save power. 0 reverts to firmware default (600s / 10 minutes), it does NOT disable the screen. Use a very low value like 1 for effectively no screen on headless nodes." },
+      { key: "auto_screen_carousel_secs", label: "Carousel (s)", kind: "number", min: 0, description: "How long the screen lingers on each page before auto-rotating to the next. 0 = no auto-rotation." },
+      { key: "wake_on_tap_or_motion", label: "Wake on tap/motion", kind: "boolean", description: "Wake the screen when the device is tapped or moved (requires accelerometer). Useful for handheld trackers." },
+    ],
+  },
+  {
+    group: "Modules",
+    rows: [
       { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0, description: "How often the device reports telemetry (battery, voltage, temperature) to the mesh. A high value (86400 = 24 hours) effectively suppresses unnecessary traffic during a competition." },
+      { key: "device_telemetry_enabled", label: "Device telemetry", kind: "boolean", description: "Master enable for device-metrics telemetry (battery %, voltage, channel utilization). Required for the dashboard to track battery status." },
+      { key: "environment_telemetry_enabled", label: "Env telemetry", kind: "boolean", description: "Enable environmental sensor reporting (temperature, humidity, pressure). No-op on devices without an env sensor." },
+      { key: "neighbor_info_enabled", label: "Neighbor info", kind: "boolean", description: "Enable the Neighbor Info module — periodically broadcasts a list of one-hop neighbors so the dashboard can show network topology." },
+      { key: "neighbor_info_interval_secs", label: "Neighbor int. (s)", kind: "number", min: 14400, description: "How often Neighbor Info is broadcast. Minimum 14400 (4 hours) per Meshtastic spec." },
+      { key: "store_forward_enabled", label: "Store & forward", kind: "boolean", description: "Enable the Store & Forward module — caches messages for offline clients. Recommended only on AC-powered nodes." },
+      { key: "store_forward_is_server", label: "S&F server", kind: "boolean", description: "Designate this node as the Store & Forward server. Only one server is needed per mesh — typically a repeater." },
     ],
   },
 ];
@@ -1647,6 +1757,14 @@ function MeshProfilesTable({
                                 <option key={opt} value={opt}>{opt}</option>
                               ))}
                             </select>
+                          ) : row.kind === "string" ? (
+                            <input
+                              type={row.secret ? "password" : "text"}
+                              value={String(rawVal ?? "")}
+                              onChange={(e) => updateCell(pk, row.key, e.target.value)}
+                              style={inputStyle}
+                              autoComplete="off"
+                            />
                           ) : (
                             <input
                               type="number"

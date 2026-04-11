@@ -1147,12 +1147,14 @@ class BleService extends ChangeNotifier {
       // Begin batch edit
       await _writeAdmin(buildBeginEditSettings());
 
-      // Device config (role + rebroadcast)
+      // Device config (role + rebroadcast + serial + nodeinfo broadcast)
       _statusMessage = 'Setting device role...';
       notifyListeners();
       await _writeAdmin(buildSetDeviceConfig(
         role: config.role,
         rebroadcastMode: config.rebroadcastMode,
+        serialEnabled: config.serialEnabled,
+        nodeInfoBroadcastSecs: config.nodeInfoBroadcastSecs,
       ));
 
       // Position config
@@ -1165,30 +1167,50 @@ class BleService extends ChangeNotifier {
         smartMinInterval: config.smartMinInterval,
         gpsMode: config.gpsMode,
         positionFlags: config.positionFlags,
+        gpsUpdateInterval: config.gpsUpdateInterval,
       ));
 
-      // LoRa config
+      // LoRa config — region from profile if set, else preserve device's
+      // existing region (so we don't accidentally clobber a region the user
+      // chose manually on first boot).
       _statusMessage = 'Setting LoRa radio...';
       notifyListeners();
       await _writeAdmin(buildSetLoraConfig(
         modemPreset: config.modemPreset,
-        region: _deviceState.region, // Keep current region
+        region: config.region != RegionCode.unset
+            ? config.region
+            : _deviceState.region,
         hopLimit: config.hopLimit,
+        txEnabled: config.txEnabled,
+        txPower: config.txPower,
+        sx126xRxBoostedGain: config.sx126xRxBoostedGain,
       ));
 
       // Power config
       await _writeAdmin(buildSetPowerConfig(
         isPowerSaving: config.powerSaving,
+        onBatteryShutdownAfterSecs: config.onBatteryShutdownAfterSecs,
+        waitBluetoothSecs: config.waitBluetoothSecs,
+        lsSecs: config.lsSecs,
       ));
 
       // Display config
       await _writeAdmin(buildSetDisplayConfig(
         screenOnSecs: config.displayTimeoutSecs,
+        autoScreenCarouselSecs: config.autoScreenCarouselSecs,
+        wakeOnTapOrMotion: config.wakeOnTapOrMotion,
       ));
 
-      // Network/Wi-Fi
+      // Network/Wi-Fi (push SSID/PSK from the profile if Wi-Fi is enabled)
       await _writeAdmin(buildSetNetworkConfig(
         wifiEnabled: config.wifiEnabled,
+        wifiSsid: config.wifiEnabled && config.wifiSsid.isNotEmpty
+            ? config.wifiSsid
+            : null,
+        wifiPsk: config.wifiEnabled && config.wifiPsk.isNotEmpty
+            ? config.wifiPsk
+            : null,
+        ethEnabled: config.ethEnabled,
       ));
 
       // MQTT — always on, use platform config from admin settings
@@ -1204,15 +1226,19 @@ class BleService extends ChangeNotifier {
       // Telemetry
       await _writeAdmin(buildSetTelemetryConfig(
         deviceUpdateInterval: config.telemetryIntervalSecs,
+        environmentMeasurementEnabled: config.environmentTelemetryEnabled,
       ));
 
-      // Neighbor info — on for all profiles
-      await _writeAdmin(buildSetNeighborInfoConfig(enabled: true));
+      // Neighbor info — driven by profile
+      await _writeAdmin(buildSetNeighborInfoConfig(
+        enabled: config.neighborInfoEnabled,
+        updateIntervalSecs: config.neighborInfoIntervalSecs,
+      ));
 
-      // Store & forward — on for repeaters as server, on for others as client
+      // Store & forward — driven by profile
       await _writeAdmin(buildSetStoreForwardConfig(
-        enabled: true,
-        isServer: profile == MeshtasticProfile.repeater,
+        enabled: config.storeForwardEnabled,
+        isServer: config.storeForwardIsServer,
       ));
 
       // Channel uplink — always on
@@ -1224,9 +1250,12 @@ class BleService extends ChangeNotifier {
       ));
 
       // Bluetooth config — kept last before commit as defense-in-depth.
-      // All profiles now keep BLE on so the device remains reachable.
       await _writeAdmin(buildSetBluetoothConfig(
         enabled: config.bluetoothEnabled,
+        mode: config.bluetoothMode,
+        fixedPin: config.bluetoothMode == BlePairingMode.fixedPin
+            ? config.bluetoothFixedPin
+            : null,
       ));
 
       // Commit batch edit (device reboots)
