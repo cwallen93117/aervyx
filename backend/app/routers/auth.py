@@ -12,7 +12,7 @@ from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Pilot, User, UserEmail
+from app.models import LivePosition, Pilot, TrackingSession, User, UserEmail
 from app.schemas import (
     AdminUserCredentialsUpdate,
     AdminUserResponse,
@@ -811,5 +811,17 @@ def delete_user_account(user_id: int, admin: User = Depends(require_admin), sess
         admin_count = session.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True))) or 0
         if admin_count <= 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one active admin account must remain")
+    # Clean up tracking data so deleted users don't appear as ghosts
+    # in Live Tracking.  TrackingSession / LivePosition FKs are SET NULL
+    # on pilot deletion, but the Pilot row itself survives user deletion,
+    # so we must explicitly deactivate sessions and purge positions.
+    if target.pilot_id:
+        session.query(TrackingSession).filter(
+            TrackingSession.pilot_id == target.pilot_id,
+        ).update({"is_active": False})
+        session.query(LivePosition).filter(
+            LivePosition.pilot_id == target.pilot_id,
+        ).delete()
+
     session.delete(target)
     session.commit()
