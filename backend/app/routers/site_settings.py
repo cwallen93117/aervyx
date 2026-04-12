@@ -22,11 +22,11 @@ DEFAULT_MESH_PROFILES = {
         "serial_enabled": True,
         # Position
         "gps_mode": "enabled",
-        "gps_update_interval": 30,
+        "gps_update_interval": 10,
         "position_broadcast_secs": 30,
         "smart_position_enabled": True,
         "smart_min_distance": 100,
-        "smart_min_interval": 30,
+        "smart_min_interval": 10,
         "position_flags": 1,
         # LoRa — region is device-specific (set by the operator on the mobile
         # Meshtastic settings screen). Never shipped from the backend so a
@@ -55,7 +55,7 @@ DEFAULT_MESH_PROFILES = {
         # Display
         "display_timeout_secs": 30,
         "auto_screen_carousel_secs": 0,
-        "wake_on_tap_or_motion": True,
+        "wake_on_tap_or_motion": False,
         # Modules
         "telemetry_interval_secs": 86400,
         "device_telemetry_enabled": True,
@@ -73,11 +73,11 @@ DEFAULT_MESH_PROFILES = {
         "serial_enabled": True,
         # Position
         "gps_mode": "enabled",
-        "gps_update_interval": 60,
+        "gps_update_interval": 30,
         "position_broadcast_secs": 120,
         "smart_position_enabled": True,
         "smart_min_distance": 200,
-        "smart_min_interval": 60,
+        "smart_min_interval": 30,
         "position_flags": 1,
         # LoRa — region is device-specific, set on the phone (see pilot
         # profile comment).
@@ -191,7 +191,7 @@ DEFAULT_MESH_PROFILES = {
         "bluetooth_fixed_pin": 123456,
         # Network (Wi-Fi credentials stay device-specific)
         "wifi_enabled": True,
-        "eth_enabled": False,
+        "eth_enabled": True,
         # Display (off by default — headless repeater)
         "display_timeout_secs": 0,
         "auto_screen_carousel_secs": 0,
@@ -200,7 +200,7 @@ DEFAULT_MESH_PROFILES = {
         "telemetry_interval_secs": 86400,
         "device_telemetry_enabled": True,
         "environment_telemetry_enabled": False,
-        "neighbor_info_enabled": True,
+        "neighbor_info_enabled": False,
         "neighbor_info_interval_secs": 14400,
         "store_forward_enabled": True,
         "store_forward_is_server": True,

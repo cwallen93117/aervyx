@@ -1559,6 +1559,9 @@ type ProfileRowDef = {
   // For flag_bit rows: name of the backing bitmask field + the bit to toggle.
   storageKey?: string;
   bit?: number;
+  // Unit conversion: divide stored value by this factor for display, multiply on save.
+  // e.g. displayScale: 3600 converts seconds <-> hours.
+  displayScale?: number;
 };
 
 // Meshtastic PositionFlags bitmask — mirrors the official config.proto.
@@ -1601,7 +1604,7 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
         description: "Tracker: firmware prioritizes position packets — required for pilots. Router: always-on radio relay that extends mesh coverage — best for repeaters. Client: standard node, lower power draw — suitable for drivers and base stations. Pilot is locked to Tracker.",
       },
       { key: "rebroadcast_mode", label: "Rebroadcast", kind: "select", options: REBROADCAST_OPTIONS, description: "Which packets this device will relay onward. \"all\" is the recommended default. \"none\" turns the device into a leaf node." },
-      { key: "node_info_broadcast_secs", label: "Node info (s)", kind: "number", min: 0, description: "How often the device announces its NodeInfo (name, hardware, role) on the mesh. Default 10800 (3 hours). Lower values speed up new-node discovery but add traffic." },
+      { key: "node_info_broadcast_secs", label: "Node info (h)", kind: "number", min: 0, displayScale: 3600, description: "How often the device announces its NodeInfo (name, hardware, role) on the mesh. Default 3 hours. Lower values speed up new-node discovery but add traffic." },
       { key: "serial_enabled", label: "Serial console", kind: "boolean", description: "Enable the USB serial console / API on the device. Required for hardwired flashing and CLI access. Safe to leave enabled." },
     ],
   },
@@ -1678,11 +1681,11 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   {
     group: "Modules",
     rows: [
-      { key: "telemetry_interval_secs", label: "Telemetry (s)", kind: "number", min: 0, description: "How often the device reports telemetry (battery, voltage, temperature) to the mesh. A high value (86400 = 24 hours) effectively suppresses unnecessary traffic during a competition." },
+      { key: "telemetry_interval_secs", label: "Telemetry (h)", kind: "number", min: 0, displayScale: 3600, description: "How often the device reports telemetry (battery, voltage, temperature) to the mesh. Default 24 hours — effectively suppresses unnecessary traffic during a competition." },
       { key: "device_telemetry_enabled", label: "Device telemetry", kind: "boolean", description: "Master enable for device-metrics telemetry (battery %, voltage, channel utilization). Required for the dashboard to track battery status." },
       { key: "environment_telemetry_enabled", label: "Env telemetry", kind: "boolean", description: "Enable environmental sensor reporting (temperature, humidity, pressure). No-op on devices without an env sensor." },
       { key: "neighbor_info_enabled", label: "Neighbor info", kind: "boolean", description: "Enable the Neighbor Info module — periodically broadcasts a list of one-hop neighbors so the dashboard can show network topology." },
-      { key: "neighbor_info_interval_secs", label: "Neighbor int. (s)", kind: "number", min: 14400, description: "How often Neighbor Info is broadcast. Minimum 14400 (4 hours) per Meshtastic spec." },
+      { key: "neighbor_info_interval_secs", label: "Neighbor int. (h)", kind: "number", min: 4, displayScale: 3600, description: "How often Neighbor Info is broadcast. Minimum 4 hours per Meshtastic spec." },
       { key: "store_forward_enabled", label: "Store & forward", kind: "boolean", description: "Enable the Store & Forward module — caches messages for offline clients. Recommended only on AC-powered nodes." },
       { key: "store_forward_is_server", label: "S&F server", kind: "boolean", description: "Designate this node as the Store & Forward server. Only one server is needed per mesh — typically a repeater." },
     ],
@@ -1705,12 +1708,14 @@ function FormattedNumberInput({
   value,
   min,
   max,
+  step,
   onChange,
   style,
 }: {
   value: number;
   min?: number;
   max?: number;
+  step?: number;
   onChange: (n: number) => void;
   style?: React.CSSProperties;
 }) {
@@ -1722,9 +1727,10 @@ function FormattedNumberInput({
   return (
     <input
       type={focused ? "number" : "text"}
-      inputMode="numeric"
+      inputMode={step && step % 1 !== 0 ? "decimal" : "numeric"}
       min={min}
       max={max}
+      step={step}
       value={displayValue}
       style={style}
       onFocus={() => {
@@ -1936,10 +1942,11 @@ function MeshProfilesTable({
                               />
                             ) : (
                               <FormattedNumberInput
-                                value={Number(rawVal ?? 0)}
+                                value={row.displayScale ? Number(rawVal ?? 0) / row.displayScale : Number(rawVal ?? 0)}
                                 min={row.min}
                                 max={row.max}
-                                onChange={(n) => updateCell(pk, row.key, n)}
+                                step={row.displayScale ? 0.5 : undefined}
+                                onChange={(n) => updateCell(pk, row.key, row.displayScale ? n * row.displayScale : n)}
                                 style={inputStyle}
                               />
                             )}
