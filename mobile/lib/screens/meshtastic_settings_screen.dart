@@ -10,7 +10,7 @@ import '../services/ble_service.dart';
 /// Sections:
 /// 1. BLE Scan / Connect
 /// 2. Settings (user-editable: role, name, region, wi-fi for Driver role)
-/// 3. Admin Settings (read-only profile values)
+/// 3. Device Settings (read-only profile values)
 /// 4. Reboot
 class MeshtasticSettingsScreen extends StatelessWidget {
   const MeshtasticSettingsScreen({super.key});
@@ -48,8 +48,8 @@ class MeshtasticSettingsScreen extends StatelessWidget {
 
               const SizedBox(height: 24),
 
-              // ── Admin Settings ──
-              const _SectionHeader(title: 'Admin Settings'),
+              // ── Device Settings ──
+              const _SectionHeader(title: 'Device Settings'),
               const SizedBox(height: 8),
               _AdminSettingsCard(),
 
@@ -684,7 +684,7 @@ class _SettingsCardState extends State<_SettingsCard> {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Admin Settings card — read-only profile values
+// Device Settings card — read-only profile values
 // ═══════════════════════════════════════════════════════════════════════════════
 
 class _AdminSettingsCard extends StatelessWidget {
@@ -703,16 +703,6 @@ class _AdminSettingsCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Card subtitle
-            Text(
-              'Configured by your competition admin. Contact your scorer to change these.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-
-            const Divider(height: 24),
-
             // ── Position ──
             _ConfigRow(
                 label: 'Position interval',
