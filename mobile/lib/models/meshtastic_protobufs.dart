@@ -255,8 +255,10 @@ class ProfileConfig {
   final int smartMinInterval;
   final int positionFlags;
 
-  // LoRa
-  final RegionCode region;
+  // LoRa — region is intentionally NOT carried by the profile. It's
+  // device-specific and the operator sets it on the mobile Meshtastic
+  // settings screen on their own phone. Shipping a fleet-wide region from
+  // the backend would silence radios already on a legal frequency.
   final ModemPreset modemPreset;
   final int hopLimit;
   final int txPower;
@@ -305,7 +307,6 @@ class ProfileConfig {
     required this.smartMinDistance,
     required this.smartMinInterval,
     required this.positionFlags,
-    this.region = RegionCode.unset,
     required this.modemPreset,
     required this.hopLimit,
     this.txPower = 0,
@@ -348,8 +349,7 @@ class ProfileConfig {
       smartMinDistance: json['smart_min_distance'] as int? ?? 100,
       smartMinInterval: json['smart_min_interval'] as int? ?? 30,
       positionFlags: json['position_flags'] as int? ?? PositionFlags.altitude,
-      // LoRa
-      region: _regionFromString(json['region'] as String? ?? 'unset'),
+      // LoRa (region is device-specific and not carried in profile JSON)
       modemPreset: _modemFromString(json['modem_preset'] as String? ?? 'long_fast'),
       hopLimit: json['hop_limit'] as int? ?? 3,
       txPower: json['tx_power'] as int? ?? 0,
@@ -396,8 +396,7 @@ class ProfileConfig {
     'smart_min_distance': smartMinDistance,
     'smart_min_interval': smartMinInterval,
     'position_flags': positionFlags,
-    // LoRa
-    'region': _regionToString(region),
+    // LoRa (region intentionally omitted — set per device on the phone)
     'modem_preset': _modemToString(modemPreset),
     'hop_limit': hopLimit,
     'tx_power': txPower,
@@ -487,25 +486,9 @@ class ProfileConfig {
     ModemPreset.shortTurbo: 'short_turbo', ModemPreset.longTurbo: 'long_turbo',
   }[m] ?? 'long_fast';
 
-  static RegionCode _regionFromString(String s) => const {
-    'unset': RegionCode.unset, 'us': RegionCode.us,
-    'eu_433': RegionCode.eu433, 'eu_868': RegionCode.eu868,
-    'cn': RegionCode.cn, 'jp': RegionCode.jp, 'anz': RegionCode.anz,
-    'kr': RegionCode.kr, 'tw': RegionCode.tw, 'ru': RegionCode.ru,
-    'in': RegionCode.ind, 'nz_865': RegionCode.nz865, 'th': RegionCode.th,
-    'lora_24': RegionCode.lora24,
-    'ua_433': RegionCode.ua433, 'ua_868': RegionCode.ua868,
-  }[s] ?? RegionCode.unset;
-
-  static String _regionToString(RegionCode r) => const {
-    RegionCode.unset: 'unset', RegionCode.us: 'us',
-    RegionCode.eu433: 'eu_433', RegionCode.eu868: 'eu_868',
-    RegionCode.cn: 'cn', RegionCode.jp: 'jp', RegionCode.anz: 'anz',
-    RegionCode.kr: 'kr', RegionCode.tw: 'tw', RegionCode.ru: 'ru',
-    RegionCode.ind: 'in', RegionCode.nz865: 'nz_865', RegionCode.th: 'th',
-    RegionCode.lora24: 'lora_24',
-    RegionCode.ua433: 'ua_433', RegionCode.ua868: 'ua_868',
-  }[r] ?? 'unset';
+  // _regionFromString / _regionToString removed: region is no longer carried
+  // by the profile JSON. The RegionCode enum itself is still used elsewhere
+  // (BleService.deviceState.region, the Meshtastic settings dropdown).
 
   static BlePairingMode _blePairingFromString(String s) => const {
     'random_pin': BlePairingMode.randomPin,

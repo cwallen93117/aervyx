@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -143,11 +144,19 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       final googleSignIn = GoogleSignIn(serverClientId: clientId);
       final account = await googleSignIn.signIn();
-      if (account == null) return; // User cancelled
+      if (account == null) return; // User cancelled the chooser
       final auth = await account.authentication;
       final idToken = auth.idToken;
       if (idToken == null) {
-        throw Exception('Failed to get Google ID token');
+        // Most common cause: serverClientId is set but the Android OAuth client
+        // for this package + signing SHA-1 isn't registered in the same Google
+        // Cloud project, so Google won't issue an idToken.
+        throw Exception(
+          'Google did not return an ID token. The Android OAuth client for '
+          'this build (com.aervyx.aervyx_mobile + release SHA-1) is probably '
+          'not registered in the Google Cloud project that owns the web '
+          'client ID. Ask the admin to add it.',
+        );
       }
       await authService.loginWithGoogle(idToken);
     } on ApiException catch (e) {
@@ -156,6 +165,25 @@ class _LoginScreenState extends State<LoginScreen> {
             ? 'Google sign-in is not available on this server'
             : 'Server error (${e.statusCode})');
       }
+    } on PlatformException catch (e) {
+      // google_sign_in surfaces native Google Play Services failures here.
+      // status 10 = DEVELOPER_ERROR (SHA-1 / package name mismatch in GCP),
+      // status 12500 = SIGN_IN_FAILED (generic), status 7 = NETWORK_ERROR.
+      if (!mounted) return;
+      String msg;
+      if (e.code == 'sign_in_failed' || e.code == 'sign_in_canceled') {
+        if (e.message?.contains('10') ?? false) {
+          msg = 'Google Sign-In not configured for this app build '
+              '(DEVELOPER_ERROR / SHA-1 not registered in Google Cloud).';
+        } else if (e.message?.contains('7') ?? false) {
+          msg = 'Network error talking to Google. Check your connection.';
+        } else {
+          msg = 'Google Sign-In failed: ${e.code} ${e.message ?? ''}';
+        }
+      } else {
+        msg = 'Google Sign-In failed: ${e.code} ${e.message ?? ''}';
+      }
+      setState(() => _error = msg);
     } catch (e) {
       if (mounted) setState(() => _error = _friendlyError(e));
     } finally {

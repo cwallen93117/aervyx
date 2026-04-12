@@ -1579,7 +1579,6 @@ const POSITION_FLAG_SPEED = 0x200;
 const REBROADCAST_OPTIONS = ["all", "all_skip_decoding", "local_only", "known_only", "none", "core_portnums_only"];
 const GPS_MODE_OPTIONS = ["disabled", "enabled", "not_present"];
 const MODEM_PRESET_OPTIONS = ["long_fast", "long_moderate", "long_slow", "very_long_slow", "medium_slow", "medium_fast", "short_slow", "short_fast", "short_turbo", "long_turbo"];
-const REGION_OPTIONS = ["unset", "us", "eu_433", "eu_868", "cn", "jp", "anz", "kr", "tw", "ru", "in", "nz_865", "th", "lora_24", "ua_433", "ua_868"];
 const BLUETOOTH_MODE_OPTIONS = ["random_pin", "fixed_pin", "no_pin"];
 
 // Groups mirror the official Meshtastic Android app: Device, Position, LoRa,
@@ -1632,8 +1631,11 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   },
   {
     group: "LoRa",
+    // Region is intentionally NOT exposed here. It's device-specific and
+    // operators set it on the mobile Meshtastic settings screen on their
+    // own phone. Shipping a fleet-wide region from the admin would risk
+    // silencing radios that were already on a legal frequency.
     rows: [
-      { key: "region", label: "Region", kind: "select", options: REGION_OPTIONS, description: "Radio frequency region. MUST match the country/regulatory zone the device operates in. \"unset\" forces the user to pick on first boot. All devices on the same mesh must use the same region." },
       { key: "modem_preset", label: "Modem preset", kind: "select", options: MODEM_PRESET_OPTIONS, description: "LoRa radio modulation settings. All devices on the same mesh must use the same preset or they will not see each other. Long Fast is the standard competition preset." },
       { key: "hop_limit", label: "Hop limit", kind: "number", min: 1, max: 7, description: "Maximum number of times a packet can be relayed across the mesh (1-7). 3 is the standard value — higher values increase coverage but add congestion." },
       { key: "tx_power", label: "TX power (dBm)", kind: "number", min: 0, max: 30, description: "Transmit power in dBm (0-30). 0 = use the legal maximum for the selected region. Lower values reduce range and battery drain." },

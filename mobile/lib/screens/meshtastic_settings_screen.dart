@@ -250,6 +250,23 @@ class _SettingsCardState extends State<_SettingsCard> {
   }
 
   void _onRoleChanged(bool isPilot) {
+    // Region must be set before any profile is applied. The profile push
+    // does not include region (region is device-specific) so the device
+    // would otherwise apply a fleet-wide config without ever transmitting.
+    if (_region == RegionCode.unset) {
+      // Revert the toggle and tell the user why we won't proceed.
+      setState(() => _isPilot = !isPilot);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(
+            'Set the LoRa Region first — your radio will not transmit '
+            'on the right frequency until it is set.',
+          ),
+        ),
+      );
+      return;
+    }
     setState(() {
       _isPilot = isPilot;
       _networks = [];
@@ -348,12 +365,42 @@ class _SettingsCardState extends State<_SettingsCard> {
     final theme = Theme.of(context);
     final disabled = ble.isPushingConfig;
 
+    final regionUnset = _region == RegionCode.unset;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (regionUnset) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.12),
+                  border: Border.all(color: Colors.red, width: 1.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'LoRa Region is not set. The radio will NOT '
+                        'transmit on the right frequency until you pick '
+                        'a region below.',
+                        style: TextStyle(
+                          color: Colors.red[900],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             // ── Device Role ──
             SegmentedButton<bool>(
               segments: const [
@@ -424,29 +471,72 @@ class _SettingsCardState extends State<_SettingsCard> {
             const Divider(height: 32),
 
             // ── Region ──
-            Row(
-              children: [
-                Expanded(
-                    child: Text('Region', style: theme.textTheme.bodyMedium)),
-                DropdownButton<RegionCode>(
-                  value: _region,
-                  onChanged: disabled
-                      ? null
-                      : (v) {
-                          if (v != null) {
-                            setState(() => _region = v);
-                            ble.setLoraRegion(v);
-                          }
-                        },
-                  items: RegionCode.values
-                      .map((r) => DropdownMenuItem(
-                            value: r,
-                            child: Text(r.label),
-                          ))
-                      .toList(),
+            // Region is REQUIRED. When unset the row is rendered red and the
+            // Apply Profile flow is blocked. Region is device-specific and
+            // never carried in the fleet-wide profile.
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: regionUnset
+                      ? Colors.red
+                      : theme.colorScheme.outlineVariant,
+                  width: regionUnset ? 1.5 : 1,
                 ),
-              ],
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Region *',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: regionUnset ? Colors.red : null,
+                        fontWeight: regionUnset ? FontWeight.w600 : null,
+                      ),
+                    ),
+                  ),
+                  DropdownButtonHideUnderline(
+                    child: DropdownButton<RegionCode>(
+                      value: _region,
+                      iconEnabledColor: regionUnset ? Colors.red : null,
+                      onChanged: disabled
+                          ? null
+                          : (v) {
+                              if (v != null) {
+                                setState(() => _region = v);
+                                ble.setLoraRegion(v);
+                              }
+                            },
+                      items: RegionCode.values
+                          .map((r) => DropdownMenuItem(
+                                value: r,
+                                child: Text(
+                                  r.label,
+                                  style: TextStyle(
+                                    color: r == RegionCode.unset
+                                        ? Colors.red
+                                        : null,
+                                  ),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ],
+              ),
             ),
+            if (regionUnset) ...[
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Text(
+                  'Required. Pick the regulatory zone for where the '
+                  'device will operate.',
+                  style: TextStyle(color: Colors.red[800], fontSize: 12),
+                ),
+              ),
+            ],
 
             // ── Wi-Fi (Driver / Base Station only) ──
             if (!_isPilot) ...[

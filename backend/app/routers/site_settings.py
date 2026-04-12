@@ -28,8 +28,10 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 100,
         "smart_min_interval": 30,
         "position_flags": 1,
-        # LoRa
-        "region": "unset",
+        # LoRa — region is device-specific (set by the operator on the mobile
+        # Meshtastic settings screen). Never shipped from the backend so a
+        # profile push can never silence a radio that's already on a legal
+        # frequency.
         "modem_preset": "long_fast",
         "hop_limit": 3,
         "tx_power": 0,
@@ -77,8 +79,8 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 200,
         "smart_min_interval": 60,
         "position_flags": 1,
-        # LoRa
-        "region": "unset",
+        # LoRa — region is device-specific, set on the phone (see pilot
+        # profile comment).
         "modem_preset": "long_fast",
         "hop_limit": 3,
         "tx_power": 0,
@@ -123,8 +125,8 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 200,
         "smart_min_interval": 30,
         "position_flags": 1,
-        # LoRa
-        "region": "unset",
+        # LoRa — region is device-specific, set on the phone (see pilot
+        # profile comment).
         "modem_preset": "long_fast",
         "hop_limit": 3,
         "tx_power": 0,
@@ -171,8 +173,8 @@ DEFAULT_MESH_PROFILES = {
         "smart_min_distance": 0,
         "smart_min_interval": 0,
         "position_flags": 1,
-        # LoRa
-        "region": "unset",
+        # LoRa — region is device-specific, set on the phone (see pilot
+        # profile comment).
         "modem_preset": "long_fast",
         "hop_limit": 3,
         "tx_power": 0,

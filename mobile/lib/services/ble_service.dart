@@ -1170,16 +1170,15 @@ class BleService extends ChangeNotifier {
         gpsUpdateInterval: config.gpsUpdateInterval,
       ));
 
-      // LoRa config — region from profile if set, else preserve device's
-      // existing region (so we don't accidentally clobber a region the user
-      // chose manually on first boot).
+      // LoRa config — region is intentionally NOT in the profile. It's
+      // device-specific and the operator sets it on the Meshtastic settings
+      // screen on their own phone (parallel to Wi-Fi credentials). Always
+      // preserve whatever the device already has.
       _statusMessage = 'Setting LoRa radio...';
       notifyListeners();
       await _writeAdmin(buildSetLoraConfig(
         modemPreset: config.modemPreset,
-        region: config.region != RegionCode.unset
-            ? config.region
-            : _deviceState.region,
+        region: _deviceState.region,
         hopLimit: config.hopLimit,
         txEnabled: config.txEnabled,
         txPower: config.txPower,

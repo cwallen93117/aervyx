@@ -15,6 +15,30 @@ production release.
 
 ## [2026.04.11]
 
+### Changed
+- **LoRa Region is device-specific.** The Region row was removed from the
+  admin Meshtastic profile editor and from the backend profile defaults
+  (all four roles). Region is no longer carried in the fleet-wide profile
+  JSON or pushed by `applyProfile()`. Operators set Region per device on
+  the mobile Meshtastic settings screen — same pattern as Wi-Fi
+  credentials. This stops a profile push from silencing radios that were
+  already on a legal frequency.
+- **Mobile Meshtastic settings now require Region.** When Region is unset,
+  the screen shows a red banner ("LoRa Region is not set — the radio will
+  NOT transmit on the right frequency until you pick a region"), the
+  Region row is rendered red, and switching device role / applying a
+  profile is blocked with a red snackbar until a region is chosen.
+
+### Fixed
+- **Mobile Google sign-in surfaces real errors.** `_handleGoogleSignIn`
+  now catches `PlatformException` and prints actionable messages
+  (`DEVELOPER_ERROR / SHA-1 not registered in Google Cloud`,
+  network errors, etc.) instead of swallowing native Google Play Services
+  failures into a generic "Login failed" message. The null-idToken path
+  now also explains that the Android OAuth client for this build is
+  probably not registered in the Google Cloud project that owns the
+  web client ID.
+
 ### Added
 - **Admin Meshtastic profile editor** now exposes the full ~38 fields per
   profile, grouped to mirror the official Meshtastic Android app: Device,
