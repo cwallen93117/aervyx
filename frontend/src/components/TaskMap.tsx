@@ -1039,6 +1039,7 @@ export const TaskMap = React.memo(function TaskMap({
   optimizedDistanceKm = 0,
   track,
   livePositions = [],
+  liveMarkerScale = 1,
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
@@ -1071,6 +1072,7 @@ export const TaskMap = React.memo(function TaskMap({
   optimizedDistanceKm?: number;
   track: TrackCollection | null;
   livePositions?: MapLivePosition[];
+  liveMarkerScale?: number;
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: ReactNode;
@@ -1651,9 +1653,9 @@ export const TaskMap = React.memo(function TaskMap({
                   };
                 },
                 getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: 36,
+                getSize: Math.round(28 * liveMarkerScale),
                 sizeUnits: "pixels",
-                sizeMinPixels: 28,
+                sizeMinPixels: Math.round(20 * liveMarkerScale),
                 pickable: false,
                 parameters: {
                   depthTest: false,
@@ -1677,9 +1679,9 @@ export const TaskMap = React.memo(function TaskMap({
                   };
                 },
                 getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: 24,
+                getSize: Math.round(18 * liveMarkerScale),
                 sizeUnits: "pixels",
-                sizeMinPixels: 18,
+                sizeMinPixels: Math.round(12 * liveMarkerScale),
                 pickable: false,
                 parameters: {
                   depthTest: false,

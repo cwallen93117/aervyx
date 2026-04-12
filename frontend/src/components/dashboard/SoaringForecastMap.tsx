@@ -436,6 +436,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !activeRun) return;
+    if (oc?.weather_overlay === false) { safeRemove(map, blobUrlRef); return; }
 
     const vt = validTimes[selectedTimeIdx];
     if (!vt) return;
@@ -768,6 +769,11 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
 
   // Fetch wind barb data when relevant params change
   useEffect(() => {
+    if (oc?.wind_barb_toggle === false) {
+      windBarbsRef.current = [];
+      scheduleDrawBarbs();
+      return;
+    }
     if (!mapReady || !activeRun || !showWindBarbs) {
       if (!showWindBarbs) {
         windBarbsRef.current = [];

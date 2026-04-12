@@ -28,6 +28,15 @@ def get_map_overlay_config(_: User = Depends(get_current_user), session: Session
     return MapOverlayConfigResponse(config=json.loads(record.config), updated_at=record.updated_at)
 
 
+@router.get("/public", response_model=MapOverlayConfigResponse)
+def get_public_map_overlay_config(session: Session = Depends(get_session)) -> MapOverlayConfigResponse:
+    """Return only the public_live config slice — no auth required."""
+    record = _get_config(session)
+    full_config = json.loads(record.config)
+    public_slice = {"public_live": full_config.get("public_live", {})}
+    return MapOverlayConfigResponse(config=public_slice, updated_at=record.updated_at)
+
+
 @router.patch("", response_model=MapOverlayConfigResponse)
 def update_map_overlay_config(
     payload: MapOverlayConfigUpdate,

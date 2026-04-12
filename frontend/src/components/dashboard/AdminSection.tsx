@@ -1394,6 +1394,7 @@ function LiveTrackingTab({
             editable={false}
             hideDistanceSummary
             livePositions={livePositions}
+            liveMarkerScale={1.8}
             fitKey={`live-tracking-${livePositions.length}`}
           />
         </div>

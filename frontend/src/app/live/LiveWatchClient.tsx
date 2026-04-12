@@ -264,7 +264,7 @@ export function LiveWatchClient() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${resolveApiBase()}/api/map-overlay-config`);
+        const res = await fetch(`${resolveApiBase()}/api/map-overlay-config/public`);
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data?.config?.public_live) {
