@@ -427,9 +427,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 12),
                   const Divider(height: 1),
                   const SizedBox(height: 12),
+                  // TODO: Change download URL to https://aervyx.net/app once deployed to production.
                   GestureDetector(
                     onTap: () => launchUrl(
-                      Uri.parse('https://aervyx.net/app'),
+                      Uri.parse('https://staging.aervyx.net/app'),
                       mode: LaunchMode.externalApplication,
                     ),
                     child: Row(
