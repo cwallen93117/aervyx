@@ -124,11 +124,11 @@ const adminSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "sos", label: "SOS Alerts" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
   { id: "airspace", label: "Airspace" },
+  { id: "sos", label: "SOS Alerts" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
@@ -137,11 +137,11 @@ const organizerSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "sos", label: "SOS Alerts" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
   { id: "airspace", label: "Airspace" },
+  { id: "sos", label: "SOS Alerts" },
   { id: "settings", label: "Settings" },
 ] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
 const pilotSidebarItems = [
