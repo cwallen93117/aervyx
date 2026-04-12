@@ -819,7 +819,6 @@ export default function AdminSection(props: AdminSectionProps) {
       ) : activeTab === "meshtastic" ? (
         <SectionCard title="Meshtastic Configuration">
           <div className="stack form-block compact-clusters">
-            {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
             <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
             <fieldset className="fieldset-cluster">
               <legend>MQTT / Mesh</legend>
@@ -918,10 +917,11 @@ export default function AdminSection(props: AdminSectionProps) {
                 </label>
               </div>
             </fieldset>
-            <div className="button-row">
+            <div className="button-row" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save Meshtastic settings
               </button>
+              {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
             </div>
           </div>
         </SectionCard>
