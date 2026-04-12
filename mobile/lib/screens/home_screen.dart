@@ -768,6 +768,8 @@ class _MeshDetails extends StatelessWidget {
     }
 
     final ds = ble.deviceState;
+    final auth = context.read<AuthService>();
+    final altUnit = auth.user?.altitudeUnit ?? 'ft';
 
     // Map Meshtastic device role to Aervyx profile name
     String profileName;
@@ -868,7 +870,7 @@ class _MeshDetails extends StatelessWidget {
                   child: _StatTile(
                     icon: Icons.terrain,
                     label: 'Altitude',
-                    value: _formatDeviceAltitude(ble, ds),
+                    value: _formatDeviceAltitude(ble, ds, altUnit),
                   ),
                 ),
                 Padding(
@@ -1044,13 +1046,11 @@ String _formatDeviceGps(BleService ble, MeshtasticDeviceState ds) {
   return 'Fix acquired';
 }
 
-/// Format the device altitude from its GPS.
-String _formatDeviceAltitude(BleService ble, MeshtasticDeviceState ds) {
+/// Format the device altitude from its GPS using the user's preferred unit.
+String _formatDeviceAltitude(BleService ble, MeshtasticDeviceState ds, String altUnit) {
   if (ds.gpsMode == GpsMode.notPresent) return 'N/A';
   if (!ble.deviceHasGpsFix) return '--';
-  final alt = ble.deviceGpsAlt;
-  if (alt == null) return '--';
-  return '${alt.round()} m';
+  return UnitConverter.formatAltitude(ble.deviceGpsAlt, altUnit);
 }
 
 /// Format battery display: percentage, "Powered" (USB), or "--" if unknown.
