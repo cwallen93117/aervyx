@@ -242,6 +242,11 @@ class _SettingsCardState extends State<_SettingsCard> {
   late MeshtasticProfile _deviceProfile;
   late RegionCode _deviceRegion;
 
+  // Tracks whether we've already synced local fields from a completed
+  // config load — prevents re-overwriting user edits on every rebuild
+  // while still catching the first configLoaded transition.
+  bool _configWasLoaded = false;
+
   @override
   void initState() {
     super.initState();
@@ -254,6 +259,35 @@ class _SettingsCardState extends State<_SettingsCard> {
     _shortNameCtl = TextEditingController(text: ds.shortName);
     _ssidCtl = TextEditingController(text: ds.wifiSsid);
     _pskCtl = TextEditingController(text: ds.wifiPsk);
+
+    // If config is already loaded (e.g. navigated here after connect),
+    // mark it so didChangeDependencies doesn't overwrite on first call.
+    _configWasLoaded = context.read<BleService>().configLoaded;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ble = context.read<BleService>();
+    // Re-sync local fields when config finishes loading for the first time
+    if (ble.configLoaded && !_configWasLoaded) {
+      _configWasLoaded = true;
+      final ds = ble.deviceState;
+      setState(() {
+        _selectedProfile = _profileFromDeviceRole(ds.role);
+        _deviceProfile = _selectedProfile;
+        _region = ds.region;
+        _deviceRegion = ds.region;
+        _longNameCtl.text = ds.longName;
+        _shortNameCtl.text = ds.shortName;
+        _ssidCtl.text = ds.wifiSsid;
+        _pskCtl.text = ds.wifiPsk;
+      });
+    }
+    // Reset when device disconnects so next connect re-syncs
+    if (!ble.configLoaded) {
+      _configWasLoaded = false;
+    }
   }
 
   @override
@@ -399,6 +433,30 @@ class _SettingsCardState extends State<_SettingsCard> {
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
     final theme = Theme.of(context);
+
+    // While the BLE config dump is still in progress, show a loading
+    // indicator instead of the form — prevents the false "Region not
+    // set" banner that fires when device defaults are still unset.
+    if (!ble.configLoaded) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 12),
+              Text('Reading device settings…',
+                  style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+      );
+    }
+
     final disabled = ble.isPushingConfig;
     final regionUnset = _region == RegionCode.unset;
 
