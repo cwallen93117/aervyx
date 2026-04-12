@@ -9,9 +9,8 @@ import '../services/ble_service.dart';
 ///
 /// Sections:
 /// 1. BLE Scan / Connect
-/// 2. Settings (user-editable: role, name, region, wi-fi for Driver role)
-/// 3. Device Settings (read-only profile values)
-/// 4. Reboot
+/// 2. Settings (user-editable: profile, region, name, wi-fi for Driver roles)
+/// 3. Device Settings (collapsible read-only profile values)
 class MeshtasticSettingsScreen extends StatelessWidget {
   const MeshtasticSettingsScreen({super.key});
 
@@ -48,10 +47,8 @@ class MeshtasticSettingsScreen extends StatelessWidget {
 
               const SizedBox(height: 24),
 
-              // ── Device Settings ──
-              const _SectionHeader(title: 'Device Settings'),
-              const SizedBox(height: 8),
-              _AdminSettingsCard(),
+              // ── Device Settings (collapsible) ──
+              _DeviceSettingsCard(),
 
               const SizedBox(height: 32),
             ],
@@ -204,8 +201,23 @@ class _BleConnectionSection extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Settings card — role, name, region, wi-fi (driver only)
+// Settings card — profile, region, name, wi-fi
+//
+// Nothing is written to the device until the user taps Save.
 // ═══════════════════════════════════════════════════════════════════════════════
+
+/// Map the 4 admin profiles to the closest DeviceRole for initial selection.
+MeshtasticProfile _profileFromDeviceRole(DeviceRole role) {
+  switch (role) {
+    case DeviceRole.tracker:
+      return MeshtasticProfile.pilot;
+    case DeviceRole.router:
+    case DeviceRole.routerClient:
+      return MeshtasticProfile.repeater;
+    default:
+      return MeshtasticProfile.driver;
+  }
+}
 
 class _SettingsCard extends StatefulWidget {
   @override
@@ -213,14 +225,12 @@ class _SettingsCard extends StatefulWidget {
 }
 
 class _SettingsCardState extends State<_SettingsCard> {
-  // Role: true = Pilot, false = Driver / Base Station
-  bool _isPilot = true;
-
+  late MeshtasticProfile _selectedProfile;
+  late RegionCode _region;
   late TextEditingController _longNameCtl;
   late TextEditingController _shortNameCtl;
-  late RegionCode _region;
 
-  // Wi-Fi (Driver only)
+  // Wi-Fi (Driver roles only)
   late TextEditingController _ssidCtl;
   late TextEditingController _pskCtl;
   bool _obscurePassword = true;
@@ -228,14 +238,20 @@ class _SettingsCardState extends State<_SettingsCard> {
   List<WiFiAccessPoint> _networks = [];
   String? _wifiScanError;
 
+  // Track what the device currently has so we know what changed.
+  late MeshtasticProfile _deviceProfile;
+  late RegionCode _deviceRegion;
+
   @override
   void initState() {
     super.initState();
     final ds = context.read<BleService>().deviceState;
-    _isPilot = ds.role != DeviceRole.router;
+    _selectedProfile = _profileFromDeviceRole(ds.role);
+    _deviceProfile = _selectedProfile;
+    _region = ds.region;
+    _deviceRegion = ds.region;
     _longNameCtl = TextEditingController(text: ds.longName);
     _shortNameCtl = TextEditingController(text: ds.shortName);
-    _region = ds.region;
     _ssidCtl = TextEditingController(text: ds.wifiSsid);
     _pskCtl = TextEditingController(text: ds.wifiPsk);
   }
@@ -249,13 +265,17 @@ class _SettingsCardState extends State<_SettingsCard> {
     super.dispose();
   }
 
-  void _onRoleChanged(bool isPilot) {
-    // Region must be set before any profile is applied. The profile push
-    // does not include region (region is device-specific) so the device
-    // would otherwise apply a fleet-wide config without ever transmitting.
+  bool get _isDriverRole =>
+      _selectedProfile == MeshtasticProfile.driver ||
+      _selectedProfile == MeshtasticProfile.driverWifi ||
+      _selectedProfile == MeshtasticProfile.repeater;
+
+  /// Save all pending changes to the device.
+  Future<void> _save() async {
+    final ble = context.read<BleService>();
+
+    // Region must be set before anything else.
     if (_region == RegionCode.unset) {
-      // Revert the toggle and tell the user why we won't proceed.
-      setState(() => _isPilot = !isPilot);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           backgroundColor: Colors.red,
@@ -267,40 +287,56 @@ class _SettingsCardState extends State<_SettingsCard> {
       );
       return;
     }
-    setState(() {
-      _isPilot = isPilot;
-      _networks = [];
-      _wifiScanError = null;
-    });
-    final ble = context.read<BleService>();
-    final profile =
-        isPilot ? MeshtasticProfile.pilot : MeshtasticProfile.repeater;
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Apply ${isPilot ? "Pilot" : "Driver / Base Station"} profile?'),
-        content: const Text(
-          'This will overwrite all device settings and reboot the device.',
+
+    final profileChanged = _selectedProfile != _deviceProfile;
+    final regionChanged = _region != _deviceRegion;
+
+    // If profile changed, show a confirmation dialog because it reboots.
+    if (profileChanged) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('Apply ${_selectedProfile.label} profile?'),
+          content: const Text(
+            'This will overwrite all device settings with the admin '
+            'profile and reboot the device.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Apply & Reboot'),
+            ),
+          ],
         ),
-        actions: [
-          TextButton(
-            onPressed: () {
-              // Revert toggle if user cancels
-              setState(() => _isPilot = !isPilot);
-              Navigator.pop(ctx);
-            },
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ble.applyProfile(profile);
-            },
-            child: const Text('Apply'),
-          ),
-        ],
-      ),
-    );
+      );
+      if (confirmed != true) return;
+    }
+
+    // 1. Push region first (updates _deviceState.region so applyProfile
+    //    picks up the right value for the LoRa config write).
+    if (regionChanged) {
+      await ble.setLoraRegion(_region);
+      _deviceRegion = _region;
+    }
+
+    // 2. Push device name.
+    final longName = _longNameCtl.text.trim();
+    final shortName = _shortNameCtl.text.trim();
+    if (longName.isNotEmpty || shortName.isNotEmpty) {
+      await ble.setDeviceName(longName: longName, shortName: shortName);
+    }
+
+    // 3. Push full profile (reboots device).
+    if (profileChanged) {
+      await ble.applyProfile(_selectedProfile);
+      _deviceProfile = _selectedProfile;
+    }
+
+    if (mounted) setState(() {});
   }
 
   Future<void> _scanNetworks() async {
@@ -364,7 +400,6 @@ class _SettingsCardState extends State<_SettingsCard> {
     final ble = context.watch<BleService>();
     final theme = Theme.of(context);
     final disabled = ble.isPushingConfig;
-
     final regionUnset = _region == RegionCode.unset;
 
     return Card(
@@ -401,29 +436,39 @@ class _SettingsCardState extends State<_SettingsCard> {
               ),
               const SizedBox(height: 16),
             ],
-            // ── Device Role ──
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(
-                  value: true,
-                  label: Text('Pilot'),
-                  icon: Icon(Icons.gps_fixed, size: 18),
+
+            // ── Profile ──
+            Text('Profile', style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            )),
+            const SizedBox(height: 8),
+            InputDecorator(
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<MeshtasticProfile>(
+                  value: _selectedProfile,
+                  isExpanded: true,
+                  onChanged: disabled
+                      ? null
+                      : (v) {
+                          if (v != null) setState(() => _selectedProfile = v);
+                        },
+                  items: MeshtasticProfile.values
+                      .map((p) => DropdownMenuItem(
+                            value: p,
+                            child: Text(p.label),
+                          ))
+                      .toList(),
                 ),
-                ButtonSegment(
-                  value: false,
-                  label: Text('Driver / Base Station'),
-                  icon: Icon(Icons.cell_tower, size: 18),
-                ),
-              ],
-              selected: {_isPilot},
-              onSelectionChanged:
-                  disabled ? null : (v) => _onRoleChanged(v.first),
+              ),
             ),
             const SizedBox(height: 4),
             Text(
-              _isPilot
-                  ? 'Optimised for position tracking (pilots)'
-                  : 'Always-on relay for mesh coverage (drivers & base stations)',
+              _profileDescription(_selectedProfile),
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -431,49 +476,8 @@ class _SettingsCardState extends State<_SettingsCard> {
 
             const Divider(height: 32),
 
-            // ── Long name ──
-            TextField(
-              controller: _longNameCtl,
-              enabled: !disabled,
-              decoration: const InputDecoration(
-                labelText: 'Long Name',
-                border: OutlineInputBorder(),
-                hintText: 'e.g. Pilot-Jones',
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // ── Short name ──
-            TextField(
-              controller: _shortNameCtl,
-              enabled: !disabled,
-              maxLength: 4,
-              decoration: const InputDecoration(
-                labelText: 'Short Name (2–4 chars)',
-                border: OutlineInputBorder(),
-                hintText: 'e.g. PJ',
-              ),
-            ),
-            const SizedBox(height: 4),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: disabled
-                    ? null
-                    : () => ble.setDeviceName(
-                          longName: _longNameCtl.text.trim(),
-                          shortName: _shortNameCtl.text.trim(),
-                        ),
-                child: const Text('Save Name'),
-              ),
-            ),
-
-            const Divider(height: 32),
-
             // ── Region ──
-            // Region is REQUIRED. When unset the row is rendered red and the
-            // Apply Profile flow is blocked. Region is device-specific and
-            // never carried in the fleet-wide profile.
+            // Region is REQUIRED. Placed early so it's set before anything else.
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
@@ -503,10 +507,7 @@ class _SettingsCardState extends State<_SettingsCard> {
                       onChanged: disabled
                           ? null
                           : (v) {
-                              if (v != null) {
-                                setState(() => _region = v);
-                                ble.setLoraRegion(v);
-                              }
+                              if (v != null) setState(() => _region = v);
                             },
                       items: RegionCode.values
                           .map((r) => DropdownMenuItem(
@@ -538,8 +539,34 @@ class _SettingsCardState extends State<_SettingsCard> {
               ),
             ],
 
-            // ── Wi-Fi (Driver / Base Station only) ──
-            if (!_isPilot) ...[
+            const Divider(height: 32),
+
+            // ── Long name ──
+            TextField(
+              controller: _longNameCtl,
+              enabled: !disabled,
+              decoration: const InputDecoration(
+                labelText: 'Long Name',
+                border: OutlineInputBorder(),
+                hintText: 'e.g. Pilot-Jones',
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Short name ──
+            TextField(
+              controller: _shortNameCtl,
+              enabled: !disabled,
+              maxLength: 4,
+              decoration: const InputDecoration(
+                labelText: 'Short Name (2–4 chars)',
+                border: OutlineInputBorder(),
+                hintText: 'e.g. PJ',
+              ),
+            ),
+
+            // ── Wi-Fi (Driver / Driver Wi-Fi / Repeater only) ──
+            if (_isDriverRole) ...[
               const Divider(height: 32),
               Text('Wi-Fi', style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.bold,
@@ -676,18 +703,46 @@ class _SettingsCardState extends State<_SettingsCard> {
                 ),
               ),
             ],
+
+            const Divider(height: 32),
+
+            // ── Save button ──
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: disabled ? null : _save,
+                icon: const Icon(Icons.save, size: 18),
+                label: const Text('Save'),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
+
+  static String _profileDescription(MeshtasticProfile p) {
+    switch (p) {
+      case MeshtasticProfile.pilot:
+        return 'Optimised for position tracking (pilots in the air)';
+      case MeshtasticProfile.driver:
+        return 'Ground support relay via Bluetooth mesh';
+      case MeshtasticProfile.driverWifi:
+        return 'Ground support relay via Bluetooth + Wi-Fi uplink';
+      case MeshtasticProfile.repeater:
+        return 'Always-on relay / base station for mesh coverage';
+    }
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Device Settings card — read-only profile values
+// Device Settings card — collapsible, read-only profile values
+//
+// Shows all fields that match the admin web page, organised by category.
+// Collapsed by default to keep the screen clean.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _AdminSettingsCard extends StatelessWidget {
+class _DeviceSettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
@@ -698,128 +753,180 @@ class _AdminSettingsCard extends StatelessWidget {
         ds.mqttAddress.isNotEmpty ? ds.mqttAddress : 'mqtt.meshtastic.org';
 
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Position ──
-            _ConfigRow(
-                label: 'Position interval',
-                value: '${ds.positionBroadcastSecs}s',
-                theme: theme),
-            _ConfigRow(
-                label: 'Smart position',
-                value: ds.smartPositionEnabled ? 'Yes' : 'No',
-                theme: theme),
-            if (ds.smartPositionEnabled) ...[
-              _ConfigRow(
-                  label: 'Smart min distance',
-                  value: '${ds.smartMinDistance} m',
-                  theme: theme),
-              _ConfigRow(
-                  label: 'Smart min interval',
-                  value: '${ds.smartMinInterval}s',
-                  theme: theme),
-            ],
-            _ConfigRow(
-                label: 'GPS mode', value: ds.gpsMode.label, theme: theme),
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        title: Text(
+          'Device Settings',
+          style: theme.textTheme.titleSmall?.copyWith(
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        subtitle: Text(
+          'Current device configuration (read-only)',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        leading: Icon(Icons.settings, color: theme.colorScheme.primary),
+        initiallyExpanded: false,
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          // ── Device ──
+          _GroupHeader(label: 'Device', theme: theme),
+          _ConfigRow(label: 'Role', value: ds.role.label, theme: theme),
+          _ConfigRow(
+              label: 'Rebroadcast',
+              value: ds.rebroadcastMode.label,
+              theme: theme),
 
-            const Divider(height: 24),
+          const Divider(height: 24),
 
-            // ── Display ──
+          // ── Position ──
+          _GroupHeader(label: 'Position', theme: theme),
+          _ConfigRow(
+              label: 'GPS mode', value: ds.gpsMode.label, theme: theme),
+          _ConfigRow(
+              label: 'Broadcast interval',
+              value: '${ds.positionBroadcastSecs}s',
+              theme: theme),
+          _ConfigRow(
+              label: 'Smart position',
+              value: ds.smartPositionEnabled ? 'Yes' : 'No',
+              theme: theme),
+          if (ds.smartPositionEnabled) ...[
             _ConfigRow(
-                label: 'Display timeout',
-                value: ds.screenOnSecs == 0 ? 'Always on' : '${ds.screenOnSecs}s',
+                label: '  Min distance',
+                value: '${ds.smartMinDistance} m',
                 theme: theme),
+            _ConfigRow(
+                label: '  Min interval',
+                value: '${ds.smartMinInterval}s',
+                theme: theme),
+          ],
+          _ConfigRow(
+              label: 'Position flags',
+              value: _positionFlagsLabel(ds.positionFlags),
+              theme: theme),
 
-            const Divider(height: 24),
+          const Divider(height: 24),
 
-            // ── LoRa ──
-            _ConfigRow(
-                label: 'LoRa modem preset',
-                value: ds.modemPreset.label,
-                theme: theme),
-            _ConfigRow(
-                label: 'Hop limit',
-                value: '${ds.hopLimit}',
-                theme: theme),
-            _ConfigRow(
-                label: 'Rebroadcast mode',
-                value: ds.rebroadcastMode.label,
-                theme: theme),
-            _ConfigRow(
-                label: 'TX enabled',
-                value: ds.txEnabled ? 'Yes' : 'No',
-                theme: theme),
+          // ── LoRa ──
+          _GroupHeader(label: 'LoRa', theme: theme),
+          _ConfigRow(
+              label: 'Region', value: ds.region.label, theme: theme),
+          _ConfigRow(
+              label: 'Modem preset',
+              value: ds.modemPreset.label,
+              theme: theme),
+          _ConfigRow(
+              label: 'Hop limit', value: '${ds.hopLimit}', theme: theme),
+          _ConfigRow(
+              label: 'TX enabled',
+              value: ds.txEnabled ? 'Yes' : 'No',
+              theme: theme),
 
-            const Divider(height: 24),
+          const Divider(height: 24),
 
-            // ── MQTT ──
-            _ConfigRow(
-                label: 'MQTT enabled',
-                value: ds.mqttEnabled ? 'Yes' : 'No',
-                theme: theme),
-            if (ds.mqttEnabled) ...[
-              _ConfigRow(label: 'MQTT broker', value: broker, theme: theme),
-              _ConfigRow(
-                  label: 'MQTT topic prefix',
-                  value: ds.mqttRootTopic.isNotEmpty ? ds.mqttRootTopic : 'msh',
-                  theme: theme),
-            ],
+          // ── Power ──
+          _GroupHeader(label: 'Power', theme: theme),
+          _ConfigRow(
+              label: 'Power saving',
+              value: ds.isPowerSaving ? 'Yes' : 'No',
+              theme: theme),
 
-            const Divider(height: 24),
+          const Divider(height: 24),
 
-            // ── Bluetooth / Power ──
-            _ConfigRow(
-                label: 'Bluetooth enabled',
-                value: ds.bluetoothEnabled ? 'Yes' : 'No',
-                theme: theme),
-            _ConfigRow(
-                label: 'Power saving',
-                value: ds.isPowerSaving ? 'Yes' : 'No',
-                theme: theme),
+          // ── Bluetooth ──
+          _GroupHeader(label: 'Bluetooth', theme: theme),
+          _ConfigRow(
+              label: 'Bluetooth',
+              value: ds.bluetoothEnabled ? 'On' : 'Off',
+              theme: theme),
+          _ConfigRow(
+              label: 'Pairing mode',
+              value: ds.blePairingMode.label,
+              theme: theme),
 
-            const Divider(height: 24),
+          const Divider(height: 24),
 
-            // ── Telemetry & modules ──
+          // ── Network ──
+          _GroupHeader(label: 'Network', theme: theme),
+          _ConfigRow(
+              label: 'Wi-Fi',
+              value: ds.wifiEnabled ? 'On' : 'Off',
+              theme: theme),
+          if (ds.wifiEnabled && ds.wifiSsid.isNotEmpty)
             _ConfigRow(
-                label: 'Telemetry interval',
-                value: '${ds.telemetryDeviceInterval}s',
-                theme: theme),
-            _ConfigRow(
-                label: 'Store & Forward',
-                value: ds.storeForwardEnabled
-                    ? (ds.storeForwardIsServer ? 'Server' : 'Client')
-                    : 'Off',
-                theme: theme),
-            _ConfigRow(
-                label: 'Neighbor info',
-                value: ds.neighborInfoEnabled ? 'On' : 'Off',
-                theme: theme),
-            _ConfigRow(
-                label: 'Channel uplink',
-                value: ds.channelUplinkEnabled ? 'On' : 'Off',
-                theme: theme),
+                label: '  SSID', value: ds.wifiSsid, theme: theme),
 
-            const Divider(height: 24),
+          const Divider(height: 24),
 
-            // ── Reboot ──
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: ble.isPushingConfig
-                    ? null
-                    : () => _confirmReboot(context, ble),
-                icon: const Icon(Icons.restart_alt, size: 18),
-                label: const Text('Reboot Device'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: theme.colorScheme.error,
-                ),
+          // ── Display ──
+          _GroupHeader(label: 'Display', theme: theme),
+          _ConfigRow(
+              label: 'Display timeout',
+              value: ds.screenOnSecs == 0
+                  ? 'Always on'
+                  : '${ds.screenOnSecs}s',
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── MQTT ──
+          _GroupHeader(label: 'MQTT', theme: theme),
+          _ConfigRow(
+              label: 'MQTT enabled',
+              value: ds.mqttEnabled ? 'Yes' : 'No',
+              theme: theme),
+          if (ds.mqttEnabled) ...[
+            _ConfigRow(label: 'Broker', value: broker, theme: theme),
+            _ConfigRow(
+                label: 'Topic prefix',
+                value:
+                    ds.mqttRootTopic.isNotEmpty ? ds.mqttRootTopic : 'msh',
+                theme: theme),
+          ],
+
+          const Divider(height: 24),
+
+          // ── Modules ──
+          _GroupHeader(label: 'Modules', theme: theme),
+          _ConfigRow(
+              label: 'Telemetry interval',
+              value: _formatHours(ds.telemetryDeviceInterval),
+              theme: theme),
+          _ConfigRow(
+              label: 'Store & Forward',
+              value: ds.storeForwardEnabled
+                  ? (ds.storeForwardIsServer ? 'Server' : 'Client')
+                  : 'Off',
+              theme: theme),
+          _ConfigRow(
+              label: 'Neighbor info',
+              value: ds.neighborInfoEnabled ? 'On' : 'Off',
+              theme: theme),
+          _ConfigRow(
+              label: 'Channel uplink',
+              value: ds.channelUplinkEnabled ? 'On' : 'Off',
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Reboot ──
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: ble.isPushingConfig
+                  ? null
+                  : () => _confirmReboot(context, ble),
+              icon: const Icon(Icons.restart_alt, size: 18),
+              label: const Text('Reboot Device'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -846,11 +953,58 @@ class _AdminSettingsCard extends StatelessWidget {
       ),
     );
   }
+
+  static String _formatHours(int seconds) {
+    if (seconds <= 0) return '0';
+    final hours = seconds / 3600;
+    if (hours == hours.truncateToDouble()) {
+      return '${hours.toInt()}h';
+    }
+    return '${hours.toStringAsFixed(1)}h';
+  }
+
+  static String _positionFlagsLabel(int flags) {
+    if (flags == 0) return 'None';
+    final parts = <String>[];
+    if (flags & PositionFlags.altitude != 0) parts.add('Alt');
+    if (flags & PositionFlags.altitudeMsl != 0) parts.add('MSL');
+    if (flags & PositionFlags.geoidalSeparation != 0) parts.add('Geoid');
+    if (flags & PositionFlags.dop != 0) parts.add('DOP');
+    if (flags & PositionFlags.hvdop != 0) parts.add('HVDOP');
+    if (flags & PositionFlags.satInView != 0) parts.add('Sats');
+    if (flags & PositionFlags.seqNo != 0) parts.add('Seq');
+    if (flags & PositionFlags.timestamp != 0) parts.add('Time');
+    if (flags & PositionFlags.heading != 0) parts.add('Hdg');
+    if (flags & PositionFlags.speed != 0) parts.add('Spd');
+    return parts.join(', ');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Config row helper — label / value pair
+// Helpers
 // ═══════════════════════════════════════════════════════════════════════════════
+
+class _GroupHeader extends StatelessWidget {
+  final String label;
+  final ThemeData theme;
+
+  const _GroupHeader({required this.label, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        label.toUpperCase(),
+        style: theme.textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
 
 class _ConfigRow extends StatelessWidget {
   final String label;
@@ -870,7 +1024,10 @@ class _ConfigRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: theme.textTheme.bodyMedium),
+          Flexible(
+            child: Text(label, style: theme.textTheme.bodyMedium),
+          ),
+          const SizedBox(width: 16),
           Text(value,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
