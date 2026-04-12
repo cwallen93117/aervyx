@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 
 import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
@@ -1689,6 +1689,60 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   },
 ];
 
+/* ------------------------------------------------------------------ */
+/*  Number formatting helpers for MeshProfilesTable                   */
+/* ------------------------------------------------------------------ */
+
+function formatNumber(n: number): string {
+  return n.toLocaleString();
+}
+
+/**
+ * A number input that shows a comma-formatted display value when blurred
+ * and reverts to a plain numeric string when focused for editing.
+ */
+function FormattedNumberInput({
+  value,
+  min,
+  max,
+  onChange,
+  style,
+}: {
+  value: number;
+  min?: number;
+  max?: number;
+  onChange: (n: number) => void;
+  style?: React.CSSProperties;
+}) {
+  const [focused, setFocused] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const displayValue = focused ? draft : formatNumber(value);
+
+  return (
+    <input
+      type={focused ? "number" : "text"}
+      inputMode="numeric"
+      min={min}
+      max={max}
+      value={displayValue}
+      style={style}
+      onFocus={() => {
+        setDraft(String(value));
+        setFocused(true);
+      }}
+      onChange={(e) => {
+        setDraft(e.target.value);
+      }}
+      onBlur={() => {
+        setFocused(false);
+        const parsed = Number(draft);
+        if (!Number.isNaN(parsed)) onChange(parsed);
+      }}
+    />
+  );
+}
+
 function MeshProfilesTable({
   siteSettings,
   setSiteSettings,
@@ -1712,21 +1766,60 @@ function MeshProfilesTable({
     }));
   }
 
-  const cellStyle = { padding: "2px 4px", verticalAlign: "middle" } as const;
-  const inputStyle = { fontSize: "0.75rem", padding: "2px 4px", width: "100%", minWidth: "80px", boxSizing: "border-box" } as const;
-  const selectStyle = { ...inputStyle, minWidth: "110px" } as const;
-  const groupHeaderStyle = { fontSize: "0.7rem", fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" as const, color: "var(--color-hint, #888)", background: "var(--color-surface-alt, #f4f4f5)", padding: "4px 8px", borderTop: "1px solid var(--color-border, #e5e7eb)" };
+  // Shared cell/input styles — all profile columns have equal fixed width.
+  const PROFILE_COL_WIDTH = "13%";
+
+  const cellStyle: React.CSSProperties = {
+    padding: "3px 6px",
+    verticalAlign: "middle",
+    textAlign: "center",
+  };
+
+  const labelCellStyle: React.CSSProperties = {
+    padding: "3px 10px 3px 10px",
+    verticalAlign: "middle",
+    textAlign: "left",
+    width: "calc(100% - 4 * 13%)",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    fontSize: "0.75rem",
+    padding: "2px 6px",
+    width: "100%",
+    minWidth: 0,
+    boxSizing: "border-box",
+    textAlign: "center",
+  };
+
+  const selectStyle: React.CSSProperties = {
+    ...inputStyle,
+    width: "100%",
+  };
+
+  const groupHeaderStyle: React.CSSProperties = {
+    fontSize: "0.68rem",
+    fontWeight: 700,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "var(--ink-secondary)",
+    background: "var(--wash-alt)",
+    padding: "5px 10px",
+    borderTop: "2px solid var(--line)",
+    borderLeft: "3px solid var(--accent)",
+  };
 
   return (
     <div style={{ marginTop: "16px" }}>
-      <div style={{ fontWeight: 600, fontSize: "0.875rem", marginBottom: "8px" }}>Meshtastic Profiles</div>
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ borderCollapse: "collapse", fontSize: "0.8rem", width: "100%", minWidth: "520px" }}>
+      <div style={{ fontWeight: 600, fontSize: "0.875rem", marginBottom: "10px" }}>Meshtastic Profiles</div>
+      <div style={{ overflowX: "auto", borderRadius: "var(--r-md)", border: "1px solid var(--line)", boxShadow: "var(--shadow-sm)" }}>
+        <table style={{ borderCollapse: "collapse", fontSize: "0.8rem", width: "100%", minWidth: "600px", tableLayout: "fixed" }}>
           <thead>
-            <tr>
-              <th style={{ textAlign: "left", padding: "4px 8px", fontSize: "0.75rem", fontWeight: 600, borderBottom: "1px solid var(--color-border, #e5e7eb)", minWidth: "130px" }}>Setting</th>
+            <tr style={{ background: "var(--wash-alt)" }}>
+              <th style={{ textAlign: "left", padding: "6px 10px", fontSize: "0.72rem", fontWeight: 700, borderBottom: "2px solid var(--line-strong)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ink-secondary)" }}>
+                Setting
+              </th>
               {PROFILE_KEYS.map((pk) => (
-                <th key={pk} style={{ textAlign: "center", padding: "4px 8px", fontSize: "0.75rem", fontWeight: 600, borderBottom: "1px solid var(--color-border, #e5e7eb)", minWidth: "110px" }}>
+                <th key={pk} style={{ textAlign: "center", padding: "6px 8px", fontSize: "0.72rem", fontWeight: 700, borderBottom: "2px solid var(--line-strong)", textTransform: "uppercase", letterSpacing: "0.04em", color: "var(--ink-secondary)", width: PROFILE_COL_WIDTH }}>
                   {PROFILE_LABELS[pk]}
                 </th>
               ))}
@@ -1738,91 +1831,124 @@ function MeshProfilesTable({
                 <tr>
                   <td colSpan={PROFILE_KEYS.length + 1} style={groupHeaderStyle}>{group}</td>
                 </tr>
-                {rows.map((row) => (
-                  <tr key={row.key} style={{ borderBottom: "1px solid var(--color-border-subtle, #f3f4f6)" }}>
-                    <td style={{ ...cellStyle, padding: "3px 8px", fontSize: "0.75rem", color: "var(--color-muted, #6b7280)" }}>
-                      <span style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
-                        {row.label}
-                        {row.description && (
-                          <button
-                            type="button"
-                            onClick={() => setExpandedInfo(expandedInfo === row.key ? null : row.key)}
-                            title={row.description}
-                            style={{ background: "none", border: "none", cursor: "pointer", padding: "0 2px", fontSize: "0.7rem", color: expandedInfo === row.key ? "var(--color-accent, #2563eb)" : "var(--color-hint, #9ca3af)", lineHeight: 1 }}
-                          >
-                            &#9432;
-                          </button>
-                        )}
-                      </span>
-                      {expandedInfo === row.key && row.description && (
-                        <div style={{ fontSize: "0.65rem", color: "var(--color-hint, #6b7280)", marginTop: "4px", whiteSpace: "normal", maxWidth: "260px", lineHeight: 1.4 }}>
-                          {row.description}
-                        </div>
-                      )}
-                    </td>
-                    {PROFILE_KEYS.map((pk) => {
-                      const rawVal = row.kind === "flag_bit"
-                        ? profiles[pk]?.[row.storageKey ?? ""]
-                        : profiles[pk]?.[row.key];
-                      const options = row.perProfileOptions?.[pk] ?? row.options ?? [];
-                      const lockedSelect = row.kind === "select" && options.length === 1;
-                      return (
-                        <td key={pk} style={{ ...cellStyle, textAlign: "center" }}>
-                          {row.kind === "flag_bit" ? (
-                            <input
-                              type="checkbox"
-                              checked={((Number(rawVal ?? 0)) & (row.bit ?? 0)) !== 0}
-                              onChange={(e) => {
-                                const current = Number(profiles[pk]?.[row.storageKey ?? ""] ?? 0);
-                                const next = e.target.checked
-                                  ? current | (row.bit ?? 0)
-                                  : current & ~(row.bit ?? 0);
-                                updateCell(pk, row.storageKey ?? "", next);
+                {rows.map((row, rowIdx) => {
+                  // Alternating zebra striping within each group (odd rows get a wash tint).
+                  const isOdd = rowIdx % 2 === 1;
+                  const rowBg = isOdd ? "var(--wash)" : "var(--panel)";
+                  return (
+                    <tr
+                      key={row.key}
+                      style={{
+                        borderBottom: "1px solid var(--line)",
+                        background: rowBg,
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = "var(--accent-softer)"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLTableRowElement).style.background = rowBg; }}
+                    >
+                      <td style={labelCellStyle}>
+                        <span style={{ display: "flex", alignItems: "center", gap: "4px", whiteSpace: "nowrap" }}>
+                          <span style={{ fontSize: "0.75rem", color: "var(--ink-secondary)", fontWeight: 500 }}>{row.label}</span>
+                          {row.description && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedInfo(expandedInfo === row.key ? null : row.key)}
+                              title={row.description}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                padding: "0 2px",
+                                fontSize: "0.72rem",
+                                color: expandedInfo === row.key ? "var(--accent)" : "var(--ink-muted)",
+                                lineHeight: 1,
+                                flexShrink: 0,
                               }}
-                              style={{ cursor: "pointer" }}
-                            />
-                          ) : row.kind === "boolean" ? (
-                            <input
-                              type="checkbox"
-                              checked={Boolean(rawVal)}
-                              onChange={(e) => updateCell(pk, row.key, e.target.checked)}
-                              style={{ cursor: "pointer" }}
-                            />
-                          ) : row.kind === "select" ? (
-                            <select
-                              value={String(rawVal ?? "")}
-                              onChange={(e) => updateCell(pk, row.key, e.target.value)}
-                              style={selectStyle}
-                              disabled={lockedSelect}
-                              title={lockedSelect ? "Locked — pilots must always be trackers." : undefined}
                             >
-                              {options.map((opt) => (
-                                <option key={opt} value={opt}>{opt}</option>
-                              ))}
-                            </select>
-                          ) : row.kind === "string" ? (
-                            <input
-                              type={row.secret ? "password" : "text"}
-                              value={String(rawVal ?? "")}
-                              onChange={(e) => updateCell(pk, row.key, e.target.value)}
-                              style={inputStyle}
-                              autoComplete="off"
-                            />
-                          ) : (
-                            <input
-                              type="number"
-                              min={row.min}
-                              max={row.max}
-                              value={Number(rawVal ?? 0)}
-                              onChange={(e) => updateCell(pk, row.key, Number(e.target.value))}
-                              style={inputStyle}
-                            />
+                              &#9432;
+                            </button>
                           )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+                        </span>
+                        {expandedInfo === row.key && row.description && (
+                          <div style={{
+                            fontSize: "0.68rem",
+                            color: "var(--muted)",
+                            marginTop: "4px",
+                            whiteSpace: "normal",
+                            maxWidth: "300px",
+                            lineHeight: 1.5,
+                            padding: "5px 8px",
+                            background: "var(--accent-softer)",
+                            border: "1px solid var(--accent-soft)",
+                            borderRadius: "var(--r-sm)",
+                          }}>
+                            {row.description}
+                          </div>
+                        )}
+                      </td>
+                      {PROFILE_KEYS.map((pk) => {
+                        const rawVal = row.kind === "flag_bit"
+                          ? profiles[pk]?.[row.storageKey ?? ""]
+                          : profiles[pk]?.[row.key];
+                        const options = row.perProfileOptions?.[pk] ?? row.options ?? [];
+                        const lockedSelect = row.kind === "select" && options.length === 1;
+                        return (
+                          <td key={pk} style={cellStyle}>
+                            {row.kind === "flag_bit" ? (
+                              <input
+                                type="checkbox"
+                                checked={((Number(rawVal ?? 0)) & (row.bit ?? 0)) !== 0}
+                                onChange={(e) => {
+                                  const current = Number(profiles[pk]?.[row.storageKey ?? ""] ?? 0);
+                                  const next = e.target.checked
+                                    ? current | (row.bit ?? 0)
+                                    : current & ~(row.bit ?? 0);
+                                  updateCell(pk, row.storageKey ?? "", next);
+                                }}
+                                style={{ cursor: "pointer", display: "block", margin: "0 auto" }}
+                              />
+                            ) : row.kind === "boolean" ? (
+                              <input
+                                type="checkbox"
+                                checked={Boolean(rawVal)}
+                                onChange={(e) => updateCell(pk, row.key, e.target.checked)}
+                                style={{ cursor: "pointer", display: "block", margin: "0 auto" }}
+                              />
+                            ) : row.kind === "select" ? (
+                              <select
+                                value={String(rawVal ?? "")}
+                                onChange={(e) => updateCell(pk, row.key, e.target.value)}
+                                style={selectStyle}
+                                disabled={lockedSelect}
+                                title={lockedSelect ? "Locked — pilots must always be trackers." : undefined}
+                              >
+                                {options.map((opt) => (
+                                  <option key={opt} value={opt}>{opt}</option>
+                                ))}
+                              </select>
+                            ) : row.kind === "string" ? (
+                              <input
+                                type={row.secret ? "password" : "text"}
+                                value={String(rawVal ?? "")}
+                                onChange={(e) => updateCell(pk, row.key, e.target.value)}
+                                style={inputStyle}
+                                autoComplete="off"
+                              />
+                            ) : (
+                              <FormattedNumberInput
+                                value={Number(rawVal ?? 0)}
+                                min={row.min}
+                                max={row.max}
+                                onChange={(n) => updateCell(pk, row.key, n)}
+                                style={inputStyle}
+                              />
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
               </Fragment>
             ))}
           </tbody>
