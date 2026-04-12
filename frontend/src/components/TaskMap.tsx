@@ -1651,9 +1651,9 @@ export const TaskMap = React.memo(function TaskMap({
                   };
                 },
                 getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: 28,
+                getSize: 36,
                 sizeUnits: "pixels",
-                sizeMinPixels: 20,
+                sizeMinPixels: 28,
                 pickable: false,
                 parameters: {
                   depthTest: false,
@@ -1677,9 +1677,9 @@ export const TaskMap = React.memo(function TaskMap({
                   };
                 },
                 getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: 18,
+                getSize: 24,
                 sizeUnits: "pixels",
-                sizeMinPixels: 12,
+                sizeMinPixels: 18,
                 pickable: false,
                 parameters: {
                   depthTest: false,

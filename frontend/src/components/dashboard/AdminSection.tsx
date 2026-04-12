@@ -1244,24 +1244,7 @@ function LiveTrackingTab({
           </div>
         </div>
 
-        {/* B) Map */}
-        <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
-          <TaskMap
-            turnpoints={[]}
-            taskPoints={[]}
-            optimizedRoute={[]}
-            legMetrics={[]}
-            totalDistanceKm={0}
-            optimizedDistanceKm={0}
-            track={null}
-            editable={false}
-            hideDistanceSummary
-            livePositions={livePositions}
-            fitKey={`live-tracking-${livePositions.length}`}
-          />
-        </div>
-
-        {/* C) Unified tracking table */}
+        {/* B) Unified tracking table */}
         <div className="participant-table-wrap">
           <table className="participant-table" style={{ fontSize: "0.82rem" }}>
             <thead>
@@ -1396,6 +1379,23 @@ function LiveTrackingTab({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* C) Map */}
+        <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
+          <TaskMap
+            turnpoints={[]}
+            taskPoints={[]}
+            optimizedRoute={[]}
+            legMetrics={[]}
+            totalDistanceKm={0}
+            optimizedDistanceKm={0}
+            track={null}
+            editable={false}
+            hideDistanceSummary
+            livePositions={livePositions}
+            fitKey={`live-tracking-${livePositions.length}`}
+          />
         </div>
 
         {/* D) Bottom cards: SOS Alerts + Position Sources */}
