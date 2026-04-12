@@ -1,6 +1,6 @@
 name: aervyx_mobile
 description: Aervyx pilot tracking and competition companion app.
-version: 0.4.14+31
+version: 0.4.15+32
 publish_to: none
 
 environment:

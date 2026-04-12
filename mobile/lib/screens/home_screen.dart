@@ -1027,23 +1027,25 @@ String _formatDeviceGps(BleService ble, MeshtasticDeviceState ds) {
   if (ds.gpsMode == GpsMode.notPresent) return 'Not present';
   if (ds.gpsMode == GpsMode.disabled) return 'Disabled';
   if (!ble.deviceHasGpsFix) return 'Searching…';
-  // Has a fix — always show satellite count
+  // Has a fix — show satellite count + quality when available
+  final parts = <String>[];
   final sats = ble.deviceGpsSats;
-  if (sats != null) {
-    final pdop = ble.deviceGpsPdop;
-    if (pdop != null) {
-      final quality = pdop < 2.0
-          ? 'excellent'
-          : pdop < 5.0
-              ? 'good'
-              : pdop < 10.0
-                  ? 'fair'
-                  : 'poor';
-      return '$sats sats · $quality';
-    }
-    return '$sats sats';
+  if (sats != null && sats > 0) {
+    parts.add('$sats sats');
   }
-  return 'Fix acquired';
+  final pdop = ble.deviceGpsPdop;
+  if (pdop != null) {
+    final quality = pdop < 2.0
+        ? 'excellent'
+        : pdop < 5.0
+            ? 'good'
+            : pdop < 10.0
+                ? 'fair'
+                : 'poor';
+    parts.add(quality);
+  }
+  if (parts.isEmpty) return '3D Fix';
+  return parts.join(' · ');
 }
 
 /// Format the device altitude from its GPS using the user's preferred unit.
