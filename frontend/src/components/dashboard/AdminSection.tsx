@@ -1354,7 +1354,12 @@ function LiveTrackingTab({
                         <>
                           {/* Phone sub-row */}
                           {d.hasPhone && (
-                            <tr className="tracking-sub-row">
+                            <tr className="tracking-sub-row" style={{ cursor: d.session?.last_position ? "pointer" : undefined }} onClick={() => {
+                              const pos = d.session?.last_position;
+                              if (pos && (pos.lat !== 0 || pos.lon !== 0)) {
+                                setFocusPos({ lat: pos.lat, lon: pos.lon, key: `${d.key}-phone-${Date.now()}` });
+                              }
+                            }}>
                               <td></td>
                               <td>
                                 <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
@@ -1377,7 +1382,12 @@ function LiveTrackingTab({
                           )}
                           {/* Mesh sub-row */}
                           {d.hasMesh && (
-                            <tr className="tracking-sub-row">
+                            <tr className="tracking-sub-row" style={{ cursor: d.meshNode ? "pointer" : undefined }} onClick={() => {
+                              const node = d.meshNode;
+                              if (node && (node.lat !== 0 || node.lon !== 0)) {
+                                setFocusPos({ lat: node.lat, lon: node.lon, key: `${d.key}-mesh-${Date.now()}` });
+                              }
+                            }}>
                               <td></td>
                               <td>
                                 <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", marginRight: "4px" }} />
