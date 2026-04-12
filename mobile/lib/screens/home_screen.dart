@@ -831,7 +831,7 @@ class _MeshDetails extends StatelessWidget {
           ],
         ),
         const Divider(height: 12),
-        // Mesh stats grid (Aervyx/MQTT row removed — covered by Server status)
+        // Mesh stats grid — compact 2×2: Profile, GPS, Altitude, Battery
         Table(
           columnWidths: const {
             0: FlexColumnWidth(1),
@@ -851,46 +851,24 @@ class _MeshDetails extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
-                    icon: Icons.cell_tower,
-                    label: 'Channel',
-                    value: ds.channelName.isNotEmpty
-                        ? '${ds.channelName} · ${ds.modemPreset.label}'
-                        : ds.modemPreset.label,
-                  ),
-                ),
-              ],
-            ),
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: _StatTile(
-                    icon: Icons.public,
-                    label: 'Region',
-                    value: ds.region.label,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: _StatTile(
-                    icon: Icons.route,
-                    label: 'Hops',
-                    value: '${ds.hopLimit}',
-                  ),
-                ),
-              ],
-            ),
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  child: _StatTile(
                     icon: ds.gpsMode == GpsMode.notPresent
                         ? Icons.gps_off
                         : Icons.satellite_alt,
                     label: 'GPS',
                     value: _formatDeviceGps(ble, ds),
                     iconColor: _gpsIconColor(ble, ds),
+                  ),
+                ),
+              ],
+            ),
+            TableRow(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: _StatTile(
+                    icon: Icons.terrain,
+                    label: 'Altitude',
+                    value: _formatDeviceAltitude(ble, ds),
                   ),
                 ),
                 Padding(
@@ -1047,23 +1025,32 @@ String _formatDeviceGps(BleService ble, MeshtasticDeviceState ds) {
   if (ds.gpsMode == GpsMode.notPresent) return 'Not present';
   if (ds.gpsMode == GpsMode.disabled) return 'Disabled';
   if (!ble.deviceHasGpsFix) return 'Searching…';
-  // Has a fix — show satellite count + quality
-  final parts = <String>[];
-  if (ble.deviceGpsSats != null) {
-    parts.add('${ble.deviceGpsSats} sats');
+  // Has a fix — always show satellite count
+  final sats = ble.deviceGpsSats;
+  if (sats != null) {
+    final pdop = ble.deviceGpsPdop;
+    if (pdop != null) {
+      final quality = pdop < 2.0
+          ? 'excellent'
+          : pdop < 5.0
+              ? 'good'
+              : pdop < 10.0
+                  ? 'fair'
+                  : 'poor';
+      return '$sats sats · $quality';
+    }
+    return '$sats sats';
   }
-  if (ble.deviceGpsPdop != null) {
-    final pdop = ble.deviceGpsPdop!;
-    final quality = pdop < 2.0
-        ? 'excellent'
-        : pdop < 5.0
-            ? 'good'
-            : pdop < 10.0
-                ? 'fair'
-                : 'poor';
-    parts.add(quality);
-  }
-  return parts.isEmpty ? 'Fix acquired' : parts.join(' · ');
+  return 'Fix acquired';
+}
+
+/// Format the device altitude from its GPS.
+String _formatDeviceAltitude(BleService ble, MeshtasticDeviceState ds) {
+  if (ds.gpsMode == GpsMode.notPresent) return 'N/A';
+  if (!ble.deviceHasGpsFix) return '--';
+  final alt = ble.deviceGpsAlt;
+  if (alt == null) return '--';
+  return '${alt.round()} m';
 }
 
 /// Format battery display: percentage, "Powered" (USB), or "--" if unknown.
