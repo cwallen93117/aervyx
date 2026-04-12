@@ -1091,6 +1091,18 @@ function LiveTrackingTab({
   meshNodesLoading: boolean;
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [focusPos, setFocusPos] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
+
+  function handleRowClick(d: UnifiedDevice) {
+    const useNode = d.meshNode != null && (
+      !d.session?.last_seen_at ||
+      new Date(d.meshNode.timestamp).getTime() > new Date(d.session.last_seen_at).getTime()
+    );
+    const lat = useNode ? d.meshNode!.lat : (d.session?.last_position?.lat ?? 0);
+    const lon = useNode ? d.meshNode!.lon : (d.session?.last_position?.lon ?? 0);
+    if (lat === 0 && lon === 0) return;
+    setFocusPos({ lat, lon, key: `${d.key}-${Date.now()}` });
+  }
 
   const unified = useMemo<UnifiedDevice[]>(() => {
     const byPilot = new Map<number, UnifiedDevice>();
@@ -1254,8 +1266,8 @@ function LiveTrackingTab({
                 <th>Pilot</th>
                 <th>Sources</th>
                 <th>Task</th>
-                <th>Positions</th>
                 <th>Battery</th>
+                <th>Positions</th>
                 <th>Interval</th>
                 <th>Last Fix</th>
               </tr>
@@ -1290,7 +1302,7 @@ function LiveTrackingTab({
 
                   return (
                     <Fragment key={d.key}>
-                      <tr style={{ borderLeft: `3px solid ${borderColor}` }}>
+                      <tr style={{ borderLeft: `3px solid ${borderColor}`, cursor: "pointer" }} onClick={() => handleRowClick(d)}>
                         <td
                           className={canExpand ? `tracking-expand-toggle${isExpanded ? " expanded" : ""}` : ""}
                           onClick={canExpand ? () => toggleExpand(d.key) : undefined}
@@ -1318,8 +1330,8 @@ function LiveTrackingTab({
                           {d.hasMesh && <span className="tracking-source-pill mesh">Mesh</span>}
                         </td>
                         <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
-                        <td>{d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
                         <td>{battery != null ? `${battery}%` : "\u2014"}</td>
+                        <td>{d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
                         <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
                         <td style={{ color: lastFixColor }}>{relativeTime(d.lastSeenAt)}</td>
                       </tr>
@@ -1341,7 +1353,9 @@ function LiveTrackingTab({
                                 {d.session?.last_position?.speed != null && ` · ${d.session.last_position.speed.toFixed(1)} km/h`}
                               </td>
                               <td>{d.session?.battery_level != null ? `${d.session.battery_level}%` : "\u2014"}</td>
-                              <td colSpan={2} style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                              <td></td>
+                              <td></td>
+                              <td style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
                                 {relativeTime(d.session?.last_seen_at)}
                               </td>
                             </tr>
@@ -1362,7 +1376,9 @@ function LiveTrackingTab({
                                 {d.meshNode?.speed != null && ` · ${d.meshNode.speed.toFixed(1)} km/h`}
                               </td>
                               <td>{d.meshNode?.battery_level != null ? `${d.meshNode.battery_level}%` : "\u2014"}</td>
-                              <td colSpan={2} style={{ color: lastSeenColor(d.meshNode?.timestamp) === "green" ? "inherit" : lastSeenColor(d.meshNode?.timestamp) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                              <td></td>
+                              <td></td>
+                              <td style={{ color: lastSeenColor(d.meshNode?.timestamp) === "green" ? "inherit" : lastSeenColor(d.meshNode?.timestamp) === "orange" ? "#f59e0b" : "#ef4444" }}>
                                 {relativeTime(d.meshNode?.timestamp)}
                               </td>
                             </tr>
@@ -1396,6 +1412,7 @@ function LiveTrackingTab({
             livePositions={livePositions}
             liveMarkerScale={1.8}
             fitKey={`live-tracking-${livePositions.length}`}
+            focusPosition={focusPos}
           />
         </div>
 

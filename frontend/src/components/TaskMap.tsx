@@ -382,7 +382,7 @@ function replayTelemetryThrottleMs(replaySpeed: number) {
 }
 
 type FitTarget = {
-  kind: "task" | "turnpoints" | "track" | "fitTurnpoints" | "fallback";
+  kind: "task" | "turnpoints" | "track" | "livePositions" | "fitTurnpoints" | "fallback";
   coordinates: [number, number][];
   signature: string;
 };
@@ -458,6 +458,7 @@ function resolveFitTarget(
   turnpoints: MapTurnpoint[],
   track: TrackCollection | null,
   fitTurnpoints?: MapTurnpoint[],
+  livePositions?: MapLivePosition[],
 ): FitTarget {
   if (taskPoints.length) {
     const coordinates: [number, number][] = taskPoints.map((point) => [point.longitude, point.latitude]);
@@ -494,6 +495,14 @@ function resolveFitTarget(
         signature: `track::${buildTrackGeometrySignature(track)}`,
       };
     }
+  }
+  if (livePositions?.length) {
+    const coordinates: [number, number][] = livePositions.map((p) => [p.longitude, p.latitude]);
+    return {
+      kind: "livePositions",
+      coordinates,
+      signature: `live::${livePositions.length}::${livePositions.map((p) => `${p.latitude.toFixed(4)},${p.longitude.toFixed(4)}`).join("|")}`,
+    };
   }
   const fallbackTurnpoints = fitTurnpoints ?? [];
   if (fallbackTurnpoints.length) {
@@ -1159,7 +1168,7 @@ export const TaskMap = React.memo(function TaskMap({
       // Clear pan-lock so waypoint geometry updates can auto-fit again
       manualViewChangedRef.current = false;
       // Refit to task bounds
-      const target = resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints);
+      const target = resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints, livePositions);
       if (target.kind !== "fallback") {
         const coords = target.coordinates as [number, number][];
         if (coords.length >= 2) {
@@ -1303,8 +1312,8 @@ export const TaskMap = React.memo(function TaskMap({
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
   const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(taskPoints, optimizedRoute), [optimizedRoute, taskPoints]);
   const resolvedFitTarget = useMemo(
-    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints),
-    [fitTurnpoints, optimizedRoute, taskPoints, track, turnpoints],
+    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints, effectiveLivePositions),
+    [fitTurnpoints, optimizedRoute, taskPoints, track, turnpoints, effectiveLivePositions],
   );
   const cylinderVolumes = useMemo<TaskCylinderVolume[]>(
     () =>
