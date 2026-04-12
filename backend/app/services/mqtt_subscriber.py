@@ -263,8 +263,11 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
             logger.debug("Protobuf Position lat/lon out of range: %s, %s", lat, lon)
             return None
 
-        # altitude = field 3, int32 (varint)
+        # altitude = field 3 (int32, legacy) or altitude_hae = field 11 (int32, preferred)
+        # Many devices populate only field 11 (height above ellipsoid).
         alt_raw = _get_varint(pos_fields, 3)
+        if alt_raw is None:
+            alt_raw = _get_varint(pos_fields, 11)
         alt = float(alt_raw) if alt_raw is not None else None
 
         # time = field 4, int32 (varint) -- unix timestamp
@@ -283,8 +286,8 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
         device_id = f"!{from_node:08x}" if from_node is not None else None
 
         logger.debug(
-            "Decoded protobuf position: device=%s lat=%.6f lon=%.6f alt=%s",
-            device_id, lat, lon, alt,
+            "Decoded protobuf position: device=%s lat=%.6f lon=%.6f alt=%s speed=%s heading=%s",
+            device_id, lat, lon, alt, speed, heading,
         )
 
         return {
