@@ -265,10 +265,10 @@ class _SettingsCardState extends State<_SettingsCard> {
     super.dispose();
   }
 
-  bool get _isDriverRole =>
-      _selectedProfile == MeshtasticProfile.driver ||
-      _selectedProfile == MeshtasticProfile.driverWifi ||
-      _selectedProfile == MeshtasticProfile.repeater;
+  /// Wi-Fi section is shown only when the admin has enabled Wi-Fi for
+  /// the currently selected profile on the backend.
+  bool get _profileHasWifi =>
+      ProfileConfig.presets[_selectedProfile]?.wifiEnabled ?? false;
 
   /// Save all pending changes to the device.
   Future<void> _save() async {
@@ -565,8 +565,8 @@ class _SettingsCardState extends State<_SettingsCard> {
               ),
             ),
 
-            // ── Wi-Fi (Driver / Driver Wi-Fi / Repeater only) ──
-            if (_isDriverRole) ...[
+            // ── Wi-Fi (only when admin has wifi_enabled for this profile) ──
+            if (_profileHasWifi) ...[
               const Divider(height: 32),
               Text('Wi-Fi', style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.bold,
