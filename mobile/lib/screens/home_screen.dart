@@ -813,9 +813,24 @@ class _MeshDetails extends StatelessWidget {
                 ),
               ),
             ],
+            const Spacer(),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: IconButton(
+                iconSize: 18,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.settings,
+                    color: theme.colorScheme.onSurfaceVariant),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const MeshtasticSettingsScreen()),
+                ),
+              ),
+            ),
           ],
         ),
-        const Divider(height: 16),
+        const Divider(height: 12),
         // Mesh stats grid (Aervyx/MQTT row removed — covered by Server status)
         Table(
           columnWidths: const {
@@ -826,7 +841,7 @@ class _MeshDetails extends StatelessWidget {
             TableRow(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
                     icon: profileIcon,
                     label: 'Profile',
@@ -834,7 +849,7 @@ class _MeshDetails extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
                     icon: Icons.cell_tower,
                     label: 'Channel',
@@ -848,7 +863,7 @@ class _MeshDetails extends StatelessWidget {
             TableRow(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
                     icon: Icons.public,
                     label: 'Region',
@@ -856,7 +871,7 @@ class _MeshDetails extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
                     icon: Icons.route,
                     label: 'Hops',
@@ -868,31 +883,23 @@ class _MeshDetails extends StatelessWidget {
             TableRow(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
                     icon: ds.gpsMode == GpsMode.notPresent
                         ? Icons.gps_off
-                        : Icons.gps_fixed,
+                        : Icons.satellite_alt,
                     label: 'GPS',
-                    value: ds.gpsMode == GpsMode.notPresent
-                        ? 'No GPS on device'
-                        : ds.gpsMode == GpsMode.disabled
-                            ? 'Disabled'
-                            : ble.deviceHasGpsFix
-                                ? 'Active'
-                                : 'Searching...',
+                    value: _formatDeviceGps(ble, ds),
+                    iconColor: _gpsIconColor(ble, ds),
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
-                    icon: Icons.satellite_alt,
-                    label: 'Accuracy',
-                    value: ble.deviceHasGpsFix
-                        ? _formatDeviceGpsAccuracy(ble)
-                        : ds.gpsMode == GpsMode.notPresent
-                            ? 'N/A'
-                            : '--',
+                    icon: _batteryIcon(ble.deviceBatteryLevel),
+                    label: 'Battery',
+                    value: _formatBattery(ble),
+                    iconColor: _batteryIconColor(ble.deviceBatteryLevel),
                   ),
                 ),
               ],
@@ -1035,8 +1042,12 @@ class _SosButton extends StatelessWidget {
 
 // ── Stat Tile (shared) ──
 
-/// Format device GPS accuracy from PDOP and satellite count.
-String _formatDeviceGpsAccuracy(BleService ble) {
+/// Format the GPS tile value: "No GPS", "Disabled", satellite count, or searching.
+String _formatDeviceGps(BleService ble, MeshtasticDeviceState ds) {
+  if (ds.gpsMode == GpsMode.notPresent) return 'Not present';
+  if (ds.gpsMode == GpsMode.disabled) return 'Disabled';
+  if (!ble.deviceHasGpsFix) return 'Searching…';
+  // Has a fix — show satellite count + quality
   final parts = <String>[];
   if (ble.deviceGpsSats != null) {
     parts.add('${ble.deviceGpsSats} sats');
@@ -1050,20 +1061,62 @@ String _formatDeviceGpsAccuracy(BleService ble) {
             : pdop < 10.0
                 ? 'fair'
                 : 'poor';
-    parts.add('$quality');
+    parts.add(quality);
   }
-  return parts.isEmpty ? 'Active' : parts.join(' · ');
+  return parts.isEmpty ? 'Fix acquired' : parts.join(' · ');
+}
+
+/// Format battery display: percentage, "Powered" (USB), or "--" if unknown.
+String _formatBattery(BleService ble) {
+  final level = ble.deviceBatteryLevel;
+  if (level == null) return '--';
+  if (level == 101) return 'USB powered';
+  final voltage = ble.deviceVoltage;
+  if (voltage != null) {
+    return '$level% · ${voltage.toStringAsFixed(1)}V';
+  }
+  return '$level%';
+}
+
+/// Pick battery icon based on level.
+IconData _batteryIcon(int? level) {
+  if (level == null) return Icons.battery_unknown;
+  if (level == 101) return Icons.power;
+  if (level > 90) return Icons.battery_full;
+  if (level > 60) return Icons.battery_5_bar;
+  if (level > 40) return Icons.battery_3_bar;
+  if (level > 20) return Icons.battery_2_bar;
+  return Icons.battery_alert;
+}
+
+/// GPS icon color based on device state.
+Color _gpsIconColor(BleService ble, MeshtasticDeviceState ds) {
+  if (ds.gpsMode == GpsMode.notPresent) return Colors.grey;
+  if (ds.gpsMode == GpsMode.disabled) return Colors.orange;
+  if (!ble.deviceHasGpsFix) return Colors.orange;
+  return Colors.green;
+}
+
+/// Battery icon color based on level.
+Color _batteryIconColor(int? level) {
+  if (level == null) return Colors.grey;
+  if (level == 101) return Colors.green;
+  if (level > 60) return Colors.green;
+  if (level >= 20) return Colors.orange;
+  return Colors.red;
 }
 
 class _StatTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
+  final Color? iconColor;
 
   const _StatTile({
     required this.icon,
     required this.label,
     required this.value,
+    this.iconColor,
   });
 
   @override
@@ -1073,7 +1126,7 @@ class _StatTile extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 16, color: theme.colorScheme.primary),
+        Icon(icon, size: 16, color: iconColor ?? theme.colorScheme.primary),
         const SizedBox(width: 6),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
