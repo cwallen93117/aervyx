@@ -139,8 +139,14 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (window.google) { setGoogleSdkReady(true); return; }
-    const script = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi/client"]');
-    if (!script) return;
+    // Find or create the Google Identity Services script
+    let script = document.querySelector<HTMLScriptElement>('script[src*="accounts.google.com/gsi/client"]');
+    if (!script) {
+      script = document.createElement("script");
+      script.src = "https://accounts.google.com/gsi/client";
+      script.async = true;
+      document.head.appendChild(script);
+    }
     const onLoad = () => setGoogleSdkReady(true);
     script.addEventListener("load", onLoad);
     return () => script.removeEventListener("load", onLoad);
