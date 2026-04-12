@@ -1187,39 +1187,57 @@ function LiveTrackingTab({
   }, [unified]);
 
   const livePositions = useMemo<MapLivePosition[]>(() => {
-    return unified.map((d): MapLivePosition => {
-      // Prefer most-recent position source
-      const useNode = d.meshNode != null && (
-        !d.session?.last_seen_at ||
-        new Date(d.meshNode.timestamp).getTime() > new Date(d.session.last_seen_at).getTime()
-      );
-      const lat = useNode ? d.meshNode!.lat : (d.session?.last_position?.lat ?? 0);
-      const lon = useNode ? d.meshNode!.lon : (d.session?.last_position?.lon ?? 0);
-      const alt = useNode ? d.meshNode!.alt : (d.session?.last_position?.alt ?? null);
-      const speed = useNode ? d.meshNode!.speed : (d.session?.last_position?.speed ?? null);
-      const heading = useNode ? (d.meshNode!.heading ?? null) : null;
-      const battery = useNode ? d.meshNode!.battery_level : (d.session?.battery_level ?? null);
-      const ts = d.lastSeenAt ?? new Date().toISOString();
-      const posSource = useNode
-        ? ((d.meshNode!.position_source ?? "mesh") as "cellular" | "mesh" | "other")
-        : "cellular";
-      return {
-        id: d.key,
-        pilotId: d.pilot_id,
-        pilotName: d.pilot_name,
-        latitude: lat,
-        longitude: lon,
-        altitudeM: alt,
-        speedKmh: speed,
-        heading: heading,
-        timestamp: ts,
-        batteryLevel: battery,
-        source: useNode ? d.meshNode!.source : (d.session?.source ?? null),
-        aircraftType: "hang_glider",
-        profileType: (d.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
-        positionSource: posSource,
-      };
-    }).filter((p) => p.latitude !== 0 || p.longitude !== 0);
+    const positions: MapLivePosition[] = [];
+    for (const d of unified) {
+      // Phone position
+      if (d.hasPhone && d.session?.last_position) {
+        const pos = d.session.last_position;
+        if (pos.lat !== 0 || pos.lon !== 0) {
+          positions.push({
+            id: `${d.key}-phone`,
+            pilotId: d.pilot_id,
+            pilotName: d.pilot_name,
+            latitude: pos.lat,
+            longitude: pos.lon,
+            altitudeM: pos.alt,
+            speedKmh: pos.speed,
+            heading: null,
+            timestamp: d.session.last_seen_at ?? new Date().toISOString(),
+            batteryLevel: d.session.battery_level ?? null,
+            source: d.session.source ?? "app",
+            color: "#3b82f6",  // blue for phone
+            aircraftType: "hang_glider",
+            profileType: (d.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
+            positionSource: "cellular",
+          });
+        }
+      }
+      // Mesh position
+      if (d.hasMesh && d.meshNode) {
+        if (d.meshNode.lat !== 0 || d.meshNode.lon !== 0) {
+          positions.push({
+            id: `${d.key}-mesh`,
+            pilotId: d.pilot_id,
+            pilotName: d.hasMesh && d.hasPhone ? `${d.pilot_name} (Mesh)` : d.pilot_name,
+            latitude: d.meshNode.lat,
+            longitude: d.meshNode.lon,
+            altitudeM: d.meshNode.alt,
+            speedKmh: d.meshNode.speed,
+            heading: d.meshNode.heading ?? null,
+            timestamp: d.meshNode.timestamp,
+            batteryLevel: d.meshNode.battery_level ?? null,
+            source: d.meshNode.source ?? "mqtt_gateway",
+            color: "#22c55e",  // green for mesh
+            aircraftType: "hang_glider",
+            profileType: (d.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
+            positionSource: "mesh",
+          });
+        }
+      }
+      // If only one source and it wasn't caught above (e.g., mesh-only device with no session)
+      // it's already handled by the mesh block above
+    }
+    return positions;
   }, [unified]);
 
   const active_sessions = debugStatus?.active_sessions ?? [];
@@ -1410,6 +1428,7 @@ function LiveTrackingTab({
             liveMarkerScale={1.8}
             fitKey={`live-tracking-${livePositions.length}`}
             focusPosition={focusPos}
+            mode="live"
           />
         </div>
 

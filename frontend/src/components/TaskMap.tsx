@@ -1632,127 +1632,127 @@ export const TaskMap = React.memo(function TaskMap({
             },
           }),
         );
-        const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
-        if (labelData.length) {
-          // Live mode only: draw a role-source ring and a role-shape icon at the pilot's
-          // current position. We keep the existing name + altitude text labels and just
-          // push them up a few pixels so the ring + icon fit beneath them.
-          if (mode === "live") {
-            type LiveLabelItem = {
-              position: [number, number, number];
-              color: [number, number, number];
-              profileType?: "pilot" | "driver" | "stationary_node";
-              positionSource?: "cellular" | "mesh" | "other";
-              aircraftType?: "hang_glider" | "paraglider" | "sailplane";
-            };
-            layers.push(
-              new IconLayer({
-                id: `live-pilot-rings-${mode}`,
-                data: labelData as LiveLabelItem[],
-                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-                billboard: true,
-                getPosition: (item: LiveLabelItem) => item.position,
-                getIcon: (item: LiveLabelItem) => {
-                  const source = item.positionSource ?? "other";
-                  return {
-                    url: RING_ICON_DATA_URIS[source],
-                    width: 48,
-                    height: 48,
-                    mask: true,
-                  };
-                },
-                getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: Math.round(28 * liveMarkerScale),
-                sizeUnits: "pixels",
-                sizeMinPixels: Math.round(20 * liveMarkerScale),
-                pickable: false,
-                parameters: {
-                  depthTest: false,
-                },
-              }),
-            );
-            layers.push(
-              new IconLayer({
-                id: `live-pilot-role-icons-${mode}`,
-                data: labelData as LiveLabelItem[],
-                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-                billboard: true,
-                getPosition: (item: LiveLabelItem) => item.position,
-                getIcon: (item: LiveLabelItem) => {
-                  const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
-                  return {
-                    url: ROLE_ICON_DATA_URIS[iconKey],
-                    width: 48,
-                    height: 48,
-                    mask: true,
-                  };
-                },
-                getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: Math.round(18 * liveMarkerScale),
-                sizeUnits: "pixels",
-                sizeMinPixels: Math.round(12 * liveMarkerScale),
-                pickable: false,
-                parameters: {
-                  depthTest: false,
-                },
-              }),
-            );
-          }
-          layers.push(
-            new TextLayer({
-              id: `pilot-name-labels-${mode}`,
-              data: labelData,
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              billboard: true,
-              getPosition: (item: { position: [number, number, number] }) => item.position,
-              getText: (item: { nameLabel: string }) => item.nameLabel,
-              getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
-              getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
-              sizeUnits: "pixels",
-              sizeMinPixels: 12,
-              getPixelOffset: mode === "live" ? [0, -30] : [0, -16],
-              getTextAnchor: "middle",
-              getAlignmentBaseline: "bottom",
-              characterSet: "auto",
-              fontFamily: "Segoe UI, Arial, sans-serif",
-              fontWeight: 700,
-              outlineWidth: 2,
-              outlineColor: [255, 255, 255, 230],
-              pickable: false,
-              parameters: {
-                depthTest: false,
-              },
-            }),
-          );
-          layers.push(
-            new TextLayer({
-              id: `pilot-altitude-labels-${mode}`,
-              data: labelData.filter((item: { altitudeLabel?: string }) => Boolean(item.altitudeLabel)),
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              billboard: true,
-              getPosition: (item: { position: [number, number, number] }) => item.position,
-              getText: (item: { altitudeLabel: string }) => item.altitudeLabel,
-              getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
-              getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
-              sizeUnits: "pixels",
-              sizeMinPixels: 10,
-              getPixelOffset: mode === "live" ? [0, -16] : [0, -3],
-              getTextAnchor: "middle",
-              getAlignmentBaseline: "bottom",
-              characterSet: "auto",
-              fontFamily: "Segoe UI, Arial, sans-serif",
-              fontWeight: 400,
-              outlineWidth: 2,
-              outlineColor: [255, 255, 255, 230],
-              pickable: false,
-              parameters: {
-                depthTest: false,
-              },
-            }),
-          );
-        }
         // }
       }
+    }
+    const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
+    if (labelData.length) {
+      // Live mode only: draw a role-source ring and a role-shape icon at the pilot's
+      // current position. We keep the existing name + altitude text labels and just
+      // push them up a few pixels so the ring + icon fit beneath them.
+      if (mode === "live") {
+        type LiveLabelItem = {
+          position: [number, number, number];
+          color: [number, number, number];
+          profileType?: "pilot" | "driver" | "stationary_node";
+          positionSource?: "cellular" | "mesh" | "other";
+          aircraftType?: "hang_glider" | "paraglider" | "sailplane";
+        };
+        layers.push(
+          new IconLayer({
+            id: `live-pilot-rings-${mode}`,
+            data: labelData as LiveLabelItem[],
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            billboard: true,
+            getPosition: (item: LiveLabelItem) => item.position,
+            getIcon: (item: LiveLabelItem) => {
+              const source = item.positionSource ?? "other";
+              return {
+                url: RING_ICON_DATA_URIS[source],
+                width: 48,
+                height: 48,
+                mask: true,
+              };
+            },
+            getColor: (item: LiveLabelItem) => [...item.color, 255],
+            getSize: Math.round(28 * liveMarkerScale),
+            sizeUnits: "pixels",
+            sizeMinPixels: Math.round(20 * liveMarkerScale),
+            pickable: false,
+            parameters: {
+              depthTest: false,
+            },
+          }),
+        );
+        layers.push(
+          new IconLayer({
+            id: `live-pilot-role-icons-${mode}`,
+            data: labelData as LiveLabelItem[],
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            billboard: true,
+            getPosition: (item: LiveLabelItem) => item.position,
+            getIcon: (item: LiveLabelItem) => {
+              const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
+              return {
+                url: ROLE_ICON_DATA_URIS[iconKey],
+                width: 48,
+                height: 48,
+                mask: true,
+              };
+            },
+            getColor: (item: LiveLabelItem) => [...item.color, 255],
+            getSize: Math.round(18 * liveMarkerScale),
+            sizeUnits: "pixels",
+            sizeMinPixels: Math.round(12 * liveMarkerScale),
+            pickable: false,
+            parameters: {
+              depthTest: false,
+            },
+          }),
+        );
+      }
+      layers.push(
+        new TextLayer({
+          id: `pilot-name-labels-${mode}`,
+          data: labelData,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: { position: [number, number, number] }) => item.position,
+          getText: (item: { nameLabel: string }) => item.nameLabel,
+          getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
+          getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
+          sizeUnits: "pixels",
+          sizeMinPixels: 12,
+          getPixelOffset: mode === "live" ? [0, -30] : [0, -16],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          characterSet: "auto",
+          fontFamily: "Segoe UI, Arial, sans-serif",
+          fontWeight: 700,
+          outlineWidth: 2,
+          outlineColor: [255, 255, 255, 230],
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+      layers.push(
+        new TextLayer({
+          id: `pilot-altitude-labels-${mode}`,
+          data: labelData.filter((item: { altitudeLabel?: string }) => Boolean(item.altitudeLabel)),
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: { position: [number, number, number] }) => item.position,
+          getText: (item: { altitudeLabel: string }) => item.altitudeLabel,
+          getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
+          getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
+          sizeUnits: "pixels",
+          sizeMinPixels: 10,
+          getPixelOffset: mode === "live" ? [0, -16] : [0, -3],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          characterSet: "auto",
+          fontFamily: "Segoe UI, Arial, sans-serif",
+          fontWeight: 400,
+          outlineWidth: 2,
+          outlineColor: [255, 255, 255, 230],
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
     }
     return layers;
   }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, visibleTrackLengths]);
