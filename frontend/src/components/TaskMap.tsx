@@ -86,15 +86,15 @@ type LiveMapIconKey = "hang_glider" | "paraglider" | "sailplane" | "driver" | "s
 
 const ROLE_ICON_SVGS: Record<LiveMapIconKey, string> = {
   hang_glider:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 4 L22 20 L12 16 L2 20 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M12 4 L22 20 L12 16 L2 20 Z"/></svg>',
   paraglider:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M2 12 Q12 4 22 12 L20 13 Q12 6 4 13 Z M11 15 L13 15 L13 20 L11 20 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M2 12 Q12 4 22 12 L20 13 Q12 6 4 13 Z M11 15 L13 15 L13 20 L11 20 Z"/></svg>',
   sailplane:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M2 11 L11 11 L11 3 L13 3 L13 11 L22 11 L22 13 L13 13 L13 18 L16 18 L16 20 L8 20 L8 18 L11 18 L11 13 L2 13 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M2 11 L11 11 L11 3 L13 3 L13 11 L22 11 L22 13 L13 13 L13 18 L16 18 L16 20 L8 20 L8 18 L11 18 L11 13 L2 13 Z"/></svg>',
   driver:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z"/></svg>',
   stationary_node:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z"/></svg>',
 };
 
 const ROLE_ICON_DATA_URIS: Record<LiveMapIconKey, string> = {
@@ -117,11 +117,11 @@ function resolveLiveMapIconKey(
 // Solid ring (cellular fix) vs. dashed ring (mesh-relayed fix) vs. faint solid ring (other/unknown).
 const RING_ICON_SVGS: Record<"cellular" | "mesh" | "other", string> = {
   cellular:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
   mesh:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
   other:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20" stroke-dasharray="2 3"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20" stroke-dasharray="2 3"/></svg>',
 };
 
 const RING_ICON_DATA_URIS: Record<"cellular" | "mesh" | "other", string> = {
