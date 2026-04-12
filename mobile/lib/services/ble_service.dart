@@ -86,6 +86,10 @@ class BleService extends ChangeNotifier {
   int? _deviceGpsSats;
   double? _deviceGpsPdop; // Positional Dilution of Precision
 
+  // ── Device battery (from telemetry packets) ──
+  int? _deviceBatteryLevel; // 0-100 %
+  double? _deviceVoltage; // volts
+
   // ── SOS ──
   String _sosMessage = 'SOS — Pilot needs immediate assistance';
   bool _isSendingSos = false;
@@ -136,6 +140,12 @@ class BleService extends ChangeNotifier {
 
   /// PDOP from device's last GPS fix (lower is better; <2 = excellent).
   double? get deviceGpsPdop => _deviceGpsPdop;
+
+  /// Device battery level (0-100 %) from telemetry packets.
+  int? get deviceBatteryLevel => _deviceBatteryLevel;
+
+  /// Device voltage from telemetry packets.
+  double? get deviceVoltage => _deviceVoltage;
 
   /// Describes the current GPS source priority state for display.
   String get gpsSourceLabel {
@@ -1580,7 +1590,15 @@ class BleService extends ChangeNotifier {
         }
       }
 
-      if (portnum != 3 || payload == null) return;
+      if (payload == null) return;
+
+      // Handle telemetry packets (portnum 67 = TELEMETRY_APP)
+      if (portnum == 67) {
+        _handleTelemetryPacket(fromNode, payload);
+        return;
+      }
+
+      if (portnum != 3) return; // Only position packets below
 
       // Parse Position message
       final posReader = ProtoReader(payload);
@@ -1693,6 +1711,83 @@ class BleService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('[BLE] mesh position parse error: $e');
+    }
+  }
+
+  /// Parse a Telemetry packet (portnum 67) and extract battery level / voltage
+  /// from the DeviceMetrics sub-message.
+  ///
+  /// Meshtastic Telemetry protobuf layout:
+  ///   field 1: time (uint32)
+  ///   field 2: DeviceMetrics (sub-message)
+  ///     field 1: battery_level (uint32, 0-100 or 101 = powered/no battery)
+  ///     field 2: voltage (float, wire type 5 = fixed32)
+  ///     field 3: channel_utilization (float)
+  ///     field 4: air_util_tx (float)
+  ///     field 5: uptime_seconds (uint32)
+  void _handleTelemetryPacket(int? fromNode, Uint8List payload) {
+    // Only care about our own device's telemetry
+    if (fromNode == null || fromNode != _deviceState.myNodeNum) return;
+
+    try {
+      final tr = ProtoReader(payload);
+      Uint8List? deviceMetricsBytes;
+
+      while (tr.hasMore) {
+        final (field, wireType) = tr.readTag();
+        switch (field) {
+          case 2: // DeviceMetrics sub-message
+            deviceMetricsBytes = Uint8List.fromList(tr.readBytes());
+            break;
+          default:
+            tr.skip(wireType);
+        }
+      }
+
+      if (deviceMetricsBytes == null) return;
+
+      final dm = ProtoReader(deviceMetricsBytes);
+      int? batteryLevel;
+      double? voltage;
+
+      while (dm.hasMore) {
+        final (field, wireType) = dm.readTag();
+        switch (field) {
+          case 1: // battery_level (uint32)
+            if (wireType == 0) {
+              batteryLevel = dm.readVarint();
+            } else {
+              dm.skip(wireType);
+            }
+            break;
+          case 2: // voltage (float, fixed32)
+            if (wireType == 5) {
+              voltage = dm.readFloat();
+            } else {
+              dm.skip(wireType);
+            }
+            break;
+          default:
+            dm.skip(wireType);
+        }
+      }
+
+      bool changed = false;
+      if (batteryLevel != null && batteryLevel <= 100) {
+        _deviceBatteryLevel = batteryLevel;
+        changed = true;
+      } else if (batteryLevel != null && batteryLevel == 101) {
+        // 101 means USB-powered / no battery — show as "Powered"
+        _deviceBatteryLevel = 101;
+        changed = true;
+      }
+      if (voltage != null && voltage > 0) {
+        _deviceVoltage = voltage;
+        changed = true;
+      }
+      if (changed) notifyListeners();
+    } catch (e) {
+      debugPrint('[BLE] telemetry parse error: $e');
     }
   }
 
