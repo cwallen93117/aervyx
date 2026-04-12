@@ -14,6 +14,7 @@ import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection"
 import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
+import SosSection from "../../components/dashboard/SosSection";
 import { WeatherSection } from "../../components/dashboard/WeatherSection";
 import { AirspaceSection } from "../../components/dashboard/AirspaceSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
@@ -123,6 +124,7 @@ const adminSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
+  { id: "sos", label: "SOS Alerts" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
@@ -135,6 +137,7 @@ const organizerSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
+  { id: "sos", label: "SOS Alerts" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
@@ -164,12 +167,12 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
     return "tasks";
   }
   if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
+    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "sos" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
       return section;
     }
     return "events";
   }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings" || section === "admin") {
+  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "sos" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings" || section === "admin") {
     return section;
   }
   return "events";
@@ -2702,6 +2705,8 @@ export default function HomePage() {
               canManagePlatform={canManagePlatform ?? false}
             />
           );
+        case "sos":
+          return <SosSection apiBase={resolveApiBase()} token={token} />;
         case "logbook":
           return (
             <LogbookSection
@@ -2831,7 +2836,7 @@ export default function HomePage() {
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
                 {activeSection === "airspace" && <AirspaceFreshnessStatus />}
-                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" ? (
+                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
                   </span>

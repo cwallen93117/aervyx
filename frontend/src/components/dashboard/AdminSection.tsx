@@ -1223,10 +1223,7 @@ function LiveTrackingTab({
   }, [unified]);
 
   const active_sessions = debugStatus?.active_sessions ?? [];
-  const recent_sos_alerts = debugStatus?.recent_sos_alerts ?? [];
-  const position_stats = debugStatus?.position_stats ?? { last_hour_total: 0, last_hour_cellular: 0, last_hour_mesh: 0 };
   const sse_subscriber_count = debugStatus?.sse_subscriber_count ?? 0;
-  const meshRatio = position_stats.last_hour_total > 0 ? Math.round((position_stats.last_hour_mesh / position_stats.last_hour_total) * 100) : 0;
 
   function toggleExpand(key: string) {
     setExpandedKeys((prev) => {
@@ -1416,61 +1413,7 @@ function LiveTrackingTab({
           />
         </div>
 
-        {/* D) Bottom cards: SOS Alerts + Position Sources */}
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div
-            className="section-card"
-            style={{
-              flex: "1 1 0",
-              minWidth: "280px",
-              padding: "12px 16px",
-              borderLeft: recent_sos_alerts.length ? "3px solid #ef4444" : undefined,
-            }}
-          >
-            <div style={{ marginBottom: "8px" }}>
-              <strong>SOS Alerts</strong>
-            </div>
-            {recent_sos_alerts.length ? (
-              <div className="stack" style={{ gap: "6px" }}>
-                {recent_sos_alerts.map((alert, idx) => (
-                  <div key={`${alert.pilot_id}-${alert.timestamp}-${idx}`} style={{ display: "flex", gap: "8px", alignItems: "baseline", fontSize: "0.875rem" }}>
-                    <strong style={{ color: "#ef4444" }}>{alert.pilot_name}</strong>
-                    <span className="hint">{relativeTime(alert.timestamp)}</span>
-                    <span>{alert.message}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="hint">No active alerts</div>
-            )}
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "280px", padding: "12px 16px" }}>
-            <div style={{ marginBottom: "8px" }}>
-              <strong>Position Sources</strong>
-              <span className="hint" style={{ marginLeft: "8px" }}>(last hour)</span>
-            </div>
-            <div style={{ display: "flex", gap: "16px", fontSize: "0.875rem" }}>
-              <div>
-                <div className="hint">Total</div>
-                <strong>{position_stats.last_hour_total.toLocaleString()}</strong>
-              </div>
-              <div>
-                <div className="hint">Cellular</div>
-                <strong>{position_stats.last_hour_cellular.toLocaleString()}</strong>
-              </div>
-              <div>
-                <div className="hint">Mesh</div>
-                <strong>{position_stats.last_hour_mesh.toLocaleString()}</strong>
-              </div>
-              <div>
-                <div className="hint">Mesh ratio</div>
-                <strong>{meshRatio}%</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* E) Refresh */}
+        {/* D) Refresh */}
         <div className="button-row">
           <button type="button" className="ghost-button" onClick={refreshDebugStatus}>
             Refresh now
