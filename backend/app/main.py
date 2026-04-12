@@ -30,6 +30,11 @@ except ImportError:
     admin_debug = None
 
 try:
+    from app.routers import admin_sos
+except ImportError:
+    admin_sos = None
+
+try:
     from app.routers import driver_routing
 except ImportError:
     driver_routing = None
@@ -166,6 +171,8 @@ if buddies is not None:
     app.include_router(buddies.router)
 if admin_debug is not None:
     app.include_router(admin_debug.router)
+if admin_sos is not None:
+    app.include_router(admin_sos.router)
 if driver_routing is not None:
     app.include_router(driver_routing.router)
 if weather is not None:

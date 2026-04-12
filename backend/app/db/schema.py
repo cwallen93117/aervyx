@@ -536,6 +536,22 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE tracking_sessions ALTER COLUMN task_id DROP NOT NULL"))
 
         # -------------------------------------------------------------------
+        # SOS alert management columns (0009)
+        # -------------------------------------------------------------------
+        if "sos_alerts" in table_names:
+            sos_columns = {col["name"] for col in inspector.get_columns("sos_alerts")}
+            if "status" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'"))
+            if "acknowledged_at" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN acknowledged_at TIMESTAMP WITH TIME ZONE NULL"))
+            if "resolved_at" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN resolved_at TIMESTAMP WITH TIME ZONE NULL"))
+            if "resolved_by" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN resolved_by VARCHAR(100) NULL"))
+            if "notes" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN notes TEXT NULL"))
+
+        # -------------------------------------------------------------------
         # FAA Airspace cache tables
         # -------------------------------------------------------------------
         if "faa_airspace_features" not in table_names:
