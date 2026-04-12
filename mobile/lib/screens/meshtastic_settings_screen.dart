@@ -305,6 +305,11 @@ class _SettingsCardState extends State<_SettingsCard> {
       ProfileConfig.presets[_selectedProfile]?.wifiEnabled ?? false;
 
   /// Save all pending changes to the device.
+  ///
+  /// Always pushes the full admin profile to the device so every
+  /// setting (bluetooth, power, display, etc.) stays in sync with
+  /// what the admin configured on the website. The device reboots
+  /// after a commit.
   Future<void> _save() async {
     final ble = context.read<BleService>();
 
@@ -323,35 +328,36 @@ class _SettingsCardState extends State<_SettingsCard> {
     }
 
     final profileChanged = _selectedProfile != _deviceProfile;
-    final regionChanged = _region != _deviceRegion;
 
-    // If profile changed, show a confirmation dialog because it reboots.
-    if (profileChanged) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: Text('Apply ${_selectedProfile.label} profile?'),
-          content: const Text(
-            'This will overwrite all device settings with the admin '
-            'profile and reboot the device.',
+    // Confirm before applying — the device will reboot.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(profileChanged
+            ? 'Apply ${_selectedProfile.label} profile?'
+            : 'Save settings?'),
+        content: Text(profileChanged
+            ? 'This will overwrite all device settings with the '
+              '${_selectedProfile.label} profile and reboot the device.'
+            : 'This will sync all admin profile settings to the device '
+              'and reboot it.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Apply & Reboot'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true) return;
-    }
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(profileChanged ? 'Apply & Reboot' : 'Save & Reboot'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
 
     // 1. Push region first (updates _deviceState.region so applyProfile
     //    picks up the right value for the LoRa config write).
+    final regionChanged = _region != _deviceRegion;
     if (regionChanged) {
       await ble.setLoraRegion(_region);
       _deviceRegion = _region;
@@ -364,11 +370,10 @@ class _SettingsCardState extends State<_SettingsCard> {
       await ble.setDeviceName(longName: longName, shortName: shortName);
     }
 
-    // 3. Push full profile (reboots device).
-    if (profileChanged) {
-      await ble.applyProfile(_selectedProfile);
-      _deviceProfile = _selectedProfile;
-    }
+    // 3. Always push the full profile so every admin setting (bluetooth,
+    //    power, display, modules, etc.) is written to the device.
+    await ble.applyProfile(_selectedProfile);
+    _deviceProfile = _selectedProfile;
 
     if (mounted) setState(() {});
   }

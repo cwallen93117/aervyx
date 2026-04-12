@@ -1224,6 +1224,7 @@ class MeshtasticDeviceState {
   // Bluetooth
   bool bluetoothEnabled = true;
   BlePairingMode blePairingMode = BlePairingMode.randomPin;
+  int bluetoothFixedPin = 0;
 
   // MQTT
   bool mqttEnabled = false;

@@ -558,7 +558,7 @@ class BleService extends ChangeNotifier {
     if (device != null &&
         _reconnectAttempts < _maxReconnectAttempts) {
       _isReconnecting = true;
-      _statusMessage = 'Connection lost. Reconnecting...';
+      _statusMessage = 'Connection lost. Reconnecting to ${device.name}...';
       notifyListeners();
       _scheduleReconnect(device);
     } else {
@@ -588,7 +588,7 @@ class BleService extends ChangeNotifier {
 
     _reconnectAttempts++;
     _statusMessage =
-        'Reconnecting (attempt $_reconnectAttempts/$_maxReconnectAttempts)...';
+        'Reconnecting to ${device.name} (attempt $_reconnectAttempts/$_maxReconnectAttempts)...';
     notifyListeners();
 
     try {
@@ -956,6 +956,13 @@ class BleService extends ChangeNotifier {
           _deviceState.blePairingMode =
               BlePairingMode.fromValue(r.readVarint());
           break;
+        case 3: // fixed_pin (uint32)
+          if (wt == 0) {
+            _deviceState.bluetoothFixedPin = r.readVarint();
+          } else {
+            r.skip(wt);
+          }
+          break;
         default:
           r.skip(wt);
       }
@@ -1280,6 +1287,8 @@ class BleService extends ChangeNotifier {
       _deviceState.hopLimit = config.hopLimit;
       _deviceState.isPowerSaving = config.powerSaving;
       _deviceState.bluetoothEnabled = config.bluetoothEnabled;
+      _deviceState.blePairingMode = config.bluetoothMode;
+      _deviceState.bluetoothFixedPin = config.bluetoothFixedPin;
       _deviceState.wifiEnabled = config.wifiEnabled;
       _deviceState.positionFlags = config.positionFlags;
       _deviceState.screenOnSecs = config.displayTimeoutSecs;
