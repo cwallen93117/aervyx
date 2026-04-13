@@ -169,15 +169,25 @@ class _BleConnectionSection extends StatelessWidget {
         // Discovered devices
         if (!ble.isConnected && ble.discoveredDevices.isNotEmpty) ...[
           ...ble.discoveredDevices.map((device) {
+            final deviceId = device.device.remoteId.toString();
+            final isThisConnecting =
+                ble.isConnecting && ble.connectingDeviceId == deviceId;
             return ListTile(
               leading: const Icon(Icons.bluetooth),
               title: Text(device.name),
               subtitle: Text('RSSI: ${device.rssi} dBm'),
-              trailing: OutlinedButton(
-                onPressed:
-                    ble.isConnecting ? null : () => ble.connectToDevice(device),
-                child: Text(ble.isConnecting ? 'Connecting...' : 'Pair'),
-              ),
+              trailing: isThisConnecting
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : OutlinedButton(
+                      onPressed: ble.isConnecting
+                          ? null
+                          : () => ble.connectToDevice(device),
+                      child: const Text('Pair'),
+                    ),
             );
           }),
         ] else if (!ble.isConnected) ...[
@@ -370,7 +380,16 @@ class _SettingsCardState extends State<_SettingsCard> {
       await ble.setDeviceName(longName: longName, shortName: shortName);
     }
 
-    // 3. Always push the full profile so every admin setting (bluetooth,
+    // 3. Push Wi-Fi credentials if the profile has Wi-Fi enabled.
+    if (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty) {
+      await ble.setWifi(
+        enabled: true,
+        ssid: _ssidCtl.text.trim(),
+        password: _pskCtl.text,
+      );
+    }
+
+    // 4. Always push the full profile so every admin setting (bluetooth,
     //    power, display, modules, etc.) is written to the device.
     await ble.applyProfile(_selectedProfile);
     _deviceProfile = _selectedProfile;
@@ -748,21 +767,6 @@ class _SettingsCardState extends State<_SettingsCard> {
                     onPressed: () => setState(
                         () => _obscurePassword = !_obscurePassword),
                   ),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: disabled || _ssidCtl.text.trim().isEmpty
-                      ? null
-                      : () => ble.setWifi(
-                            enabled: true,
-                            ssid: _ssidCtl.text.trim(),
-                            password: _pskCtl.text,
-                          ),
-                  icon: const Icon(Icons.save, size: 18),
-                  label: const Text('Save Wi-Fi'),
                 ),
               ),
             ],
