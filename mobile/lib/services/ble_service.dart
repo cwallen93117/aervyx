@@ -1280,7 +1280,18 @@ class BleService extends ChangeNotifier {
     }
 
     final config = customConfig ?? ProfileConfig.presets[profile]!;
-    debugPrint('applyProfile: ${profile.label} — positionFlags=${config.positionFlags} (0x${config.positionFlags.toRadixString(16)})');
+    debugPrint('applyProfile: ${profile.label}');
+    debugPrint('  role=${config.role}, rebroadcast=${config.rebroadcastMode}');
+    debugPrint('  gpsMode=${config.gpsMode}, gpsInterval=${config.gpsUpdateInterval}');
+    debugPrint('  broadcastSecs=${config.positionBroadcastSecs}, smart=${config.smartPositionEnabled}');
+    debugPrint('  smartMinDist=${config.smartMinDistance}, smartMinInterval=${config.smartMinInterval}');
+    debugPrint('  positionFlags=${config.positionFlags} (0x${config.positionFlags.toRadixString(16)})');
+    debugPrint('  modem=${config.modemPreset}, hops=${config.hopLimit}, txPower=${config.txPower}');
+    debugPrint('  bluetooth=${config.bluetoothEnabled}, wifi=${config.wifiEnabled}');
+    debugPrint('  displayTimeout=${config.displayTimeoutSecs}, telemetry=${config.telemetryIntervalSecs}');
+    debugPrint('  deviceTelemetryEnabled=${config.deviceTelemetryEnabled}');
+    debugPrint('  neighborInfo=${config.neighborInfoEnabled}, storeForward=${config.storeForwardEnabled}');
+    debugPrint('  channelPsk=${_platformMqttPsk ?? "(default)"}');
     _isPushingConfig = true;
     _error = null;
     _statusMessage = 'Applying ${profile.label} profile...';
@@ -1361,9 +1372,11 @@ class BleService extends ChangeNotifier {
         proxyToClientEnabled: config.bluetoothEnabled, // Proxy when BLE on
       ));
 
-      // Telemetry
+      // Telemetry — honour the device_telemetry_enabled flag: when disabled
+      // set the interval to 0 so the firmware stops sending device metrics.
       await _writeAdmin(buildSetTelemetryConfig(
-        deviceUpdateInterval: config.telemetryIntervalSecs,
+        deviceUpdateInterval:
+            config.deviceTelemetryEnabled ? config.telemetryIntervalSecs : 0,
         environmentMeasurementEnabled: config.environmentTelemetryEnabled,
       ));
 
@@ -1379,10 +1392,26 @@ class BleService extends ChangeNotifier {
         isServer: config.storeForwardIsServer,
       ));
 
-      // Channel uplink — always on
+      // Channel 0 (PRIMARY) — uplink + downlink always on.
+      // Include the platform channel PSK if the admin configured one;
+      // otherwise send the default Meshtastic PSK (single byte 0x01 = use
+      // the built-in AES key).  We MUST include a PSK because set_channel
+      // replaces the full channel object — omitting it would clear the
+      // encryption key.
+      Uint8List channelPsk;
+      if (_platformMqttPsk != null && _platformMqttPsk!.isNotEmpty) {
+        try {
+          channelPsk = base64.decode(_platformMqttPsk!);
+        } catch (_) {
+          channelPsk = Uint8List.fromList([1]); // fallback to default
+        }
+      } else {
+        channelPsk = Uint8List.fromList([1]); // default Meshtastic PSK
+      }
       await _writeAdmin(buildSetChannel(
         index: 0,
         role: 1, // PRIMARY
+        psk: channelPsk,
         uplinkEnabled: true,
         downlinkEnabled: true,
       ));
