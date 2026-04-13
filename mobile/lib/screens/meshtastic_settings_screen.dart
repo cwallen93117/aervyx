@@ -125,21 +125,21 @@ class _ConnectionSectionState extends State<_ConnectionSection> {
             width: double.infinity,
             child: SegmentedButton<ConnectionType>(
               segments: [
-                const ButtonSegment<ConnectionType>(
+                ButtonSegment<ConnectionType>(
                   value: ConnectionType.ble,
-                  icon: Icon(Icons.bluetooth, size: 18),
-                  label: Text('Bluetooth'),
+                  icon: const Icon(Icons.bluetooth, size: 18),
+                  label: Text('Bluetooth', style: theme.textTheme.labelSmall),
                 ),
-                const ButtonSegment<ConnectionType>(
+                ButtonSegment<ConnectionType>(
                   value: ConnectionType.tcp,
-                  icon: Icon(Icons.wifi, size: 18),
-                  label: Text('Network'),
+                  icon: const Icon(Icons.wifi, size: 18),
+                  label: Text('Network', style: theme.textTheme.labelSmall),
                 ),
                 if (showSerial)
-                  const ButtonSegment<ConnectionType>(
+                  ButtonSegment<ConnectionType>(
                     value: ConnectionType.serial,
-                    icon: Icon(Icons.usb, size: 18),
-                    label: Text('Serial'),
+                    icon: const Icon(Icons.usb, size: 18),
+                    label: Text('Serial', style: theme.textTheme.labelSmall),
                   ),
               ],
               selected: {_selectedTab},
