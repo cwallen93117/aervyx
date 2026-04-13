@@ -152,11 +152,21 @@ class _ConnectionSectionState extends State<_ConnectionSection> {
 
         // ── Error / status messages ──
         if (ble.error != null) ...[
-          Text(ble.error!, style: TextStyle(color: theme.colorScheme.error)),
+          Text(
+            ble.error!,
+            style: TextStyle(color: theme.colorScheme.error),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 3,
+          ),
           const SizedBox(height: 8),
         ],
         if (ble.statusMessage != null) ...[
-          Text(ble.statusMessage!, style: const TextStyle(color: Colors.green)),
+          Text(
+            ble.statusMessage!,
+            style: const TextStyle(color: Colors.green),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 3,
+          ),
           const SizedBox(height: 8),
         ],
 
@@ -216,32 +226,24 @@ class _ConnectedDeviceCard extends StatelessWidget {
                       color: theme.colorScheme.onPrimaryContainer,
                     ),
                   ),
-                  Row(
-                    children: [
-                      if (ble.connectionLabel.isNotEmpty)
-                        Text(
-                          '${ble.connectionType?.name.toUpperCase() ?? "BLE"}: ${ble.connectionLabel}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onPrimaryContainer
-                                .withAlpha(150),
-                          ),
-                        ),
-                      if (ble.deviceState.firmwareVersion != null) ...[
-                        if (ble.connectionLabel.isNotEmpty)
-                          Text(' · ',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onPrimaryContainer
-                                      .withAlpha(120))),
-                        Text(
-                          'FW: ${ble.deviceState.firmwareVersion}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onPrimaryContainer
-                                .withAlpha(150),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
+                  if (ble.connectionLabel.isNotEmpty)
+                    Text(
+                      '${ble.connectionType?.name.toUpperCase() ?? "BLE"}: ${ble.connectionLabel}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer
+                            .withAlpha(150),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  if (ble.deviceState.firmwareVersion != null)
+                    Text(
+                      'FW: ${ble.deviceState.firmwareVersion}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer
+                            .withAlpha(150),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
                 ],
               ),
             ),
