@@ -90,9 +90,16 @@ class _ConnectionSection extends StatefulWidget {
 }
 
 class _ConnectionSectionState extends State<_ConnectionSection> {
-  ConnectionType _selectedTab = ConnectionType.ble;
+  // Force BLE as default — there was a mystery bug where this defaulted to tcp.
+  late ConnectionType _selectedTab;
   final _ipController = TextEditingController();
   final _portController = TextEditingController(text: '4403');
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTab = ConnectionType.ble;
+  }
 
   @override
   void dispose() {
@@ -574,6 +581,8 @@ class _SettingsCardState extends State<_SettingsCard> {
   Future<void> _save() async {
     final ble = context.read<BleService>();
 
+    debugPrint('_save: selectedProfile=${_selectedProfile.label}');
+
     // Refresh admin profiles from the server so we push the latest settings
     // (e.g. position_flags changes made on the admin website).
     await ble.syncPlatformConfig();
@@ -635,18 +644,17 @@ class _SettingsCardState extends State<_SettingsCard> {
       await ble.setDeviceName(longName: longName, shortName: shortName);
     }
 
-    // 3. Push Wi-Fi credentials if the profile has Wi-Fi enabled.
-    if (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty) {
-      await ble.setWifi(
-        enabled: true,
-        ssid: _ssidCtl.text.trim(),
-        password: _pskCtl.text,
-      );
-    }
-
-    // 4. Always push the full profile so every admin setting (bluetooth,
+    // 3. Always push the full profile so every admin setting (bluetooth,
     //    power, display, modules, etc.) is written to the device.
-    await ble.applyProfile(_selectedProfile);
+    //    Wi-Fi credentials are included in the batched write so they
+    //    aren't overwritten when the batch commits.
+    final ssid = (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty)
+        ? _ssidCtl.text.trim()
+        : null;
+    final psk = (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty)
+        ? _pskCtl.text
+        : null;
+    await ble.applyProfile(_selectedProfile, wifiSsid: ssid, wifiPsk: psk);
     _deviceProfile = _selectedProfile;
 
     if (mounted) setState(() {});

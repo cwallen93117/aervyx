@@ -194,13 +194,22 @@ class BleService extends ChangeNotifier {
       final profiles = profilesResp['profiles'];
       if (profiles is Map<String, dynamic>) {
         ProfileConfig.updatePresetsFromServer(profiles);
+        // Log all preset values after server sync for debugging
+        for (final entry in ProfileConfig.presets.entries) {
+          final c = entry.value;
+          debugPrint('syncPlatformConfig: ${entry.key.label} → '
+              'role=${c.role}, broadcast=${c.positionBroadcastSecs}, '
+              'gpsInterval=${c.gpsUpdateInterval}, display=${c.displayTimeoutSecs}, '
+              'smartDist=${c.smartMinDistance}, smartInt=${c.smartMinInterval}');
+        }
       }
 
       // Cache for offline use
       await _saveCachedConfig(meshConfig, profiles);
       notifyListeners();
-    } catch (_) {
+    } catch (e) {
       // Server unreachable — use cached/default values silently
+      debugPrint('syncPlatformConfig: server fetch failed: $e');
     }
   }
 
@@ -1263,16 +1272,25 @@ class BleService extends ChangeNotifier {
     final toRadio = buildToRadioPacket(meshPacket);
     await _transport!.writeToRadio(toRadio);
 
-    // Small delay between writes to avoid overwhelming the device
-    await Future.delayed(const Duration(milliseconds: 100));
+    // Delay between writes to give the firmware time to process each admin
+    // message before the next one arrives. The Meshtastic firmware ACKs the
+    // BLE/TCP write at the transport layer before the application fully
+    // processes the admin command, so without a sufficient gap the device can
+    // drop config writes silently. The official Meshtastic Android app uses
+    // ~500 ms between admin operations.
+    await Future.delayed(const Duration(milliseconds: 500));
   }
 
   /// Apply a full profile preset to the connected device.
   ///
   /// If [customConfig] is provided it overrides the built-in preset, allowing
   /// the UI to let the user tweak individual settings before applying.
+  ///
+  /// [wifiSsid] and [wifiPsk] are included in the batched NetworkConfig write
+  /// so that Wi-Fi credentials survive the commit (a standalone setWifi before
+  /// the batch would be overwritten).
   Future<void> applyProfile(MeshtasticProfile profile,
-      {ProfileConfig? customConfig}) async {
+      {ProfileConfig? customConfig, String? wifiSsid, String? wifiPsk}) async {
     if (_transport == null) {
       _error = 'No device connected';
       notifyListeners();
@@ -1299,9 +1317,11 @@ class BleService extends ChangeNotifier {
 
     try {
       // Begin batch edit
+      debugPrint('applyProfile: sending beginEditSettings');
       await _writeAdmin(buildBeginEditSettings());
 
       // Device config (role + rebroadcast + serial + nodeinfo broadcast)
+      debugPrint('applyProfile: sending DeviceConfig (role=${config.role})');
       _statusMessage = 'Setting device role...';
       notifyListeners();
       await _writeAdmin(buildSetDeviceConfig(
@@ -1312,6 +1332,7 @@ class BleService extends ChangeNotifier {
       ));
 
       // Position config
+      debugPrint('applyProfile: sending PositionConfig (broadcast=${config.positionBroadcastSecs}, gpsInterval=${config.gpsUpdateInterval})');
       _statusMessage = 'Setting position config...';
       notifyListeners();
       await _writeAdmin(buildSetPositionConfig(
@@ -1324,10 +1345,8 @@ class BleService extends ChangeNotifier {
         gpsUpdateInterval: config.gpsUpdateInterval,
       ));
 
-      // LoRa config — region is intentionally NOT in the profile. It's
-      // device-specific and the operator sets it on the Meshtastic settings
-      // screen on their own phone (parallel to Wi-Fi credentials). Always
-      // preserve whatever the device already has.
+      // LoRa config — region is intentionally NOT in the profile.
+      debugPrint('applyProfile: sending LoRaConfig');
       _statusMessage = 'Setting LoRa radio...';
       notifyListeners();
       await _writeAdmin(buildSetLoraConfig(
@@ -1340,6 +1359,7 @@ class BleService extends ChangeNotifier {
       ));
 
       // Power config
+      debugPrint('applyProfile: sending PowerConfig');
       await _writeAdmin(buildSetPowerConfig(
         isPowerSaving: config.powerSaving,
         onBatteryShutdownAfterSecs: config.onBatteryShutdownAfterSecs,
@@ -1348,18 +1368,22 @@ class BleService extends ChangeNotifier {
       ));
 
       // Display config
+      debugPrint('applyProfile: sending DisplayConfig (screenOnSecs=${config.displayTimeoutSecs})');
       await _writeAdmin(buildSetDisplayConfig(
         screenOnSecs: config.displayTimeoutSecs,
         autoScreenCarouselSecs: config.autoScreenCarouselSecs,
         wakeOnTapOrMotion: config.wakeOnTapOrMotion,
       ));
 
-      // Network/Wi-Fi toggle (SSID/PSK are device-specific — set per device
-      // from the Meshtastic settings screen via setWifi(), never from the
-      // fleet-wide profile).
+      // Network/Wi-Fi config — include SSID/PSK in the batch so credentials
+      // aren't overwritten by the commit.  SSID/PSK are device-specific and
+      // come from the UI, not from the fleet-wide profile.
+      debugPrint('applyProfile: sending NetworkConfig (wifi=${config.wifiEnabled}, ssid=${wifiSsid ?? "(none)"})');
       await _writeAdmin(buildSetNetworkConfig(
         wifiEnabled: config.wifiEnabled,
         ethEnabled: config.ethEnabled,
+        wifiSsid: wifiSsid,
+        wifiPsk: wifiPsk,
       ));
 
       // MQTT — always on, use platform config from admin settings
@@ -1426,9 +1450,7 @@ class BleService extends ChangeNotifier {
       ));
 
       // Commit batch edit — device reboots immediately after receiving this.
-      // The BLE/TCP transport may throw a disconnect error because the device
-      // drops the connection before the write acknowledgement. That's expected
-      // and means the settings WERE applied.
+      debugPrint('applyProfile: sending commitEditSettings');
       _statusMessage = 'Committing settings (device will reboot)...';
       notifyListeners();
       try {
