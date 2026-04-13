@@ -574,6 +574,10 @@ class _SettingsCardState extends State<_SettingsCard> {
   Future<void> _save() async {
     final ble = context.read<BleService>();
 
+    // Refresh admin profiles from the server so we push the latest settings
+    // (e.g. position_flags changes made on the admin website).
+    await ble.syncPlatformConfig();
+
     // Region must be set before anything else.
     if (_region == RegionCode.unset) {
       ScaffoldMessenger.of(context).showSnackBar(

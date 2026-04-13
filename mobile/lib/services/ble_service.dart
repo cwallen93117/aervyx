@@ -1273,13 +1273,14 @@ class BleService extends ChangeNotifier {
   /// the UI to let the user tweak individual settings before applying.
   Future<void> applyProfile(MeshtasticProfile profile,
       {ProfileConfig? customConfig}) async {
-    if (_toRadio == null) {
+    if (_transport == null) {
       _error = 'No device connected';
       notifyListeners();
       return;
     }
 
     final config = customConfig ?? ProfileConfig.presets[profile]!;
+    debugPrint('applyProfile: ${profile.label} — positionFlags=${config.positionFlags} (0x${config.positionFlags.toRadixString(16)})');
     _isPushingConfig = true;
     _error = null;
     _statusMessage = 'Applying ${profile.label} profile...';
@@ -1395,10 +1396,19 @@ class BleService extends ChangeNotifier {
             : null,
       ));
 
-      // Commit batch edit (device reboots)
+      // Commit batch edit — device reboots immediately after receiving this.
+      // The BLE/TCP transport may throw a disconnect error because the device
+      // drops the connection before the write acknowledgement. That's expected
+      // and means the settings WERE applied.
       _statusMessage = 'Committing settings (device will reboot)...';
       notifyListeners();
-      await _writeAdmin(buildCommitEditSettings());
+      try {
+        await _writeAdmin(buildCommitEditSettings());
+      } catch (e) {
+        // Expected: device reboots mid-write, causing a disconnect exception.
+        // Treat as success — all config was already written before commit.
+        debugPrint('Commit write exception (expected on reboot): $e');
+      }
 
       // Update local state to match
       _deviceState.role = config.role;
@@ -1960,7 +1970,7 @@ class BleService extends ChangeNotifier {
   }
 
   Future<void> _sendPhonePosition() async {
-    if (_toRadio == null || _lastPhonePosition == null) return;
+    if (_transport == null || _lastPhonePosition == null) return;
     if (_deviceState.myNodeNum == 0) return;
 
     final pos = _lastPhonePosition!;
