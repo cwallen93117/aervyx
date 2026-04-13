@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:nsd/nsd.dart' as nsd;
 import 'package:path_provider/path_provider.dart';
 import 'package:usb_serial/usb_serial.dart';
 
@@ -26,6 +27,19 @@ class MeshtasticDevice {
     required this.device,
     required this.name,
     required this.rssi,
+  });
+}
+
+/// A Meshtastic device discovered via mDNS on the local network.
+class NetworkDevice {
+  final String name;
+  final String host;
+  final int port;
+
+  const NetworkDevice({
+    required this.name,
+    required this.host,
+    required this.port,
   });
 }
 
@@ -51,6 +65,12 @@ class BleService extends ChangeNotifier {
 
   // ── USB Serial state ──
   List<UsbDevice> _discoveredUsbDevices = [];
+
+  // ── Network (mDNS) scan state ──
+  List<NetworkDevice> _discoveredNetworkDevices = [];
+  bool _isNetworkScanning = false;
+  nsd.Discovery? _nsdDiscovery;
+  Timer? _networkScanTimer;
 
   // ── BLE characteristics (kept for reconnect service discovery) ──
   BluetoothCharacteristic? _toRadio;
@@ -97,6 +117,8 @@ class BleService extends ChangeNotifier {
   // ── Getters ──
   List<MeshtasticDevice> get discoveredDevices => _discoveredDevices;
   List<UsbDevice> get discoveredUsbDevices => _discoveredUsbDevices;
+  List<NetworkDevice> get discoveredNetworkDevices => _discoveredNetworkDevices;
+  bool get isNetworkScanning => _isNetworkScanning;
   MeshtasticDevice? get connectedDevice => _connectedDevice;
   ConnectionType? get connectionType => _connectionType;
   bool get isScanning => _isScanning;
@@ -589,6 +611,80 @@ class BleService extends ChangeNotifier {
     } catch (e) {
       _error = 'USB scan failed: $e';
       notifyListeners();
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Network (mDNS) scan
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Discover Meshtastic devices advertising `_meshtastic._tcp` via mDNS.
+  Future<void> startNetworkScan(
+      {Duration timeout = const Duration(seconds: 10)}) async {
+    if (_isNetworkScanning) return;
+
+    _isNetworkScanning = true;
+    _discoveredNetworkDevices = [];
+    _error = null;
+    notifyListeners();
+
+    try {
+      final discovery = await nsd.startDiscovery('_meshtastic._tcp');
+      _nsdDiscovery = discovery;
+
+      discovery.addServiceListener((service, status) {
+        if (status == nsd.ServiceStatus.found) {
+          final rawHost = service.host;
+          final rawPort = service.port;
+          if (rawHost == null || rawPort == null) return;
+
+          // Strip trailing dot that some mDNS implementations include.
+          final host = rawHost.endsWith('.')
+              ? rawHost.substring(0, rawHost.length - 1)
+              : rawHost;
+
+          final name = service.name?.isNotEmpty == true
+              ? service.name!
+              : host;
+
+          // Deduplicate by host:port.
+          final alreadyKnown = _discoveredNetworkDevices.any(
+            (d) => d.host == host && d.port == rawPort,
+          );
+          if (!alreadyKnown) {
+            _discoveredNetworkDevices = [
+              ..._discoveredNetworkDevices,
+              NetworkDevice(name: name, host: host, port: rawPort),
+            ];
+            notifyListeners();
+          }
+        }
+      });
+
+      _networkScanTimer = Timer(timeout, () {
+        if (_isNetworkScanning) stopNetworkScan();
+      });
+    } catch (e) {
+      _error = 'Network scan failed: $e';
+      _isNetworkScanning = false;
+      notifyListeners();
+    }
+  }
+
+  /// Stop the active mDNS discovery session.
+  void stopNetworkScan() {
+    _networkScanTimer?.cancel();
+    _networkScanTimer = null;
+
+    final discovery = _nsdDiscovery;
+    _nsdDiscovery = null;
+    _isNetworkScanning = false;
+    notifyListeners();
+
+    if (discovery != null) {
+      nsd.stopDiscovery(discovery).catchError((e) {
+        debugPrint('stopNetworkScan: stopDiscovery error: $e');
+      });
     }
   }
 
@@ -2057,6 +2153,7 @@ class BleService extends ChangeNotifier {
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
     stopScan();
+    stopNetworkScan();
     disconnect();
     super.dispose();
   }

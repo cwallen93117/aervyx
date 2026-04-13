@@ -331,7 +331,7 @@ class _BluetoothTab extends StatelessWidget {
   }
 }
 
-/// Network (TCP/WiFi) connection tab.
+/// Network (TCP/WiFi) connection tab — mDNS scan + manual fallback.
 class _NetworkTab extends StatelessWidget {
   final TextEditingController ipController;
   final TextEditingController portController;
@@ -344,70 +344,148 @@ class _NetworkTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Scan controls ──
+        Row(
           children: [
-            Text(
-              'Connect to a Meshtastic device on your local network.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: TextField(
-                    controller: ipController,
-                    decoration: const InputDecoration(
-                      labelText: 'IP Address',
-                      hintText: '192.168.1.x',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
+            Expanded(
+              child: FilledButton.tonal(
+                onPressed: ble.isNetworkScanning
+                    ? null
+                    : () => ble.startNetworkScan(),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.wifi_find, size: 18),
+                    const SizedBox(width: 8),
+                    Text(ble.isNetworkScanning
+                        ? 'Scanning...'
+                        : 'Scan for Devices'),
+                  ],
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  flex: 1,
-                  child: TextField(
-                    controller: portController,
-                    decoration: const InputDecoration(
-                      labelText: 'Port',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                    keyboardType: TextInputType.number,
-                  ),
-                ),
-              ],
+              ),
             ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
+            if (ble.isNetworkScanning) ...[
+              const SizedBox(width: 12),
+              IconButton(
+                onPressed: () => ble.stopNetworkScan(),
+                icon: const Icon(Icons.stop),
+                tooltip: 'Stop scan',
+              ),
+            ],
+          ],
+        ),
+
+        // Scanning progress indicator
+        if (ble.isNetworkScanning) ...[
+          const SizedBox(height: 8),
+          const LinearProgressIndicator(),
+        ],
+
+        const SizedBox(height: 12),
+
+        // ── Discovered devices list ──
+        if (ble.discoveredNetworkDevices.isNotEmpty)
+          ...ble.discoveredNetworkDevices.map((device) {
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.router),
+              title: Text(device.name),
+              subtitle: Text('${device.host}:${device.port}'),
+              trailing: OutlinedButton(
                 onPressed: ble.isConnecting
                     ? null
-                    : () {
-                        final ip = ipController.text.trim();
-                        if (ip.isEmpty) return;
-                        final port =
-                            int.tryParse(portController.text.trim()) ?? 4403;
-                        ble.connectViaTcp(ip, port: port);
-                      },
-                icon: const Icon(Icons.wifi),
-                label: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+                    : () => ble.connectViaTcp(device.host, port: device.port),
+                child: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+              ),
+            );
+          })
+        else if (!ble.isNetworkScanning)
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No devices found.\nTap Scan to search for Meshtastic\ndevices on your local network.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ),
+          ),
+
+        // ── Manual entry ──
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'Or connect manually',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextField(
+                controller: ipController,
+                decoration: const InputDecoration(
+                  labelText: 'IP Address',
+                  hintText: '192.168.1.x',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 1,
+              child: TextField(
+                controller: portController,
+                decoration: const InputDecoration(
+                  labelText: 'Port',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
               ),
             ),
           ],
         ),
-      ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: ble.isConnecting
+                ? null
+                : () {
+                    final ip = ipController.text.trim();
+                    if (ip.isEmpty) return;
+                    final port =
+                        int.tryParse(portController.text.trim()) ?? 4403;
+                    ble.connectViaTcp(ip, port: port);
+                  },
+            icon: const Icon(Icons.wifi),
+            label: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+          ),
+        ),
+      ],
     );
   }
 }
