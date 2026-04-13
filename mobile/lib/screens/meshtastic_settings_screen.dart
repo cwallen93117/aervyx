@@ -1,9 +1,11 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 
 import '../models/meshtastic_protobufs.dart';
 import '../services/ble_service.dart';
+import '../services/mesh_transport.dart';
 
 /// Meshtastic device configuration screen — simplified for pilots and drivers.
 ///
@@ -34,8 +36,8 @@ class MeshtasticSettingsScreen extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(
               16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
           children: [
-            // ── BLE Connection ──
-            _BleConnectionSection(),
+            // ── Connection (Bluetooth / Network / Serial) ──
+            _ConnectionSection(),
 
             if (ble.isConnected) ...[
               const SizedBox(height: 24),
@@ -79,17 +81,182 @@ class _SectionHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BLE Connection — scan, pair, disconnect
+// Connection — Bluetooth / Network / Serial tabs
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _BleConnectionSection extends StatelessWidget {
+class _ConnectionSection extends StatefulWidget {
+  @override
+  State<_ConnectionSection> createState() => _ConnectionSectionState();
+}
+
+class _ConnectionSectionState extends State<_ConnectionSection> {
+  ConnectionType _selectedTab = ConnectionType.ble;
+  final _ipController = TextEditingController();
+  final _portController = TextEditingController(text: '4403');
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+
+    // Determine which tabs to show (Serial only on Android)
+    final showSerial = Platform.isAndroid;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Tab selector ──
+        if (!ble.isConnected) ...[
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<ConnectionType>(
+              segments: [
+                const ButtonSegment<ConnectionType>(
+                  value: ConnectionType.ble,
+                  icon: Icon(Icons.bluetooth, size: 18),
+                  label: Text('Bluetooth'),
+                ),
+                const ButtonSegment<ConnectionType>(
+                  value: ConnectionType.tcp,
+                  icon: Icon(Icons.wifi, size: 18),
+                  label: Text('Network'),
+                ),
+                if (showSerial)
+                  const ButtonSegment<ConnectionType>(
+                    value: ConnectionType.serial,
+                    icon: Icon(Icons.usb, size: 18),
+                    label: Text('Serial'),
+                  ),
+              ],
+              selected: {_selectedTab},
+              onSelectionChanged: (s) => setState(() => _selectedTab = s.first),
+              showSelectedIcon: false,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Error / status messages ──
+        if (ble.error != null) ...[
+          Text(ble.error!, style: TextStyle(color: theme.colorScheme.error)),
+          const SizedBox(height: 8),
+        ],
+        if (ble.statusMessage != null) ...[
+          Text(ble.statusMessage!, style: const TextStyle(color: Colors.green)),
+          const SizedBox(height: 8),
+        ],
+
+        // ── Connected device card (transport-aware) ──
+        if (ble.isConnected) ...[
+          _ConnectedDeviceCard(),
+        ] else ...[
+          // ── Per-tab content ──
+          if (_selectedTab == ConnectionType.ble) _BluetoothTab(),
+          if (_selectedTab == ConnectionType.tcp)
+            _NetworkTab(
+              ipController: _ipController,
+              portController: _portController,
+            ),
+          if (_selectedTab == ConnectionType.serial && showSerial)
+            _SerialTab(),
+        ],
+      ],
+    );
+  }
+}
+
+/// Connected device card — shown for any transport type.
+class _ConnectedDeviceCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+
+    IconData icon;
+    switch (ble.connectionType) {
+      case ConnectionType.tcp:
+        icon = Icons.wifi;
+        break;
+      case ConnectionType.serial:
+        icon = Icons.usb;
+        break;
+      default:
+        icon = Icons.bluetooth_connected;
+    }
+
+    return Card(
+      color: theme.colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.colorScheme.onPrimaryContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ble.deviceDisplayName,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      if (ble.connectionLabel.isNotEmpty)
+                        Text(
+                          '${ble.connectionType?.name.toUpperCase() ?? "BLE"}: ${ble.connectionLabel}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onPrimaryContainer
+                                .withAlpha(150),
+                          ),
+                        ),
+                      if (ble.deviceState.firmwareVersion != null) ...[
+                        if (ble.connectionLabel.isNotEmpty)
+                          Text(' · ',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onPrimaryContainer
+                                      .withAlpha(120))),
+                        Text(
+                          'FW: ${ble.deviceState.firmwareVersion}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onPrimaryContainer
+                                .withAlpha(150),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            OutlinedButton(
+              onPressed: () => ble.disconnect(),
+              child: const Text('Disconnect'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bluetooth scan + pair tab.
+class _BluetoothTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
     final theme = Theme.of(context);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Scan button
         Row(
@@ -112,62 +279,10 @@ class _BleConnectionSection extends StatelessWidget {
             ],
           ],
         ),
-
-        if (ble.error != null) ...[
-          const SizedBox(height: 12),
-          Text(ble.error!, style: TextStyle(color: theme.colorScheme.error)),
-        ],
-        if (ble.statusMessage != null) ...[
-          const SizedBox(height: 12),
-          Text(ble.statusMessage!, style: const TextStyle(color: Colors.green)),
-        ],
-
         const SizedBox(height: 12),
 
-        // Connected device
-        if (ble.isConnected) ...[
-          Card(
-            color: theme.colorScheme.primaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Icon(Icons.bluetooth_connected,
-                      color: theme.colorScheme.onPrimaryContainer),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          ble.deviceDisplayName,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                        ),
-                        if (ble.deviceState.firmwareVersion != null)
-                          Text(
-                            'FW: ${ble.deviceState.firmwareVersion}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onPrimaryContainer
-                                  .withAlpha(180),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => ble.disconnect(),
-                    child: const Text('Disconnect'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-
         // Discovered devices
-        if (!ble.isConnected && ble.discoveredDevices.isNotEmpty) ...[
+        if (ble.discoveredDevices.isNotEmpty)
           ...ble.discoveredDevices.map((device) {
             final deviceId = device.device.remoteId.toString();
             final isThisConnecting =
@@ -189,8 +304,8 @@ class _BleConnectionSection extends StatelessWidget {
                       child: const Text('Pair'),
                     ),
             );
-          }),
-        ] else if (!ble.isConnected) ...[
+          })
+        else
           SizedBox(
             width: double.infinity,
             child: Card(
@@ -204,7 +319,143 @@ class _BleConnectionSection extends StatelessWidget {
               ),
             ),
           ),
-        ],
+      ],
+    );
+  }
+}
+
+/// Network (TCP/WiFi) connection tab.
+class _NetworkTab extends StatelessWidget {
+  final TextEditingController ipController;
+  final TextEditingController portController;
+
+  const _NetworkTab({
+    required this.ipController,
+    required this.portController,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Connect to a Meshtastic device on your local network.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  flex: 3,
+                  child: TextField(
+                    controller: ipController,
+                    decoration: const InputDecoration(
+                      labelText: 'IP Address',
+                      hintText: '192.168.1.x',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  flex: 1,
+                  child: TextField(
+                    controller: portController,
+                    decoration: const InputDecoration(
+                      labelText: 'Port',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: ble.isConnecting
+                    ? null
+                    : () {
+                        final ip = ipController.text.trim();
+                        if (ip.isEmpty) return;
+                        final port =
+                            int.tryParse(portController.text.trim()) ?? 4403;
+                        ble.connectViaTcp(ip, port: port);
+                      },
+                icon: const Icon(Icons.wifi),
+                label: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// USB Serial (OTG) connection tab — Android only.
+class _SerialTab extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        // Scan USB button
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () => ble.scanUsbDevices(),
+            icon: const Icon(Icons.usb),
+            label: const Text('Scan USB Devices'),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        if (ble.discoveredUsbDevices.isNotEmpty)
+          ...ble.discoveredUsbDevices.map((usbDevice) {
+            final label =
+                usbDevice.productName ?? 'USB #${usbDevice.deviceId}';
+            return ListTile(
+              leading: const Icon(Icons.usb),
+              title: Text(label),
+              subtitle: Text(
+                  'VID: ${usbDevice.vid}  PID: ${usbDevice.pid}'),
+              trailing: OutlinedButton(
+                onPressed: ble.isConnecting
+                    ? null
+                    : () => ble.connectViaSerial(usbDevice),
+                child: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+              ),
+            );
+          })
+        else
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No USB devices found.\nConnect a Meshtastic device via USB OTG.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }

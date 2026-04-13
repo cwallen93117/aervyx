@@ -6,22 +6,15 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:usb_serial/usb_serial.dart';
 
 import '../config/api_config.dart';
 import '../models/meshtastic_protobufs.dart';
 import 'api_service.dart';
-
-/// Meshtastic BLE service UUID.
-const String _meshServiceUuid = '6ba1b218-15a8-461f-9fa8-5dcae273eafd';
-
-/// Meshtastic toRadio characteristic — phone writes to device.
-const String _toRadioCharUuid = 'f75c76d2-129e-4dad-a1dd-7866124401e7';
-
-/// Meshtastic fromRadio characteristic — phone reads from device.
-const String _fromRadioCharUuid = '2c55e69e-4993-11ed-b878-0242ac120002';
-
-/// Meshtastic fromNum characteristic — notify on new data.
-const String _fromNumCharUuid = 'ed9da18c-a800-4f66-a670-aa7547e34453';
+import 'mesh_transport.dart';
+import 'transports/ble_transport.dart';
+import 'transports/tcp_transport.dart';
+import 'transports/serial_transport.dart';
 
 /// Represents a discovered Meshtastic device.
 class MeshtasticDevice {
@@ -41,9 +34,13 @@ class MeshtasticDevice {
 class BleService extends ChangeNotifier {
   final ApiService _api;
 
+  // ── Transport abstraction ──
+  MeshTransport? _transport;
+  ConnectionType? _connectionType;
+
   // ── Scan state ──
   List<MeshtasticDevice> _discoveredDevices = [];
-  MeshtasticDevice? _connectedDevice;
+  MeshtasticDevice? _connectedDevice; // BLE only — null for TCP/Serial
   bool _isScanning = false;
   bool _isConnecting = false;
   String? _connectingDeviceId; // remoteId of the device being connected
@@ -52,7 +49,10 @@ class BleService extends ChangeNotifier {
   String? _statusMessage;
   StreamSubscription<List<ScanResult>>? _scanSubscription;
 
-  // ── BLE characteristics (cached after connect) ──
+  // ── USB Serial state ──
+  List<UsbDevice> _discoveredUsbDevices = [];
+
+  // ── BLE characteristics (kept for reconnect service discovery) ──
   BluetoothCharacteristic? _toRadio;
   BluetoothCharacteristic? _fromRadio;
   BluetoothCharacteristic? _fromNum;
@@ -75,7 +75,7 @@ class BleService extends ChangeNotifier {
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
 
   // ── Mesh position relay ──
-  StreamSubscription<List<int>>? _fromNumSubscription;
+  StreamSubscription<void>? _dataAvailableSubscription;
   Timer? _meshPollTimer;
 
   // ── Device GPS state (from own mesh position packets) ──
@@ -96,25 +96,31 @@ class BleService extends ChangeNotifier {
 
   // ── Getters ──
   List<MeshtasticDevice> get discoveredDevices => _discoveredDevices;
+  List<UsbDevice> get discoveredUsbDevices => _discoveredUsbDevices;
   MeshtasticDevice? get connectedDevice => _connectedDevice;
+  ConnectionType? get connectionType => _connectionType;
   bool get isScanning => _isScanning;
   bool get isConnecting => _isConnecting;
   String? get connectingDeviceId => _connectingDeviceId;
   bool get isPushingConfig => _isPushingConfig;
   String? get error => _error;
   String? get statusMessage => _statusMessage;
-  bool get isConnected => _connectedDevice != null;
+  bool get isConnected => _transport?.isConnected == true;
   MeshtasticDeviceState get deviceState => _deviceState;
   bool get configLoaded => _configLoaded;
   String get sosMessage => _sosMessage;
   bool get isSendingSos => _isSendingSos;
   bool get reconnecting => _isReconnecting;
 
-  /// Display name — prefer the Meshtastic long name, fall back to BLE name.
+  /// Display name — prefer the Meshtastic long name, fall back to transport label.
   String get deviceDisplayName {
     if (_deviceState.longName.isNotEmpty) return _deviceState.longName;
-    return _connectedDevice?.name ?? '';
+    if (_connectedDevice != null) return _connectedDevice!.name;
+    return _transport?.connectionLabel ?? '';
   }
+
+  /// Connection label for display (e.g. "BLE: Meshtastic_1234", "TCP: 192.168.1.50:4403").
+  String get connectionLabel => _transport?.connectionLabel ?? '';
 
   /// True if the device has a GPS module (not GpsMode.notPresent).
   bool get deviceHasGps =>
@@ -302,11 +308,11 @@ class BleService extends ChangeNotifier {
     bool cellularSent = false;
     final errors = <String>[];
 
-    // Mesh (BLE)
-    if (_toRadio != null) {
+    // Mesh (via transport)
+    if (_transport != null) {
       try {
         final bytes = Uint8List.fromList(utf8.encode(jsonEncode(payload)));
-        await _toRadio!.write(bytes, withoutResponse: false);
+        await _transport!.writeToRadio(bytes);
         meshSent = true;
       } catch (e) {
         errors.add('Mesh: $e');
@@ -376,7 +382,7 @@ class BleService extends ChangeNotifier {
       }
 
       await FlutterBluePlus.startScan(
-        withServices: [Guid(_meshServiceUuid)],
+        withServices: [Guid(meshServiceUuid)],
         timeout: timeout,
       );
 
@@ -449,54 +455,43 @@ class BleService extends ChangeNotifier {
 
       final services = await meshDevice.device.discoverServices();
       final meshService = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase() == _meshServiceUuid,
+        (s) => s.uuid.toString().toLowerCase() == meshServiceUuid,
         orElse: () => throw Exception('Meshtastic service not found'),
       );
 
       _toRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
+        (c) => c.uuid.toString().toLowerCase() == toRadioCharUuid,
         orElse: () => throw Exception('toRadio not found'),
       );
       _fromRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == _fromRadioCharUuid,
+        (c) => c.uuid.toString().toLowerCase() == fromRadioCharUuid,
         orElse: () => throw Exception('fromRadio not found'),
       );
       try {
         _fromNum = meshService.characteristics.firstWhere(
-          (c) => c.uuid.toString().toLowerCase() == _fromNumCharUuid,
+          (c) => c.uuid.toString().toLowerCase() == fromNumCharUuid,
         );
       } catch (_) {
         _fromNum = null; // Not all devices expose fromNum
       }
 
-      // Read the full config dump from the device
-      _statusMessage = 'Reading device configuration...';
-      notifyListeners();
-      await _readDeviceConfig();
+      // Create BLE transport and assign
+      _transport = BleTransport(
+        device: meshDevice.device,
+        toRadio: _toRadio!,
+        fromRadio: _fromRadio!,
+        fromNum: _fromNum,
+      );
+      _connectionType = ConnectionType.ble;
 
-      _statusMessage = 'Connected to ${meshDevice.name}';
-      _configLoaded = true;
-
-      // Auto-register on every connect. If the user applies a Repeater
-      // profile, applyProfile() will unregister it. This keeps the common
-      // case (pilot/driver reconnecting) instant and correct.
-      _registerMeshDevice();
-
-      // Start mesh position relay (always — captures all mesh traffic)
-      _startMeshPositionRelay();
-
-      // Only share phone GPS to the device if it lacks its own GPS.
-      // If the device has GPS, it handles its own position broadcasts.
-      if (_deviceState.gpsMode == GpsMode.notPresent) {
-        _startPhoneGpsSharing();
-        debugPrint('Device has no GPS — sharing phone GPS');
-      } else {
-        debugPrint('Device has GPS (${_deviceState.gpsMode.label}) — not sharing phone GPS');
-      }
+      // Read config, register, start relays (shared post-connect flow)
+      await _postConnectSetup(meshDevice.name);
     } catch (e) {
       _error = 'Connection failed: $e';
       _statusMessage = null;
       _connectedDevice = null;
+      _transport = null;
+      _connectionType = null;
       _toRadio = null;
       _fromRadio = null;
       _fromNum = null;
@@ -509,6 +504,120 @@ class BleService extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Shared post-connect setup: read config, register device, start relays.
+  Future<void> _postConnectSetup(String displayName) async {
+    _statusMessage = 'Reading device configuration...';
+    notifyListeners();
+    await _readDeviceConfig();
+
+    _statusMessage = 'Connected to $displayName';
+    _configLoaded = true;
+
+    // Auto-register on every connect. If the user applies a Repeater
+    // profile, applyProfile() will unregister it. This keeps the common
+    // case (pilot/driver reconnecting) instant and correct.
+    _registerMeshDevice();
+
+    // Start mesh position relay (always — captures all mesh traffic)
+    _startMeshPositionRelay();
+
+    // Only share phone GPS to the device if it lacks its own GPS.
+    if (_deviceState.gpsMode == GpsMode.notPresent) {
+      _startPhoneGpsSharing();
+      debugPrint('Device has no GPS — sharing phone GPS');
+    } else {
+      debugPrint('Device has GPS (${_deviceState.gpsMode.label}) — not sharing phone GPS');
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TCP (WiFi/Network) connect
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Connect to a Meshtastic device over TCP (WiFi).
+  Future<void> connectViaTcp(String host, {int port = defaultMeshtasticTcpPort}) async {
+    if (_isConnecting) return;
+
+    _isConnecting = true;
+    _userDisconnected = false;
+    _reconnectAttempts = 0;
+    _isReconnecting = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _error = null;
+    _statusMessage = 'Connecting to $host:$port...';
+    _configLoaded = false;
+    notifyListeners();
+
+    try {
+      final tcp = TcpTransport(host: host, port: port);
+      await tcp.connect();
+      _transport = tcp;
+      _connectionType = ConnectionType.tcp;
+      _connectedDevice = null; // not BLE
+
+      await _postConnectSetup('$host:$port');
+    } catch (e) {
+      _error = 'TCP connection failed: $e';
+      _statusMessage = null;
+      _transport = null;
+      _connectionType = null;
+    }
+
+    _isConnecting = false;
+    notifyListeners();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Serial (USB OTG) connect
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /// Scan for USB serial devices (Android only).
+  Future<void> scanUsbDevices() async {
+    try {
+      _discoveredUsbDevices = await UsbSerial.listDevices();
+      notifyListeners();
+    } catch (e) {
+      _error = 'USB scan failed: $e';
+      notifyListeners();
+    }
+  }
+
+  /// Connect to a Meshtastic device over USB serial (OTG).
+  Future<void> connectViaSerial(UsbDevice usbDevice) async {
+    if (_isConnecting) return;
+
+    _isConnecting = true;
+    _userDisconnected = false;
+    _reconnectAttempts = 0;
+    _isReconnecting = false;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _error = null;
+    final label = usbDevice.productName ?? 'USB #${usbDevice.deviceId}';
+    _statusMessage = 'Connecting to $label...';
+    _configLoaded = false;
+    notifyListeners();
+
+    try {
+      final serial = SerialTransport(usbDevice: usbDevice);
+      await serial.connect();
+      _transport = serial;
+      _connectionType = ConnectionType.serial;
+      _connectedDevice = null; // not BLE
+
+      await _postConnectSetup(label);
+    } catch (e) {
+      _error = 'USB serial connection failed: $e';
+      _statusMessage = null;
+      _transport = null;
+      _connectionType = null;
+    }
+
+    _isConnecting = false;
+    notifyListeners();
+  }
+
   Future<void> disconnect() async {
     _userDisconnected = true;
     _reconnectTimer?.cancel();
@@ -518,10 +627,12 @@ class BleService extends ChangeNotifier {
     _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
-    if (_connectedDevice != null) {
+    if (_transport != null) {
       try {
-        await _connectedDevice!.device.disconnect();
+        await _transport!.disconnect();
       } catch (_) {}
+      _transport = null;
+      _connectionType = null;
       _connectedDevice = null;
       _toRadio = null;
       _fromRadio = null;
@@ -544,6 +655,11 @@ class BleService extends ChangeNotifier {
     // Clean up connection state
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
+    if (_transport is BleTransport) {
+      (_transport as BleTransport).markDisconnected();
+    }
+    _transport = null;
+    _connectionType = null;
     _toRadio = null;
     _fromRadio = null;
     _fromNum = null;
@@ -608,25 +724,34 @@ class BleService extends ChangeNotifier {
       // Rediscover services
       final services = await device.device.discoverServices();
       final meshService = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase() == _meshServiceUuid,
+        (s) => s.uuid.toString().toLowerCase() == meshServiceUuid,
         orElse: () => throw Exception('Meshtastic service not found'),
       );
 
       _toRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == _toRadioCharUuid,
+        (c) => c.uuid.toString().toLowerCase() == toRadioCharUuid,
         orElse: () => throw Exception('toRadio not found'),
       );
       _fromRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == _fromRadioCharUuid,
+        (c) => c.uuid.toString().toLowerCase() == fromRadioCharUuid,
         orElse: () => throw Exception('fromRadio not found'),
       );
       try {
         _fromNum = meshService.characteristics.firstWhere(
-          (c) => c.uuid.toString().toLowerCase() == _fromNumCharUuid,
+          (c) => c.uuid.toString().toLowerCase() == fromNumCharUuid,
         );
       } catch (_) {
         _fromNum = null;
       }
+
+      // Re-create BLE transport
+      _transport = BleTransport(
+        device: device.device,
+        toRadio: _toRadio!,
+        fromRadio: _fromRadio!,
+        fromNum: _fromNum,
+      );
+      _connectionType = ConnectionType.ble;
 
       // Re-read config
       await _readDeviceConfig();
@@ -659,14 +784,14 @@ class BleService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _readDeviceConfig() async {
-    if (_toRadio == null || _fromRadio == null) return;
+    if (_transport == null) return;
 
     _deviceState = MeshtasticDeviceState();
 
     // Send want_config_id with a random nonce
     final configId = Random().nextInt(0xFFFFFF) + 1;
     final wantConfig = buildWantConfigMessage(configId);
-    await _toRadio!.write(wantConfig, withoutResponse: false);
+    await _transport!.writeToRadio(wantConfig);
 
     // Read all FromRadio responses until config_complete_id matches.
     // Use a total timeout rather than a fixed empty-read count so that
@@ -679,7 +804,7 @@ class BleService extends ChangeNotifier {
 
       List<int> data;
       try {
-        data = await _fromRadio!.read();
+        data = await _transport!.readFromRadio();
       } catch (_) {
         break;
       }
@@ -1128,7 +1253,7 @@ class BleService extends ChangeNotifier {
 
   /// Write a single admin message to the connected device.
   Future<void> _writeAdmin(Uint8List adminPayload) async {
-    if (_toRadio == null) throw Exception('Not connected');
+    if (_transport == null) throw Exception('Not connected');
 
     final meshPacket = buildAdminPacket(
       to: _deviceState.myNodeNum,
@@ -1136,7 +1261,7 @@ class BleService extends ChangeNotifier {
       adminPayload: adminPayload,
     );
     final toRadio = buildToRadioPacket(meshPacket);
-    await _toRadio!.write(toRadio, withoutResponse: false);
+    await _transport!.writeToRadio(toRadio);
 
     // Small delay between writes to avoid overwhelming the device
     await Future.delayed(const Duration(milliseconds: 100));
@@ -1482,21 +1607,23 @@ class BleService extends ChangeNotifier {
   void _startMeshPositionRelay() {
     _stopMeshPositionRelay();
 
-    // Use fromNum notifications if available, otherwise poll
-    if (_fromNum != null) {
-      _fromNum!.setNotifyValue(true).then((_) {
-        _fromNumSubscription = _fromNum!.onValueReceived.listen((_) {
-          _drainFromRadio();
-        });
-      }).catchError((_) {
-        // Fallback to polling if notifications fail
-        _meshPollTimer = Timer.periodic(
-          const Duration(seconds: 5),
-          (_) => _drainFromRadio(),
-        );
-      });
+    // Use transport push notifications if available, otherwise poll
+    final dataStream = _transport?.onDataAvailable;
+    if (dataStream != null) {
+      _dataAvailableSubscription = dataStream.listen(
+        (_) => _drainFromRadio(),
+        onError: (_) {
+          // Push notifications failed — fall back to polling
+          _dataAvailableSubscription?.cancel();
+          _dataAvailableSubscription = null;
+          _meshPollTimer = Timer.periodic(
+            const Duration(seconds: 5),
+            (_) => _drainFromRadio(),
+          );
+        },
+      );
     } else {
-      // No fromNum — poll periodically
+      // No push notifications — poll periodically
       _meshPollTimer = Timer.periodic(
         const Duration(seconds: 5),
         (_) => _drainFromRadio(),
@@ -1505,20 +1632,20 @@ class BleService extends ChangeNotifier {
   }
 
   void _stopMeshPositionRelay() {
-    _fromNumSubscription?.cancel();
-    _fromNumSubscription = null;
+    _dataAvailableSubscription?.cancel();
+    _dataAvailableSubscription = null;
     _meshPollTimer?.cancel();
     _meshPollTimer = null;
   }
 
   Future<void> _drainFromRadio() async {
-    if (_fromRadio == null) return;
+    if (_transport == null) return;
 
     // Read all available packets (up to 20 per drain cycle)
     for (var i = 0; i < 20; i++) {
       List<int> data;
       try {
-        data = await _fromRadio!.read();
+        data = await _transport!.readFromRadio();
       } catch (_) {
         break;
       }
@@ -1850,9 +1977,9 @@ class BleService extends ChangeNotifier {
 
     try {
       final toRadio = buildToRadioPacket(posPacket);
-      await _toRadio!.write(toRadio, withoutResponse: false);
+      await _transport!.writeToRadio(toRadio);
     } catch (_) {
-      // BLE write failed — device may have disconnected
+      // Write failed — device may have disconnected
     }
   }
 
