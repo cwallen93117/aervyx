@@ -118,13 +118,17 @@ export default function AppDownloadPage() {
             </a>
 
             {/* what's new */}
-            {info.release_notes && (
-              <section style={styles.card}>
-                <span style={styles.eyebrow}>WHAT&apos;S NEW</span>
-                <p style={styles.releaseDate}>Released {formatDate(info.release_date)}</p>
+            <section style={styles.card}>
+              <span style={styles.eyebrow}>WHAT&apos;S NEW</span>
+              <p style={styles.releaseDate}>Released {formatDate(info.release_date)}</p>
+              {info.release_notes ? (
                 <p style={styles.notes}>{info.release_notes}</p>
-              </section>
-            )}
+              ) : (
+                <p style={{ ...styles.notes, color: "rgba(255,255,255,0.35)", fontStyle: "italic" }}>
+                  No release notes for this version.
+                </p>
+              )}
+            </section>
 
             {/* requirements */}
             <section style={styles.card}>
