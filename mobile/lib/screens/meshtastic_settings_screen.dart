@@ -1068,8 +1068,10 @@ class _SettingsCardState extends State<_SettingsCard> {
                             ? Icon(Icons.check_circle,
                                 color: theme.colorScheme.primary, size: 20)
                             : null,
-                        onTap: () =>
-                            setState(() => _ssidCtl.text = ap.ssid),
+                        onTap: () => setState(() {
+                          _ssidCtl.text = ap.ssid;
+                          _networks = []; // close the list
+                        }),
                       );
                     },
                   ),

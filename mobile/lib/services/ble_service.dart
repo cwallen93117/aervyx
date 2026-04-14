@@ -1632,9 +1632,21 @@ class BleService extends ChangeNotifier {
       _fromNum = null;
       _configLoaded = false;
       _connectedDevice = null;
+      _discoveredNetworkDevices = [];
     }
 
     notifyListeners();
+
+    // Clear the "Device rebooting..." message after a short delay so the
+    // user sees it briefly but it doesn't stick around forever.
+    if (_statusMessage != null && _error == null) {
+      Future.delayed(const Duration(seconds: 5), () {
+        if (_statusMessage?.contains('rebooting') == true) {
+          _statusMessage = null;
+          notifyListeners();
+        }
+      });
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
