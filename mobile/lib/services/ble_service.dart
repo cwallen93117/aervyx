@@ -513,6 +513,16 @@ class BleService extends ChangeNotifier {
         );
       } catch (_) {}
 
+      // Negotiate BLE MTU — official Meshtastic app requests 512.
+      // Default Android MTU is 23 bytes (20 usable) which is too small for
+      // admin packets (33–74 bytes). ESP32 typically negotiates 256-512.
+      try {
+        final mtu = await meshDevice.device.requestMtu(512);
+        debugPrint('BLE MTU negotiated: $mtu');
+      } catch (e) {
+        debugPrint('BLE MTU request failed (using default): $e');
+      }
+
       // Create BLE transport and assign
       _transport = BleTransport(
         device: meshDevice.device,
@@ -861,6 +871,14 @@ class BleService extends ChangeNotifier {
         );
       } catch (_) {
         _fromNum = null;
+      }
+
+      // Re-negotiate MTU after reconnect (matches official Meshtastic app).
+      try {
+        final mtu = await device.device.requestMtu(512);
+        debugPrint('BLE MTU re-negotiated: $mtu');
+      } catch (e) {
+        debugPrint('BLE MTU request failed on reconnect: $e');
       }
 
       // Re-create BLE transport

@@ -8,6 +8,7 @@
 library;
 
 import 'dart:convert';
+import 'dart:math';
 import 'dart:typed_data';
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -799,23 +800,36 @@ Uint8List buildToRadioPacket(Uint8List meshPacketBytes) {
 }
 
 /// Build a MeshPacket wrapping an AdminMessage.
+///
+/// Matches the official Meshtastic Android app's packet construction:
+/// - Unique random `id` (field 6) — firmware deduplicates packets with id=0
+/// - `hop_limit` (field 9) — default 3, matching LONG_FAST preset
+/// - `priority` RELIABLE (field 11, value 70)
+/// - `want_response` in Data sub-message (field 3)
+/// - `from` is omitted — firmware sets it from the local node number
 Uint8List buildAdminPacket({
   required int to,
-  required int from,
+  required int from, // ignored — kept for API compat; firmware sets from
   required Uint8List adminPayload,
   bool wantAck = true,
+  bool wantResponse = true,
+  int hopLimit = 3,
 }) {
   // Build Data sub-message
   final data = ProtoWriter();
   data.writeVarint(1, PortNum.adminApp); // portnum
   data.writeBytes(2, adminPayload); // payload
+  if (wantResponse) data.writeBool(3, true); // want_response
 
-  // Build MeshPacket
+  // Build MeshPacket — field order matches official Meshtastic Android app
   final pkt = ProtoWriter();
-  pkt.writeFixed32(1, from); // from (fixed32)
+  // field 1 (from) intentionally omitted — firmware fills it
   pkt.writeFixed32(2, to); // to (fixed32)
   pkt.writeMessage(4, data); // decoded (Data, field 4)
+  pkt.writeFixed32(6, Random().nextInt(0xFFFFFFFF) + 1); // unique id (field 6)
+  pkt.writeVarint(9, hopLimit); // hop_limit (field 9)
   if (wantAck) pkt.writeBool(10, true); // want_ack (field 10)
+  pkt.writeVarint(11, 70); // priority = RELIABLE (field 11)
 
   return pkt.toBytes();
 }
@@ -846,11 +860,13 @@ Uint8List buildPositionPacket({
   data.writeVarint(1, PortNum.positionApp); // portnum
   data.writeBytes(2, pos.toBytes()); // payload
 
-  // Build MeshPacket
+  // Build MeshPacket — match official app field structure
   final pkt = ProtoWriter();
-  pkt.writeFixed32(1, from); // from (fixed32)
+  // field 1 (from) intentionally omitted — firmware fills it
   pkt.writeFixed32(2, to); // to (fixed32)
   pkt.writeMessage(4, data); // decoded (Data, field 4)
+  pkt.writeFixed32(6, Random().nextInt(0xFFFFFFFF) + 1); // unique id (field 6)
+  pkt.writeVarint(9, 3); // hop_limit (field 9)
 
   return pkt.toBytes();
 }
