@@ -731,6 +731,57 @@ def get_mesh_nodes(
             if u.mesh_device_id:
                 users_by_device[u.mesh_device_id] = u
 
+    # For devices whose latest position has alt=NULL, look up the most recent
+    # position that DID have altitude (backfill from older rows).
+    devices_missing_alt = [r.device_id for r in rows if r.alt is None and r.device_id]
+    alt_backfill: dict[str, float] = {}
+    if devices_missing_alt:
+        alt_subq = (
+            select(
+                LivePosition.device_id,
+                LivePosition.alt,
+                sa_func.row_number().over(
+                    partition_by=LivePosition.device_id,
+                    order_by=LivePosition.timestamp.desc(),
+                ).label("rn"),
+            )
+            .where(
+                LivePosition.device_id.in_(devices_missing_alt),
+                LivePosition.alt.isnot(None),
+                LivePosition.timestamp >= cutoff,
+            )
+            .subquery()
+        )
+        alt_rows = session.execute(
+            select(alt_subq.c.device_id, alt_subq.c.alt).where(alt_subq.c.rn == 1)
+        ).all()
+        alt_backfill = {r.device_id: r.alt for r in alt_rows}
+
+    # Similarly backfill battery from recent positions for devices with NULL battery
+    devices_missing_bat = [r.device_id for r in rows if r.battery_level is None and r.device_id]
+    bat_backfill: dict[str, int] = {}
+    if devices_missing_bat:
+        bat_subq = (
+            select(
+                LivePosition.device_id,
+                LivePosition.battery_level,
+                sa_func.row_number().over(
+                    partition_by=LivePosition.device_id,
+                    order_by=LivePosition.timestamp.desc(),
+                ).label("rn"),
+            )
+            .where(
+                LivePosition.device_id.in_(devices_missing_bat),
+                LivePosition.battery_level.isnot(None),
+                LivePosition.timestamp >= cutoff,
+            )
+            .subquery()
+        )
+        bat_rows = session.execute(
+            select(bat_subq.c.device_id, bat_subq.c.battery_level).where(bat_subq.c.rn == 1)
+        ).all()
+        bat_backfill = {r.device_id: r.battery_level for r in bat_rows}
+
     results: list[MeshNodeResponse] = []
     for row in rows:
         u = (
@@ -738,6 +789,8 @@ def get_mesh_nodes(
             if row.pilot_id is not None
             else users_by_device.get(row.device_id)
         )
+        alt = row.alt if row.alt is not None else alt_backfill.get(row.device_id)
+        battery = row.battery_level if row.battery_level is not None else bat_backfill.get(row.device_id)
         results.append(
             MeshNodeResponse(
                 device_id=row.device_id,
@@ -746,10 +799,10 @@ def get_mesh_nodes(
                 profile_type=u.profile_type if u else None,
                 lat=row.lat,
                 lon=row.lon,
-                alt=row.alt,
+                alt=alt,
                 speed=row.speed,
                 heading=row.heading,
-                battery_level=row.battery_level,
+                battery_level=battery,
                 timestamp=row.timestamp.isoformat(),
                 source=row.source,
                 position_source=normalize_position_source(row.source),

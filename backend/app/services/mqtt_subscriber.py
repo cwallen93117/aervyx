@@ -52,6 +52,12 @@ mqtt_last_message_at: datetime | None = None
 # Event set by the site_settings PATCH handler to trigger reconnection
 mqtt_reconnect_event: asyncio.Event | None = None
 
+# In-memory battery cache: device_id → (battery_level, timestamp)
+# Populated from TELEMETRY_APP (portnum 67) messages and injected into
+# subsequent POSITION_APP messages for the same device.
+_battery_cache: dict[str, tuple[int, float]] = {}
+_BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
+
 
 def _parse_position(raw: bytes | bytearray) -> dict | None:
     """Try to parse a JSON position payload. Returns None on failure."""
@@ -200,51 +206,116 @@ def _get_sfixed32(fields: dict, field_number: int) -> int | None:
     return None
 
 
-def _parse_protobuf_position(raw: bytes) -> dict | None:
-    """Try to decode a Meshtastic protobuf ServiceEnvelope and extract a
-    POSITION_APP payload.
+def _decode_mesh_envelope(raw: bytes) -> tuple[int | None, int | None, bytes | None] | None:
+    """Decode a Meshtastic ServiceEnvelope → MeshPacket → Data.
 
-    Returns the same dict format as :func:`_parse_position` on success, or
-    ``None`` if the message is not a valid position envelope.
+    Returns ``(from_node, portnum, payload_bytes)`` or ``None`` on failure.
     """
     try:
-        # -- ServiceEnvelope -------------------------------------------------
         envelope_fields = _parse_protobuf_fields(raw)
-
-        # Field 1 = MeshPacket (length-delimited)
         mesh_packet_bytes = _get_bytes(envelope_fields, 1)
         if mesh_packet_bytes is None:
             return None
 
-        # -- MeshPacket ------------------------------------------------------
         mp_fields = _parse_protobuf_fields(mesh_packet_bytes)
-
-        # Field 1 = from (fixed32, wire type 5)
         from_node = _get_fixed32(mp_fields, 1)
 
-        # Field 3 = decoded Data (length-delimited) -- only present when not
-        # encrypted
         data_bytes = _get_bytes(mp_fields, 3)
         if data_bytes is None:
             logger.debug("Protobuf MeshPacket has no decoded Data (probably encrypted)")
             return None
 
-        # -- Data ------------------------------------------------------------
         data_fields = _parse_protobuf_fields(data_bytes)
-
-        # Field 1 = portnum (varint).  POSITION_APP = 3
         portnum = _get_varint(data_fields, 1)
-        if portnum != 3:
-            logger.debug("Protobuf Data portnum=%s, not POSITION_APP(3) -- skipping", portnum)
-            return None
+        payload_bytes = _get_bytes(data_fields, 2)
 
-        # Field 2 = payload (length-delimited, contains Position message)
-        position_bytes = _get_bytes(data_fields, 2)
-        if position_bytes is None:
-            return None
+        return from_node, portnum, payload_bytes
+    except (ValueError, struct.error, IndexError, KeyError) as exc:
+        logger.debug("Failed to decode protobuf ServiceEnvelope: %s", exc)
+        return None
 
+
+def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> None:
+    """Decode a TELEMETRY_APP payload and cache battery level by device_id.
+
+    Meshtastic Telemetry message layout:
+      field 1 = time (uint32, unix timestamp)
+      field 2 = device_metrics (DeviceMetrics, length-delimited)
+
+    DeviceMetrics layout:
+      field 1 = battery_level (uint32, 0-100)
+      field 2 = voltage (float)
+      field 3 = channel_utilization (float)
+      field 4 = air_util_tx (float)
+      field 5 = uptime_seconds (uint32)
+    """
+    device_id = f"!{from_node:08x}" if from_node is not None else None
+    if not device_id:
+        return
+
+    try:
+        telemetry_fields = _parse_protobuf_fields(raw)
+
+        # Field 2 = device_metrics (length-delimited)
+        metrics_bytes = _get_bytes(telemetry_fields, 2)
+        if metrics_bytes is None:
+            # Could be environment_metrics or power_metrics — not device_metrics
+            return
+
+        metrics_fields = _parse_protobuf_fields(metrics_bytes)
+
+        # Field 1 = battery_level (uint32)
+        battery = _get_varint(metrics_fields, 1)
+        if battery is not None and 0 <= battery <= 100:
+            _battery_cache[device_id] = (battery, time.time())
+            logger.debug("Cached battery for %s: %d%%", device_id, battery)
+
+    except (ValueError, struct.error, IndexError, KeyError) as exc:
+        logger.debug("Failed to decode Telemetry payload: %s", exc)
+
+
+def _get_cached_battery(device_id: str | None) -> int | None:
+    """Return cached battery level for a device, or None if stale/missing."""
+    if not device_id or device_id not in _battery_cache:
+        return None
+    battery, cached_at = _battery_cache[device_id]
+    if time.time() - cached_at > _BATTERY_CACHE_MAX_AGE_S:
+        del _battery_cache[device_id]
+        return None
+    return battery
+
+
+def _parse_protobuf_position(raw: bytes) -> dict | None:
+    """Try to decode a Meshtastic protobuf ServiceEnvelope and extract a
+    POSITION_APP payload.  Also processes TELEMETRY_APP messages to cache
+    battery levels for later injection.
+
+    Returns the same dict format as :func:`_parse_position` on success, or
+    ``None`` if the message is not a valid position envelope.
+    """
+    decoded = _decode_mesh_envelope(raw)
+    if decoded is None:
+        return None
+
+    from_node, portnum, payload_bytes = decoded
+    device_id = f"!{from_node:08x}" if from_node is not None else None
+
+    # Handle TELEMETRY_APP (portnum 67) — cache battery, no position to return
+    if portnum == 67 and payload_bytes:
+        _parse_protobuf_telemetry(payload_bytes, from_node)
+        return None
+
+    # Only process POSITION_APP (portnum 3)
+    if portnum != 3:
+        logger.debug("Protobuf Data portnum=%s, not POSITION_APP(3) or TELEMETRY_APP(67) -- skipping", portnum)
+        return None
+
+    if payload_bytes is None:
+        return None
+
+    try:
         # -- Position --------------------------------------------------------
-        pos_fields = _parse_protobuf_fields(position_bytes)
+        pos_fields = _parse_protobuf_fields(payload_bytes)
 
         # latitude_i  = field 1, sfixed32 (wire type 5)
         lat_i = _get_sfixed32(pos_fields, 1)
@@ -282,12 +353,12 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
         heading_raw = _get_varint(pos_fields, 9)
         heading = heading_raw / 1e5 if heading_raw is not None else None
 
-        # Build device_id from the MeshPacket ``from`` field
-        device_id = f"!{from_node:08x}" if from_node is not None else None
+        # Battery: use cached value from most recent TELEMETRY_APP message
+        battery = _get_cached_battery(device_id)
 
         logger.debug(
-            "Decoded protobuf position: device=%s lat=%.6f lon=%.6f alt=%s speed=%s heading=%s",
-            device_id, lat, lon, alt, speed, heading,
+            "Decoded protobuf position: device=%s lat=%.6f lon=%.6f alt=%s speed=%s heading=%s battery=%s",
+            device_id, lat, lon, alt, speed, heading, battery,
         )
 
         return {
@@ -301,12 +372,12 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
             "timestamp": ts,
             "source": "mqtt_gateway",
             "device_id": device_id,
-            "battery_level": None,
+            "battery_level": battery,
             "pilot_id": None,
         }
 
     except (ValueError, struct.error, IndexError, KeyError) as exc:
-        logger.debug("Failed to decode protobuf ServiceEnvelope: %s", exc)
+        logger.debug("Failed to decode protobuf Position: %s", exc)
         return None
 
 
