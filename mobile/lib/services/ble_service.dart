@@ -506,6 +506,13 @@ class BleService extends ChangeNotifier {
         _fromNum = null; // Not all devices expose fromNum
       }
 
+      // Request high connection priority for stable bulk writes.
+      try {
+        await meshDevice.device.requestConnectionPriority(
+          connectionPriorityRequest: ConnectionPriority.high,
+        );
+      } catch (_) {}
+
       // Create BLE transport and assign
       _transport = BleTransport(
         device: meshDevice.device,
@@ -757,6 +764,15 @@ class BleService extends ChangeNotifier {
     // Guard against duplicate disconnect events while already reconnecting
     if (_isReconnecting) return;
 
+    // If we're in the middle of pushing config (applyProfile), don't tear
+    // down the transport — the retry logic needs it alive.
+    if (_isPushingConfig || _userDisconnected || _isConnecting) {
+      debugPrint('_onUnexpectedDisconnect: suppressed '
+          '(pushing=$_isPushingConfig, userDisc=$_userDisconnected, '
+          'connecting=$_isConnecting)');
+      return;
+    }
+
     // Clean up connection state
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
@@ -770,8 +786,6 @@ class BleService extends ChangeNotifier {
     _fromNum = null;
     _configLoaded = false;
     _deviceState = MeshtasticDeviceState();
-
-    if (_userDisconnected || _isConnecting) return;
 
     final device = _connectedDevice;
     _connectedDevice = null;
@@ -1356,7 +1370,7 @@ class BleService extends ChangeNotifier {
   // Write config to device
   // ═══════════════════════════════════════════════════════════════════════════
 
-  /// Write a single admin message to the connected device.
+  /// Write a single admin message to the connected device with retry.
   Future<void> _writeAdmin(Uint8List adminPayload) async {
     if (_transport == null) throw Exception('Not connected');
 
@@ -1366,15 +1380,27 @@ class BleService extends ChangeNotifier {
       adminPayload: adminPayload,
     );
     final toRadio = buildToRadioPacket(meshPacket);
-    await _transport!.writeToRadio(toRadio);
+
+    // Retry for transient GATT failures (error 133 / FBP-code 6).
+    const maxRetries = 3;
+    for (var attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await _transport!.writeToRadio(toRadio);
+        break; // success
+      } catch (e) {
+        final isLastAttempt = attempt == maxRetries - 1;
+        debugPrint('_writeAdmin: attempt ${attempt + 1}/$maxRetries failed: $e');
+        if (isLastAttempt) rethrow;
+        // Wait before retrying — give BLE stack time to recover
+        await Future.delayed(Duration(milliseconds: 1000 * (attempt + 1)));
+        if (_transport == null) throw Exception('Device disconnected');
+      }
+    }
 
     // Delay between writes to give the firmware time to process each admin
-    // message before the next one arrives. The Meshtastic firmware ACKs the
-    // BLE/TCP write at the transport layer before the application fully
-    // processes the admin command, so without a sufficient gap the device can
-    // drop config writes silently. The official Meshtastic Android app uses
-    // ~500 ms between admin operations.
-    await Future.delayed(const Duration(milliseconds: 500));
+    // message.  1500 ms is conservative but necessary to prevent GATT 133 on
+    // budget Android devices with flaky BLE stacks (e.g. UMIDIGI / Unisoc).
+    await Future.delayed(const Duration(milliseconds: 1500));
   }
 
   /// Apply a full profile preset to the connected device.
@@ -1386,7 +1412,8 @@ class BleService extends ChangeNotifier {
   /// so that Wi-Fi credentials survive the commit (a standalone setWifi before
   /// the batch would be overwritten).
   Future<void> applyProfile(MeshtasticProfile profile,
-      {ProfileConfig? customConfig, String? wifiSsid, String? wifiPsk}) async {
+      {ProfileConfig? customConfig, String? wifiSsid, String? wifiPsk,
+       String? longName, String? shortName, RegionCode? region}) async {
     if (_transport == null) {
       _error = 'No device connected';
       notifyListeners();
@@ -1396,42 +1423,41 @@ class BleService extends ChangeNotifier {
     final config = customConfig ?? ProfileConfig.presets[profile]!;
     debugPrint('applyProfile: ${profile.label}');
     debugPrint('  role=${config.role}, rebroadcast=${config.rebroadcastMode}');
-    debugPrint('  gpsMode=${config.gpsMode}, gpsInterval=${config.gpsUpdateInterval}');
-    debugPrint('  broadcastSecs=${config.positionBroadcastSecs}, smart=${config.smartPositionEnabled}');
-    debugPrint('  smartMinDist=${config.smartMinDistance}, smartMinInterval=${config.smartMinInterval}');
-    debugPrint('  positionFlags=${config.positionFlags} (0x${config.positionFlags.toRadixString(16)})');
-    debugPrint('  modem=${config.modemPreset}, hops=${config.hopLimit}, txPower=${config.txPower}');
     debugPrint('  bluetooth=${config.bluetoothEnabled}, wifi=${config.wifiEnabled}');
-    debugPrint('  displayTimeout=${config.displayTimeoutSecs}, telemetry=${config.telemetryIntervalSecs}');
-    debugPrint('  deviceTelemetryEnabled=${config.deviceTelemetryEnabled}');
-    debugPrint('  neighborInfo=${config.neighborInfoEnabled}, storeForward=${config.storeForwardEnabled}');
-    debugPrint('  channelPsk=${_platformMqttPsk ?? "(default)"}');
     _isPushingConfig = true;
     _error = null;
     _statusMessage = 'Applying ${profile.label} profile...';
     notifyListeners();
 
     try {
-      // Begin batch edit
-      debugPrint('applyProfile: sending beginEditSettings');
-      await _writeAdmin(buildBeginEditSettings());
+      // Register/unregister BEFORE writes (connection may drop during batch).
+      if (profile == MeshtasticProfile.repeater) {
+        _unregisterMeshDevice();
+      } else {
+        _registerMeshDevice();
+      }
 
-      // Device config (role + rebroadcast + serial + nodeinfo broadcast)
-      debugPrint('applyProfile: sending DeviceConfig (role=${config.role})');
-      _statusMessage = 'Setting device role...';
-      notifyListeners();
-      await _writeAdmin(buildSetDeviceConfig(
+      // Build all admin payloads upfront.
+      final writes = <MapEntry<String, Uint8List>>[];
+
+      writes.add(MapEntry('Begin edit', buildBeginEditSettings()));
+
+      if (longName != null && longName.isNotEmpty ||
+          shortName != null && shortName.isNotEmpty) {
+        writes.add(MapEntry('Device name', buildSetOwner(
+          longName: longName ?? '',
+          shortName: shortName ?? '',
+        )));
+      }
+
+      writes.add(MapEntry('Device config', buildSetDeviceConfig(
         role: config.role,
         rebroadcastMode: config.rebroadcastMode,
         serialEnabled: config.serialEnabled,
         nodeInfoBroadcastSecs: config.nodeInfoBroadcastSecs,
-      ));
+      )));
 
-      // Position config
-      debugPrint('applyProfile: sending PositionConfig (broadcast=${config.positionBroadcastSecs}, gpsInterval=${config.gpsUpdateInterval})');
-      _statusMessage = 'Setting position config...';
-      notifyListeners();
-      await _writeAdmin(buildSetPositionConfig(
+      writes.add(MapEntry('Position config', buildSetPositionConfig(
         positionBroadcastSecs: config.positionBroadcastSecs,
         smartEnabled: config.smartPositionEnabled,
         smartMinDistance: config.smartMinDistance,
@@ -1439,111 +1465,103 @@ class BleService extends ChangeNotifier {
         gpsMode: config.gpsMode,
         positionFlags: config.positionFlags,
         gpsUpdateInterval: config.gpsUpdateInterval,
-      ));
+      )));
 
-      // LoRa config — region is intentionally NOT in the profile.
-      debugPrint('applyProfile: sending LoRaConfig');
-      _statusMessage = 'Setting LoRa radio...';
-      notifyListeners();
-      await _writeAdmin(buildSetLoraConfig(
+      final loraRegion = region ?? _deviceState.region;
+      writes.add(MapEntry('LoRa radio', buildSetLoraConfig(
         modemPreset: config.modemPreset,
-        region: _deviceState.region,
+        region: loraRegion,
         hopLimit: config.hopLimit,
         txEnabled: config.txEnabled,
         txPower: config.txPower,
         sx126xRxBoostedGain: config.sx126xRxBoostedGain,
-      ));
+      )));
 
-      // Power config
-      debugPrint('applyProfile: sending PowerConfig');
-      await _writeAdmin(buildSetPowerConfig(
+      writes.add(MapEntry('Power config', buildSetPowerConfig(
         isPowerSaving: config.powerSaving,
         onBatteryShutdownAfterSecs: config.onBatteryShutdownAfterSecs,
         waitBluetoothSecs: config.waitBluetoothSecs,
         lsSecs: config.lsSecs,
-      ));
+      )));
 
-      // Display config
-      debugPrint('applyProfile: sending DisplayConfig (screenOnSecs=${config.displayTimeoutSecs})');
-      await _writeAdmin(buildSetDisplayConfig(
+      writes.add(MapEntry('Display config', buildSetDisplayConfig(
         screenOnSecs: config.displayTimeoutSecs,
         autoScreenCarouselSecs: config.autoScreenCarouselSecs,
         wakeOnTapOrMotion: config.wakeOnTapOrMotion,
-      ));
+      )));
 
-      // Network/Wi-Fi config — include SSID/PSK in the batch so credentials
-      // aren't overwritten by the commit.  SSID/PSK are device-specific and
-      // come from the UI, not from the fleet-wide profile.
-      debugPrint('applyProfile: sending NetworkConfig (wifi=${config.wifiEnabled}, ssid=${wifiSsid ?? "(none)"})');
-      await _writeAdmin(buildSetNetworkConfig(
+      writes.add(MapEntry('Network config', buildSetNetworkConfig(
         wifiEnabled: config.wifiEnabled,
         ethEnabled: config.ethEnabled,
         wifiSsid: wifiSsid,
         wifiPsk: wifiPsk,
-      ));
+      )));
 
-      // MQTT — always on, use platform config from admin settings
-      _statusMessage = 'Setting MQTT...';
-      notifyListeners();
-      await _writeAdmin(buildSetMqttConfig(
+      writes.add(MapEntry('MQTT config', buildSetMqttConfig(
         address: _platformMqttHost ?? 'mqtt.meshtastic.org',
         rootTopic: _platformMqttTopicPrefix,
-        encryptionEnabled: false, // Plaintext so our backend can parse
-        proxyToClientEnabled: config.bluetoothEnabled, // Proxy when BLE on
-      ));
+        encryptionEnabled: false,
+        proxyToClientEnabled: config.bluetoothEnabled,
+      )));
 
-      // Telemetry — honour the device_telemetry_enabled flag: when disabled
-      // set the interval to 0 so the firmware stops sending device metrics.
-      await _writeAdmin(buildSetTelemetryConfig(
+      writes.add(MapEntry('Telemetry', buildSetTelemetryConfig(
         deviceUpdateInterval:
             config.deviceTelemetryEnabled ? config.telemetryIntervalSecs : 0,
         environmentMeasurementEnabled: config.environmentTelemetryEnabled,
-      ));
+      )));
 
-      // Neighbor info — driven by profile
-      await _writeAdmin(buildSetNeighborInfoConfig(
+      writes.add(MapEntry('Neighbor info', buildSetNeighborInfoConfig(
         enabled: config.neighborInfoEnabled,
         updateIntervalSecs: config.neighborInfoIntervalSecs,
-      ));
+      )));
 
-      // Store & forward — driven by profile
-      await _writeAdmin(buildSetStoreForwardConfig(
+      writes.add(MapEntry('Store & forward', buildSetStoreForwardConfig(
         enabled: config.storeForwardEnabled,
         isServer: config.storeForwardIsServer,
-      ));
+      )));
 
-      // Channel 0 (PRIMARY) — uplink + downlink always on.
-      // Include the platform channel PSK if the admin configured one;
-      // otherwise send the default Meshtastic PSK (single byte 0x01 = use
-      // the built-in AES key).  We MUST include a PSK because set_channel
-      // replaces the full channel object — omitting it would clear the
-      // encryption key.
       Uint8List channelPsk;
       if (_platformMqttPsk != null && _platformMqttPsk!.isNotEmpty) {
         try {
           channelPsk = base64.decode(_platformMqttPsk!);
         } catch (_) {
-          channelPsk = Uint8List.fromList([1]); // fallback to default
+          channelPsk = Uint8List.fromList([1]);
         }
       } else {
-        channelPsk = Uint8List.fromList([1]); // default Meshtastic PSK
+        channelPsk = Uint8List.fromList([1]);
       }
-      await _writeAdmin(buildSetChannel(
+      writes.add(MapEntry('Channel 0', buildSetChannel(
         index: 0,
-        role: 1, // PRIMARY
+        role: 1,
         psk: channelPsk,
         uplinkEnabled: true,
         downlinkEnabled: true,
-      ));
+      )));
 
-      // Bluetooth config — kept last before commit as defense-in-depth.
-      await _writeAdmin(buildSetBluetoothConfig(
+      writes.add(MapEntry('Bluetooth config', buildSetBluetoothConfig(
         enabled: config.bluetoothEnabled,
         mode: config.bluetoothMode,
         fixedPin: config.bluetoothMode == BlePairingMode.fixedPin
             ? config.bluetoothFixedPin
             : null,
-      ));
+      )));
+
+      // ── Write loop ──
+      // Send all admin messages sequentially with 1500ms delays.
+      // No proactive disconnect/reconnect — on ESP32 with Wi-Fi enabled
+      // the shared radio makes BLE reconnection unreliable.
+      for (var i = 0; i < writes.length; i++) {
+        final entry = writes[i];
+        debugPrint('applyProfile: [${i + 1}/${writes.length}] ${entry.key}');
+        _statusMessage = '${entry.key} (${i + 1}/${writes.length})...';
+        notifyListeners();
+        await _writeAdmin(entry.value);
+      }
+
+      if (region != null) _deviceState.region = region;
+
+      // Suppress auto-reconnect — device is about to reboot intentionally.
+      _userDisconnected = true;
 
       // Commit batch edit — device reboots immediately after receiving this.
       debugPrint('applyProfile: sending commitEditSettings');
@@ -1552,8 +1570,6 @@ class BleService extends ChangeNotifier {
       try {
         await _writeAdmin(buildCommitEditSettings());
       } catch (e) {
-        // Expected: device reboots mid-write, causing a disconnect exception.
-        // Treat as success — all config was already written before commit.
         debugPrint('Commit write exception (expected on reboot): $e');
       }
 
@@ -1577,21 +1593,29 @@ class BleService extends ChangeNotifier {
       _deviceState.telemetryDeviceInterval = config.telemetryIntervalSecs;
 
       _statusMessage = '${profile.label} profile applied. Device rebooting...';
-
-      // Register or unregister device based on profile type.
-      // Pilot, Driver, Driver Wi-Fi all track a person → register.
-      // Repeater is pure infrastructure → unregister.
-      if (profile == MeshtasticProfile.repeater) {
-        _unregisterMeshDevice();
-      } else {
-        _registerMeshDevice();
-      }
     } catch (e) {
       _error = 'Profile apply failed: $e';
       _statusMessage = null;
     }
 
     _isPushingConfig = false;
+
+    // Clean teardown if the device rebooted (commit succeeded).
+    if (_userDisconnected) {
+      _stopPhoneGpsSharing();
+      _stopMeshPositionRelay();
+      if (_transport is BleTransport) {
+        (_transport as BleTransport).markDisconnected();
+      }
+      _transport = null;
+      _connectionType = null;
+      _toRadio = null;
+      _fromRadio = null;
+      _fromNum = null;
+      _configLoaded = false;
+      _connectedDevice = null;
+    }
+
     notifyListeners();
   }
 

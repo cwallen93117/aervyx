@@ -709,33 +709,28 @@ class _SettingsCardState extends State<_SettingsCard> {
     );
     if (confirmed != true) return;
 
-    // 1. Push region first (updates _deviceState.region so applyProfile
-    //    picks up the right value for the LoRa config write).
-    final regionChanged = _region != _deviceRegion;
-    if (regionChanged) {
-      await ble.setLoraRegion(_region);
-      _deviceRegion = _region;
-    }
-
-    // 2. Push device name.
+    // Everything is batched into a single applyProfile call so there is
+    // only one beginEditSettings → writes → commitEditSettings sequence.
+    // Standalone writes before the batch destabilised BLE on Android.
     final longName = _longNameCtl.text.trim();
     final shortName = _shortNameCtl.text.trim();
-    if (longName.isNotEmpty || shortName.isNotEmpty) {
-      await ble.setDeviceName(longName: longName, shortName: shortName);
-    }
-
-    // 3. Always push the full profile so every admin setting (bluetooth,
-    //    power, display, modules, etc.) is written to the device.
-    //    Wi-Fi credentials are included in the batched write so they
-    //    aren't overwritten when the batch commits.
+    final regionChanged = _region != _deviceRegion;
     final ssid = (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty)
         ? _ssidCtl.text.trim()
         : null;
     final psk = (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty)
         ? _pskCtl.text
         : null;
-    await ble.applyProfile(_selectedProfile, wifiSsid: ssid, wifiPsk: psk);
+    await ble.applyProfile(
+      _selectedProfile,
+      wifiSsid: ssid,
+      wifiPsk: psk,
+      longName: longName.isNotEmpty ? longName : null,
+      shortName: shortName.isNotEmpty ? shortName : null,
+      region: regionChanged ? _region : null,
+    );
     _deviceProfile = _selectedProfile;
+    if (regionChanged) _deviceRegion = _region;
 
     if (mounted) setState(() {});
   }
