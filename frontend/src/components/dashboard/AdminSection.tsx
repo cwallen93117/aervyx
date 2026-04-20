@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
@@ -89,6 +89,194 @@ const ALL_FEATURES = [
 type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
 type SortDir = "asc" | "desc";
 
+// ---------------------------------------------------------------------------
+// MeshDeviceEditModal
+// ---------------------------------------------------------------------------
+
+type MeshDeviceLookupResult = {
+  device_id: string | null;
+  assigned_to: { user_id: number; username: string; full_name: string } | null;
+};
+
+interface MeshDeviceEditModalProps {
+  user: AdminUserRecord;
+  apiBase: string;
+  token: string;
+  onSaved: (updatedUser: AdminUserRecord) => void;
+  onClose: () => void;
+}
+
+function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDeviceEditModalProps) {
+  const [inputValue, setInputValue] = useState(user.mesh_device_id ?? "");
+  const [lookupResult, setLookupResult] = useState<MeshDeviceLookupResult | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Debounced lookup
+  useEffect(() => {
+    const trimmed = inputValue.trim();
+    if (!trimmed || trimmed === (user.mesh_device_id ?? "")) {
+      setLookupResult(null);
+      return;
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `${apiBase}/api/auth/admin/mesh-device-lookup?device_id=${encodeURIComponent(trimmed)}`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (res.ok) {
+          setLookupResult((await res.json()) as MeshDeviceLookupResult);
+        }
+      } catch {
+        // silently ignore lookup errors
+      }
+    }, 400);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [inputValue, user.mesh_device_id, apiBase, token]);
+
+  const trimmedInput = inputValue.trim();
+  const unchanged = trimmedInput === (user.mesh_device_id ?? "");
+  const saveDisabled = saving || unchanged || trimmedInput === "";
+
+  const conflictUser =
+    lookupResult?.assigned_to &&
+    lookupResult.assigned_to.user_id !== user.id
+      ? lookupResult.assigned_to
+      : null;
+
+  async function handleSave() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-device`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mesh_device_id: trimmedInput || null }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      const updated = (await res.json()) as AdminUserRecord;
+      onSaved(updated);
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save device ID.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-device`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      onSaved({ ...user, mesh_device_id: null });
+      onClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not remove device pairing.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="confirm-overlay"
+      onClick={() => { if (!saving) onClose(); }}
+    >
+      <div
+        className="confirm-dialog confirm-dialog-wide"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Edit Mesh Device"
+      >
+        <strong>Edit Mesh Device</strong>
+        <div style={{ fontSize: "0.85rem", color: "var(--color-text-muted, #888)", marginBottom: "4px" }}>
+          {user.full_name || user.username}
+        </div>
+        <label className="stack compact">
+          <span>Mesh Device ID</span>
+          <input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder="!c0ac2c6e"
+            style={{ fontFamily: "monospace" }}
+            autoFocus
+          />
+        </label>
+        <div style={{ fontSize: "0.75rem", color: "var(--color-text-muted, #888)", marginTop: "2px" }}>
+          Format: !abcdef12
+        </div>
+        {conflictUser ? (
+          <div
+            style={{
+              marginTop: "8px",
+              padding: "8px 10px",
+              background: "rgba(245, 158, 11, 0.08)",
+              borderLeft: "3px solid #f59e0b",
+              borderRadius: "3px",
+              fontSize: "0.8125rem",
+              color: "#b45309",
+            }}
+          >
+            <span>&#9888; This device is currently assigned to </span>
+            <strong>{conflictUser.full_name}</strong>
+            <span>. Saving will reclaim it from that user.</span>
+          </div>
+        ) : lookupResult && !lookupResult.assigned_to ? (
+          <div style={{ marginTop: "8px", fontSize: "0.8rem", color: "var(--color-text-muted, #888)" }}>
+            Not currently assigned to anyone.
+          </div>
+        ) : null}
+        {error ? <div className="status-chip error" style={{ marginTop: "8px" }}>{error}</div> : null}
+        <div className="confirm-actions" style={{ marginTop: "12px" }}>
+          <button
+            type="button"
+            className="ghost-button"
+            disabled={saving}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="ghost-button danger-button"
+            disabled={saving || !user.mesh_device_id}
+            onClick={() => void handleRemove()}
+          >
+            Remove pairing
+          </button>
+          <button
+            type="button"
+            disabled={saveDisabled}
+            onClick={() => void handleSave()}
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface AdminSectionProps {
   user: User | null;
   adminUsers: AdminUserRecord[];
@@ -127,7 +315,6 @@ export default function AdminSection(props: AdminSectionProps) {
     adminFeedback,
     saveAdminUser,
     deleteAdminUser,
-    clearAdminUserDevice,
     updateUserCredentials,
     adminSites,
     setAdminSites,
@@ -161,6 +348,7 @@ export default function AdminSection(props: AdminSectionProps) {
   const [credentialsPassword, setCredentialsPassword] = useState("");
   const [credentialsSaving, setCredentialsSaving] = useState(false);
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
+  const [editingMeshUser, setEditingMeshUser] = useState<AdminUserRecord | null>(null);
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -496,17 +684,15 @@ export default function AdminSection(props: AdminSectionProps) {
                             >
                               {account.mesh_device_id ?? "—"}
                             </span>
-                            {account.mesh_device_id && (
-                              <button
-                                type="button"
-                                className="ghost-button danger-button"
-                                title="Clear device pairing (lost or stolen device)"
-                                style={{ fontSize: "0.65rem", padding: "1px 4px", lineHeight: 1 }}
-                                onClick={() => void clearAdminUserDevice(account.id)}
-                              >
-                                ✕
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              className="ghost-button"
+                              title="Edit mesh device pairing"
+                              style={{ fontSize: "0.65rem", padding: "1px 4px", lineHeight: 1 }}
+                              onClick={() => setEditingMeshUser(account)}
+                            >
+                              Edit
+                            </button>
                           </div>
                         </td>
                         <td className="participant-table-actions">
@@ -591,6 +777,20 @@ export default function AdminSection(props: AdminSectionProps) {
                   </div>
                 </div>
               </div>
+            ) : null}
+            {editingMeshUser ? (
+              <MeshDeviceEditModal
+                user={editingMeshUser}
+                apiBase={apiBase}
+                token={token}
+                onSaved={(updatedUser) => {
+                  setAdminUsers((current) =>
+                    current.map((u) => (u.id === updatedUser.id ? updatedUser : u)),
+                  );
+                  setEditingMeshUser(null);
+                }}
+                onClose={() => setEditingMeshUser(null)}
+              />
             ) : null}
           </div>
         </SectionCard>
@@ -1525,7 +1725,7 @@ const DEFAULT_MESH_PROFILES: Record<string, Record<string, unknown>> = {
 };
 
 const PROFILE_KEYS = ["pilot", "driver", "driver_wifi", "repeater"] as const;
-const PROFILE_LABELS: Record<string, string> = { pilot: "Pilot", driver: "Driver", driver_wifi: "Driver Wi-Fi", repeater: "Repeater" };
+const PROFILE_LABELS: Record<string, string> = { pilot: "Pilot", driver: "Driver", driver_wifi: "Driver Wi-Fi", repeater: "Base Station" };
 
 // Role options shown in the dropdown, per-profile.
 // Pilots are always trackers — picking anything else would break the firmware's
@@ -1663,7 +1863,7 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   {
     group: "Display",
     rows: [
-      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0, description: "Seconds before the device screen turns off to save power. 0 reverts to firmware default (600s / 10 minutes), it does NOT disable the screen. Use a very low value like 1 for effectively no screen on headless nodes." },
+      { key: "display_timeout_secs", label: "Display timeout (s)", kind: "number", min: 0, description: "Seconds before the device screen turns off to save power. 0 = always on. Minimum 10 seconds otherwise — values below 10 are clamped to 0 when saved to the device, because 1–4 s just cycles the OLED and drains battery without meaningfully saving power." },
       { key: "auto_screen_carousel_secs", label: "Carousel (s)", kind: "number", min: 0, description: "How long the screen lingers on each page before auto-rotating to the next. 0 = no auto-rotation." },
       { key: "wake_on_tap_or_motion", label: "Wake on tap/motion", kind: "boolean", description: "Wake the screen when the device is tapped or moved (requires accelerometer). Useful for handheld trackers." },
     ],
