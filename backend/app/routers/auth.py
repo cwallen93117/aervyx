@@ -760,6 +760,91 @@ def clear_user_mesh_device(
     logger.info("Admin %s cleared mesh_device_id for user %s", admin.username, target.username)
 
 
+@router.get("/admin/mesh-device-lookup")
+def admin_mesh_device_lookup(
+    device_id: str,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Admin-only: check whether a mesh device ID is currently assigned to any user.
+
+    Returns the current owner (if any) so the admin UI can warn about reclaiming
+    the device from another user before saving the change.
+    """
+    normalized = (device_id or "").strip()
+    if not normalized:
+        return {"device_id": None, "assigned_to": None}
+    owner = session.scalar(select(User).where(User.mesh_device_id == normalized))
+    if owner is None:
+        return {"device_id": normalized, "assigned_to": None}
+    return {
+        "device_id": normalized,
+        "assigned_to": {
+            "user_id": owner.id,
+            "username": owner.username,
+            "full_name": owner.full_name,
+        },
+    }
+
+
+@router.patch("/users/{user_id}/mesh-device", response_model=AdminUserResponse)
+def admin_set_user_mesh_device(
+    user_id: int,
+    payload: MeshDeviceRegister,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    """Admin-only: set or change a user's mesh device ID.
+
+    - ``mesh_device_id = null`` or empty string: clears the pairing.
+    - Non-null value already held by another user: reclaims it from the previous
+      owner (same semantics as BLE pairing) so positions start routing to the
+      new owner. Past LivePosition rows keep their original pilot_id attribution.
+    """
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    device_id = (payload.mesh_device_id or "").strip() or None
+
+    # Reclaim from previous owner if the device ID is already assigned elsewhere
+    if device_id is not None:
+        previous_owner = session.scalar(
+            select(User).where(User.mesh_device_id == device_id, User.id != target.id)
+        )
+        if previous_owner is not None:
+            previous_owner.mesh_device_id = None
+            session.add(previous_owner)
+            logger.info(
+                "Admin %s transferred mesh_device_id %s from user %s to user %s",
+                admin.username, device_id, previous_owner.username, target.username,
+            )
+
+    target.mesh_device_id = device_id
+    session.add(target)
+    session.commit()
+    session.refresh(target)
+    logger.info("Admin %s set mesh_device_id=%s for user %s", admin.username, device_id, target.username)
+
+    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
+    return AdminUserResponse(
+        id=target.id,
+        username=target.username,
+        full_name=target.full_name,
+        first_name=pilot.first_name if pilot else None,
+        last_name=pilot.last_name if pilot else None,
+        role=target.role,
+        profile_type=target.profile_type,
+        pilot_id=target.pilot_id,
+        email=pilot.email if pilot else None,
+        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
+        competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=target.mesh_device_id,
+        is_active=target.is_active,
+        created_at=target.created_at,
+    )
+
+
 @router.patch("/users/{user_id}/credentials", response_model=AdminUserResponse)
 def update_user_credentials(
     user_id: int,
