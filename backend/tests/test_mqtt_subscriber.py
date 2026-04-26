@@ -111,7 +111,7 @@ def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypat
     assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == ["!active"]
 
 
-def test_prune_old_mqtt_positions_only_deletes_expired_mqtt_rows(monkeypatch) -> None:
+def test_prune_old_mqtt_positions_only_deletes_expired_mesh_rows(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     now = datetime.now(UTC)
     with factory() as session:
@@ -128,12 +128,19 @@ def test_prune_old_mqtt_positions_only_deletes_expired_mqtt_rows(monkeypatch) ->
                     lat=34.1,
                     lon=-119.1,
                     timestamp=now - timedelta(days=3),
-                    source="app",
-                    device_id="app-device",
+                    source="mesh_relay",
+                    device_id="!old-relay",
                 ),
                 LivePosition(
                     lat=34.2,
                     lon=-119.2,
+                    timestamp=now - timedelta(days=3),
+                    source="app",
+                    device_id="app-device",
+                ),
+                LivePosition(
+                    lat=34.3,
+                    lon=-119.3,
                     timestamp=now - timedelta(days=1),
                     source="mqtt_gateway",
                     device_id="!recent-mqtt",
@@ -142,7 +149,7 @@ def test_prune_old_mqtt_positions_only_deletes_expired_mqtt_rows(monkeypatch) ->
         )
         session.commit()
 
-    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 1
+    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 2
 
     with factory() as session:
         remaining = session.scalars(select(LivePosition).order_by(LivePosition.device_id)).all()
