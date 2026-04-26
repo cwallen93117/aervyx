@@ -42,6 +42,24 @@ class UserEmail(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MeshDevice(Base):
+    __tablename__ = "mesh_devices"
+    __table_args__ = (
+        UniqueConstraint("device_id", name="uq_mesh_devices_device_id"),
+        Index("ix_mesh_devices_owner_user_id", "owner_user_id"),
+        Index("ix_mesh_devices_purpose", "purpose"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(32), default="tracking")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class SiteSettings(Base):
     __tablename__ = "site_settings"
 

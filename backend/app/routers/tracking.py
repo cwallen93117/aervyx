@@ -15,14 +15,17 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, IGCUpload, LivePosition, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
     get_live_positions_for_pilots,
     get_position_history,
     get_position_history_for_pilots,
+    mesh_purpose_to_profile_type,
     normalize_position_source,
+    resolve_active_task_id,
+    resolve_mesh_device_assignment,
     store_position,
     subscribe,
     subscribe_pilots,
@@ -100,6 +103,10 @@ class MeshNodeResponse(BaseModel):
     pilot_id: int | None = None
     pilot_name: str | None = None
     profile_type: str | None = None
+    device_label: str | None = None
+    device_purpose: str | None = None
+    registered_owner_user_id: int | None = None
+    registered_owner_name: str | None = None
     lat: float
     lon: float
     alt: float | None = None
@@ -180,9 +187,25 @@ def post_position(
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
+    source = payload.source or "app"
+    pilot_id = user.pilot_id
+    task_id = payload.task_id
+    response_profile_type = user.profile_type or "pilot"
+    response_aircraft_icon = user.aircraft_icon or "hang_glider"
+    if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
+        mesh_user, mesh_device = resolve_mesh_device_assignment(session, payload.device_id)
+        pilot_id = mesh_user.pilot_id if mesh_user is not None else None
+        if mesh_user is not None:
+            response_profile_type = mesh_user.profile_type or "pilot"
+            response_aircraft_icon = mesh_user.aircraft_icon or "hang_glider"
+        elif mesh_device is not None:
+            response_profile_type = mesh_purpose_to_profile_type(mesh_device.purpose)
+        if task_id is None and pilot_id is not None:
+            task_id = resolve_active_task_id(session, pilot_id)
+
     pos = store_position(
         session,
-        task_id=payload.task_id,
+        task_id=task_id,
         lat=payload.lat,
         lon=payload.lon,
         alt=payload.alt,
@@ -190,10 +213,10 @@ def post_position(
         heading=payload.heading,
         accuracy=payload.accuracy,
         timestamp=payload.timestamp,
-        source=payload.source or "app",
+        source=source,
         device_id=payload.device_id,
         battery_level=payload.battery_level,
-        pilot_id=user.pilot_id,
+        pilot_id=pilot_id,
     )
     session.commit()
 
@@ -211,8 +234,8 @@ def post_position(
         source=pos.source,
         device_id=pos.device_id,
         battery_level=pos.battery_level,
-        aircraft_icon=(user.aircraft_icon or "hang_glider"),
-        profile_type=(user.profile_type or "pilot"),
+        aircraft_icon=response_aircraft_icon,
+        profile_type=response_profile_type,
         position_source=normalize_position_source(pos.source),
     )
 
@@ -735,6 +758,19 @@ def get_mesh_nodes(
             if u.mesh_device_id:
                 users_by_device[u.mesh_device_id] = u
 
+    all_device_ids = [r.device_id for r in rows if r.device_id]
+    devices_by_id: dict[str, MeshDevice] = {}
+    owners_by_id: dict[int, User] = {}
+    if all_device_ids:
+        devices = session.scalars(select(MeshDevice).where(MeshDevice.device_id.in_(all_device_ids))).all()
+        devices_by_id = {device.device_id: device for device in devices}
+        owner_ids = {device.owner_user_id for device in devices}
+        if owner_ids:
+            owners_by_id = {
+                owner.id: owner
+                for owner in session.scalars(select(User).where(User.id.in_(owner_ids))).all()
+            }
+
     # For devices whose latest position has alt=NULL, look up the most recent
     # position that DID have altitude (backfill from older rows).
     devices_missing_alt = [r.device_id for r in rows if r.alt is None and r.device_id]
@@ -788,10 +824,18 @@ def get_mesh_nodes(
 
     results: list[MeshNodeResponse] = []
     for row in rows:
+        device = devices_by_id.get(row.device_id)
+        owner = owners_by_id.get(device.owner_user_id) if device is not None else None
         u = (
             users_by_pilot.get(row.pilot_id)
             if row.pilot_id is not None
-            else users_by_device.get(row.device_id)
+            else (owner or users_by_device.get(row.device_id))
+        )
+        profile_type = (
+            u.profile_type
+            if row.pilot_id is not None and u is not None
+            else mesh_purpose_to_profile_type(device.purpose) if device is not None
+            else u.profile_type if u is not None else None
         )
         alt = row.alt if row.alt is not None else alt_backfill.get(row.device_id)
         battery = row.battery_level if row.battery_level is not None else bat_backfill.get(row.device_id)
@@ -800,7 +844,11 @@ def get_mesh_nodes(
                 device_id=row.device_id,
                 pilot_id=row.pilot_id,
                 pilot_name=u.full_name if u else None,
-                profile_type=u.profile_type if u else None,
+                profile_type=profile_type,
+                device_label=device.label if device else None,
+                device_purpose=device.purpose if device else None,
+                registered_owner_user_id=owner.id if owner else (u.id if u and row.pilot_id is None else None),
+                registered_owner_name=owner.full_name if owner else (u.full_name if u and row.pilot_id is None else None),
                 lat=row.lat,
                 lon=row.lon,
                 alt=alt,

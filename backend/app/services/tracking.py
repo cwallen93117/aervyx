@@ -9,7 +9,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import LivePosition, TrackingSession, User
+from app.models import Event, EventPilot, LivePosition, MeshDevice, Task, TrackingSession, User
 
 
 # ---------------------------------------------------------------------------
@@ -22,6 +22,9 @@ _global_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 logger = logging.getLogger("aervyx.tracking")
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 VALID_PROFILE_TYPES_ALL = {"pilot", "driver", "stationary_node"}
+TRACKING_MESH_PURPOSE = "tracking"
+DRIVER_MESH_PURPOSES = {"driver_wifi", "driver_mesh"}
+STATIONARY_MESH_PURPOSES = {"base_station", "relay"}
 
 
 def _normalize_aircraft_icon(value: str | None) -> str:
@@ -32,6 +35,60 @@ def _normalize_aircraft_icon(value: str | None) -> str:
 def _normalize_profile_type(value: str | None) -> str:
     candidate = (value or "").strip().lower()
     return candidate if candidate in VALID_PROFILE_TYPES_ALL else "pilot"
+
+
+def mesh_purpose_to_profile_type(purpose: str | None) -> str:
+    candidate = (purpose or "").strip().lower()
+    if candidate in DRIVER_MESH_PURPOSES:
+        return "driver"
+    if candidate in STATIONARY_MESH_PURPOSES:
+        return "stationary_node"
+    return "pilot"
+
+
+def resolve_active_task_id(session: Session, pilot_id: int | None) -> int | None:
+    if pilot_id is None:
+        return None
+    task = session.execute(
+        select(Task)
+        .join(Event, Task.event_id == Event.id)
+        .join(EventPilot, EventPilot.event_id == Event.id)
+        .where(
+            EventPilot.pilot_id == pilot_id,
+            Task.status == "active",
+        )
+        .order_by(Task.id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return task.id if task else None
+
+
+def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> tuple[User | None, MeshDevice | None]:
+    normalized = (device_id or "").strip().lower()
+    if not normalized:
+        return None, None
+
+    device = session.scalar(
+        select(MeshDevice).where(
+            MeshDevice.device_id == normalized,
+            MeshDevice.is_active.is_(True),
+        )
+    )
+    if device is not None:
+        if device.purpose != TRACKING_MESH_PURPOSE:
+            return None, device
+        owner = session.get(User, device.owner_user_id)
+        if owner is not None and owner.is_active:
+            return owner, device
+        return None, device
+
+    legacy_owner = session.scalar(
+        select(User).where(
+            User.mesh_device_id == normalized,
+            User.is_active.is_(True),
+        )
+    )
+    return legacy_owner, None
 
 
 def normalize_position_source(raw: str | None) -> str:
@@ -294,16 +351,28 @@ def store_position(
                 aircraft_icon = _normalize_aircraft_icon(user.aircraft_icon)
                 profile_type = _normalize_profile_type(user.profile_type)
         elif device_id:
-            # No pilot attached — see if this is a registered stationary mesh node.
-            stationary = session.scalar(
-                select(User).where(
-                    User.mesh_device_id == device_id,
-                    User.profile_type == "stationary_node",
+            registered_device = session.scalar(
+                select(MeshDevice).where(
+                    MeshDevice.device_id == device_id,
+                    MeshDevice.is_active.is_(True),
                 )
             )
-            if stationary is not None:
-                pilot_name = stationary.full_name
-                profile_type = "stationary_node"
+            if registered_device is not None:
+                owner = session.get(User, registered_device.owner_user_id)
+                pilot_name = registered_device.label
+                if owner is not None and owner.full_name:
+                    pilot_name = f"{registered_device.label} - {owner.full_name}"
+                profile_type = mesh_purpose_to_profile_type(registered_device.purpose)
+            else:
+                stationary = session.scalar(
+                    select(User).where(
+                        User.mesh_device_id == device_id,
+                        User.profile_type == "stationary_node",
+                    )
+                )
+                if stationary is not None:
+                    pilot_name = stationary.full_name
+                    profile_type = "stationary_node"
         message = {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,

@@ -40,8 +40,8 @@ import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Event, EventPilot, LivePosition, SiteSettings, Task, User
-from app.services.tracking import store_position
+from app.models import LivePosition, MeshDevice, SiteSettings, User
+from app.services.tracking import resolve_active_task_id, resolve_mesh_device_assignment, store_position
 
 logger = logging.getLogger("aervyx.mqtt")
 
@@ -386,22 +386,28 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
 
 
 def _resolve_mesh_user(session, device_id: str | None) -> User | None:
-    """Return the active platform user assigned to a mesh device ID."""
-    if not device_id:
-        return None
-    return session.scalar(
-        select(User).where(
-            User.mesh_device_id == device_id,
-            User.is_active.is_(True),
-        )
-    )
+    """Return the active tracking user assigned to a mesh device ID."""
+    user, _device = resolve_mesh_device_assignment(session, device_id)
+    return user
 
 
 def _read_registered_mesh_device_ids_from_db() -> list[str]:
     """Return active platform mesh device IDs for targeted public MQTT subscriptions."""
     session = SessionLocal()
     try:
-        return list(
+        device_ids = set(
+            session.scalars(
+                select(MeshDevice.device_id)
+                .join(User, User.id == MeshDevice.owner_user_id)
+                .where(
+                    MeshDevice.is_active.is_(True),
+                    MeshDevice.device_id.isnot(None),
+                    MeshDevice.device_id != "",
+                    User.is_active.is_(True),
+                )
+            ).all()
+        )
+        device_ids.update(
             session.scalars(
                 select(User.mesh_device_id)
                 .where(
@@ -409,29 +415,11 @@ def _read_registered_mesh_device_ids_from_db() -> list[str]:
                     User.mesh_device_id.isnot(None),
                     User.mesh_device_id != "",
                 )
-                .order_by(User.mesh_device_id)
             ).all()
         )
+        return sorted(device_ids)
     finally:
         session.close()
-
-
-def _resolve_active_task_id(session, pilot_id: int | None) -> int | None:
-    """Find the active competition task for a pilot, if any."""
-    if pilot_id is None:
-        return None
-    task = session.execute(
-        select(Task)
-        .join(Event, Task.event_id == Event.id)
-        .join(EventPilot, EventPilot.event_id == Event.id)
-        .where(
-            EventPilot.pilot_id == pilot_id,
-            Task.status == "active",
-        )
-        .order_by(Task.id.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    return task.id if task else None
 
 
 def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str | None]:
@@ -507,13 +495,13 @@ def _handle_message(payload: bytes) -> None:
 
     session = SessionLocal()
     try:
-        mesh_user = _resolve_mesh_user(session, parsed.get("device_id"))
-        if mesh_user is None:
+        mesh_user, mesh_device = resolve_mesh_device_assignment(session, parsed.get("device_id"))
+        if mesh_user is None and mesh_device is None:
             return
 
-        parsed["pilot_id"] = mesh_user.pilot_id
+        parsed["pilot_id"] = mesh_user.pilot_id if mesh_user is not None else None
         if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
-            parsed["task_id"] = _resolve_active_task_id(session, parsed["pilot_id"])
+            parsed["task_id"] = resolve_active_task_id(session, parsed["pilot_id"])
         store_position(session, **parsed)
         session.commit()
         mqtt_last_message_at = datetime.now(UTC)

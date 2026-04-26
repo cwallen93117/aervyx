@@ -40,6 +40,18 @@ export type AdminUserRecord = {
   is_active: boolean;
   created_at: string;
 };
+export type MeshDevicePurpose = "tracking" | "base_station" | "driver_wifi" | "driver_mesh" | "relay";
+export type MeshDeviceRecord = {
+  id: number;
+  owner_user_id: number;
+  owner_name: string | null;
+  device_id: string;
+  label: string;
+  purpose: MeshDevicePurpose;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string | null;
+};
 export type AdminSiteRecord = {
   id: number;
   name: string;

@@ -20,6 +20,7 @@ class ApiConfig {
   static const String googleAuthPath = '/api/auth/google';
   static const String googleClientIdPath = '/api/auth/google-client-id';
   static const String meshDeviceRegisterPath = '/api/auth/mesh-device';
+  static const String meshDevicesPath = '/api/auth/mesh-devices';
 
   // Tracking — no task ID needed; backend resolves event from pilot identity
   static const String trackPositionPath = '/api/track/position';

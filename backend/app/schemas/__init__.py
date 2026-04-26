@@ -159,6 +159,33 @@ class MeshDeviceRegister(BaseModel):
     mesh_device_id: str | None = None
 
 
+class MeshDeviceCreate(BaseModel):
+    device_id: str
+    label: str | None = None
+    purpose: str = "tracking"
+    is_active: bool = True
+
+
+class MeshDeviceUpdate(BaseModel):
+    label: str | None = None
+    purpose: str | None = None
+    is_active: bool | None = None
+
+
+class MeshDeviceResponse(BaseModel):
+    id: int
+    owner_user_id: int
+    owner_name: str | None = None
+    device_id: str
+    label: str
+    purpose: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class MapOverlayConfigResponse(BaseModel):
     config: dict
     updated_at: datetime | None = None

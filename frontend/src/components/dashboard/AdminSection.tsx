@@ -13,6 +13,10 @@ type MeshNode = {
   pilot_id: number | null;
   pilot_name: string | null;
   profile_type: string | null;
+  device_label: string | null;
+  device_purpose: string | null;
+  registered_owner_user_id: number | null;
+  registered_owner_name: string | null;
   lat: number;
   lon: number;
   alt: number | null;
@@ -31,11 +35,25 @@ type UnifiedDevice = {
   profile_type: string | null;
   session: import("./types").DebugActiveSession | null;
   meshNode: MeshNode | null;
+  deviceLabel: string | null;
+  devicePurpose: string | null;
+  registeredOwnerName: string | null;
   hasPhone: boolean;
   hasMesh: boolean;
   isOnline: boolean;
   lastSeenAt: string | null;
 };
+
+function meshPurposeLabel(purpose: string | null | undefined) {
+  switch (purpose) {
+    case "tracking": return "Tracking";
+    case "base_station": return "Base station";
+    case "driver_wifi": return "Driver Wi-Fi";
+    case "driver_mesh": return "Driver Meshtastic";
+    case "relay": return "Relay";
+    default: return purpose ?? "Unregistered";
+  }
+}
 
 const MAP_CONTEXTS = [
   { key: "task_builder", label: "Task Builder" },
@@ -1315,6 +1333,9 @@ function LiveTrackingTab({
         profile_type: null,
         session,
         meshNode: null,
+        deviceLabel: null,
+        devicePurpose: null,
+        registeredOwnerName: null,
         hasPhone: true,
         hasMesh: false,
         isOnline: session.is_online,
@@ -1331,6 +1352,9 @@ function LiveTrackingTab({
         byPilot.set(node.pilot_id, {
           ...existing,
           meshNode: node,
+          deviceLabel: node.device_label,
+          devicePurpose: node.device_purpose,
+          registeredOwnerName: node.registered_owner_name,
           hasMesh: true,
           profile_type: node.profile_type,
           lastSeenAt: nodeIsNewer ? nodeTs : sessionTs,
@@ -1343,6 +1367,9 @@ function LiveTrackingTab({
           profile_type: node.profile_type,
           session: null,
           meshNode: node,
+          deviceLabel: node.device_label,
+          devicePurpose: node.device_purpose,
+          registeredOwnerName: node.registered_owner_name,
           hasPhone: false,
           hasMesh: true,
           isOnline: false,
@@ -1357,6 +1384,9 @@ function LiveTrackingTab({
           profile_type: node.profile_type,
           session: null,
           meshNode: node,
+          deviceLabel: node.device_label,
+          devicePurpose: node.device_purpose,
+          registeredOwnerName: node.registered_owner_name,
           hasPhone: false,
           hasMesh: true,
           isOnline: false,
@@ -1415,10 +1445,13 @@ function LiveTrackingTab({
       // Mesh position
       if (d.hasMesh && d.meshNode) {
         if (d.meshNode.lat !== 0 || d.meshNode.lon !== 0) {
+          const meshLabel = d.deviceLabel
+            ? `${d.deviceLabel}${d.registeredOwnerName ? ` - ${d.registeredOwnerName}` : ""}`
+            : d.hasMesh && d.hasPhone ? `${d.pilot_name} (Mesh)` : d.pilot_name;
           positions.push({
             id: `${d.key}-mesh`,
             pilotId: d.pilot_id,
-            pilotName: d.hasMesh && d.hasPhone ? `${d.pilot_name} (Mesh)` : d.pilot_name,
+            pilotName: meshLabel,
             latitude: d.meshNode.lat,
             longitude: d.meshNode.lon,
             altitudeM: d.meshNode.alt,
@@ -1478,12 +1511,14 @@ function LiveTrackingTab({
               <tr>
                 <th style={{ width: "24px" }}></th>
                 <th>Status</th>
-                <th>Pilot</th>
+                <th>Device / Pilot</th>
+                <th>Purpose</th>
+                <th>Registered To</th>
                 <th>Sources</th>
+                <th>Device ID</th>
                 <th>Task</th>
                 <th>Battery</th>
                 <th>Positions</th>
-                <th>Interval</th>
                 <th>Last Fix</th>
               </tr>
             </thead>
@@ -1535,19 +1570,19 @@ function LiveTrackingTab({
                           }} title={d.isOnline ? "Online" : "Offline"} />
                         </td>
                         <td>
-                          <strong>{d.pilot_name}</strong>
-                          {deviceIdHint && (
-                            <div style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{deviceIdHint}</div>
-                          )}
+                          <strong>{d.deviceLabel ?? d.pilot_name}</strong>
+                          {d.deviceLabel && <div className="hint">{d.pilot_name}</div>}
                         </td>
+                        <td>{meshPurposeLabel(d.devicePurpose)}</td>
+                        <td>{d.registeredOwnerName ?? (d.pilot_id != null ? d.pilot_name : "\u2014")}</td>
                         <td>
                           {d.hasPhone && <span className="tracking-source-pill phone">Phone</span>}
                           {d.hasMesh && <span className="tracking-source-pill mesh">Mesh</span>}
                         </td>
+                        <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{deviceIdHint ?? "\u2014"}</td>
                         <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
                         <td>{battery != null ? `${battery}%` : "\u2014"}</td>
                         <td>{d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
-                        <td>{interval != null ? `every ${interval}s` : "\u2014"}</td>
                         <td style={{ color: lastFixColor }}>{relativeTime(d.lastSeenAt)}</td>
                       </tr>
                       {isExpanded && (
@@ -1565,7 +1600,7 @@ function LiveTrackingTab({
                                 <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
                               </td>
                               <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Phone</td>
-                              <td colSpan={2}>
+                              <td colSpan={3}>
                                 {d.session?.last_position
                                   ? `${d.session.last_position.lat.toFixed(5)}, ${d.session.last_position.lon.toFixed(5)}`
                                   : "\u2014"}
@@ -1592,8 +1627,10 @@ function LiveTrackingTab({
                               <td>
                                 <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", marginRight: "4px" }} />
                               </td>
-                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Mesh</td>
-                              <td colSpan={2}>
+                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>
+                                {d.meshNode?.source ?? "Mesh"}
+                              </td>
+                              <td colSpan={3}>
                                 {d.meshNode
                                   ? `${d.meshNode.lat.toFixed(5)}, ${d.meshNode.lon.toFixed(5)}`
                                   : "\u2014"}
@@ -1615,7 +1652,7 @@ function LiveTrackingTab({
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} className="participant-table-empty">No active tracking sessions or mesh nodes.</td>
+                  <td colSpan={10} className="participant-table-empty">No active tracking sessions or mesh nodes.</td>
                 </tr>
               )}
             </tbody>

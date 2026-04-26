@@ -249,6 +249,71 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 {"config": json.dumps(DEFAULT_MAP_OVERLAY_CONFIG)},
             )
 
+    pre_user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
+    if "users" in table_names:
+        with engine.begin() as connection:
+            if "mesh_devices" not in table_names:
+                id_column = "id INTEGER PRIMARY KEY" if dialect_name == "sqlite" else "id SERIAL PRIMARY KEY"
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE mesh_devices (
+                          {id_column},
+                          owner_user_id INTEGER NOT NULL,
+                          device_id VARCHAR(80) NOT NULL,
+                          label VARCHAR(160) NOT NULL,
+                          purpose VARCHAR(32) NOT NULL DEFAULT 'tracking',
+                          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY(owner_user_id) REFERENCES users (id) ON DELETE CASCADE,
+                          CONSTRAINT uq_mesh_devices_device_id UNIQUE (device_id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_mesh_devices_owner_user_id ON mesh_devices (owner_user_id)"))
+                connection.execute(text("CREATE INDEX ix_mesh_devices_purpose ON mesh_devices (purpose)"))
+                table_names.add("mesh_devices")
+
+            mesh_device_columns = {column["name"] for column in inspector.get_columns("mesh_devices")}
+            mesh_device_statements = {
+                "label": "ALTER TABLE mesh_devices ADD COLUMN label VARCHAR(160) NOT NULL DEFAULT 'Meshtastic device'",
+                "purpose": "ALTER TABLE mesh_devices ADD COLUMN purpose VARCHAR(32) NOT NULL DEFAULT 'tracking'",
+                "is_active": "ALTER TABLE mesh_devices ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE",
+                "created_at": "ALTER TABLE mesh_devices ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "ALTER TABLE mesh_devices ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            }
+            for column_name, statement in mesh_device_statements.items():
+                if column_name not in mesh_device_columns:
+                    connection.execute(text(statement))
+
+            existing_mesh_indexes = {idx["name"] for idx in inspector.get_indexes("mesh_devices")}
+            if "ix_mesh_devices_owner_user_id" not in existing_mesh_indexes:
+                connection.execute(text("CREATE INDEX ix_mesh_devices_owner_user_id ON mesh_devices (owner_user_id)"))
+            if "ix_mesh_devices_purpose" not in existing_mesh_indexes:
+                connection.execute(text("CREATE INDEX ix_mesh_devices_purpose ON mesh_devices (purpose)"))
+
+            if "mesh_device_id" in pre_user_columns:
+                insert_sql = (
+                    """
+                    INSERT OR IGNORE INTO mesh_devices (owner_user_id, device_id, label, purpose, is_active)
+                    SELECT id, mesh_device_id, COALESCE(NULLIF(full_name, ''), username), 'tracking', is_active
+                    FROM users
+                    WHERE mesh_device_id IS NOT NULL AND mesh_device_id <> ''
+                    """
+                    if dialect_name == "sqlite"
+                    else
+                    """
+                    INSERT INTO mesh_devices (owner_user_id, device_id, label, purpose, is_active)
+                    SELECT id, mesh_device_id, COALESCE(NULLIF(full_name, ''), username), 'tracking', is_active
+                    FROM users
+                    WHERE mesh_device_id IS NOT NULL AND mesh_device_id <> ''
+                    ON CONFLICT (device_id) DO NOTHING
+                    """
+                )
+                connection.execute(text(insert_sql))
+
     if "events" not in table_names:
         return
 

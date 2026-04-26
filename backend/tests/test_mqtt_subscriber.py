@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import LivePosition, Pilot, User
+from app.models import LivePosition, MeshDevice, Pilot, User
 from app.services import mqtt_subscriber
 
 
@@ -59,6 +59,16 @@ def test_mqtt_stores_positions_for_registered_pilot_devices(monkeypatch) -> None
                 mesh_device_id="!registered",
             )
         )
+        session.flush()
+        user = session.scalar(select(User).where(User.username == "riley@example.com"))
+        session.add(
+            MeshDevice(
+                owner_user_id=user.id,
+                device_id="!registered",
+                label="Riley tracker",
+                purpose="tracking",
+            )
+        )
         session.commit()
 
     mqtt_subscriber._handle_message(_position_payload("!registered"))
@@ -95,20 +105,58 @@ def test_mqtt_stores_positions_for_registered_stationary_nodes(monkeypatch) -> N
         assert position.source == "mqtt_gateway"
 
 
+def test_mqtt_stores_registered_nontracking_devices_without_pilot(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        owner = User(username="driver@example.com", full_name="Driver One", role="pilot")
+        session.add(owner)
+        session.flush()
+        session.add(
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id="!driverwifi",
+                label="Driver gateway",
+                purpose="driver_wifi",
+            )
+        )
+        session.commit()
+
+    mqtt_subscriber._handle_message(_position_payload("!driverwifi"))
+
+    with factory() as session:
+        position = session.scalar(select(LivePosition))
+        assert position is not None
+        assert position.device_id == "!driverwifi"
+        assert position.pilot_id is None
+        assert position.source == "mqtt_gateway"
+
+
 def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     with factory() as session:
+        active = User(username="active", full_name="Active", role="pilot", mesh_device_id="!active")
+        inactive = User(username="inactive", full_name="Inactive", role="pilot", mesh_device_id="!inactive", is_active=False)
+        owner = User(username="owner", full_name="Owner", role="pilot")
         session.add_all(
             [
-                User(username="active", full_name="Active", role="pilot", mesh_device_id="!active"),
-                User(username="inactive", full_name="Inactive", role="pilot", mesh_device_id="!inactive", is_active=False),
+                active,
+                inactive,
                 User(username="empty", full_name="Empty", role="pilot", mesh_device_id=""),
                 User(username="none", full_name="None", role="pilot"),
+                owner,
+            ]
+        )
+        session.flush()
+        session.add_all(
+            [
+                MeshDevice(owner_user_id=owner.id, device_id="!base", label="Base", purpose="base_station"),
+                MeshDevice(owner_user_id=inactive.id, device_id="!inactive-device", label="Inactive", purpose="driver_wifi"),
+                MeshDevice(owner_user_id=owner.id, device_id="!disabled", label="Disabled", purpose="relay", is_active=False),
             ]
         )
         session.commit()
 
-    assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == ["!active"]
+    assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == ["!active", "!base"]
 
 
 def test_prune_old_mqtt_positions_only_deletes_expired_mesh_rows(monkeypatch) -> None:

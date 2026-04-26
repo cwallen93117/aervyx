@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 
 from app.db import Base
-from app.models import Event, EventPilot, Pilot, User
-from app.routers.auth import change_password, register, update_settings, update_user_account
+from app.models import Event, EventPilot, MeshDevice, Pilot, User
+from app.routers.auth import change_password, create_mesh_device, register, register_mesh_device, update_settings, update_user_account
 from app.routers.pilots import assign_existing_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, PasswordChangeRequest, RegisterRequest
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, PasswordChangeRequest, RegisterRequest
 
 
 def _session() -> Session:
@@ -147,6 +147,43 @@ def test_update_settings_preserves_legacy_admin_username_without_email() -> None
     session.refresh(admin)
     assert response.username == "admin"
     assert admin.username == "admin"
+
+
+def test_mesh_device_auto_registration_creates_tracking_inventory() -> None:
+    session = _session()
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+
+    response = register_mesh_device(MeshDeviceRegister(mesh_device_id="!ABCDEF12"), user, session)
+
+    session.refresh(user)
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!abcdef12"))
+    assert response["mesh_device_id"] == "!abcdef12"
+    assert user.mesh_device_id == "!abcdef12"
+    assert device is not None
+    assert device.owner_user_id == user.id
+    assert device.purpose == "tracking"
+
+
+def test_nontracking_mesh_device_does_not_replace_tracking_mirror() -> None:
+    session = _session()
+    user = User(username="driver@example.com", full_name="Driver User", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+
+    register_mesh_device(MeshDeviceRegister(mesh_device_id="!tracker"), user, session)
+    create_mesh_device(
+        MeshDeviceCreate(device_id="!driverwifi", label="Driver Gateway", purpose="driver_wifi"),
+        user,
+        session,
+    )
+
+    session.refresh(user)
+    driver_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!driverwifi"))
+    assert user.mesh_device_id == "!tracker"
+    assert driver_device is not None
+    assert driver_device.purpose == "driver_wifi"
 
 
 def test_change_password_requires_current_password() -> None:

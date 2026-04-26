@@ -286,9 +286,8 @@ class BleService extends ChangeNotifier {
   /// Called automatically after BLE connection + config dump completes.
   /// If the user switches devices, the new ID overwrites the old one.
   Future<void> _registerMeshDevice() async {
-    if (_deviceState.myNodeNum == 0) return;
-    final deviceId =
-        '!${_deviceState.myNodeNum.toRadixString(16).padLeft(8, '0')}';
+    final deviceId = _currentMeshDeviceId();
+    if (deviceId == null) return;
     try {
       await _api.put(
         ApiConfig.meshDeviceRegisterPath,
@@ -312,6 +311,77 @@ class BleService extends ChangeNotifier {
       debugPrint('Unregistered mesh device from user');
     } catch (e) {
       debugPrint('Failed to unregister mesh device: $e');
+    }
+  }
+
+  String? _currentMeshDeviceId() {
+    if (_deviceState.myNodeNum == 0) return null;
+    return '!${_deviceState.myNodeNum.toRadixString(16).padLeft(8, '0')}';
+  }
+
+  String _meshPurposeForCurrentState() {
+    switch (_deviceState.role) {
+      case DeviceRole.tracker:
+      case DeviceRole.takTracker:
+        return 'tracking';
+      case DeviceRole.router:
+      case DeviceRole.routerClient:
+      case DeviceRole.repeater:
+      case DeviceRole.routerLate:
+      case DeviceRole.clientBase:
+        return 'base_station';
+      case DeviceRole.client:
+      case DeviceRole.clientMute:
+      case DeviceRole.clientHidden:
+        return _deviceState.wifiEnabled ? 'driver_wifi' : 'driver_mesh';
+      case DeviceRole.sensor:
+      case DeviceRole.tak:
+      case DeviceRole.lostAndFound:
+        return 'relay';
+    }
+  }
+
+  String _meshPurposeForProfile(MeshtasticProfile profile) {
+    switch (profile) {
+      case MeshtasticProfile.pilot:
+        return 'tracking';
+      case MeshtasticProfile.driver:
+        return 'driver_mesh';
+      case MeshtasticProfile.driverWifi:
+        return 'driver_wifi';
+      case MeshtasticProfile.repeater:
+        return 'base_station';
+    }
+  }
+
+  Future<void> _registerMeshDeviceInventory(String purpose) async {
+    final deviceId = _currentMeshDeviceId();
+    if (deviceId == null) return;
+    final label = _deviceState.longName.trim().isNotEmpty
+        ? _deviceState.longName.trim()
+        : deviceDisplayName;
+    try {
+      await _api.post(
+        ApiConfig.meshDevicesPath,
+        body: {
+          'device_id': deviceId,
+          'label': label,
+          'purpose': purpose,
+          'is_active': true,
+        },
+      );
+      debugPrint('Registered mesh device $deviceId as $purpose');
+    } catch (e) {
+      debugPrint('Failed to register mesh inventory device: $e');
+    }
+  }
+
+  Future<void> _syncConnectedDeviceRegistration() async {
+    final purpose = _meshPurposeForCurrentState();
+    if (purpose == 'tracking') {
+      await _registerMeshDevice();
+    } else {
+      await _registerMeshDeviceInventory(purpose);
     }
   }
 
@@ -561,10 +631,10 @@ class BleService extends ChangeNotifier {
     _statusMessage = 'Connected to $displayName';
     _configLoaded = true;
 
-    // Auto-register on every connect. If the user applies a Repeater
-    // profile, applyProfile() will unregister it. This keeps the common
-    // case (pilot/driver reconnecting) instant and correct.
-    _registerMeshDevice();
+    // Auto-register on every connect. Tracker devices map to live pilot
+    // tracking; base stations and driver devices stay in the user's device
+    // inventory without becoming the live tracker.
+    await _syncConnectedDeviceRegistration();
 
     // Start mesh position relay (always — captures all mesh traffic)
     _startMeshPositionRelay();
@@ -1448,11 +1518,13 @@ class BleService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      // Register/unregister BEFORE writes (connection may drop during batch).
-      if (profile == MeshtasticProfile.repeater) {
-        _unregisterMeshDevice();
+      // Register before writes. Only Pilot becomes the live tracker;
+      // infrastructure and driver profiles stay in user-owned inventory.
+      final meshPurpose = _meshPurposeForProfile(profile);
+      if (meshPurpose == 'tracking') {
+        await _registerMeshDevice();
       } else {
-        _registerMeshDevice();
+        await _registerMeshDeviceInventory(meshPurpose);
       }
 
       // Build all admin payloads upfront.
