@@ -95,6 +95,22 @@ def test_mqtt_stores_positions_for_registered_stationary_nodes(monkeypatch) -> N
         assert position.source == "mqtt_gateway"
 
 
+def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        session.add_all(
+            [
+                User(username="active", full_name="Active", role="pilot", mesh_device_id="!active"),
+                User(username="inactive", full_name="Inactive", role="pilot", mesh_device_id="!inactive", is_active=False),
+                User(username="empty", full_name="Empty", role="pilot", mesh_device_id=""),
+                User(username="none", full_name="None", role="pilot"),
+            ]
+        )
+        session.commit()
+
+    assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == ["!active"]
+
+
 def test_prune_old_mqtt_positions_only_deletes_expired_mqtt_rows(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     now = datetime.now(UTC)

@@ -29,7 +29,6 @@ Supports two payload formats:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import struct
@@ -50,8 +49,8 @@ logger = logging.getLogger("aervyx.mqtt")
 mqtt_connected: bool = False
 mqtt_last_message_at: datetime | None = None
 
-# Event set by the site_settings PATCH handler to trigger reconnection
-mqtt_reconnect_event: asyncio.Event | None = None
+# Event set by settings/device handlers to trigger reconnection
+mqtt_reconnect_event: threading.Event | None = None
 
 # In-memory battery cache: device_id → (battery_level, timestamp)
 # Populated from TELEMETRY_APP (portnum 67) messages and injected into
@@ -397,6 +396,25 @@ def _resolve_mesh_user(session, device_id: str | None) -> User | None:
     )
 
 
+def _read_registered_mesh_device_ids_from_db() -> list[str]:
+    """Return active platform mesh device IDs for targeted public MQTT subscriptions."""
+    session = SessionLocal()
+    try:
+        return list(
+            session.scalars(
+                select(User.mesh_device_id)
+                .where(
+                    User.is_active.is_(True),
+                    User.mesh_device_id.isnot(None),
+                    User.mesh_device_id != "",
+                )
+                .order_by(User.mesh_device_id)
+            ).all()
+        )
+    finally:
+        session.close()
+
+
 def _resolve_active_task_id(session, pilot_id: int | None) -> int | None:
     """Find the active competition task for a pilot, if any."""
     if pilot_id is None:
@@ -470,6 +488,12 @@ def _maybe_prune_old_mqtt_positions() -> None:
     prune_old_mqtt_positions()
 
 
+def request_mqtt_reconnect() -> None:
+    """Ask the subscriber thread to refresh broker settings and device topics."""
+    if mqtt_reconnect_event is not None:
+        mqtt_reconnect_event.set()
+
+
 def _handle_message(payload: bytes) -> None:
     """Process a single MQTT message payload."""
     parsed = _parse_position(payload)
@@ -513,15 +537,21 @@ def _paho_subscribe_loop() -> None:
             time.sleep(30)
             continue
 
-        # For the public Meshtastic broker, subscribing to "msh/#" is too
-        # broad — the broker drops the connection under the firehose of
-        # global traffic.  Subscribe to the default LongFast channel for the
-        # US region instead.  Private brokers use the prefix as-is.
+        # For the public Meshtastic broker, avoid the full LongFast firehose:
+        # subscribe directly to each registered device's topic.
         if host == "mqtt.meshtastic.org":
-            topic = f"{topic_prefix}/US/2/e/LongFast/#"
+            registered_device_ids = _read_registered_mesh_device_ids_from_db()
+            if not registered_device_ids:
+                print("[MQTT] Public broker enabled, but no registered mesh devices - sleeping 30s", flush=True)
+                mqtt_connected = False
+                time.sleep(30)
+                continue
+            topics = [(f"{topic_prefix}/US/2/e/LongFast/{device_id}", 0) for device_id in registered_device_ids]
+            topic_description = f"{len(topics)} registered device topic(s)"
         else:
-            topic = f"{topic_prefix}/#"
-        print(f"[MQTT] Connecting to {host}:{port} topic={topic} user={username}", flush=True)
+            topics = [(f"{topic_prefix}/#", 0)]
+            topic_description = f"{topic_prefix}/#"
+        print(f"[MQTT] Connecting to {host}:{port} topic={topic_description} user={username}", flush=True)
 
         # Explicit VERSION1 callback API for paho-mqtt 2.x compatibility
         try:
@@ -544,9 +574,9 @@ def _paho_subscribe_loop() -> None:
             print(f"[MQTT] on_connect: rc={rc} flags={flags}", flush=True)
             if rc == 0:
                 mqtt_connected = True
-                client.subscribe(topic)
+                client.subscribe(topics)
                 connected_event.set()
-                print(f"[MQTT] Subscribed to {topic}", flush=True)
+                print(f"[MQTT] Subscribed to {topic_description}", flush=True)
             else:
                 print(f"[MQTT] CONNECT REFUSED rc={rc}", flush=True)
 
@@ -615,6 +645,8 @@ async def start_mqtt_subscriber() -> None:
     Uses paho-mqtt directly for reliable connections to the public
     Meshtastic broker.
     """
+    global mqtt_reconnect_event
+    mqtt_reconnect_event = threading.Event()
     thread = threading.Thread(target=_paho_subscribe_loop, daemon=True)
     thread.start()
     logger.info("MQTT subscriber background thread started")

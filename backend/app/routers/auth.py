@@ -467,6 +467,8 @@ def register_mesh_device(
     user.mesh_device_id = device_id
     session.add(user)
     session.commit()
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+    request_mqtt_reconnect()
     logger.info("User %s set mesh_device_id=%s", user.username, device_id)
     return {"ok": True, "mesh_device_id": device_id}
 
@@ -757,6 +759,8 @@ def clear_user_mesh_device(
     target.mesh_device_id = None
     session.add(target)
     session.commit()
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+    request_mqtt_reconnect()
     logger.info("Admin %s cleared mesh_device_id for user %s", admin.username, target.username)
 
 
@@ -823,6 +827,8 @@ def admin_set_user_mesh_device(
     target.mesh_device_id = device_id
     session.add(target)
     session.commit()
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+    request_mqtt_reconnect()
     session.refresh(target)
     logger.info("Admin %s set mesh_device_id=%s for user %s", admin.username, device_id, target.username)
 

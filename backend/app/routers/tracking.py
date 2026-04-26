@@ -642,6 +642,8 @@ def register_stationary_node(
         existing.is_active = True
         session.add(existing)
         session.commit()
+        from app.services.mqtt_subscriber import request_mqtt_reconnect
+        request_mqtt_reconnect()
         session.refresh(existing)
         return StationaryNodeResponse(
             user_id=existing.id,
@@ -666,6 +668,8 @@ def register_stationary_node(
     )
     session.add(node)
     session.commit()
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+    request_mqtt_reconnect()
     session.refresh(node)
     return StationaryNodeResponse(
         user_id=node.id,

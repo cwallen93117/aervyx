@@ -262,8 +262,7 @@ def update_site_settings(
     session.refresh(settings)
 
     # Signal MQTT subscriber to reconnect with new settings
-    from app.services.mqtt_subscriber import mqtt_reconnect_event
-    if mqtt_reconnect_event is not None:
-        mqtt_reconnect_event.set()
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+    request_mqtt_reconnect()
 
     return SiteSettingsResponse.model_validate(settings)
