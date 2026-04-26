@@ -1,8 +1,9 @@
 """Background MQTT subscriber for Meshtastic position messages.
 
 Connects to the configured MQTT broker (read from site_settings DB),
-subscribes to ``<prefix>/#`` and persists incoming position reports into
-the ``live_positions`` table with ``source='mqtt_gateway'``.
+subscribes to ``<prefix>/#`` and persists incoming position reports for
+registered platform devices into the ``live_positions`` table with
+``source='mqtt_gateway'``.
 
 Supports two payload formats:
 
@@ -34,13 +35,13 @@ import logging
 import struct
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import Event, EventPilot, SiteSettings, Task, User
+from app.models import Event, EventPilot, LivePosition, SiteSettings, Task, User
 from app.services.tracking import store_position
 
 logger = logging.getLogger("aervyx.mqtt")
@@ -57,6 +58,9 @@ mqtt_reconnect_event: asyncio.Event | None = None
 # subsequent POSITION_APP messages for the same device.
 _battery_cache: dict[str, tuple[int, float]] = {}
 _BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
+_MQTT_POSITION_RETENTION_DAYS = 2
+_MQTT_PRUNE_INTERVAL_S = 3600
+_last_mqtt_prune_at: float = 0.0
 
 
 def _parse_position(raw: bytes | bytearray) -> dict | None:
@@ -381,14 +385,16 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
         return None
 
 
-def _resolve_pilot_id(session, device_id: str | None) -> int | None:
-    """Look up pilot_id from users.mesh_device_id for any user type."""
+def _resolve_mesh_user(session, device_id: str | None) -> User | None:
+    """Return the active platform user assigned to a mesh device ID."""
     if not device_id:
         return None
-    user = session.scalar(
-        select(User).where(User.mesh_device_id == device_id)
+    return session.scalar(
+        select(User).where(
+            User.mesh_device_id == device_id,
+            User.is_active.is_(True),
+        )
     )
-    return user.pilot_id if user else None
 
 
 def _resolve_active_task_id(session, pilot_id: int | None) -> int | None:
@@ -430,6 +436,40 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
         session.close()
 
 
+def prune_old_mqtt_positions(retention_days: int = _MQTT_POSITION_RETENTION_DAYS) -> int:
+    """Delete persisted MQTT positions older than the retention window."""
+    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+    session = SessionLocal()
+    try:
+        deleted = (
+            session.query(LivePosition)
+            .filter(
+                LivePosition.source == "mqtt_gateway",
+                LivePosition.timestamp < cutoff,
+            )
+            .delete(synchronize_session=False)
+        )
+        session.commit()
+        if deleted:
+            logger.info("Pruned %d MQTT live positions older than %d days", deleted, retention_days)
+        return int(deleted)
+    except Exception:
+        session.rollback()
+        logger.warning("Failed to prune old MQTT live positions", exc_info=True)
+        return 0
+    finally:
+        session.close()
+
+
+def _maybe_prune_old_mqtt_positions() -> None:
+    global _last_mqtt_prune_at
+    now = time.monotonic()
+    if now - _last_mqtt_prune_at < _MQTT_PRUNE_INTERVAL_S:
+        return
+    _last_mqtt_prune_at = now
+    prune_old_mqtt_positions()
+
+
 def _handle_message(payload: bytes) -> None:
     """Process a single MQTT message payload."""
     parsed = _parse_position(payload)
@@ -442,8 +482,11 @@ def _handle_message(payload: bytes) -> None:
 
     session = SessionLocal()
     try:
-        if parsed.get("pilot_id") is None and parsed.get("device_id"):
-            parsed["pilot_id"] = _resolve_pilot_id(session, parsed["device_id"])
+        mesh_user = _resolve_mesh_user(session, parsed.get("device_id"))
+        if mesh_user is None:
+            return
+
+        parsed["pilot_id"] = mesh_user.pilot_id
         if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
             parsed["task_id"] = _resolve_active_task_id(session, parsed["pilot_id"])
         store_position(session, **parsed)
@@ -461,6 +504,8 @@ def _paho_subscribe_loop() -> None:
     global mqtt_connected
 
     while True:
+        _maybe_prune_old_mqtt_positions()
+
         host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
         if not host:
             print("[MQTT] Not configured or disabled — sleeping 30s", flush=True)
