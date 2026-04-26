@@ -4,6 +4,7 @@ from unittest.mock import patch
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.requests import Request
 
 from app.db import Base
 from app.models import Event, EventPilot, Pilot, User
@@ -18,6 +19,18 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
+def _request() -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/auth/register",
+            "headers": [],
+            "client": ("testclient", 50000),
+        }
+    )
+
+
 def test_register_links_existing_pilot_by_email() -> None:
     session = _session()
     pilot = Pilot(first_name="Casey", last_name="Flyer", email="casey@example.com", competition_number="42")
@@ -26,6 +39,7 @@ def test_register_links_existing_pilot_by_email() -> None:
 
     with patch("app.routers.auth.hash_password", return_value="hashed-password"):
         response = register(
+            _request(),
             RegisterRequest(
                 first_name="Casey",
                 last_name="Flyer",
@@ -46,6 +60,7 @@ def test_register_organizer_creates_user_without_pilot() -> None:
 
     with patch("app.routers.auth.hash_password", return_value="hashed-password"):
         response = register(
+            _request(),
             RegisterRequest(
                 first_name="Olivia",
                 last_name="Meet",
