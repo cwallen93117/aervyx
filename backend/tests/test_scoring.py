@@ -413,7 +413,8 @@ def test_fl_2026_known_bad_staging_settings_are_repaired_before_score() -> None:
     changed = _apply_fl2026_task1_settings(task, event, task_points)
 
     assert changed
-    assert event.timezone == "America/New_York"
+    assert event.timezone == "EST"
+    assert _resolve_timezone_name(event.timezone) == "America/New_York"
     assert event.scoring_formula == "GAP2025"
     assert event.nominal_goal_percent == 0.3
     assert event.goal_ss_penalty == 0

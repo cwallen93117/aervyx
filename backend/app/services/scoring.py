@@ -1564,7 +1564,7 @@ def _apply_fl2026_task1_settings(task: Task, event: Event, task_points: list[Tas
             changed = True
             task_changed = True
 
-    set_event("timezone", "America/New_York")
+    set_event("timezone", "EST")
     set_event("scoring_formula", "GAP2025")
     set_event("nominal_distance_km", 50)
     set_event("nominal_time_hours", 1.5)
