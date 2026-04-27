@@ -40,9 +40,21 @@ function taskTypeLabel(value: string): string {
   return taskTypeOptions.find((option) => option.value === normalizeTaskType(value))?.label ?? value;
 }
 
-function formatClockTime(value: string | null | undefined, includeSeconds = false): string {
+function formatClockTime(value: string | null | undefined, includeSeconds = false, timeZone?: string): string {
   if (!value) return "-";
-  return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: true });
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: includeSeconds ? "2-digit" : undefined,
+      hour12: true,
+      timeZone: timeZone || undefined,
+    }).format(parsed);
+  } catch {
+    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: true });
+  }
 }
 
 function formatTaskClockLabel(value: string | null | undefined): string {
@@ -241,6 +253,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     taskDefinitionRows,
     startGateLabels,
     taskResultsColumns,
+    eventForm,
     settingsForm,
     siteSettings,
     canManagePlatform,
@@ -455,10 +468,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                   <strong>{result.pilot_name}</strong>
                                   {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
                                 </td>
-                              <td>{pilot?.nation ?? "-"}</td>
-                              <td>-</td>
-                              <td>{isUnscored ? "-" : formatClockTime(result.started_at, true)}</td>
-                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
+                                <td>{pilot?.nation ?? "-"}</td>
+                                <td>-</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.started_at, true, eventForm.timezone)}</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true, eventForm.timezone)}</td>
                                 <td>{isUnscored ? "-" : formatElapsedSeconds(result.elapsed_seconds)}</td>
                                 <td>{isUnscored ? "-" : formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
                                 <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>

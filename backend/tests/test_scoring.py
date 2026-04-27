@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from app.models import Task, TaskPoint, TrackPoint
-from app.services.scoring import _build_airscore_pilot_result, _build_formula, _score_evaluations, evaluate_task
+from app.services.scoring import _build_airscore_pilot_result, _build_formula, _compute_optimized_task_distance, _score_evaluations, evaluate_task
 
 
 def _task(task_id: int = 1, nominal_time_hours: float = 1.5) -> Task:
@@ -253,6 +255,96 @@ def test_goal_ss_penalty_preserves_explicit_zero() -> None:
     formula = _build_formula(_task(), event)
 
     assert formula["sspenalty"] == 0.0
+
+
+def _fl_2026_task_points() -> list[TaskPoint]:
+    return [
+        _task_point(1, 1, "launch", 28.53303, -81.84666, 400),
+        _task_point(2, 2, "start", 28.53303, -81.84666, 5000),
+        _task_point(3, 3, "turnpoint", 28.95917, -82.13416, 1000),
+        _task_point(4, 4, "turnpoint", 29.06043, -82.37565, 3000),
+        _task_point(5, 5, "turnpoint", 29.28913, -82.32232, 1000),
+        _task_point(6, 6, "goal", 29.06043, -82.37565, 3000),
+    ]
+
+
+def test_fl_2026_launch_radius_does_not_reduce_start_distance() -> None:
+    task_distance_km, waypoints = _compute_optimized_task_distance(_fl_2026_task_points())
+
+    assert task_distance_km == pytest.approx(123.84, abs=0.03)
+    assert waypoints[0]["_startssdist"] / 1000 == pytest.approx(5.0, abs=0.01)
+    assert waypoints[0]["_ssdist"] / 1000 == pytest.approx(118.84, abs=0.03)
+
+
+def test_missed_turnpoint_blocks_later_goal_credit() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    task.start_gate_count = 5
+    task.start_gate_interval_seconds = 15 * 60
+    task_points = _fl_2026_task_points()
+    track_points = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 0, tzinfo=UTC), 28.53303, -81.84666),
+        _track_point_at(2, datetime(2026, 4, 23, 18, 20, tzinfo=UTC), 28.57, -81.91),
+        # Near SAVANA but outside the 1 km cylinder.
+        _track_point_at(3, datetime(2026, 4, 23, 19, 0, tzinfo=UTC), 28.93917, -82.13416),
+        # Later cylinders are reached, but they must not count after the miss.
+        _track_point_at(4, datetime(2026, 4, 23, 19, 30, tzinfo=UTC), 29.06043, -82.37565),
+        _track_point_at(5, datetime(2026, 4, 23, 20, 15, tzinfo=UTC), 29.28913, -82.32232),
+        _track_point_at(6, datetime(2026, 4, 23, 21, 0, tzinfo=UTC), 29.06043, -82.37565),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="America/New_York")
+    later_goal = result["details"]["hits"][-1]
+
+    assert result["status"] == "partial"
+    assert result["goal_at"] is None
+    assert result["details"]["missed_point"]["task_point_id"] == 3
+    assert later_goal["hit"] is False
+    assert later_goal["ignored_hit"] is True
+    assert result["distance_flown_km"] < 55
+
+
+def test_non_goal_pilot_loses_speed_and_arrival_points() -> None:
+    task = _task(nominal_time_hours=0.05)
+    task.start_open_time = "12:00:00"
+    task.task_finish_time = "18:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "turnpoint", 0.0, 0.04, 1000),
+        _task_point(3, 3, "goal", 0.0, 0.08, 1000),
+    ]
+    goal_track = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, 0.02),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 8, tzinfo=UTC), 0.0, 0.04),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 16, tzinfo=UTC), 0.0, 0.08),
+    ]
+    partial_track = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, 0.02),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 8, tzinfo=UTC), 0.0, 0.04),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 20, tzinfo=UTC), 0.0, 0.06),
+    ]
+    upload_goal = type("UploadStub", (), {"id": 10, "pilot_id": 1})()
+    upload_partial = type("UploadStub", (), {"id": 11, "pilot_id": 2})()
+
+    scored = _score_evaluations(
+        task,
+        2,
+        [
+            {"upload": upload_goal, "evaluation": evaluate_task(task, task_points, goal_track, event_timezone="UTC")},
+            {"upload": upload_partial, "evaluation": evaluate_task(task, task_points, partial_track, event_timezone="UTC")},
+        ],
+    )
+    partial = next(result for result in scored if result["pilot_id"] == 2)
+    awarded = partial["details_json"]["gap"]["awarded_points"]
+
+    assert partial["status"] == "partial"
+    assert awarded["distance"] > 0
+    assert awarded["speed"] == 0
+    assert awarded["arrival"] == 0
 
 
 def test_launch_validity_saturates_at_one_for_well_launched_day() -> None:

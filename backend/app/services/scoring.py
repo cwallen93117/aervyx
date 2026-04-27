@@ -8,6 +8,7 @@ This module is the only place that bridges Aervyx ORM models ↔ AirScore dicts.
 
 from __future__ import annotations
 
+import copy
 import math
 from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -16,6 +17,7 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models import Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
+from app.services.airscore import task as airscore_task
 from app.services.airscore.gap import build_task_totals, day_quality, pilot_arrival, pilot_departure_leadout, pilot_distance, pilot_speed, points_allocation, points_weight, select_coeff
 from app.services.airscore.route import find_shortest_route, task_distance as route_task_distance
 from app.services.airscore.task import distance_flown as airscore_distance_flown, precompute_waypoint_dist
@@ -202,11 +204,18 @@ def _scored_start_from_gates(task: Task, actual_start_at: datetime | None, first
 def _build_airscore_waypoints(task_points: list[TaskPoint]) -> list[dict]:
     """Convert Aervyx TaskPoints into AirScore waypoint dicts for Route.pm."""
     ordered = sorted(task_points, key=lambda p: p.position)
+    has_separate_start = any(p.point_type.lower() == "launch" for p in ordered) and any(p.point_type.lower() == "start" for p in ordered)
     waypoints = []
     for i, tp in enumerate(ordered):
         pt = tp.point_type.lower()
         direction = _point_direction(tp)
         how = "exit" if direction == "exit" else "entry"
+        radius_m = float(tp.radius_m or 0.0)
+        if pt == "launch" and has_separate_start:
+            # AirScore task distance starts from launch/origin, but launch is
+            # not a scored cylinder when a distinct start cylinder exists.
+            radius_m = 0.0
+            how = "entry"
         # Map Aervyx point_type to AirScore type/how
         if pt == "start":
             wpt_type = "start"
@@ -218,7 +227,7 @@ def _build_airscore_waypoints(task_points: list[TaskPoint]) -> list[dict]:
             wpt_type = "turnpoint"
 
         wpt = to_rad_dict(tp.latitude, tp.longitude,
-                          radius=tp.radius_m,
+                          radius=radius_m,
                           type=wpt_type,
                           how=how,
                           shape="circle",
@@ -227,6 +236,64 @@ def _build_airscore_waypoints(task_points: list[TaskPoint]) -> list[dict]:
                           number=i)
         waypoints.append(wpt)
     return waypoints
+
+
+def _cache_waypoint_distance_metadata(
+    waypoints: list[dict],
+    spt: int,
+    ept: int,
+    gpt: int,
+    ssdist: float,
+    startssdist: float,
+    endssdist: float,
+    totdist: float,
+    wpt_distances: list[float] | None = None,
+) -> None:
+    distance_cache = list(wpt_distances or [])
+    for wpt in waypoints:
+        wpt["_spt"] = spt
+        wpt["_ept"] = ept
+        wpt["_gpt"] = gpt
+        wpt["_ssdist"] = ssdist
+        wpt["_startssdist"] = startssdist
+        wpt["_endssdist"] = endssdist
+        wpt["_totdist"] = totdist
+        wpt["_wptdistances"] = distance_cache
+
+
+def _prepare_waypoints_for_distance(waypoints: list[dict], formula: dict | None = None) -> tuple[list[dict], list[float]]:
+    local_waypoints = copy.deepcopy(waypoints)
+    if not local_waypoints:
+        return [], []
+    spt, ept, gpt, ssdist, startssdist, endssdist, totdist = precompute_waypoint_dist(
+        local_waypoints,
+        {"errormargin": (formula or {}).get("errormargin", 0.05)},
+    )
+    wpt_distances = list(getattr(airscore_task, "_wptdistcache", []))
+    _cache_waypoint_distance_metadata(local_waypoints, spt, ept, gpt, ssdist, startssdist, endssdist, totdist, wpt_distances)
+    return local_waypoints, wpt_distances
+
+
+def _waypoint_distance_stats(waypoints: list[dict], fallback_total_km: float = 0.0) -> dict:
+    if not waypoints:
+        return {
+            "task_distance": round(fallback_total_km, 3),
+            "ss_distance": 0.0,
+            "startss_distance": 0.0,
+            "endss_distance": 0.0,
+            "launch_to_ess_distance": 0.0,
+        }
+    total_m = float(waypoints[0].get("_totdist", fallback_total_km * 1000.0) or 0.0)
+    ss_m = float(waypoints[0].get("_ssdist", 0.0) or 0.0)
+    startss_m = float(waypoints[0].get("_startssdist", max(total_m - ss_m, 0.0)) or 0.0)
+    endss_m = float(waypoints[0].get("_endssdist", startss_m + ss_m) or 0.0)
+    return {
+        "task_distance": round(total_m / 1000.0, 3),
+        "ss_distance": round(ss_m / 1000.0, 3),
+        "startss_distance": round(startss_m / 1000.0, 3),
+        "endss_distance": round(endss_m / 1000.0, 3),
+        "launch_to_ess_distance": round(endss_m / 1000.0, 3),
+    }
 
 
 def _compute_optimized_task_distance(task_points: list[TaskPoint]) -> tuple[float, list[dict]]:
@@ -251,14 +318,7 @@ def _compute_optimized_task_distance(task_points: list[TaskPoint]) -> tuple[floa
             wpt["short_long"] = wpt["long"]
 
     spt, ept, gpt, ssdist, startssdist, endssdist, totdist = route_task_distance(waypoints)
-
-    # Store task metadata on waypoints for later use
-    for wpt in waypoints:
-        wpt["_spt"] = spt
-        wpt["_ept"] = ept
-        wpt["_gpt"] = gpt
-        wpt["_ssdist"] = ssdist
-        wpt["_endssdist"] = endssdist
+    _cache_waypoint_distance_metadata(waypoints, spt, ept, gpt, ssdist, startssdist, endssdist, totdist)
 
     return totdist / 1000.0, waypoints  # convert metres to km
 
@@ -291,9 +351,10 @@ def _compute_leading_coeff(
         return 0.0, 0.0
 
     # Get task metadata from waypoints (stored by _compute_optimized_task_distance)
+    spt = int(waypoints[0].get("_spt", 0) or 0)
     ssdist = waypoints[0].get("_ssdist", 0)
     endssdist = waypoints[0].get("_endssdist", 0)
-    startssdist = endssdist - ssdist if endssdist > 0 and ssdist > 0 else 0
+    startssdist = waypoints[0].get("_startssdist", endssdist - ssdist if endssdist > 0 and ssdist > 0 else 0)
 
     if ssdist <= 0 or endssdist <= 0:
         return 0.0, 0.0
@@ -324,9 +385,11 @@ def _compute_leading_coeff(
 
         # Compute distance flown using AirScore engine
         try:
-            newdist = airscore_distance_flown(waypoints, 1, coord)
+            newdist = airscore_distance_flown(waypoints, spt, coord)
         except (IndexError, ZeroDivisionError):
             continue
+        if distance_flown_m > 0:
+            newdist = min(newdist, distance_flown_m)
 
         if newdist > maxdist:
             if had_previous:
@@ -451,56 +514,115 @@ def evaluate_task(
     if len(ordered_points) < 2:
         return {"status": "uploaded", "distance_flown_km": 0.0, "details": {"hits": [], "total_distance_km": 0.0}}
 
-    # Compute optimized task distance if not provided
-    if optimized_distance_km is None:
-        optimized_distance_km, _ = _compute_optimized_task_distance(task_points)
+    if optimized_distance_km is None or airscore_waypoints is None:
+        optimized_distance_km, computed_waypoints = _compute_optimized_task_distance(task_points)
+        if airscore_waypoints is None:
+            airscore_waypoints = computed_waypoints
 
-    hit_indices: dict[int, int] = {}
-    hit_times: dict[int, datetime] = {}
     timezone_name = event_timezone or "UTC"
     start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
     formula = _build_formula(task, event)
+    distance_waypoints, waypoint_distances = _prepare_waypoints_for_distance(airscore_waypoints or [], formula)
+    task_stats = _waypoint_distance_stats(distance_waypoints or airscore_waypoints or [], optimized_distance_km or 0.0)
+    total_task_distance_km = task_stats["task_distance"] or (optimized_distance_km or 0.0)
+    waypoint_index_by_point_id = {int(wpt["key"]): index for index, wpt in enumerate(distance_waypoints) if wpt.get("key") is not None}
+
+    hit_indices: dict[int, int] = {}
+    hit_times: dict[int, datetime] = {}
+    point_detail_state: dict[int, dict] = {
+        point.id: {
+            "hit": False,
+            "hit_at": None,
+            "scored_hit_at": None,
+            "ignored_hit": False,
+            "ignored_hit_at": None,
+            "required": point.point_type.lower() != "launch",
+        }
+        for point in ordered_points
+    }
+
+    def _find_point_hit(point: TaskPoint, start_cursor: int, latest_at: datetime | None = None, prefer_latest: bool = False) -> tuple[int, datetime] | None:
+        if not trackpoints:
+            return None
+        radius_km = point.radius_m / 1000.0
+        if _point_direction(point) == "exit":
+            return _find_exit_hit(point, trackpoints, radius_km, cursor=start_cursor, latest_at=latest_at, prefer_latest=prefer_latest)
+        return _find_entry_hit(point, trackpoints, radius_km, cursor=start_cursor, latest_at=latest_at)
 
     cursor = 0
-    for point in ordered_points:
-        radius_km = point.radius_m / 1000.0
+    missed_point: TaskPoint | None = None
+    missed_point_order_index: int | None = None
+    last_required_point: TaskPoint | None = None
+    last_required_track_index: int | None = None
+    last_required_waypoint_index: int | None = None
+
+    for order_index, point in enumerate(ordered_points):
+        point_type = point.point_type.lower()
+        if point_type == "launch":
+            launch_hit = _find_point_hit(point, cursor)
+            if launch_hit is not None:
+                idx, hit_at = launch_hit
+                hit_indices[point.id] = idx
+                hit_times[point.id] = hit_at
+                point_detail_state[point.id]["hit"] = True
+                point_detail_state[point.id]["hit_at"] = _isoformat_or_none(hit_at)
+                point_detail_state[point.id]["scored_hit_at"] = _isoformat_or_none(hit_at)
+                cursor = max(cursor, idx + 1)
+            continue
+
         is_start = point.point_type.lower() == "start"
         latest_at = start_close_at if is_start else None
-        if _point_direction(point) == "exit":
-            hit = _find_exit_hit(point, trackpoints, radius_km, cursor=cursor, latest_at=latest_at, prefer_latest=is_start)
-        else:
-            hit = _find_entry_hit(point, trackpoints, radius_km, cursor=cursor, latest_at=latest_at)
+        hit = _find_point_hit(point, cursor, latest_at=latest_at, prefer_latest=is_start)
         if hit is None:
-            continue
+            missed_point = point
+            missed_point_order_index = order_index
+            break
         idx, hit_at = hit
         hit_indices[point.id] = idx
         hit_times[point.id] = hit_at
+        point_detail_state[point.id]["hit"] = True
+        point_detail_state[point.id]["hit_at"] = _isoformat_or_none(hit_at)
+        point_detail_state[point.id]["scored_hit_at"] = _isoformat_or_none(hit_at)
         cursor = idx + 1
+        last_required_point = point
+        last_required_track_index = idx
+        last_required_waypoint_index = waypoint_index_by_point_id.get(point.id)
 
-    # Distance flown uses optimized task distance and leg proportions
-    total_distance = 0.0
-    progress_distance = 0.0
-    for index in range(1, len(ordered_points)):
-        previous_point = ordered_points[index - 1]
-        current_point = ordered_points[index]
-        leg_distance = _vincenty_km(previous_point.latitude, previous_point.longitude, current_point.latitude, current_point.longitude)
-        total_distance += leg_distance
-        if current_point.id in hit_indices:
-            progress_distance += leg_distance
-            continue
-        if previous_point.id in hit_indices:
-            progress_distance += _project_progress(previous_point, current_point, trackpoints[hit_indices[previous_point.id] + 1:])
-        break
+    if missed_point is not None and missed_point_order_index is not None:
+        ignored_cursor = cursor
+        for point in ordered_points[missed_point_order_index + 1:]:
+            if point.point_type.lower() == "launch":
+                continue
+            ignored_hit = _find_point_hit(point, ignored_cursor)
+            if ignored_hit is None:
+                continue
+            idx, hit_at = ignored_hit
+            point_detail_state[point.id]["ignored_hit"] = True
+            point_detail_state[point.id]["ignored_hit_at"] = _isoformat_or_none(hit_at)
+            ignored_cursor = idx + 1
 
-    # Scale progress by the optimized/raw ratio to use optimized distance
-    if total_distance > 0 and optimized_distance_km > 0:
-        scale_factor = optimized_distance_km / total_distance
-        progress_distance *= scale_factor
-    # Goal pilots get the full optimized task distance
+    def _cumulative_distance_for_waypoint(point: TaskPoint | None) -> float:
+        if point is None:
+            return 0.0
+        waypoint_index = waypoint_index_by_point_id.get(point.id)
+        if waypoint_index is None or waypoint_index + 1 >= len(waypoint_distances):
+            return total_task_distance_km * 1000.0
+        return max(float(waypoint_distances[waypoint_index + 1] or 0.0), 0.0)
+
+    progress_distance_m = _cumulative_distance_for_waypoint(last_required_point)
+    if missed_point is not None and last_required_waypoint_index is not None and distance_waypoints:
+        cap_m = _cumulative_distance_for_waypoint(missed_point)
+        search_start = (last_required_track_index + 1) if last_required_track_index is not None else 0
+        for trackpoint in trackpoints[search_start:]:
+            coord = to_rad_dict(trackpoint.latitude, trackpoint.longitude, time=trackpoint.recorded_at.timestamp())
+            try:
+                flown_m = airscore_distance_flown(distance_waypoints, last_required_waypoint_index, coord)
+            except (IndexError, ZeroDivisionError):
+                continue
+            progress_distance_m = max(progress_distance_m, min(flown_m, cap_m))
+
     goal_point = next((p for p in ordered_points if p.point_type.lower() == "goal"), None)
-    if goal_point and goal_point.id in hit_indices:
-        progress_distance = optimized_distance_km
 
     # Find start, ESS, goal — case-insensitive
     start_point = next((p for p in ordered_points if p.point_type.lower() == "start"), None)
@@ -511,14 +633,19 @@ def evaluate_task(
 
     actual_started_at = hit_times.get(start_point.id) if start_point else None
     started_at, start_timing_details = _scored_start_from_gates(task, actual_started_at, start_open_at, formula)
+    if start_point is not None and start_point.id in point_detail_state:
+        point_detail_state[start_point.id]["scored_hit_at"] = _isoformat_or_none(started_at)
     ess_at = hit_times.get(ess_point.id) if ess_point else None
     goal_at = hit_times.get(goal_point.id) if goal_point else None
+    valid_goal = goal_point is not None and goal_point.id in hit_indices and missed_point is None
+    if valid_goal:
+        progress_distance_m = total_task_distance_km * 1000.0
 
-    if goal_at is not None:
+    if valid_goal:
         status = "goal"
     elif ess_at is not None:
         status = "ess"
-    elif progress_distance > 0:
+    elif progress_distance_m > 0:
         status = "partial"
     else:
         status = "uploaded"
@@ -531,13 +658,13 @@ def evaluate_task(
 
     # Compute leading coefficients if waypoints are available
     lc1, lc2 = 0.0, 0.0
-    if airscore_waypoints and trackpoints and started_at is not None:
+    if distance_waypoints and trackpoints and started_at is not None:
         task_sstart_epoch = start_open_at.timestamp() if start_open_at is not None else 0.0
         task_sfinish_epoch = start_close_at.timestamp() if start_close_at is not None else 0.0
         lc1, lc2 = _compute_leading_coeff(
-            airscore_waypoints, trackpoints, started_at,
+            distance_waypoints, trackpoints, started_at,
             ess_at if ess_at is not None else goal_at,
-            progress_distance * 1000.0,
+            progress_distance_m,
             task_class,
             task_sstart=task_sstart_epoch,
             task_sfinish=task_sfinish_epoch,
@@ -545,7 +672,7 @@ def evaluate_task(
 
     return {
         "status": status,
-        "distance_flown_km": round(progress_distance, 3),
+        "distance_flown_km": round(progress_distance_m / 1000.0, 3),
         "started_at": started_at,
         "ess_at": ess_at,
         "goal_at": goal_at,
@@ -561,13 +688,22 @@ def evaluate_task(
                     "name": point.name,
                     "point_type": point.point_type,
                     "direction": _point_direction(point),
-                    "hit": point.id in hit_indices,
-                    "hit_at": _isoformat_or_none(hit_times.get(point.id)),
-                    "scored_hit_at": _isoformat_or_none(started_at) if start_point and point.id == start_point.id else _isoformat_or_none(hit_times.get(point.id)),
+                    "hit": point_detail_state[point.id]["hit"],
+                    "hit_at": point_detail_state[point.id]["hit_at"],
+                    "scored_hit_at": point_detail_state[point.id]["scored_hit_at"],
+                    "ignored_hit": point_detail_state[point.id]["ignored_hit"],
+                    "ignored_hit_at": point_detail_state[point.id]["ignored_hit_at"],
+                    "required": point_detail_state[point.id]["required"],
                 }
                 for point in ordered_points
             ],
-            "total_distance_km": round(optimized_distance_km, 3),
+            "total_distance_km": round(total_task_distance_km, 3),
+            "task_stats": task_stats,
+            "missed_point": {
+                "task_point_id": missed_point.id,
+                "name": missed_point.name,
+                "point_type": missed_point.point_type,
+            } if missed_point is not None else None,
             "start_timing": start_timing_details,
         },
     }
@@ -820,10 +956,14 @@ def _score_evaluations(
 
     # Extract task distance metadata from waypoints
     ssdist_m = 0.0
+    startssdist_m = 0.0
     endssdist_m = 0.0
+    task_distance_m = 0.0
     if airscore_waypoints and len(airscore_waypoints) >= 2:
         ssdist_m = airscore_waypoints[0].get("_ssdist", 0)
+        startssdist_m = airscore_waypoints[0].get("_startssdist", max(airscore_waypoints[0].get("_endssdist", 0) - ssdist_m, 0))
         endssdist_m = airscore_waypoints[0].get("_endssdist", 0)
+        task_distance_m = airscore_waypoints[0].get("_totdist", endssdist_m)
 
     # Resolve task start/finish times (epoch) from the first pilot's track
     sstart_epoch = 0.0
@@ -868,6 +1008,7 @@ def _score_evaluations(
         "stopped": 0,
         "sstopped": 0,
         "endssdistance": endssdist_m,
+        "startssdistance": startssdist_m,
         "ssdistance": ssdist_m,
         "sstart": sstart_epoch,
         "sfinish": sfinish_epoch,
@@ -1001,6 +1142,11 @@ def _score_evaluations(
                 "time_validity": round(taskt.get("time_validity", 0), 6),
                 "stopped_validity": round(taskt.get("stop_validity", 1), 6),
                 "quality": round(taskt.get("quality", 0), 6),
+                "task_distance": round(task_distance_m / 1000.0, 3),
+                "ss_distance": round(ssdist_m / 1000.0, 3),
+                "startss_distance": round(startssdist_m / 1000.0, 3),
+                "endss_distance": round(endssdist_m / 1000.0, 3),
+                "launch_to_ess_distance": round(endssdist_m / 1000.0, 3),
             },
             "awarded_points": {
                 "distance": round(pil.get("Pdist", 0), decimals),
