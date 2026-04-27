@@ -443,6 +443,11 @@ export default function ScoringOperationsPanel({
               </button>
             ))}
             <div className="scoring-ops-task-actions">
+              {feedback ? (
+                <div className="scoring-ops-action-feedback" role="status" aria-live="polite">
+                  <div className={`status-chip ${feedback.type}`}>{feedback.text}</div>
+                </div>
+              ) : null}
               <button
                 type="button"
                 className="scoring-ops-footer-btn secondary"
@@ -483,11 +488,6 @@ export default function ScoringOperationsPanel({
               >
                 Delete scored task
               </button>
-              {feedback ? (
-                <div className="scoring-ops-action-feedback" role="status" aria-live="polite">
-                  <div className={`status-chip ${feedback.type}`}>{feedback.text}</div>
-                </div>
-              ) : null}
             </div>
           </div>
 
