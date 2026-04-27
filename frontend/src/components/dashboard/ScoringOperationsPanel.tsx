@@ -483,6 +483,11 @@ export default function ScoringOperationsPanel({
               >
                 Delete scored task
               </button>
+              {feedback ? (
+                <div className="scoring-ops-action-feedback" role="status" aria-live="polite">
+                  <div className={`status-chip ${feedback.type}`}>{feedback.text}</div>
+                </div>
+              ) : null}
             </div>
           </div>
 
@@ -654,11 +659,6 @@ export default function ScoringOperationsPanel({
               }}
             />
           </div>
-          {feedback ? (
-            <div className="scoring-ops-footer-feedback">
-              <div className={`status-chip ${feedback.type}`}>{feedback.text}</div>
-            </div>
-          ) : null}
         </div>
       </SectionCard>
 

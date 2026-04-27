@@ -213,7 +213,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
           </div>
         ) : null}
         <div className="participant-table-wrap">
-          <table className="participant-table">
+          <table className="participant-table participant-roster-table">
             <thead>
               <tr>
                 {canManagePlatform ? (
@@ -263,7 +263,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                     <td>{pilot.portal_username ?? "No portal user"}</td>
                     {canManagePlatform ? (
                       <td className="participant-table-actions">
-                        <div className="compact-slot-actions">
+                        <div className="compact-slot-actions participant-row-actions">
                           <button
                             type="button"
                             className="ghost-button"

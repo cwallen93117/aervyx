@@ -1730,13 +1730,13 @@ button[type="submit"]:hover,
 .task-point-list-grid-header,
 .task-point-list-grid-row {
   display: grid;
-  grid-template-columns: 44px minmax(116px, 1.25fr) 112px 72px 96px;
+  grid-template-columns: 44px minmax(116px, 1.25fr) 112px 88px 72px 96px;
   align-items: center;
 }
 
 .task-point-list-grid-header.has-actions,
 .task-point-list-grid-row.has-actions {
-  grid-template-columns: 44px minmax(116px, 1.25fr) 112px 72px 96px 92px;
+  grid-template-columns: 44px minmax(116px, 1.25fr) 112px 88px 72px 96px 92px;
 }
 
 .task-point-list-grid-header {
@@ -1767,18 +1767,24 @@ button[type="submit"]:hover,
 }
 
 .task-point-list-grid-header > span:nth-child(4) {
-  width: 72px;
+  width: 88px;
   justify-self: center;
 }
 
 .task-point-list-grid-header > span:nth-child(5) {
+  width: 72px;
+  justify-self: center;
+}
+
+.task-point-list-grid-header > span:nth-child(6) {
   width: 96px;
   justify-self: center;
 }
 
 .task-point-list-grid-header > span:nth-child(3),
 .task-point-list-grid-header > span:nth-child(4),
-.task-point-list-grid-header > span:nth-child(5) {
+.task-point-list-grid-header > span:nth-child(5),
+.task-point-list-grid-header > span:nth-child(6) {
   display: grid;
   place-items: center;
 }
@@ -1874,6 +1880,11 @@ button[type="submit"]:hover,
   justify-self: center;
 }
 
+.task-point-row-direction {
+  width: 88px;
+  justify-self: center;
+}
+
 .task-point-row-radius {
   width: 72px;
   justify-self: center;
@@ -1919,6 +1930,7 @@ button[type="submit"]:hover,
 }
 
 .task-point-row-type select,
+.task-point-row-direction select,
 .task-point-row-radius input {
   width: 100%;
   min-height: 34px;
@@ -2327,6 +2339,32 @@ button[type="submit"]:hover,
   width: 1%;
   white-space: nowrap;
   text-align: right;
+}
+
+.participant-roster-table thead th {
+  padding: 4px 8px;
+}
+
+.participant-roster-table tbody td {
+  padding: 3px 8px;
+  font-size: 0.8125rem;
+  line-height: 1.2;
+}
+
+.participant-roster-table .participant-table-check {
+  padding-left: 8px !important;
+  padding-right: 2px !important;
+}
+
+.participant-row-actions {
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.participant-row-actions .ghost-button {
+  height: 28px;
+  padding: 2px 10px;
+  font-size: 0.75rem;
 }
 
 .participant-table-check {
@@ -4272,6 +4310,10 @@ button[type="submit"]:hover,
   width: 184px;
 }
 
+.map-task-editor-direction {
+  width: 96px;
+}
+
 .map-task-editor-radius {
   width: 104px;
 }
@@ -5562,6 +5604,19 @@ details[open] > summary {
   justify-content: flex-end;
 }
 
+.scoring-ops-action-feedback {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  max-width: 360px;
+}
+
+.scoring-ops-action-feedback .status-chip {
+  max-width: 100%;
+  line-height: 1.35;
+  text-align: left;
+}
+
 .scoring-ops-footer-left,
 .scoring-ops-footer-right {
   display: flex;
@@ -5582,12 +5637,6 @@ details[open] > summary {
   line-height: 1.35;
   max-width: 520px;
   text-align: right;
-}
-
-.scoring-ops-footer-feedback {
-  display: flex;
-  justify-content: flex-start;
-  margin-top: 8px;
 }
 
 .scoring-ops-footer-divider {
