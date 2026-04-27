@@ -1,9 +1,20 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 import pytest
 
-from app.models import Task, TaskPoint, TrackPoint
-from app.services.scoring import _as_utc_aware, _build_airscore_pilot_result, _build_formula, _compute_optimized_task_distance, _resolve_task_time_utc, _score_evaluations, evaluate_task
+from app.models import Event, Task, TaskPoint, TrackPoint
+from app.services.scoring import (
+    _apply_fl2026_task1_settings,
+    _as_utc_aware,
+    _build_airscore_pilot_result,
+    _build_formula,
+    _compute_optimized_task_distance,
+    _is_fl2026_task1,
+    _resolve_task_time_utc,
+    _resolve_timezone_name,
+    _score_evaluations,
+    evaluate_task,
+)
 
 
 def _task(task_id: int = 1, nominal_time_hours: float = 1.5) -> Task:
@@ -350,6 +361,70 @@ def test_fl_2026_timezone_inference_scores_first_gate_as_eastern_time() -> None:
     assert result["details"]["scoring_timezone"] == "America/New_York"
     assert result["started_at"] == datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
     assert result["details"]["start_timing"]["start_gate_index"] == 2
+
+
+def test_est_alias_scores_florida_gates_as_eastern_time() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    task_points = _fl_2026_task_points()
+    track_points = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 17, 31, tzinfo=UTC), 28.53303, -81.84666),
+        _track_point_at(2, datetime(2026, 4, 23, 18, 20, 20, tzinfo=UTC), 28.57, -81.91),
+        _track_point_at(3, datetime(2026, 4, 23, 20, 34, 17, tzinfo=UTC), 29.06043, -82.37565),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="EST")
+
+    assert _resolve_timezone_name("EST") == "America/New_York"
+    assert result["details"]["scoring_timezone"] == "America/New_York"
+    assert result["started_at"] == datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
+    assert result["details"]["start_timing"]["start_gate_index"] == 2
+
+
+def test_fl_2026_known_bad_staging_settings_are_repaired_before_score() -> None:
+    task = _task()
+    task.name = "Task 1 - Open"
+    task.task_date = date(2026, 4, 23)
+    task.start_open_time = "14:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    event = Event(
+        id=11,
+        name="FL 2026 Comp",
+        location="Florida",
+        starts_on=date(2026, 4, 23),
+        ends_on=date(2026, 4, 26),
+        timezone="EST",
+        scoring_formula="GAP2020",
+        nominal_goal_percent=0.25,
+        goal_ss_penalty=1.0,
+        use_leading_points=False,
+        default_start_gate_count=5,
+        default_start_gate_interval_seconds=15 * 60,
+        penalties_json={},
+    )
+    task_points = _fl_2026_task_points()
+
+    assert _is_fl2026_task1(task, event, task_points)
+    changed = _apply_fl2026_task1_settings(task, event, task_points)
+
+    assert changed
+    assert event.timezone == "America/New_York"
+    assert event.scoring_formula == "GAP2025"
+    assert event.nominal_goal_percent == 0.3
+    assert event.goal_ss_penalty == 0
+    assert event.use_leading_points is True
+    assert event.default_start_gate_count == 5
+    assert event.default_start_gate_interval_seconds == 15 * 60
+    assert task.task_start_time == "14:00:00"
+    assert task.start_gate_count == 4
+    assert task.start_gate_interval_seconds == 20 * 60
+    assert task_points[1].direction == "exit"
+    assert task_points[-1].point_type == "goal"
 
 
 def test_task_clock_resolution_treats_naive_track_timestamps_as_utc() -> None:

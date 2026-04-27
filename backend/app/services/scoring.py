@@ -27,9 +27,21 @@ STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_n
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
 TIMEZONE_ALIASES = {
     "eastern": "America/New_York",
+    "est": "America/New_York",
+    "edt": "America/New_York",
+    "us/eastern": "America/New_York",
     "central": "America/Chicago",
+    "cst": "America/Chicago",
+    "cdt": "America/Chicago",
+    "us/central": "America/Chicago",
     "mountain": "America/Denver",
+    "mst": "America/Denver",
+    "mdt": "America/Denver",
+    "us/mountain": "America/Denver",
     "pacific": "America/Los_Angeles",
+    "pst": "America/Los_Angeles",
+    "pdt": "America/Los_Angeles",
+    "us/pacific": "America/Los_Angeles",
     "utc": "UTC",
 }
 
@@ -1515,6 +1527,122 @@ def build_task_scoring_audit(session: Session, task_id: int) -> dict:
     }
 
 
+def _is_fl2026_task1(task: Task, event: Event | None, task_points: list[TaskPoint]) -> bool:
+    if event is None or task.task_date != date(2026, 4, 23):
+        return False
+    event_name = (event.name or "").lower()
+    task_name = (task.name or "").lower()
+    if "fl 2026" not in event_name and "florida" not in event_name:
+        return False
+    if "task 1" not in task_name and "open" not in task_name:
+        return False
+    point_names = {str(point.name or "").strip().upper() for point in task_points}
+    known_names = {"WLTREE", "SAVANA", "DUNELL", "IDLWLD"}
+    if len(point_names & known_names) >= 3:
+        return True
+    florida_matches = 0
+    for point in task_points:
+        if 28.4 <= float(point.latitude or 0) <= 29.4 and -82.5 <= float(point.longitude or 0) <= -81.7:
+            florida_matches += 1
+    return florida_matches >= 4
+
+
+def _apply_fl2026_task1_settings(task: Task, event: Event, task_points: list[TaskPoint]) -> bool:
+    changed = False
+    task_changed = False
+
+    def set_event(attr: str, value) -> None:
+        nonlocal changed
+        if getattr(event, attr, None) != value:
+            setattr(event, attr, value)
+            changed = True
+
+    def set_task(attr: str, value) -> None:
+        nonlocal changed, task_changed
+        if getattr(task, attr, None) != value:
+            setattr(task, attr, value)
+            changed = True
+            task_changed = True
+
+    set_event("timezone", "America/New_York")
+    set_event("scoring_formula", "GAP2025")
+    set_event("nominal_distance_km", 50)
+    set_event("nominal_time_hours", 1.5)
+    set_event("nominal_launch", 0.96)
+    set_event("minimum_distance_km", 5)
+    set_event("nominal_goal_percent", 0.3)
+    set_event("score_back_time_minutes", 15)
+    set_event("goal_ss_penalty", 0)
+    set_event("day_quality_override", 0)
+    set_event("time_points_if_not_in_goal", 0.8)
+    set_event("jump_the_gun_factor", 2)
+    set_event("jump_the_gun_max_seconds", 300)
+    set_event("default_start_gate_count", 5)
+    set_event("default_start_gate_interval_seconds", 15 * 60)
+    set_event("stopped_glide_bonus", 5)
+    set_event("use_1000_points_for_max_day_quality", False)
+    set_event("normalize_1000_before_day_quality", False)
+    set_event("use_distance_points", True)
+    set_event("use_time_points", True)
+    set_event("use_leading_points", True)
+    set_event("use_arrival_position_points", True)
+    set_event("use_arrival_time_points", False)
+    set_event("use_departure_points", False)
+    set_event("use_difficulty_for_distance_points", True)
+    set_event("use_distance_squared_for_lc", True)
+    set_event("use_semi_circle_control_zone_for_goal_line", True)
+    set_event("use_proportional_leading_weight_if_nobody_in_goal", False)
+    set_event("redistribute_removed_time_points_as_distance_points", True)
+    set_event("use_best_score_for_ftv_validity", True)
+    set_event("use_constant_leading_weight", False)
+    set_event("use_pwca2019_for_lc", False)
+    set_event("use_flat_decline_of_timepoints", True)
+    set_event("scoring_altitude", "GPS")
+    set_event("final_glide_decelerator", "none")
+    set_event("no_final_glide_decelerator_reason", "")
+    set_event("min_time_span_for_valid_task_minutes", 45)
+    set_event("leading_weight_factor", 1)
+    set_event("turnpoint_radius_tolerance", 0.001)
+    set_event("turnpoint_radius_minimum_absolute_tolerance_m", 5)
+    set_event("number_of_decimals_task_results", 1)
+    set_event("number_of_decimals_competition_results", 1)
+    penalties_json = dict(event.penalties_json or {})
+    if penalties_json.get("is_pg_comp") != 0:
+        penalties_json["is_pg_comp"] = 0
+        event.penalties_json = penalties_json
+        changed = True
+
+    set_task("task_type", "race_to_goal_with_gates")
+    set_task("task_start_time", "14:00:00")
+    set_task("task_finish_time", "19:00:00")
+    set_task("start_open_time", "14:00:00")
+    set_task("start_close_time", "19:00:00")
+    set_task("start_gate_count", 4)
+    set_task("start_gate_interval_seconds", 20 * 60)
+    set_task("nominal_distance_km", 50)
+    set_task("nominal_time_hours", 1.5)
+    set_task("nominal_launch", 0.96)
+    set_task("minimum_distance_km", 5)
+
+    ordered_points = sorted(task_points, key=lambda point: point.position)
+    for index, point in enumerate(ordered_points):
+        expected_direction = "exit" if point.point_type.lower() == "start" else "enter"
+        if index == len(ordered_points) - 1:
+            expected_direction = "enter"
+            if point.point_type != "goal":
+                point.point_type = "goal"
+                changed = True
+                task_changed = True
+        if point.direction != expected_direction:
+            point.direction = expected_direction
+            changed = True
+            task_changed = True
+
+    if task_changed:
+        task.version = (task.version or 0) + 1
+    return changed
+
+
 def repair_fl2026_task1_settings(session: Session, task_id: int) -> dict:
     task = session.get(Task, task_id)
     if task is None:
@@ -1522,76 +1650,10 @@ def repair_fl2026_task1_settings(session: Session, task_id: int) -> dict:
     event = session.get(Event, task.event_id)
     if event is None:
         return {"status": "missing_event", "task_id": task_id}
-    event.timezone = "America/New_York"
-    event.scoring_formula = "GAP2025"
-    event.nominal_distance_km = 50
-    event.nominal_time_hours = 1.5
-    event.nominal_launch = 0.96
-    event.minimum_distance_km = 5
-    event.nominal_goal_percent = 0.3
-    event.score_back_time_minutes = 15
-    event.goal_ss_penalty = 0
-    event.day_quality_override = 0
-    event.time_points_if_not_in_goal = 0.8
-    event.jump_the_gun_factor = 2
-    event.jump_the_gun_max_seconds = 300
-    event.default_start_gate_count = 4
-    event.default_start_gate_interval_seconds = 20 * 60
-    event.stopped_glide_bonus = 5
-    event.use_1000_points_for_max_day_quality = False
-    event.normalize_1000_before_day_quality = False
-    event.use_distance_points = True
-    event.use_time_points = True
-    event.use_leading_points = True
-    event.use_arrival_position_points = True
-    event.use_arrival_time_points = False
-    event.use_departure_points = False
-    event.use_difficulty_for_distance_points = True
-    event.use_distance_squared_for_lc = True
-    event.use_semi_circle_control_zone_for_goal_line = True
-    event.use_proportional_leading_weight_if_nobody_in_goal = False
-    event.redistribute_removed_time_points_as_distance_points = True
-    event.use_best_score_for_ftv_validity = True
-    event.use_constant_leading_weight = False
-    event.use_pwca2019_for_lc = False
-    event.use_flat_decline_of_timepoints = True
-    event.scoring_altitude = "GPS"
-    event.final_glide_decelerator = "none"
-    event.no_final_glide_decelerator_reason = ""
-    event.min_time_span_for_valid_task_minutes = 45
-    event.leading_weight_factor = 1
-    event.turnpoint_radius_tolerance = 0.001
-    event.turnpoint_radius_minimum_absolute_tolerance_m = 5
-    event.number_of_decimals_task_results = 1
-    event.number_of_decimals_competition_results = 1
-    penalties_json = dict(event.penalties_json or {})
-    penalties_json["is_pg_comp"] = 0
-    event.penalties_json = penalties_json
-
-    task.task_type = "race_to_goal_with_gates"
-    task.task_start_time = "14:00:00"
-    task.task_finish_time = "19:00:00"
-    task.start_open_time = "14:00:00"
-    task.start_close_time = "19:00:00"
-    task.start_gate_count = 4
-    task.start_gate_interval_seconds = 20 * 60
-    task.nominal_distance_km = 50
-    task.nominal_time_hours = 1.5
-    task.nominal_launch = 0.96
-    task.minimum_distance_km = 5
-    task.version = (task.version or 0) + 1
-
     task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
-    for index, point in enumerate(task_points):
-        if point.point_type.lower() == "start":
-            point.direction = "exit"
-        else:
-            point.direction = "enter"
-        if index == len(task_points) - 1:
-            point.point_type = "goal"
-            point.direction = "enter"
+    _apply_fl2026_task1_settings(task, event, task_points)
     session.flush()
-    rescore_task(session, task_id)
+    rescore_task(session, task_id, apply_known_repairs=False)
     return build_task_scoring_audit(session, task_id)
 
 
@@ -1605,11 +1667,15 @@ def score_upload(session: Session, upload: IGCUpload) -> ScoreResult:
     return result
 
 
-def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
+def rescore_task(session: Session, task_id: int, apply_known_repairs: bool = True) -> list[ScoreResult]:
     task = session.get(Task, task_id)
     if task is None:
         return []
     event = session.get(Event, task.event_id)
+    task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
+    if apply_known_repairs and _is_fl2026_task1(task, event, task_points):
+        if event is not None and _apply_fl2026_task1_settings(task, event, task_points):
+            session.flush()
 
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at)).all()
     uploads_by_id = {upload.id: upload for upload in uploads}
@@ -1622,7 +1688,6 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     for penalty in penalties:
         penalties_by_pilot.setdefault(penalty.pilot_id, []).append(penalty)
 
-    task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
     event_pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
     registered_pilot_count = len(event_pilot_ids)
 
