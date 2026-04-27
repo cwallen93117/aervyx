@@ -36,15 +36,17 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
 }
 
 const PURPOSE_OPTIONS: { value: MeshDevicePurpose; label: string }[] = [
-  { value: "tracking", label: "Tracking" },
-  { value: "base_station", label: "Base station" },
+  { value: "tracking", label: "Pilot" },
+  { value: "driver_mesh", label: "Driver" },
   { value: "driver_wifi", label: "Driver Wi-Fi" },
-  { value: "driver_mesh", label: "Driver Meshtastic" },
-  { value: "relay", label: "Relay" },
+  { value: "base_station", label: "Base Station" },
 ];
 
+const normalizeUserPurpose = (purpose: MeshDevicePurpose): MeshDevicePurpose =>
+  PURPOSE_OPTIONS.some((option) => option.value === purpose) ? purpose : "base_station";
+
 const purposeLabel = (purpose: string) =>
-  PURPOSE_OPTIONS.find((option) => option.value === purpose)?.label ?? purpose;
+  PURPOSE_OPTIONS.find((option) => option.value === purpose)?.label ?? (purpose === "relay" ? "Base Station" : purpose);
 
 export default function MeshDevicesManager({ token }: { token: string }) {
   const [devices, setDevices] = useState<MeshDeviceRecord[]>([]);
@@ -69,7 +71,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
       setDevices(data);
       setDrafts(Object.fromEntries(data.map((device) => [
         device.device_id,
-        { label: device.label, purpose: device.purpose, is_active: device.is_active },
+        { label: device.label, purpose: normalizeUserPurpose(device.purpose), is_active: device.is_active },
       ])));
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Failed to load Meshtastic devices");
@@ -198,16 +200,18 @@ export default function MeshDevicesManager({ token }: { token: string }) {
               <th>Label</th>
               <th>Device ID</th>
               <th>Purpose</th>
+              <th>Pilot Tracker</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={5} className="participant-table-empty">Loading devices...</td></tr>
+              <tr><td colSpan={6} className="participant-table-empty">Loading devices...</td></tr>
             ) : devices.length ? (
               devices.map((device) => {
-                const draft = drafts[device.device_id] ?? { label: device.label, purpose: device.purpose, is_active: device.is_active };
+                const draft = drafts[device.device_id] ?? { label: device.label, purpose: normalizeUserPurpose(device.purpose), is_active: device.is_active };
+                const isPilotTracker = device.purpose === "tracking" && device.is_active;
                 return (
                   <tr key={device.device_id}>
                     <td>
@@ -235,6 +239,19 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                       <label className="checkbox-label">
                         <input
                           type="checkbox"
+                          checked={isPilotTracker}
+                          disabled={saving}
+                          aria-label={`Use ${device.label || device.device_id} as pilot tracker`}
+                          onChange={() => {
+                            if (!isPilotTracker) void setTrackingDevice(device);
+                          }}
+                        />
+                      </label>
+                    </td>
+                    <td>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
                           checked={draft.is_active}
                           onChange={(event) => setDrafts((current) => ({
                             ...current,
@@ -247,9 +264,6 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                     <td>
                       <div className="button-row">
                         <button type="button" className="ghost-button" disabled={saving} onClick={() => void saveDevice(device)}>Save</button>
-                        <button type="button" className="ghost-button" disabled={saving || device.purpose === "tracking"} onClick={() => void setTrackingDevice(device)}>
-                          Set tracking
-                        </button>
                         <button type="button" className="ghost-button danger-button" disabled={saving} onClick={() => void deleteDevice(device)}>Remove</button>
                       </div>
                       <div className="hint">{purposeLabel(device.purpose)} device</div>
@@ -258,7 +272,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                 );
               })
             ) : (
-              <tr><td colSpan={5} className="participant-table-empty">No Meshtastic devices registered.</td></tr>
+              <tr><td colSpan={6} className="participant-table-empty">No Meshtastic devices registered.</td></tr>
             )}
           </tbody>
         </table>

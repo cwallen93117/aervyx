@@ -46,10 +46,10 @@ type UnifiedDevice = {
 
 function meshPurposeLabel(purpose: string | null | undefined) {
   switch (purpose) {
-    case "tracking": return "Tracking";
-    case "base_station": return "Base station";
+    case "tracking": return "Pilot";
+    case "base_station": return "Base Station";
     case "driver_wifi": return "Driver Wi-Fi";
-    case "driver_mesh": return "Driver Meshtastic";
+    case "driver_mesh": return "Driver";
     case "relay": return "Relay";
     default: return purpose ?? "Unregistered";
   }
@@ -430,6 +430,23 @@ export default function AdminSection(props: AdminSectionProps) {
     }
   }, [isEditingSiteMatchRadius, siteSettings.site_match_radius_m]);
 
+  const loadMeshNodes = useCallback(async () => {
+    setMeshNodesLoading(true);
+    try {
+      const res = await fetch(`${apiBase}/api/admin/mesh-nodes?minutes=60`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (res.ok) {
+        setMeshNodes((await res.json()) as MeshNode[]);
+      }
+    } catch {
+      // Keep the last known mesh-node data visible if a manual refresh fails.
+    } finally {
+      setMeshNodesLoading(false);
+    }
+  }, [apiBase, token]);
+
   useEffect(() => {
     if (activeTab !== "live_tracking") return;
     refreshDebugStatus();
@@ -441,29 +458,12 @@ export default function AdminSection(props: AdminSectionProps) {
 
   useEffect(() => {
     if (activeTab !== "live_tracking") return;
-    let cancelled = false;
-    const load = async () => {
-      setMeshNodesLoading(true);
-      try {
-        const res = await fetch(`${apiBase}/api/admin/mesh-nodes?minutes=60`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok && !cancelled) {
-          setMeshNodes((await res.json()) as MeshNode[]);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setMeshNodesLoading(false);
-      }
-    };
-    void load();
-    const interval = setInterval(load, 10_000);
+    void loadMeshNodes();
+    const interval = setInterval(() => { void loadMeshNodes(); }, 10_000);
     return () => {
-      cancelled = true;
       clearInterval(interval);
     };
-  }, [activeTab, token, apiBase]);
+  }, [activeTab, loadMeshNodes]);
 
   const selectedSite = useMemo(
     () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
@@ -1144,7 +1144,7 @@ export default function AdminSection(props: AdminSectionProps) {
           </div>
         </SectionCard>
       ) : activeTab === "live_tracking" ? (
-        <LiveTrackingTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} meshNodes={meshNodes} meshNodesLoading={meshNodesLoading} />
+        <LiveTrackingTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} refreshMeshNodes={loadMeshNodes} meshNodes={meshNodes} meshNodesLoading={meshNodesLoading} />
       ) : (
         <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">
@@ -1300,11 +1300,13 @@ function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange"
 function LiveTrackingTab({
   debugStatus,
   refreshDebugStatus,
+  refreshMeshNodes,
   meshNodes,
   meshNodesLoading,
 }: {
   debugStatus: import("./types").DebugStatusResponse | null;
   refreshDebugStatus: () => void;
+  refreshMeshNodes: () => Promise<void>;
   meshNodes: MeshNode[];
   meshNodesLoading: boolean;
 }) {
@@ -1483,6 +1485,11 @@ function LiveTrackingTab({
       else next.add(key);
       return next;
     });
+  }
+
+  function refreshLiveTracking() {
+    refreshDebugStatus();
+    void refreshMeshNodes();
   }
 
   return (
@@ -1681,8 +1688,8 @@ function LiveTrackingTab({
 
         {/* D) Refresh */}
         <div className="button-row">
-          <button type="button" className="ghost-button" onClick={refreshDebugStatus}>
-            Refresh now
+          <button type="button" className="ghost-button" disabled={meshNodesLoading} onClick={refreshLiveTracking}>
+            {meshNodesLoading ? "Refreshing..." : "Refresh now"}
           </button>
         </div>
       </div>
