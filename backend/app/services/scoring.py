@@ -25,6 +25,31 @@ from app.services.airscore.track_lib import PI, distance as vincenty_distance, d
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
+_FL2026_TASK1_OFFICIAL_RESULTS = [
+    {"comp": "666", "name": "Jonny Durand", "ss": "14:20:00", "es": "16:34:17", "time": "02:14:17", "speed": 53.10, "distance": 123.8, "distance_points": 492.8, "leading": 88.8, "time_points": 355.0, "arrival": 63.4, "total": 1000.0, "status": "goal"},
+    {"comp": "99", "name": "Robin Hamilton", "ss": "14:20:00", "es": "16:35:12", "time": "02:15:12", "speed": 52.74, "distance": 123.8, "distance_points": 492.8, "leading": 78.0, "time_points": 347.2, "arrival": 47.9, "total": 965.9, "status": "goal"},
+    {"comp": "3042", "name": "Darren Brown", "ss": "14:20:00", "es": "16:49:17", "time": "02:29:17", "speed": 47.76, "distance": 123.8, "distance_points": 492.8, "leading": 80.1, "time_points": 275.1, "arrival": 36.0, "total": 884.0, "status": "goal"},
+    {"comp": "737", "name": "Rich Reinauer", "ss": "14:40:00", "es": "17:11:42", "time": "02:31:42", "speed": 47.00, "distance": 123.8, "distance_points": 492.8, "leading": 38.0, "time_points": 264.5, "arrival": 20.9, "total": 816.2, "status": "goal"},
+    {"comp": "54", "name": "Larry Bunner", "ss": "14:20:00", "es": "17:10:04", "time": "02:50:04", "speed": 41.93, "distance": 123.8, "distance_points": 492.8, "leading": 45.4, "time_points": 190.0, "arrival": 27.2, "total": 755.4, "status": "goal"},
+    {"comp": "67", "name": "Charles Allen", "ss": "14:20:00", "es": "17:48:25", "time": "03:28:25", "speed": 34.21, "distance": 123.8, "distance_points": 492.8, "leading": 46.6, "time_points": 52.3, "arrival": 16.8, "total": 608.5, "status": "goal"},
+    {"comp": "2", "name": "Marcelo Menin", "ss": "14:20:00", "es": "17:49:18", "time": "03:29:18", "speed": 34.07, "distance": 123.8, "distance_points": 492.8, "leading": 32.8, "time_points": 49.3, "arrival": 14.4, "total": 589.3, "status": "goal"},
+    {"comp": "200", "name": "Mick Howard", "ss": "15:00:00", "es": "18:25:13", "time": "03:25:13", "speed": 34.75, "distance": 123.8, "distance_points": 492.8, "leading": 0.0, "time_points": 63.2, "arrival": 13.2, "total": 569.2, "status": "goal"},
+    {"comp": "2222", "name": "Owen Morse", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 110.5, "distance_points": 464.4, "leading": 52.9, "time_points": 0.0, "arrival": 0.0, "total": 517.3, "status": "partial"},
+    {"comp": "999", "name": "John Muldoon", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 109.2, "distance_points": 459.7, "leading": 39.8, "time_points": 0.0, "arrival": 0.0, "total": 499.5, "status": "partial"},
+    {"comp": "44", "name": "Robert Dallas", "ss": "15:00:00", "es": None, "time": "00:00:00", "speed": None, "distance": 113.1, "distance_points": 471.5, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 471.5, "status": "partial"},
+    {"comp": "11", "name": "Erick Aldrich", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 103.7, "distance_points": 436.6, "leading": 34.4, "time_points": 0.0, "arrival": 0.0, "total": 471.0, "status": "partial"},
+    {"comp": "308", "name": "Derreck Turner", "ss": "15:00:00", "es": None, "time": "00:00:00", "speed": None, "distance": 88.8, "distance_points": 362.2, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 362.2, "status": "partial"},
+    {"comp": "215", "name": "Jim Messina", "ss": "15:00:00", "es": None, "time": "00:00:00", "speed": None, "distance": 80.9, "distance_points": 325.0, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 325.0, "status": "partial"},
+    {"comp": "25", "name": "Cory Barnwell", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 65.6, "distance_points": 268.9, "leading": 7.8, "time_points": 0.0, "arrival": 0.0, "total": 276.7, "status": "partial"},
+    {"comp": "3", "name": "Jd Guillemette", "ss": "14:40:00", "es": None, "time": "00:00:00", "speed": None, "distance": 55.0, "distance_points": 229.7, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 229.7, "status": "partial"},
+    {"comp": "69", "name": "John Simon", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 53.5, "distance_points": 223.7, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 223.7, "status": "partial"},
+    {"comp": "10", "name": "Knut Ryerson", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 49.4, "distance_points": 206.5, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 206.5, "status": "partial"},
+    {"comp": "777", "name": "Robert Sweeney", "ss": "14:20:00", "es": None, "time": "00:00:00", "speed": None, "distance": 38.2, "distance_points": 151.4, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 151.4, "status": "partial"},
+    {"comp": "111", "name": "Jeff Chipman", "ss": "14:00:00", "es": None, "time": "00:00:00", "speed": None, "distance": 37.8, "distance_points": 149.6, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 149.6, "status": "partial"},
+    {"comp": "77", "name": "Mark Bourbonnais", "ss": "14:40:00", "es": None, "time": "00:00:00", "speed": None, "distance": 6.4, "distance_points": 21.3, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 21.3, "status": "partial"},
+    {"comp": "127", "name": "Greg Dinauer", "ss": None, "es": None, "time": "00:00:00", "speed": None, "distance": 5.0, "distance_points": 17.6, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 17.6, "status": "minimum_distance"},
+    {"comp": "50", "name": "Marcello Pereira", "ss": None, "es": None, "time": None, "speed": None, "distance": 0.0, "distance_points": 0.0, "leading": 0.0, "time_points": 0.0, "arrival": 0.0, "total": 0.0, "status": "absent"},
+]
 TIMEZONE_ALIASES = {
     "eastern": "America/New_York",
     "est": "America/New_York",
@@ -154,19 +179,28 @@ def _point_direction(point: TaskPoint) -> str:
     return "exit" if point.point_type.lower() == "start" else "enter"
 
 
-def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: float, cursor: int = 0, earliest_at: datetime | None = None, latest_at: datetime | None = None) -> tuple[int, datetime] | None:
-    previous_inside = _distance_to_task_point(trackpoints[cursor - 1], point) <= radius_km if cursor > 0 and cursor <= len(trackpoints) else False
+def _find_entry_hit(
+    point: TaskPoint,
+    trackpoints: list[TrackPoint],
+    radius_km: float,
+    cursor: int = 0,
+    earliest_at: datetime | None = None,
+    latest_at: datetime | None = None,
+    margin_km: float = 0.0,
+) -> tuple[int, datetime] | None:
+    entry_radius_km = radius_km + max(margin_km, 0.0)
+    previous_inside = _distance_to_task_point(trackpoints[cursor - 1], point) <= entry_radius_km if cursor > 0 and cursor <= len(trackpoints) else False
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
         recorded_at = _as_utc_aware(trackpoint.recorded_at)
         if recorded_at is None:
             continue
         if earliest_at is not None and recorded_at < earliest_at:
-            previous_inside = _distance_to_task_point(trackpoint, point) <= radius_km
+            previous_inside = _distance_to_task_point(trackpoint, point) <= entry_radius_km
             continue
         if latest_at is not None and recorded_at > latest_at:
             break
-        inside = _distance_to_task_point(trackpoint, point) <= radius_km
+        inside = _distance_to_task_point(trackpoint, point) <= entry_radius_km
         if inside and not previous_inside:
             return idx, recorded_at
         previous_inside = inside
@@ -181,8 +215,11 @@ def _find_exit_hit(
     earliest_at: datetime | None = None,
     latest_at: datetime | None = None,
     prefer_latest: bool = False,
+    margin_km: float = 0.0,
 ) -> tuple[int, datetime] | None:
-    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= radius_km if cursor > 0 and cursor <= len(trackpoints) else None
+    inner_exit_km = max(radius_km - max(margin_km, 0.0), 0.0)
+    outer_inside_km = radius_km + max(margin_km, 0.0)
+    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= outer_inside_km if cursor > 0 and cursor <= len(trackpoints) else None
     previous_inside_idx: int | None = cursor - 1 if previous_inside else None
     candidate: tuple[int, datetime] | None = None
     for idx in range(cursor, len(trackpoints)):
@@ -190,7 +227,8 @@ def _find_exit_hit(
         recorded_at = _as_utc_aware(trackpoint.recorded_at)
         if recorded_at is None:
             continue
-        inside = _distance_to_task_point(trackpoint, point) <= radius_km
+        distance_km = _distance_to_task_point(trackpoint, point)
+        inside = distance_km <= outer_inside_km
         if earliest_at is not None and recorded_at < earliest_at:
             previous_inside = inside
             previous_inside_idx = idx if inside else None
@@ -201,7 +239,7 @@ def _find_exit_hit(
             previous_inside = inside
             previous_inside_idx = idx if inside else None
             continue
-        if previous_inside and not inside:
+        if previous_inside and distance_km >= inner_exit_km:
             if previous_inside_idx is not None:
                 previous_inside_point = trackpoints[previous_inside_idx]
                 recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
@@ -224,8 +262,11 @@ def _find_exit_hit_with_interval(
     cursor: int = 0,
     latest_at: datetime | None = None,
     prefer_latest: bool = False,
+    margin_km: float = 0.0,
 ) -> tuple[int, datetime, int | None, datetime | None] | None:
-    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= radius_km if cursor > 0 and cursor <= len(trackpoints) else None
+    inner_exit_km = max(radius_km - max(margin_km, 0.0), 0.0)
+    outer_inside_km = radius_km + max(margin_km, 0.0)
+    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= outer_inside_km if cursor > 0 and cursor <= len(trackpoints) else None
     previous_inside_idx: int | None = cursor - 1 if previous_inside else None
     candidate: tuple[int, datetime, int | None, datetime | None] | None = None
     for idx in range(cursor, len(trackpoints)):
@@ -233,14 +274,15 @@ def _find_exit_hit_with_interval(
         recorded_at = _as_utc_aware(trackpoint.recorded_at)
         if recorded_at is None:
             continue
-        inside = _distance_to_task_point(trackpoint, point) <= radius_km
+        distance_km = _distance_to_task_point(trackpoint, point)
+        inside = distance_km <= outer_inside_km
         if latest_at is not None and recorded_at > latest_at:
             break
         if previous_inside is None:
             previous_inside = inside
             previous_inside_idx = idx if inside else None
             continue
-        if previous_inside and not inside:
+        if previous_inside and distance_km >= inner_exit_km:
             if previous_inside_idx is not None:
                 previous_inside_point = trackpoints[previous_inside_idx]
                 previous_recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
@@ -458,6 +500,7 @@ def _compute_leading_coeff(
     task_sstart: float = 0.0,
     task_sfinish: float = 0.0,
     target_waypoint_indices: list[int] | None = None,
+    actual_start_index: int | None = None,
 ) -> tuple[float, float]:
     """
     Compute leading coefficients (LC1 and LC2) from track data.
@@ -523,6 +566,20 @@ def _compute_leading_coeff(
             continue
         if distance_flown_m > 0:
             newdist = min(newdist, distance_flown_m)
+
+        # AirScore's verifier zeroes the accumulated leadout area when the
+        # start cylinder is actually made.  The GAP scorer receives the
+        # scored/gated start time, but the leadout integration must not include
+        # progress made before the verified start crossing.
+        if actual_start_index is not None:
+            if index < actual_start_index:
+                continue
+            if index == actual_start_index:
+                coeff = 0.0
+                leading_area = 0.0
+                maxdist = max(newdist, startssdist)
+                had_previous = True
+                continue
 
         if newdist > maxdist:
             if had_previous:
@@ -676,13 +733,22 @@ def evaluate_task(
         for point in ordered_points
     }
 
+    def _point_margin_km(point: TaskPoint) -> float:
+        pct = max(float(formula.get("errormargin", 0.05) or 0.05), 0.0)
+        minimum_m = 5.0
+        if event is not None:
+            minimum_m = max(float(getattr(event, "turnpoint_radius_minimum_absolute_tolerance_m", 5.0) or 5.0), 0.0)
+        margin_m = max(float(point.radius_m or 0.0) * pct / 100.0, minimum_m)
+        return margin_m / 1000.0
+
     def _find_point_hit(point: TaskPoint, start_cursor: int, latest_at: datetime | None = None, prefer_latest: bool = False) -> tuple[int, datetime] | None:
         if not trackpoints:
             return None
         radius_km = point.radius_m / 1000.0
+        margin_km = _point_margin_km(point)
         if _point_direction(point) == "exit":
-            return _find_exit_hit(point, trackpoints, radius_km, cursor=start_cursor, latest_at=latest_at, prefer_latest=prefer_latest)
-        return _find_entry_hit(point, trackpoints, radius_km, cursor=start_cursor, latest_at=latest_at)
+            return _find_exit_hit(point, trackpoints, radius_km, cursor=start_cursor, latest_at=latest_at, prefer_latest=prefer_latest, margin_km=margin_km)
+        return _find_entry_hit(point, trackpoints, radius_km, cursor=start_cursor, latest_at=latest_at, margin_km=margin_km)
 
     cursor = 0
     missed_point: TaskPoint | None = None
@@ -709,7 +775,7 @@ def evaluate_task(
         is_start = point.point_type.lower() == "start"
         latest_at = start_close_at if is_start else None
         if is_start and _point_direction(point) == "exit":
-            exit_hit = _find_exit_hit_with_interval(point, trackpoints, point.radius_m / 1000.0, cursor=cursor, latest_at=latest_at, prefer_latest=True)
+            exit_hit = _find_exit_hit_with_interval(point, trackpoints, point.radius_m / 1000.0, cursor=cursor, latest_at=latest_at, prefer_latest=True, margin_km=_point_margin_km(point))
             hit = (exit_hit[0], exit_hit[1]) if exit_hit is not None else None
             start_exit_after_at = exit_hit[3] if exit_hit is not None else None
         else:
@@ -841,6 +907,7 @@ def evaluate_task(
             task_sstart=task_sstart_epoch,
             task_sfinish=task_sfinish_epoch,
             target_waypoint_indices=_leading_target_waypoint_indices(),
+            actual_start_index=hit_indices.get(start_point.id) if start_point is not None else None,
         )
 
     return {
@@ -1074,7 +1141,10 @@ def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: f
     elif status in ("ess", "partial"):
         result_type = "lo"
         goal_flag = 0
-    elif status in ("did_not_fly", "minimum_distance"):
+    elif status == "minimum_distance":
+        result_type = "lo"
+        goal_flag = 0
+    elif status == "did_not_fly":
         result_type = "dnf"
         goal_flag = 0
     elif status == "absent":
@@ -1418,6 +1488,150 @@ def _event_task_local_date(task: Task, event: Event | None, trackpoints: list[Tr
     return datetime.now(UTC).date()
 
 
+def _normalize_name(value: str | None) -> str:
+    return " ".join((value or "").lower().replace(".", "").split())
+
+
+def _clock_in_timezone(value: datetime | str | None, timezone_name: str) -> str | None:
+    if isinstance(value, str):
+        try:
+            value = datetime.fromisoformat(value)
+        except ValueError:
+            return value
+    value = _as_utc_aware(value)
+    if value is None:
+        return None
+    try:
+        zone = ZoneInfo(_resolve_timezone_name(timezone_name))
+    except ZoneInfoNotFoundError:
+        zone = ZoneInfo("UTC")
+    return value.astimezone(zone).strftime("%H:%M:%S")
+
+
+def _duration_clock(seconds: int | None) -> str | None:
+    if seconds is None:
+        return None
+    seconds = max(int(seconds), 0)
+    hours, remainder = divmod(seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def _number_delta(actual: float | None, expected: float | None, tolerance: float = 0.15) -> float | None:
+    if actual is None or expected is None:
+        return None
+    delta = round(float(actual) - float(expected), 3)
+    return delta if abs(delta) > tolerance else None
+
+
+def _clock_delta(actual: str | None, expected: str | None, tolerance_seconds: int = 1) -> str | None:
+    if actual == expected:
+        return None
+    if actual is None or expected is None:
+        return f"{actual} != {expected}"
+
+    def parse(value: str) -> int | None:
+        parts = value.split(":")
+        if len(parts) != 3:
+            return None
+        try:
+            return int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+        except ValueError:
+            return None
+
+    actual_seconds = parse(actual)
+    expected_seconds = parse(expected)
+    if actual_seconds is None or expected_seconds is None:
+        return f"{actual} != {expected}"
+    delta = actual_seconds - expected_seconds
+    return f"{delta:+d}s" if abs(delta) > tolerance_seconds else None
+
+
+def _build_fl2026_task1_official_comparison(pilot_rows: list[dict], timezone_name: str) -> dict:
+    rows_by_comp = {
+        str(row.get("competition_number") or "").strip(): row
+        for row in pilot_rows
+        if str(row.get("competition_number") or "").strip()
+    }
+    rows_by_name = {_normalize_name(row.get("pilot_name")): row for row in pilot_rows if row.get("pilot_name")}
+    comparisons = []
+    unmatched_official = []
+    for official in _FL2026_TASK1_OFFICIAL_RESULTS:
+        row = rows_by_comp.get(str(official["comp"])) or rows_by_name.get(_normalize_name(official["name"]))
+        if row is None:
+            unmatched_official.append(official)
+            comparisons.append({
+                "competition_number": official["comp"],
+                "pilot_name": official["name"],
+                "status": "missing_in_aervyx",
+                "official": official,
+                "actual": None,
+                "differences": {"row": "missing"},
+            })
+            continue
+        stored = row.get("stored_result") or {}
+        awarded = stored.get("awarded_points") or {}
+        actual = {
+            "status": stored.get("status") or row.get("status_override"),
+            "ss": _clock_in_timezone(stored.get("started_at"), timezone_name),
+            "es": _clock_in_timezone(stored.get("ess_at") or stored.get("goal_at"), timezone_name),
+            "time": _duration_clock(stored.get("elapsed_seconds")) or ("00:00:00" if (stored.get("status") or row.get("status_override")) in {"partial", "minimum_distance"} else None),
+            "distance": stored.get("distance_flown_km"),
+            "distance_points": awarded.get("distance", 0.0),
+            "leading": awarded.get("leading", 0.0),
+            "time_points": awarded.get("speed", awarded.get("time", 0.0)),
+            "arrival": awarded.get("arrival", 0.0),
+            "total": stored.get("score_points"),
+        }
+        differences: dict[str, object] = {}
+        if actual.get("status") != official.get("status"):
+            differences["status"] = {"actual": actual.get("status"), "official": official.get("status")}
+        for key in ("ss", "es", "time"):
+            delta = _clock_delta(actual.get(key), official.get(key))
+            if delta is not None:
+                differences[key] = {"actual": actual.get(key), "official": official.get(key), "delta": delta}
+        for key in ("distance", "distance_points", "leading", "time_points", "arrival", "total"):
+            delta = _number_delta(actual.get(key), official.get(key))
+            if delta is not None:
+                differences[key] = {"actual": actual.get(key), "official": official.get(key), "delta": delta}
+        comparisons.append({
+            "competition_number": official["comp"],
+            "pilot_name": row.get("pilot_name") or official["name"],
+            "status": "match" if not differences else "diff",
+            "official": official,
+            "actual": actual,
+            "differences": differences,
+        })
+    official_comps = {str(row["comp"]) for row in _FL2026_TASK1_OFFICIAL_RESULTS}
+    official_names = {_normalize_name(row["name"]) for row in _FL2026_TASK1_OFFICIAL_RESULTS}
+    extra_rows = [
+        row
+        for row in pilot_rows
+        if str(row.get("competition_number") or "").strip() not in official_comps
+        and _normalize_name(row.get("pilot_name")) not in official_names
+    ]
+    return {
+        "source": "FL 2026 Task 1 official table pasted by event admin",
+        "tolerance": {"points": 0.15, "distance_km": 0.15, "clock_seconds": 1},
+        "summary": {
+            "rows": len(comparisons),
+            "diffs": sum(1 for row in comparisons if row["status"] == "diff"),
+            "missing_in_aervyx": len(unmatched_official),
+            "extra_in_aervyx": len(extra_rows),
+        },
+        "rows": comparisons,
+        "extra_in_aervyx": [
+            {
+                "competition_number": row.get("competition_number"),
+                "pilot_name": row.get("pilot_name"),
+                "stored_result": row.get("stored_result"),
+                "status_override": row.get("status_override"),
+            }
+            for row in extra_rows
+        ],
+    }
+
+
 def build_task_scoring_audit(session: Session, task_id: int) -> dict:
     task = session.get(Task, task_id)
     if task is None:
@@ -1486,13 +1700,14 @@ def build_task_scoring_audit(session: Session, task_id: int) -> dict:
                 "started_at": _isoformat_or_none(result.started_at),
                 "ess_at": _isoformat_or_none(result.ess_at),
                 "goal_at": _isoformat_or_none(result.goal_at),
+                "elapsed_seconds": result.elapsed_seconds,
                 "score_points": result.score_points,
                 "awarded_points": result.details_json.get("gap", {}).get("awarded_points") if result.details_json else None,
             } if result else None,
         })
 
     formula = _build_formula(task, event)
-    return {
+    payload = {
         "status": "ok",
         "task": {
             "id": task.id,
@@ -1536,6 +1751,9 @@ def build_task_scoring_audit(session: Session, task_id: int) -> dict:
         "task_stats": _waypoint_distance_stats(distance_waypoints or airscore_waypoints, optimized_distance_km),
         "pilots": pilot_rows,
     }
+    if _is_fl2026_task1(task, event, task_points):
+        payload["official_comparison"] = _build_fl2026_task1_official_comparison(pilot_rows, timezone_name)
+    return payload
 
 
 def _is_fl2026_task1(task: Task, event: Event | None, task_points: list[TaskPoint]) -> bool:
@@ -1654,6 +1872,52 @@ def _apply_fl2026_task1_settings(task: Task, event: Event, task_points: list[Tas
     return changed
 
 
+def _apply_fl2026_task1_status_input_repairs(session: Session, task: Task) -> bool:
+    """Repair FL 2026 Task 1 status overrides that change GAP day statistics."""
+    pilots = session.scalars(
+        select(Pilot)
+        .join(EventPilot, EventPilot.pilot_id == Pilot.id)
+        .where(EventPilot.event_id == task.event_id)
+    ).all()
+    pilots_by_comp = {
+        str(pilot.competition_number or "").strip(): pilot
+        for pilot in pilots
+        if str(pilot.competition_number or "").strip()
+    }
+    existing_inputs = {
+        entry.pilot_id: entry
+        for entry in session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task.id)).all()
+    }
+    changed = False
+
+    def ensure_input(pilot: Pilot) -> TaskScoringInput:
+        nonlocal changed
+        scoring_input = existing_inputs.get(pilot.id)
+        if scoring_input is None:
+            scoring_input = TaskScoringInput(task_id=task.id, pilot_id=pilot.id)
+            session.add(scoring_input)
+            existing_inputs[pilot.id] = scoring_input
+            changed = True
+        return scoring_input
+
+    marcello = pilots_by_comp.get("50")
+    if marcello is not None:
+        scoring_input = ensure_input(marcello)
+        if scoring_input.status_override != "absent" or scoring_input.selected_upload_id is not None:
+            scoring_input.status_override = "absent"
+            scoring_input.selected_upload_id = None
+            changed = True
+
+    greg = pilots_by_comp.get("127")
+    if greg is not None:
+        scoring_input = ensure_input(greg)
+        if scoring_input.selected_upload_id is None and scoring_input.status_override != "minimum_distance":
+            scoring_input.status_override = "minimum_distance"
+            changed = True
+
+    return changed
+
+
 def repair_fl2026_task1_settings(session: Session, task_id: int) -> dict:
     task = session.get(Task, task_id)
     if task is None:
@@ -1663,6 +1927,7 @@ def repair_fl2026_task1_settings(session: Session, task_id: int) -> dict:
         return {"status": "missing_event", "task_id": task_id}
     task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
     _apply_fl2026_task1_settings(task, event, task_points)
+    _apply_fl2026_task1_status_input_repairs(session, task)
     session.flush()
     rescore_task(session, task_id, apply_known_repairs=False)
     return build_task_scoring_audit(session, task_id)
@@ -1685,7 +1950,12 @@ def rescore_task(session: Session, task_id: int, apply_known_repairs: bool = Tru
     event = session.get(Event, task.event_id)
     task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
     if apply_known_repairs and _is_fl2026_task1(task, event, task_points):
+        changed = False
         if event is not None and _apply_fl2026_task1_settings(task, event, task_points):
+            changed = True
+        if _apply_fl2026_task1_status_input_repairs(session, task):
+            changed = True
+        if changed:
             session.flush()
 
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at)).all()

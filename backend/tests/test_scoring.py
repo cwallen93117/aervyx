@@ -1,4 +1,4 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -7,10 +7,14 @@ from app.services.airscore.gap import select_coeff
 from app.services.scoring import (
     _apply_fl2026_task1_settings,
     _as_utc_aware,
+    _build_fl2026_task1_official_comparison,
     _build_airscore_pilot_result,
     _build_formula,
+    _compute_leading_coeff,
     _compute_optimized_task_distance,
     _is_fl2026_task1,
+    _minimum_distance_evaluation,
+    _prepare_waypoints_for_distance,
     _resolve_task_time_utc,
     _resolve_timezone_name,
     _score_evaluations,
@@ -285,6 +289,73 @@ def test_before_first_gate_start_scores_first_gate_with_jump_penalty() -> None:
     assert pilot_result["penalty"] == 60
 
 
+def test_exit_start_uses_airscore_radius_margin_for_boundary_fix() -> None:
+    task = _task()
+    task.start_open_time = "12:00:00"
+    task.task_finish_time = "18:00:00"
+    event = type("EventStub", (), {"turnpoint_radius_tolerance": 0.001, "turnpoint_radius_minimum_absolute_tolerance_m": 5})()
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.0),
+        # About 997m from the centre: still barely inside the nominal cylinder,
+        # but outside radius - AirScore's minimum 5m tolerance.
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, 0.00896),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 10, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC", event=event)
+
+    assert result["started_at"] == track_points[0].recorded_at
+    assert result["details"]["start_timing"]["actual_start_exit_after_at"] == track_points[1].recorded_at.isoformat()
+
+
+def test_leading_coeff_accumulates_from_verified_start_crossing() -> None:
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.08, 0.0, 1000),
+    ]
+    _, waypoints = _compute_optimized_task_distance(task_points)
+    distance_waypoints, _ = _prepare_waypoints_for_distance(waypoints, {"errormargin": 0.05})
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 5, tzinfo=UTC), 0.0, 0.0085),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 6, tzinfo=UTC), 0.0, 0.02),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 20, tzinfo=UTC), 0.08, 0.0),
+    ]
+    full_distance_m = distance_waypoints[0]["_totdist"]
+    target_indices = [0, 0, 1, 1]
+
+    without_reset, _ = _compute_leading_coeff(
+        distance_waypoints,
+        track_points,
+        started_at=track_points[1].recorded_at,
+        ess_at=track_points[3].recorded_at,
+        distance_flown_m=full_distance_m,
+        task_class="HG",
+        task_sstart=track_points[0].recorded_at.timestamp(),
+        task_sfinish=(track_points[0].recorded_at + timedelta(hours=6)).timestamp(),
+        target_waypoint_indices=target_indices,
+    )
+    with_reset, _ = _compute_leading_coeff(
+        distance_waypoints,
+        track_points,
+        started_at=track_points[1].recorded_at,
+        ess_at=track_points[3].recorded_at,
+        distance_flown_m=full_distance_m,
+        task_class="HG",
+        task_sstart=track_points[0].recorded_at.timestamp(),
+        task_sfinish=(track_points[0].recorded_at + timedelta(hours=6)).timestamp(),
+        target_waypoint_indices=target_indices,
+        actual_start_index=1,
+    )
+
+    assert without_reset == 0
+    assert with_reset > 0
+
+
 def test_goal_ss_penalty_preserves_explicit_zero() -> None:
     event = type("EventStub", (), {"goal_ss_penalty": 0.0})()
 
@@ -430,6 +501,34 @@ def test_fl_2026_known_bad_staging_settings_are_repaired_before_score() -> None:
     assert task_points[-1].point_type == "goal"
 
 
+def test_fl_2026_official_comparison_reports_category_diffs() -> None:
+    comparison = _build_fl2026_task1_official_comparison(
+        [
+            {
+                "pilot_name": "Jonny Durand",
+                "competition_number": "666",
+                "status_override": None,
+                "stored_result": {
+                    "status": "goal",
+                    "distance_flown_km": 123.8,
+                    "started_at": "2026-04-23T18:20:00+00:00",
+                    "ess_at": "2026-04-23T20:34:17+00:00",
+                    "goal_at": "2026-04-23T20:34:17+00:00",
+                    "elapsed_seconds": 8057,
+                    "score_points": 999.7,
+                    "awarded_points": {"distance": 481.7, "leading": 90.7, "speed": 362.6, "arrival": 64.8},
+                },
+            }
+        ],
+        "America/New_York",
+    )
+    jonny = comparison["rows"][0]
+
+    assert jonny["actual"]["ss"] == "14:20:00"
+    assert "distance_points" in jonny["differences"]
+    assert comparison["summary"]["missing_in_aervyx"] > 0
+
+
 def test_task_clock_resolution_treats_naive_track_timestamps_as_utc() -> None:
     task = _task()
     task.start_open_time = "14:00:00"
@@ -459,6 +558,17 @@ def test_flown_track_without_start_receives_minimum_distance_for_display() -> No
 
     assert result["status"] == "partial"
     assert result["distance_flown_km"] == 5.0
+
+
+def test_minimum_distance_override_counts_as_flown_for_gap_distribution() -> None:
+    task = _task()
+    evaluation = _minimum_distance_evaluation(task)
+
+    result = _build_airscore_pilot_result(evaluation, pilot_id=127)
+
+    assert result["result"] == "lo"
+    assert result["goal"] == 0
+    assert result["distance"] == pytest.approx(5000)
 
 
 def test_gap2025_uses_distance_squared_leading_coeff2() -> None:
