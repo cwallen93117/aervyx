@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from app.models import Task, TaskPoint, TrackPoint
-from app.services.scoring import _score_evaluations, evaluate_task
+from app.services.scoring import _build_airscore_pilot_result, _build_formula, _score_evaluations, evaluate_task
 
 
 def _task(task_id: int = 1, nominal_time_hours: float = 1.5) -> Task:
@@ -131,7 +131,8 @@ def test_start_time_uses_exit_of_start_cylinder_after_open_time() -> None:
         _track_point_at(4, datetime(2025, 6, 2, 20, 46, 11, tzinfo=UTC), 38.68586, -75.07051),
     ]
     result = evaluate_task(task, task_points, track_points, event_timezone="Eastern")
-    assert result["started_at"] == track_points[2].recorded_at
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[1].recorded_at.isoformat()
+    assert result["started_at"] == datetime(2025, 6, 2, 17, 30, tzinfo=UTC)
     assert result["goal_at"] == track_points[3].recorded_at
 
 
@@ -141,7 +142,6 @@ def test_missed_start_detection_does_not_leak_epoch_into_end_ss() -> None:
     as a Unix epoch timestamp (while startSS=0) poisons build_task_totals,
     which computes time as (endSS - startSS) and yields ~1.7B seconds as the
     fastest time — breaking time validity and all downstream scoring."""
-    from app.services.scoring import _build_airscore_pilot_result
     evaluation = {
         "status": "goal",
         "distance_flown_km": 10.0,
@@ -156,6 +156,103 @@ def test_missed_start_detection_does_not_leak_epoch_into_end_ss() -> None:
     assert result["startSS"] == 0
     assert result["endSS"] == 0
     assert result["time"] == 0
+
+
+def test_exit_start_uses_later_recrossing_inside_fix() -> None:
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 2, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 3, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(5, datetime(2026, 3, 17, 12, 10, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(_task(), task_points, track_points)
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[2].recorded_at.isoformat()
+    assert result["started_at"] == track_points[2].recorded_at
+
+
+def test_enter_points_use_first_inside_fix_after_entry() -> None:
+    task_points = [
+        _task_point(1, 1, "start", 0.0, -0.04, 1000),
+        _task_point(2, 2, "turnpoint", 0.0, 0.0, 1000),
+        _task_point(3, 3, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, -0.04),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, -0.02),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 2, tzinfo=UTC), 0.0, -0.02),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 3, tzinfo=UTC), 0.0, -0.005),
+        _track_point_at(5, datetime(2026, 3, 17, 12, 4, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(6, datetime(2026, 3, 17, 12, 8, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(_task(), task_points, track_points)
+    turnpoint_hit = result["details"]["hits"][1]
+
+    assert turnpoint_hit["hit_at"] == track_points[3].recorded_at.isoformat()
+
+
+def test_gated_race_start_uses_latest_prior_gate() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.start_gate_count = 5
+    task.start_gate_interval_seconds = 20 * 60
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 14, 38, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 14, 39, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(3, datetime(2026, 3, 17, 15, 0, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[0].recorded_at.isoformat()
+    assert result["started_at"] == datetime(2026, 3, 17, 14, 20, tzinfo=UTC)
+    assert result["elapsed_seconds"] == 40 * 60
+
+
+def test_before_first_gate_start_scores_first_gate_with_jump_penalty() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.start_gate_count = 5
+    task.start_gate_interval_seconds = 15 * 60
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    event = type("EventStub", (), {"jump_the_gun_factor": 2.0, "jump_the_gun_max_seconds": 300})()
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 13, 59, 30, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 13, 59, 40, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(3, datetime(2026, 3, 17, 15, 0, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC", event=event)
+    pilot_result = _build_airscore_pilot_result(result, pilot_id=1)
+
+    assert result["started_at"] == datetime(2026, 3, 17, 14, 0, tzinfo=UTC)
+    assert result["details"]["start_timing"]["jump_the_gun_seconds"] == 30
+    assert result["jump_the_gun_penalty_points"] == 60
+    assert pilot_result["penalty"] == 60
+
+
+def test_goal_ss_penalty_preserves_explicit_zero() -> None:
+    event = type("EventStub", (), {"goal_ss_penalty": 0.0})()
+
+    formula = _build_formula(_task(), event)
+
+    assert formula["sspenalty"] == 0.0
 
 
 def test_launch_validity_saturates_at_one_for_well_launched_day() -> None:

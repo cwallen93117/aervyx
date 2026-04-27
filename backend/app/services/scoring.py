@@ -9,7 +9,7 @@ This module is the only place that bridges Aervyx ORM models ↔ AirScore dicts.
 from __future__ import annotations
 
 import math
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import delete, func, select, text
@@ -88,8 +88,15 @@ def _distance_to_task_point(trackpoint: TrackPoint, point: TaskPoint) -> float:
     return _vincenty_km(trackpoint.latitude, trackpoint.longitude, point.latitude, point.longitude)
 
 
+def _point_direction(point: TaskPoint) -> str:
+    direction = getattr(point, "direction", None)
+    if direction in {"enter", "exit"}:
+        return direction
+    return "exit" if point.point_type.lower() == "start" else "enter"
+
+
 def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: float, cursor: int = 0, earliest_at: datetime | None = None, latest_at: datetime | None = None) -> tuple[int, datetime] | None:
-    previous_inside = False
+    previous_inside = _distance_to_task_point(trackpoints[cursor - 1], point) <= radius_km if cursor > 0 and cursor <= len(trackpoints) else False
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
         if earliest_at is not None and trackpoint.recorded_at < earliest_at:
@@ -100,29 +107,94 @@ def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: 
         inside = _distance_to_task_point(trackpoint, point) <= radius_km
         if inside and not previous_inside:
             return idx, trackpoint.recorded_at
-        if inside:
-            return idx, trackpoint.recorded_at
         previous_inside = inside
     return None
 
 
-def _find_exit_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: float, cursor: int = 0, earliest_at: datetime | None = None, latest_at: datetime | None = None) -> tuple[int, datetime] | None:
-    previous_inside: bool | None = None
+def _find_exit_hit(
+    point: TaskPoint,
+    trackpoints: list[TrackPoint],
+    radius_km: float,
+    cursor: int = 0,
+    earliest_at: datetime | None = None,
+    latest_at: datetime | None = None,
+    prefer_latest: bool = False,
+) -> tuple[int, datetime] | None:
+    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= radius_km if cursor > 0 and cursor <= len(trackpoints) else None
+    previous_inside_idx: int | None = cursor - 1 if previous_inside else None
+    candidate: tuple[int, datetime] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
         inside = _distance_to_task_point(trackpoint, point) <= radius_km
         if earliest_at is not None and trackpoint.recorded_at < earliest_at:
             previous_inside = inside
+            previous_inside_idx = idx if inside else None
             continue
         if latest_at is not None and trackpoint.recorded_at > latest_at:
             break
         if previous_inside is None:
             previous_inside = inside
+            previous_inside_idx = idx if inside else None
             continue
         if previous_inside and not inside:
-            return idx, trackpoint.recorded_at
+            if previous_inside_idx is not None:
+                previous_inside_point = trackpoints[previous_inside_idx]
+                candidate = (previous_inside_idx, previous_inside_point.recorded_at)
+                if not prefer_latest:
+                    return candidate
+            previous_inside_idx = None
+        elif inside:
+            previous_inside_idx = idx
         previous_inside = inside
-    return None
+    return candidate
+
+
+def _start_gate_times(task: Task, first_gate_at: datetime | None) -> list[datetime]:
+    if first_gate_at is None:
+        return []
+    count = max(int(task.start_gate_count or 1), 1)
+    interval_seconds = max(int(task.start_gate_interval_seconds or 0), 0)
+    return [first_gate_at + timedelta(seconds=index * interval_seconds) for index in range(count)]
+
+
+def _scored_start_from_gates(task: Task, actual_start_at: datetime | None, first_gate_at: datetime | None, formula: dict) -> tuple[datetime | None, dict]:
+    if actual_start_at is None:
+        return None, {"actual_start_crossing_at": None, "scored_start_at": None}
+    gates = _start_gate_times(task, first_gate_at)
+    if not gates:
+        return actual_start_at, {
+            "actual_start_crossing_at": _isoformat_or_none(actual_start_at),
+            "scored_start_at": _isoformat_or_none(actual_start_at),
+            "start_gate_index": None,
+            "jump_the_gun_seconds": 0,
+            "jump_the_gun_penalty_points": 0.0,
+        }
+
+    selected_index = 0
+    jump_seconds = 0
+    if actual_start_at < gates[0]:
+        scored_start_at = gates[0]
+        jump_seconds = int((gates[0] - actual_start_at).total_seconds())
+    else:
+        for index, gate_at in enumerate(gates):
+            if gate_at <= actual_start_at:
+                selected_index = index
+            else:
+                break
+        scored_start_at = gates[selected_index]
+
+    max_jump_seconds = max(int(formula.get("jump_the_gun_max_seconds", 0) or 0), 0)
+    penalty_seconds = min(jump_seconds, max_jump_seconds) if max_jump_seconds > 0 else jump_seconds
+    penalty_points = max(float(formula.get("jump_the_gun_factor", 0.0) or 0.0), 0.0) * penalty_seconds
+    return scored_start_at, {
+        "actual_start_crossing_at": _isoformat_or_none(actual_start_at),
+        "scored_start_at": _isoformat_or_none(scored_start_at),
+        "start_gate_index": selected_index + 1,
+        "start_gate_time": _isoformat_or_none(scored_start_at),
+        "jump_the_gun_seconds": jump_seconds,
+        "jump_the_gun_penalty_seconds": penalty_seconds,
+        "jump_the_gun_penalty_points": round(penalty_points, 3),
+    }
 
 
 # ---------- optimized task distance via AirScore Route ----------
@@ -133,19 +205,17 @@ def _build_airscore_waypoints(task_points: list[TaskPoint]) -> list[dict]:
     waypoints = []
     for i, tp in enumerate(ordered):
         pt = tp.point_type.lower()
+        direction = _point_direction(tp)
+        how = "exit" if direction == "exit" else "entry"
         # Map Aervyx point_type to AirScore type/how
         if pt == "start":
             wpt_type = "start"
-            how = "exit"
         elif pt in ("ess", "endspeed"):
             wpt_type = "endspeed"
-            how = "entry"
         elif pt == "goal":
             wpt_type = "goal"
-            how = "entry"
         else:
             wpt_type = "turnpoint"
-            how = "entry"
 
         wpt = to_rad_dict(tp.latitude, tp.longitude,
                           radius=tp.radius_m,
@@ -368,6 +438,7 @@ def evaluate_task(
     optimized_distance_km: float | None = None,
     airscore_waypoints: list[dict] | None = None,
     task_class: str = "HG",
+    event: Event | None = None,
 ) -> dict:
     """
     Evaluate a single pilot's flight against the task.
@@ -389,14 +460,17 @@ def evaluate_task(
     timezone_name = event_timezone or "UTC"
     start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
+    formula = _build_formula(task, event)
 
     cursor = 0
     for point in ordered_points:
         radius_km = point.radius_m / 1000.0
-        if point.point_type.lower() == "start":
-            hit = _find_exit_hit(point, trackpoints, radius_km, cursor=cursor, earliest_at=start_open_at, latest_at=start_close_at)
+        is_start = point.point_type.lower() == "start"
+        latest_at = start_close_at if is_start else None
+        if _point_direction(point) == "exit":
+            hit = _find_exit_hit(point, trackpoints, radius_km, cursor=cursor, latest_at=latest_at, prefer_latest=is_start)
         else:
-            hit = _find_entry_hit(point, trackpoints, radius_km, cursor=cursor)
+            hit = _find_entry_hit(point, trackpoints, radius_km, cursor=cursor, latest_at=latest_at)
         if hit is None:
             continue
         idx, hit_at = hit
@@ -435,7 +509,8 @@ def evaluate_task(
     if ess_point is None:
         ess_point = goal_point
 
-    started_at = hit_times.get(start_point.id) if start_point else None
+    actual_started_at = hit_times.get(start_point.id) if start_point else None
+    started_at, start_timing_details = _scored_start_from_gates(task, actual_started_at, start_open_at, formula)
     ess_at = hit_times.get(ess_point.id) if ess_point else None
     goal_at = hit_times.get(goal_point.id) if goal_point else None
 
@@ -476,6 +551,7 @@ def evaluate_task(
         "goal_at": goal_at,
         "elapsed_seconds": elapsed_seconds,
         "score_points": 0.0,
+        "jump_the_gun_penalty_points": start_timing_details.get("jump_the_gun_penalty_points", 0.0),
         "leading_coeff": lc1,
         "leading_coeff2": lc2,
         "details": {
@@ -484,12 +560,15 @@ def evaluate_task(
                     "task_point_id": point.id,
                     "name": point.name,
                     "point_type": point.point_type,
+                    "direction": _point_direction(point),
                     "hit": point.id in hit_indices,
                     "hit_at": _isoformat_or_none(hit_times.get(point.id)),
+                    "scored_hit_at": _isoformat_or_none(started_at) if start_point and point.id == start_point.id else _isoformat_or_none(hit_times.get(point.id)),
                 }
                 for point in ordered_points
             ],
             "total_distance_km": round(optimized_distance_km, 3),
+            "start_timing": start_timing_details,
         },
     }
 
@@ -578,6 +657,9 @@ def _build_formula(task: Task, event: Event | None = None) -> dict:
         version = 2021
 
     speedcalc = penalties.get("speedcalc", "standard")
+    sspenalty_value = _ev("goal_ss_penalty", penalties.get("sspenalty", 1.0))
+    if sspenalty_value is None:
+        sspenalty_value = 1.0
 
     return {
         # Core AirScore formula parameters
@@ -591,7 +673,9 @@ def _build_formula(task: Task, event: Event | None = None) -> dict:
         "nomtime_seconds": nomtime_hours * 3600,
         "nomgoal_fraction": nominal_goal,
         "glidebonus": float(_ev("stopped_glide_bonus", 0) or 0),
-        "sspenalty": _clamp(float(_ev("goal_ss_penalty", penalties.get("sspenalty", 1.0)) or 1.0), 0.0, 1.0),
+        "sspenalty": _clamp(float(sspenalty_value), 0.0, 1.0),
+        "jump_the_gun_factor": float(_ev("jump_the_gun_factor", penalties.get("jump_the_gun_factor", 0.0)) or 0.0),
+        "jump_the_gun_max_seconds": int(_ev("jump_the_gun_max_seconds", penalties.get("jump_the_gun_max_seconds", 0)) or 0),
         "lineardist": _clamp(float(penalties.get("lineardist", 0.5)), 0.0, 1.0),
         "weightdist": penalties.get("weightdist", "post2014"),
         # GAP2021+: leading_weight_factor overrides legacy weightstart (1.4/8).
@@ -698,7 +782,7 @@ def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: f
         "endSS": end_ss,
         "goal": goal_flag,
         "result": result_type,
-        "penalty": 0,
+        "penalty": max(float(evaluation.get("jump_the_gun_penalty_points", 0.0) or 0.0), 0.0),
         "coeff": evaluation.get("leading_coeff", 0),
         "coeff2": evaluation.get("leading_coeff2", 0),
         "stopalt": 0,
@@ -776,8 +860,9 @@ def _score_evaluations(
                 break
 
     # Build AirScore task dict
+    scoring_formula_name = _ev_str(event, "scoring_formula", "")
     airscore_task = {
-        "class": "HG" if "hg" in (event.scoring_formula or "").lower() or formula["class"] == "gap" else "PG",
+        "class": "HG" if "hg" in scoring_formula_name.lower() or formula["class"] == "gap" else "PG",
         "departure": formula["departure_mode"] if formula["departure_mode"] != "departure" else "off",
         "arrival": formula["arrival"] if formula["arrival"] != "off" else "off",
         "stopped": 0,
@@ -890,6 +975,8 @@ def _score_evaluations(
                 "use_flat_decline_of_timepoints": formula["use_flat_decline_of_timepoints"],
                 "time_points_if_not_in_goal": formula["time_points_if_not_in_goal"],
                 "score_back_time_minutes": formula["score_back_time_minutes"],
+                "jump_the_gun_factor": formula["jump_the_gun_factor"],
+                "jump_the_gun_max_seconds": formula["jump_the_gun_max_seconds"],
                 "number_of_decimals_task_results": decimals,
             },
             "validity": {
@@ -1032,7 +1119,16 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
             evaluations.append({
                 "pilot_id": pilot_id,
                 "upload": upload,
-                "evaluation": evaluate_task(task, task_points, trackpoints, event.timezone if event else None, optimized_distance_km, airscore_waypoints=airscore_waypoints, task_class=task_class),
+                "evaluation": evaluate_task(
+                    task,
+                    task_points,
+                    trackpoints,
+                    event.timezone if event else None,
+                    optimized_distance_km,
+                    airscore_waypoints=airscore_waypoints,
+                    task_class=task_class,
+                    event=event,
+                ),
             })
             continue
         if scoring_input is None:

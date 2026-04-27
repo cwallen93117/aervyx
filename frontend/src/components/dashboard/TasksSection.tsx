@@ -13,9 +13,16 @@ const pointTypeLabels: Record<string, string> = {
   ESS: "ESS",
   goal: "Goal",
 };
+const pointDirectionLabels: Record<string, string> = {
+  enter: "Enter",
+  exit: "Exit",
+};
+const pointDirectionOptions = [
+  { value: "enter", label: "Enter" },
+  { value: "exit", label: "Exit" },
+] as const;
 const taskTypeOptions = [
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
-  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
 ] as const;
@@ -140,7 +147,7 @@ export default function TasksSection(props: TasksSectionProps) {
     overlayConfig,
   } = props;
   if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
-  const usesGatedStart = taskDraft.task_type === "race_to_goal_with_gates" && currentTaskTypeBehavior.usesMultipleGates;
+  const usesGatedStart = currentTaskTypeBehavior.usesMultipleGates;
   const taskIsPublished = selectedTask?.status === "published";
   const fullscreenTaskEditor = canManagePlatform ? (
     <div className="map-task-editor">
@@ -155,6 +162,7 @@ export default function TasksSection(props: TasksSectionProps) {
               <th></th>
               <th>Name</th>
               <th>Type</th>
+              <th>Direction</th>
               <th>Radius (m)</th>
               <th className="map-task-editor-distance-heading">
                 <strong>Distance</strong>
@@ -191,6 +199,13 @@ export default function TasksSection(props: TasksSectionProps) {
                         ))}
                       </select>
                     </td>
+                    <td className="map-task-editor-direction">
+                      <select value={point.direction ?? "enter"} onChange={(event) => updatePoint(index, { direction: event.target.value as "enter" | "exit" })}>
+                        {pointDirectionOptions.map((option) => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td className="map-task-editor-radius">
                       <input
                         value={radiusInputValue(index, point)}
@@ -215,7 +230,7 @@ export default function TasksSection(props: TasksSectionProps) {
               })
             ) : (
               <tr>
-                <td colSpan={6} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
+                <td colSpan={7} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
               </tr>
             )}
           </tbody>
@@ -313,12 +328,12 @@ export default function TasksSection(props: TasksSectionProps) {
                   </div>
                   <div className="cluster-stack">
                     <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Gate interval (min)</span>
-                      <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
                       <span>Start gates</span>
                       <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
+                    </label>
+                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
+                      <span>Gate interval (min)</span>
+                      <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
                     </label>
                   </div>
                   {startGateLabels.length ? (
@@ -375,6 +390,7 @@ export default function TasksSection(props: TasksSectionProps) {
                       <span></span>
                       <span>Name</span>
                       <span>Type</span>
+                      <span>Direction</span>
                       <span>Radius (m)</span>
                       <span className="task-point-distance-heading">
                         <strong>Distance</strong>
@@ -416,6 +432,17 @@ export default function TasksSection(props: TasksSectionProps) {
                                 </select>
                               ) : (
                                 <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
+                              )}
+                            </div>
+                            <div className="task-point-row-direction">
+                              {canManagePlatform ? (
+                                <select value={point.direction ?? "enter"} onChange={(event) => updatePoint(index, { direction: event.target.value as "enter" | "exit" })}>
+                                  {pointDirectionOptions.map((option) => (
+                                    <option key={option.value} value={option.value}>{option.label}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="task-point-type-badge">{pointDirectionLabels[point.direction ?? "enter"] ?? point.direction}</span>
                               )}
                             </div>
                             <div className="task-point-row-radius">
@@ -516,6 +543,14 @@ export default function TasksSection(props: TasksSectionProps) {
                               ))}
                             </select>
                           </label>
+                          <label className="stack compact">
+                            <span>Direction</span>
+                            <select value={point.direction ?? "enter"} onChange={(event) => updatePoint(index, { direction: event.target.value as "enter" | "exit" })}>
+                              {pointDirectionOptions.map((option) => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                              ))}
+                            </select>
+                          </label>
                         <label className="stack compact">
                           <span>Radius (m)</span>
                           <input
@@ -536,6 +571,10 @@ export default function TasksSection(props: TasksSectionProps) {
                         <div className="record-card">
                           <strong>Type</strong>
                           <span>{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
+                        </div>
+                        <div className="record-card">
+                          <strong>Direction</strong>
+                          <span>{pointDirectionLabels[point.direction ?? "enter"] ?? point.direction}</span>
                         </div>
                         <div className="record-card">
                           <strong>Radius</strong>

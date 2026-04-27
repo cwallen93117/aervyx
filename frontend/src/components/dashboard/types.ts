@@ -174,6 +174,8 @@ export type EventRecord = {
   time_points_if_not_in_goal: number;
   jump_the_gun_factor: number;
   jump_the_gun_max_seconds: number;
+  default_start_gate_count: number;
+  default_start_gate_interval_seconds: number;
   stopped_glide_bonus: number;
   use_1000_points_for_max_day_quality: boolean;
   normalize_1000_before_day_quality: boolean;
@@ -216,7 +218,8 @@ export type EventRecord = {
 export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null };
 export type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
 export type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
-export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
+export type TaskPointDirection = "enter" | "exit";
+export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null; direction: TaskPointDirection };
 export type TaskRecord = {
   id: number;
   event_id: number;
@@ -321,6 +324,8 @@ export function blankEventForm() {
     time_points_if_not_in_goal: 1,
     jump_the_gun_factor: 0,
     jump_the_gun_max_seconds: 0,
+    default_start_gate_count: 5,
+    default_start_gate_interval_seconds: 900,
     stopped_glide_bonus: 0,
     use_1000_points_for_max_day_quality: false,
     normalize_1000_before_day_quality: false,

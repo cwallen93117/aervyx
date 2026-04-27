@@ -940,6 +940,16 @@ export default function EventsSection(props: EventsSectionProps) {
                       <span>Timezone</span>
                       <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
                     </label>
+                    <div className="inline-grid">
+                      <label className="stack compact">
+                        <span>Default start gates</span>
+                        <input type="number" min={1} value={eventForm.default_start_gate_count} onChange={(event) => setEventForm({ ...eventForm, default_start_gate_count: Math.max(1, Number(event.target.value) || 1) })} />
+                      </label>
+                      <label className="stack compact">
+                        <span>Default gate interval (min)</span>
+                        <input type="number" min={0} value={eventForm.default_start_gate_interval_seconds / 60} onChange={(event) => setEventForm({ ...eventForm, default_start_gate_interval_seconds: Math.max(0, Number(event.target.value) || 0) * 60 })} />
+                      </label>
+                    </div>
                   </div>
                 </fieldset>
             </div>

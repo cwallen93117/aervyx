@@ -6,13 +6,33 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.events import duplicate_event
+from app.routers.events import _event_payload, duplicate_event
 
 
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+
+
+def test_event_payload_includes_default_start_gate_settings() -> None:
+    session = _session()
+    event = Event(
+        name="Gate Defaults",
+        location="Florida",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+        default_start_gate_count=5,
+        default_start_gate_interval_seconds=900,
+    )
+    session.add(event)
+    session.commit()
+
+    payload = _event_payload(session, event)
+
+    assert payload.default_start_gate_count == 5
+    assert payload.default_start_gate_interval_seconds == 900
 
 
 def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
@@ -26,6 +46,8 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
         ends_on=date(2026, 5, 24),
         timezone="America/New_York",
         scoring_formula="GAP2021",
+        default_start_gate_count=4,
+        default_start_gate_interval_seconds=600,
     )
     session.add_all([admin, pilot, event])
     session.flush()
@@ -99,6 +121,7 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
             task_id=task.id,
             position=1,
             point_type="start",
+            direction="exit",
             radius_m=5000,
             turnpoint_id=turnpoint.id,
             name=turnpoint.name,
@@ -142,6 +165,8 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
 
     duplicated_event = session.get(Event, duplicated.id)
     assert duplicated_event is not None
+    assert duplicated_event.default_start_gate_count == 4
+    assert duplicated_event.default_start_gate_interval_seconds == 600
 
     duplicated_turnpoint_source = session.scalar(select(TurnpointSource).where(TurnpointSource.event_id == duplicated.id))
     assert duplicated_turnpoint_source is not None
@@ -155,10 +180,12 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
     duplicated_task = session.scalar(select(Task).where(Task.event_id == duplicated.id))
     assert duplicated_task is not None
     assert duplicated_task.name == "Task 1"
+    assert duplicated_task.task_type == "race_to_goal_with_gates"
 
     duplicated_task_point = session.scalar(select(TaskPoint).where(TaskPoint.task_id == duplicated_task.id))
     assert duplicated_task_point is not None
     assert duplicated_task_point.turnpoint_id == duplicated_turnpoint.id
+    assert duplicated_task_point.direction == "exit"
 
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == duplicated.id, EventPilot.pilot_id == pilot.id)) is not None
     assert session.scalar(select(IGCUpload).where(IGCUpload.event_id == duplicated.id)) is None

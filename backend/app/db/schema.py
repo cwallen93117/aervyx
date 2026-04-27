@@ -320,6 +320,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
+    task_point_columns = {column["name"] for column in inspector.get_columns("task_points")} if "task_points" in table_names else set()
     score_result_details = {column["name"]: column for column in inspector.get_columns("score_results")} if "score_results" in table_names else {}
     score_result_columns = set(score_result_details)
     task_scoring_input_columns = {column["name"] for column in inspector.get_columns("task_scoring_inputs")} if "task_scoring_inputs" in table_names else set()
@@ -340,6 +341,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "time_points_if_not_in_goal": "ALTER TABLE events ADD COLUMN time_points_if_not_in_goal FLOAT",
         "jump_the_gun_factor": "ALTER TABLE events ADD COLUMN jump_the_gun_factor FLOAT",
         "jump_the_gun_max_seconds": "ALTER TABLE events ADD COLUMN jump_the_gun_max_seconds INTEGER",
+        "default_start_gate_count": "ALTER TABLE events ADD COLUMN default_start_gate_count INTEGER DEFAULT 5",
+        "default_start_gate_interval_seconds": "ALTER TABLE events ADD COLUMN default_start_gate_interval_seconds INTEGER DEFAULT 900",
         "stopped_glide_bonus": "ALTER TABLE events ADD COLUMN stopped_glide_bonus FLOAT",
         "use_1000_points_for_max_day_quality": "ALTER TABLE events ADD COLUMN use_1000_points_for_max_day_quality BOOLEAN",
         "normalize_1000_before_day_quality": "ALTER TABLE events ADD COLUMN normalize_1000_before_day_quality BOOLEAN",
@@ -375,7 +378,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "visibility": "ALTER TABLE events ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
     }
     task_statements = {
-        "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
+        "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race_to_goal_with_gates'",
         "task_date": "ALTER TABLE tasks ADD COLUMN task_date DATE",
         "task_start_time": "ALTER TABLE tasks ADD COLUMN task_start_time VARCHAR(8)",
         "task_finish_time": "ALTER TABLE tasks ADD COLUMN task_finish_time VARCHAR(8)",
@@ -383,6 +386,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "start_close_time": "ALTER TABLE tasks ADD COLUMN start_close_time VARCHAR(8)",
         "start_gate_count": "ALTER TABLE tasks ADD COLUMN start_gate_count INTEGER DEFAULT 1",
         "start_gate_interval_seconds": "ALTER TABLE tasks ADD COLUMN start_gate_interval_seconds INTEGER",
+    }
+    task_point_statements = {
+        "direction": "ALTER TABLE task_points ADD COLUMN direction VARCHAR(10) DEFAULT 'enter'",
     }
     score_result_statements = {
         "raw_score_points": "ALTER TABLE score_results ADD COLUMN raw_score_points FLOAT DEFAULT 0",
@@ -431,9 +437,30 @@ def ensure_runtime_schema(engine: Engine) -> None:
         for column_name, statement in task_statements.items():
             if column_name not in task_columns:
                 connection.execute(text(statement))
+        if "task_points" in table_names:
+            for column_name, statement in task_point_statements.items():
+                if column_name not in task_point_columns:
+                    connection.execute(text(statement))
         for column_name, statement in score_result_statements.items():
             if column_name not in score_result_columns:
                 connection.execute(text(statement))
+        if "events" in table_names:
+            connection.execute(text("UPDATE events SET default_start_gate_count = 5 WHERE default_start_gate_count IS NULL"))
+            connection.execute(text("UPDATE events SET default_start_gate_interval_seconds = 900 WHERE default_start_gate_interval_seconds IS NULL"))
+        if "tasks" in table_names:
+            connection.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET task_type = 'race_to_goal_with_gates'
+                    WHERE task_type IS NULL OR task_type IN ('race', 'race_to_goal', 'speedrun_interval')
+                    """
+                )
+            )
+            connection.execute(text("UPDATE tasks SET task_type = 'elapsed_time' WHERE task_type = 'speedrun'"))
+        if "task_points" in table_names:
+            connection.execute(text("UPDATE task_points SET direction = 'exit' WHERE point_type = 'start' AND (direction IS NULL OR direction NOT IN ('enter', 'exit'))"))
+            connection.execute(text("UPDATE task_points SET direction = 'enter' WHERE point_type <> 'start' AND (direction IS NULL OR direction NOT IN ('enter', 'exit'))"))
         if "score_results" in table_names:
             upload_id_column = score_result_details.get("upload_id")
             if upload_id_column and upload_id_column.get("nullable") is False and dialect_name != "sqlite":

@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate
+from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/events", tags=["events"])
@@ -33,6 +33,14 @@ def _event_scoring_presets(event: Event) -> list[ScoringPresetEntry]:
 
 def _event_create_payload(event: Event) -> dict:
     return {field: getattr(event, field) for field in EventCreate.model_fields}
+
+
+def _normalized_duplicate_task_type(task_type: str | None) -> str:
+    if task_type in {None, "race", "race_to_goal", "speedrun_interval"}:
+        return "race_to_goal_with_gates"
+    if task_type == "speedrun":
+        return "elapsed_time"
+    return task_type
 
 
 def _duplicate_name(session: Session, base_name: str) -> str:
@@ -79,6 +87,8 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         time_points_if_not_in_goal=event.time_points_if_not_in_goal if event.time_points_if_not_in_goal is not None else 1,
         jump_the_gun_factor=event.jump_the_gun_factor if event.jump_the_gun_factor is not None else 0,
         jump_the_gun_max_seconds=event.jump_the_gun_max_seconds if event.jump_the_gun_max_seconds is not None else 0,
+        default_start_gate_count=event.default_start_gate_count or 5,
+        default_start_gate_interval_seconds=event.default_start_gate_interval_seconds if event.default_start_gate_interval_seconds is not None else 900,
         stopped_glide_bonus=event.stopped_glide_bonus if event.stopped_glide_bonus is not None else 0,
         use_1000_points_for_max_day_quality=False if event.use_1000_points_for_max_day_quality is None else event.use_1000_points_for_max_day_quality,
         normalize_1000_before_day_quality=False if event.normalize_1000_before_day_quality is None else event.normalize_1000_before_day_quality,
@@ -264,7 +274,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
             event_id=duplicated_event.id,
             name=task.name,
             status=task.status,
-            task_type=task.task_type,
+            task_type=_normalized_duplicate_task_type(task.task_type),
             task_start_time=task.task_start_time,
             task_finish_time=task.task_finish_time,
             start_open_time=task.start_open_time,
@@ -289,6 +299,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
                 task_id=task_id_map[task_point.task_id],
                 position=task_point.position,
                 point_type=task_point.point_type,
+                direction=task_point.direction if task_point.direction in {"enter", "exit"} else default_task_point_direction(task_point.point_type),
                 radius_m=task_point.radius_m,
                 turnpoint_id=turnpoint_id_map.get(task_point.turnpoint_id) if task_point.turnpoint_id else None,
                 name=task_point.name,

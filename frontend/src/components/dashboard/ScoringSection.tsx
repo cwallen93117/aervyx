@@ -20,18 +20,19 @@ import type {
 } from "./types";
 
 const taskTypeOptions = [
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
-  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
 ] as const;
 
 function normalizeTaskType(value: string | null | undefined): string {
   switch (value) {
-    case "race": return "race_to_goal";
+    case "race":
+    case "race_to_goal":
+      return "race_to_goal_with_gates";
     case "speedrun": return "elapsed_time";
     case "speedrun_interval": return "race_to_goal_with_gates";
-    default: return value ?? "race_to_goal";
+    default: return value ?? "race_to_goal_with_gates";
   }
 }
 

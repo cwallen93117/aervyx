@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+def default_task_point_direction(point_type: str | None) -> str:
+    return "exit" if (point_type or "").lower() == "start" else "enter"
 
 
 class GoogleAuthRequest(BaseModel):
@@ -294,6 +298,8 @@ class EventCreate(BaseModel):
     time_points_if_not_in_goal: float = 1.0
     jump_the_gun_factor: float = 0.0
     jump_the_gun_max_seconds: int = 0
+    default_start_gate_count: int = Field(default=5, ge=1)
+    default_start_gate_interval_seconds: int = Field(default=900, ge=0)
     stopped_glide_bonus: float = 0.0
     use_1000_points_for_max_day_quality: bool = False
     normalize_1000_before_day_quality: bool = False
@@ -448,18 +454,25 @@ class AirspaceRegionResponse(BaseModel):
 class TaskPointInput(BaseModel):
     position: int
     point_type: str
+    direction: str | None = Field(default=None, pattern="^(enter|exit)$")
     radius_m: float = Field(default=400, gt=0)
     turnpoint_id: int | None = None
     name: str
     latitude: float
     longitude: float
 
+    @model_validator(mode="after")
+    def apply_default_direction(self) -> "TaskPointInput":
+        if self.direction not in {"enter", "exit"}:
+            self.direction = default_task_point_direction(self.point_type)
+        return self
+
 
 class TaskInput(BaseModel):
     name: str
     task_date: date | None = None
     status: str = "draft"
-    task_type: str = "race_to_goal"
+    task_type: str = "race_to_goal_with_gates"
     task_start_time: str | None = None
     task_finish_time: str | None = None
     start_open_time: str | None = None

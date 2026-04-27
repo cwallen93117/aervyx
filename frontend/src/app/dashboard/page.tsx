@@ -179,8 +179,7 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
 }
 
 const taskTypeOptions = [
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
-  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
 ] as const;
@@ -203,13 +202,13 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
     id: null,
     name: "New Task",
     task_date: "",
-    task_type: "race_to_goal",
+    task_type: "race_to_goal_with_gates",
     task_start_time: "",
     task_finish_time: "",
     start_open_time: "",
     start_close_time: "",
-    start_gate_count: 1,
-    start_gate_interval_minutes: "",
+    start_gate_count: 5,
+    start_gate_interval_minutes: 15,
     nominal_distance_km: 60,
     nominal_time_hours: 1.5,
     nominal_launch: 0.95,
@@ -267,19 +266,35 @@ function normalizeIdentityEmail(value: string): string {
 
 function normalizeTaskType(value: string | null | undefined): string {
   switch (value) {
+    case undefined:
+    case null:
     case "race":
-      return "race_to_goal";
+    case "race_to_goal":
+      return "race_to_goal_with_gates";
     case "speedrun":
       return "elapsed_time";
     case "speedrun_interval":
       return "race_to_goal_with_gates";
     default:
-      return value ?? "race_to_goal";
+      return value;
   }
+}
+
+function defaultTaskPointDirection(pointType: string): "enter" | "exit" {
+  return pointType.toLowerCase() === "start" ? "exit" : "enter";
+}
+
+function normalizeTaskPoint(point: TaskPointRecord): TaskPointRecord {
+  return {
+    ...point,
+    direction: point.direction === "exit" || point.direction === "enter" ? point.direction : defaultTaskPointDirection(point.point_type),
+  };
 }
 
 function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftState {
   return blankTaskDraft({
+    start_gate_count: event?.default_start_gate_count ?? 5,
+    start_gate_interval_minutes: event?.default_start_gate_interval_seconds == null ? 15 : event.default_start_gate_interval_seconds / 60,
     nominal_distance_km: event?.nominal_distance_km ?? 60,
     nominal_time_hours: event?.nominal_time_hours ?? 1.5,
     nominal_launch: event?.nominal_launch ?? 0.95,
@@ -353,10 +368,10 @@ function timeOrNull(value: string): string | null {
 
 function taskTypeBehavior(taskType: string) {
   switch (taskType) {
+    case "race":
+    case "race_to_goal":
     case "race_to_goal_with_gates":
       return { usesStartWindow: true, usesMultipleGates: true };
-    case "race_to_goal":
-      return { usesStartWindow: true, usesMultipleGates: false };
     case "elapsed_time":
     case "open_distance":
     default:
@@ -384,6 +399,8 @@ function eventToForm(event: EventRecord | null | undefined) {
         time_points_if_not_in_goal: event.time_points_if_not_in_goal,
         jump_the_gun_factor: event.jump_the_gun_factor,
         jump_the_gun_max_seconds: event.jump_the_gun_max_seconds,
+        default_start_gate_count: event.default_start_gate_count ?? 5,
+        default_start_gate_interval_seconds: event.default_start_gate_interval_seconds ?? 900,
         stopped_glide_bonus: event.stopped_glide_bonus,
         use_1000_points_for_max_day_quality: event.use_1000_points_for_max_day_quality,
         normalize_1000_before_day_quality: event.normalize_1000_before_day_quality,
@@ -1456,7 +1473,7 @@ export default function HomePage() {
       nominal_launch: task.nominal_launch,
       minimum_distance_km: task.minimum_distance_km,
       penalties_text: JSON.stringify(task.penalties_json, null, 2),
-      points: task.points,
+      points: task.points.map(normalizeTaskPoint),
     });
     if (!includeScoringData) {
       setResults([]);
@@ -1795,6 +1812,8 @@ export default function HomePage() {
       time_points_if_not_in_goal: nextForm.time_points_if_not_in_goal,
       jump_the_gun_factor: nextForm.jump_the_gun_factor,
       jump_the_gun_max_seconds: nextForm.jump_the_gun_max_seconds,
+      default_start_gate_count: nextForm.default_start_gate_count,
+      default_start_gate_interval_seconds: nextForm.default_start_gate_interval_seconds,
       stopped_glide_bonus: nextForm.stopped_glide_bonus,
       use_1000_points_for_max_day_quality: nextForm.use_1000_points_for_max_day_quality,
       normalize_1000_before_day_quality: nextForm.normalize_1000_before_day_quality,
@@ -2085,6 +2104,7 @@ export default function HomePage() {
             {
               position: current.points.length + 1,
               point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint",
+              direction: current.points.length === 0 && !taskPointAdvanced ? "exit" : "enter",
               radius_m: current.points.length === 0 ? 300 : 400,
               turnpoint_id: turnpoint.id,
               name: turnpoint.name,
@@ -2097,7 +2117,19 @@ export default function HomePage() {
   }
 
   function updatePoint(index: number, patch: Partial<TaskPointRecord>) {
-    setTaskDraft((current) => ({ ...current, points: current.points.map((point, pointIndex) => (pointIndex === index ? { ...point, ...patch } : point)).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
+    setTaskDraft((current) => ({
+      ...current,
+      points: current.points
+        .map((point, pointIndex) => {
+          if (pointIndex !== index) return point;
+          const nextPoint = { ...point, ...patch };
+          if (patch.point_type && patch.point_type !== point.point_type) {
+            nextPoint.direction = defaultTaskPointDirection(patch.point_type);
+          }
+          return normalizeTaskPoint(nextPoint);
+        })
+        .map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })),
+    }));
   }
 
   function handleRadiusInputChange(index: number, point: TaskPointRecord, rawValue: string) {
@@ -2181,7 +2213,7 @@ export default function HomePage() {
         nominal_launch: taskDraft.nominal_launch,
         minimum_distance_km: taskDraft.minimum_distance_km,
         penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
-        points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })),
+        points: taskDraft.points.map((point, index) => ({ ...normalizeTaskPoint(point), position: index + 1 })),
       };
       let savedTask: TaskRecord;
       if (taskDraft.id) {
@@ -2391,7 +2423,10 @@ export default function HomePage() {
     if (!checked) {
       setTaskDraft((current) => ({
         ...current,
-        points: current.points.map((point) => ({ ...point, point_type: toSimplePointType(point.point_type) })),
+        points: current.points.map((point) => {
+          const pointType = toSimplePointType(point.point_type);
+          return normalizeTaskPoint({ ...point, point_type: pointType, direction: defaultTaskPointDirection(pointType) });
+        }),
       }));
     }
   }
