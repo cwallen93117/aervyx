@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime
 import pytest
 
 from app.models import Event, Task, TaskPoint, TrackPoint
+from app.services.airscore.gap import select_coeff
 from app.services.scoring import (
     _apply_fl2026_task1_settings,
     _as_utc_aware,
@@ -419,6 +420,7 @@ def test_fl_2026_known_bad_staging_settings_are_repaired_before_score() -> None:
     assert event.nominal_goal_percent == 0.3
     assert event.goal_ss_penalty == 0
     assert event.use_leading_points is True
+    assert event.use_distance_squared_for_lc is False
     assert event.default_start_gate_count == 5
     assert event.default_start_gate_interval_seconds == 15 * 60
     assert task.task_start_time == "14:00:00"
@@ -527,6 +529,80 @@ def test_gap2025_uses_distance_squared_leading_coeff2() -> None:
     }
 
     assert leading_by_pilot[1] > leading_by_pilot[2]
+    assert scored[0]["details_json"]["gap"]["leading_coefficients"]["selected_field"] == "tarLeadingCoeff2"
+
+
+def test_gap2025_uses_flat_leading_coeff_when_distance_squared_lc_is_off() -> None:
+    assert select_coeff({"class": "gap", "version": 2025, "use_distance_squared_for_lc": False}) == "tarLeadingCoeff"
+
+    task = _task(nominal_time_hours=1.5)
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    _, waypoints = _compute_optimized_task_distance(_fl_2026_task_points())
+    start = datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
+    finish = datetime(2026, 4, 23, 20, 34, tzinfo=UTC)
+    event = type(
+        "EventStub",
+        (),
+        {
+            "timezone": "EST",
+            "scoring_formula": "GAP2025",
+            "penalties_json": {"is_pg_comp": 0},
+            "nominal_distance_km": 50,
+            "nominal_time_hours": 1.5,
+            "nominal_launch": 0.96,
+            "minimum_distance_km": 5,
+            "nominal_goal_percent": 0.3,
+            "goal_ss_penalty": 0.0,
+            "time_points_if_not_in_goal": 0.8,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_leading_points": True,
+            "use_arrival_position_points": True,
+            "use_arrival_time_points": False,
+            "use_departure_points": False,
+            "use_difficulty_for_distance_points": True,
+            "use_flat_decline_of_timepoints": True,
+            "use_distance_squared_for_lc": False,
+            "leading_weight_factor": 1.0,
+        },
+    )()
+
+    def evaluation(pilot_id: int, coeff: float, coeff2: float) -> dict:
+        return {
+            "pilot_id": pilot_id,
+            "upload": type("UploadStub", (), {"id": pilot_id, "pilot_id": pilot_id})(),
+            "evaluation": {
+                "status": "goal",
+                "distance_flown_km": 123.843,
+                "started_at": start,
+                "ess_at": finish,
+                "goal_at": finish,
+                "elapsed_seconds": int((finish - start).total_seconds()),
+                "leading_coeff": coeff,
+                "leading_coeff2": coeff2,
+                "jump_the_gun_penalty_points": 0,
+                "details": {"hits": [], "total_distance_km": 123.843, "scoring_timezone": "America/New_York"},
+            },
+        }
+
+    scored = _score_evaluations(
+        task,
+        22,
+        [
+            evaluation(1, coeff=1.0, coeff2=100.0),
+            evaluation(2, coeff=100.0, coeff2=1.0),
+        ],
+        event,
+        airscore_waypoints=waypoints,
+    )
+    leading_by_pilot = {
+        row["pilot_id"]: row["details_json"]["gap"]["awarded_points"]["leading"]
+        for row in scored
+    }
+
+    assert leading_by_pilot[1] > leading_by_pilot[2]
+    assert scored[0]["details_json"]["gap"]["leading_coefficients"]["selected_field"] == "tarLeadingCoeff"
 
 
 def test_landed_out_pilot_can_receive_leading_points_after_waypoint_progress() -> None:

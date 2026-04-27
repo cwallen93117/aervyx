@@ -1268,6 +1268,9 @@ def _score_evaluations(
         final_points = _apply_penalties(raw_points, pilot_penalties)
 
         details = dict(evaluation["details"])
+        leadingcoeff_field = select_coeff(formula)
+        leadingcoeff_key = "coeff2" if leadingcoeff_field == "tarLeadingCoeff2" else "coeff"
+        selected_leading_coeff = pil.get(leadingcoeff_key, pil.get("coeff", 0))
         details["gap"] = {
             "formula": {
                 "scoring_formula": _ev_str(event, "scoring_formula", "GAP2021"),
@@ -1292,6 +1295,7 @@ def _score_evaluations(
                 "use_arrival_position_points": formula["use_arrival_position_points"],
                 "use_arrival_time_points": formula["use_arrival_time_points"],
                 "use_difficulty_for_distance_points": formula["use_difficulty_for_distance_points"],
+                "use_distance_squared_for_lc": formula["use_distance_squared_for_lc"],
                 "use_flat_decline_of_timepoints": formula["use_flat_decline_of_timepoints"],
                 "time_points_if_not_in_goal": formula["time_points_if_not_in_goal"],
                 "score_back_time_minutes": formula["score_back_time_minutes"],
@@ -1307,6 +1311,13 @@ def _score_evaluations(
                 "overall": round(taskt.get("quality", 0), 6),
             },
             "available_points": available_points,
+            "leading_coefficients": {
+                "selected_field": leadingcoeff_field,
+                "selected": round(float(selected_leading_coeff or 0.0), 6),
+                "coeff": round(float(pil.get("coeff", 0.0) or 0.0), 6),
+                "coeff2": round(float(pil.get("coeff2", 0.0) or 0.0), 6),
+                "minimum": round(float(taskt.get("mincoeff", 0.0) or 0.0), 6),
+            },
             "task_stats": {
                 "pilots": taskt["pilots"],
                 "launched": taskt["launched"],
@@ -1589,7 +1600,7 @@ def _apply_fl2026_task1_settings(task: Task, event: Event, task_points: list[Tas
     set_event("use_arrival_time_points", False)
     set_event("use_departure_points", False)
     set_event("use_difficulty_for_distance_points", True)
-    set_event("use_distance_squared_for_lc", True)
+    set_event("use_distance_squared_for_lc", False)
     set_event("use_semi_circle_control_zone_for_goal_line", True)
     set_event("use_proportional_leading_weight_if_nobody_in_goal", False)
     set_event("redistribute_removed_time_points_as_distance_points", True)

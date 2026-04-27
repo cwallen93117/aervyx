@@ -40,6 +40,8 @@ def _spread(buc: list[float]) -> list[float]:
 
 def select_coeff(formula: dict) -> str:
     """Determine which leading coefficient field to use."""
+    if not formula.get("use_distance_squared_for_lc", False):
+        return "tarLeadingCoeff"
     fclass = formula.get("class", "gap")
     version = int(formula.get("version", 0))
     if fclass in ("pwc", "gap", "ozgap", "ggap") and version > 2022:
