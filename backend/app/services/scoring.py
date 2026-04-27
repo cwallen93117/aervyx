@@ -104,6 +104,14 @@ def _resolve_clock_time_utc(value: str | None, local_date: date, timezone_name: 
     return datetime.combine(local_date, clock_time, tzinfo=zone).astimezone(UTC)
 
 
+def _as_utc_aware(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _resolve_task_time_utc(value: str | None, trackpoints: list[TrackPoint], timezone_name: str) -> datetime | None:
     clock_time = _parse_clock_time(value)
     if clock_time is None or not trackpoints:
@@ -112,9 +120,12 @@ def _resolve_task_time_utc(value: str | None, trackpoints: list[TrackPoint], tim
         zone = ZoneInfo(_resolve_timezone_name(timezone_name))
     except ZoneInfoNotFoundError:
         zone = ZoneInfo("UTC")
-    local_date = trackpoints[0].recorded_at.astimezone(zone).date()
+    first_recorded_at = _as_utc_aware(trackpoints[0].recorded_at)
+    if first_recorded_at is None:
+        return None
+    local_date = first_recorded_at.astimezone(zone).date()
     local_dt = datetime.combine(local_date, clock_time, tzinfo=zone)
-    return local_dt.astimezone(trackpoints[0].recorded_at.tzinfo)
+    return local_dt.astimezone(UTC)
 
 
 # ---------- turnpoint hit detection ----------
@@ -135,14 +146,17 @@ def _find_entry_hit(point: TaskPoint, trackpoints: list[TrackPoint], radius_km: 
     previous_inside = _distance_to_task_point(trackpoints[cursor - 1], point) <= radius_km if cursor > 0 and cursor <= len(trackpoints) else False
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
-        if earliest_at is not None and trackpoint.recorded_at < earliest_at:
+        recorded_at = _as_utc_aware(trackpoint.recorded_at)
+        if recorded_at is None:
+            continue
+        if earliest_at is not None and recorded_at < earliest_at:
             previous_inside = _distance_to_task_point(trackpoint, point) <= radius_km
             continue
-        if latest_at is not None and trackpoint.recorded_at > latest_at:
+        if latest_at is not None and recorded_at > latest_at:
             break
         inside = _distance_to_task_point(trackpoint, point) <= radius_km
         if inside and not previous_inside:
-            return idx, trackpoint.recorded_at
+            return idx, recorded_at
         previous_inside = inside
     return None
 
@@ -161,12 +175,15 @@ def _find_exit_hit(
     candidate: tuple[int, datetime] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
+        recorded_at = _as_utc_aware(trackpoint.recorded_at)
+        if recorded_at is None:
+            continue
         inside = _distance_to_task_point(trackpoint, point) <= radius_km
-        if earliest_at is not None and trackpoint.recorded_at < earliest_at:
+        if earliest_at is not None and recorded_at < earliest_at:
             previous_inside = inside
             previous_inside_idx = idx if inside else None
             continue
-        if latest_at is not None and trackpoint.recorded_at > latest_at:
+        if latest_at is not None and recorded_at > latest_at:
             break
         if previous_inside is None:
             previous_inside = inside
@@ -175,7 +192,10 @@ def _find_exit_hit(
         if previous_inside and not inside:
             if previous_inside_idx is not None:
                 previous_inside_point = trackpoints[previous_inside_idx]
-                candidate = (previous_inside_idx, previous_inside_point.recorded_at)
+                recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
+                if recorded_at is None:
+                    continue
+                candidate = (previous_inside_idx, recorded_at)
                 if not prefer_latest:
                     return candidate
             previous_inside_idx = None
@@ -198,8 +218,11 @@ def _find_exit_hit_with_interval(
     candidate: tuple[int, datetime, int | None, datetime | None] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
+        recorded_at = _as_utc_aware(trackpoint.recorded_at)
+        if recorded_at is None:
+            continue
         inside = _distance_to_task_point(trackpoint, point) <= radius_km
-        if latest_at is not None and trackpoint.recorded_at > latest_at:
+        if latest_at is not None and recorded_at > latest_at:
             break
         if previous_inside is None:
             previous_inside = inside
@@ -208,7 +231,11 @@ def _find_exit_hit_with_interval(
         if previous_inside and not inside:
             if previous_inside_idx is not None:
                 previous_inside_point = trackpoints[previous_inside_idx]
-                candidate = (previous_inside_idx, previous_inside_point.recorded_at, idx, trackpoint.recorded_at)
+                previous_recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
+                exit_recorded_at = _as_utc_aware(trackpoint.recorded_at)
+                if previous_recorded_at is None:
+                    continue
+                candidate = (previous_inside_idx, previous_recorded_at, idx, exit_recorded_at)
                 if not prefer_latest:
                     return candidate
             previous_inside_idx = None
@@ -418,6 +445,7 @@ def _compute_leading_coeff(
     task_class: str = "HG",
     task_sstart: float = 0.0,
     task_sfinish: float = 0.0,
+    target_waypoint_indices: list[int] | None = None,
 ) -> tuple[float, float]:
     """
     Compute leading coefficients (LC1 and LC2) from track data.
@@ -449,27 +477,36 @@ def _compute_leading_coeff(
     precompute_waypoint_dist(waypoints, {"errormargin": 0.05})
 
     # Use task gate open time as the reference; fall back to pilot's start time
-    task_start_epoch = task_sstart if task_sstart > 0 else started_at.timestamp()
-    pilot_start_epoch = started_at.timestamp()
+    started_at_utc = _as_utc_aware(started_at)
+    if started_at_utc is None:
+        return 0.0, 0.0
+    task_start_epoch = task_sstart if task_sstart > 0 else started_at_utc.timestamp()
+    pilot_start_epoch = started_at_utc.timestamp()
 
     coeff = 0.0
     leading_area = 0.0
     maxdist = 0.0
     had_previous = False
     # Stop accumulating LC at the pilot's ESS crossing time (if they reached ESS)
-    ess_epoch = ess_at.timestamp() if ess_at is not None else float("inf")
+    ess_at_utc = _as_utc_aware(ess_at)
+    ess_epoch = ess_at_utc.timestamp() if ess_at_utc is not None else float("inf")
 
-    for tp in trackpoints:
-        coord_time = tp.recorded_at.timestamp()
+    target_indices = target_waypoint_indices or [spt] * len(trackpoints)
+    for index, tp in enumerate(trackpoints):
+        recorded_at = _as_utc_aware(tp.recorded_at)
+        if recorded_at is None:
+            continue
+        coord_time = recorded_at.timestamp()
         # Stop processing after ESS crossing
         if coord_time > ess_epoch:
             break
         # Convert trackpoint to AirScore coord dict (radians)
         coord = to_rad_dict(tp.latitude, tp.longitude, time=coord_time)
+        target_index = target_indices[index] if index < len(target_indices) else spt
 
         # Compute distance flown using AirScore engine
         try:
-            newdist = airscore_distance_flown(waypoints, spt, coord)
+            newdist = airscore_distance_flown(waypoints, target_index, coord)
         except (IndexError, ZeroDivisionError):
             continue
         if distance_flown_m > 0:
@@ -530,6 +567,7 @@ def _compute_leading_coeff(
 # ---------- evaluate_task ----------
 
 def _isoformat_or_none(value: datetime | None) -> str | None:
+    value = _as_utc_aware(value)
     return value.isoformat() if value is not None else None
 
 
@@ -750,6 +788,34 @@ def evaluate_task(
         if elapsed_seconds < 0:
             elapsed_seconds = None
 
+    def _leading_target_waypoint_indices() -> list[int]:
+        required_points = [point for point in ordered_points if point.point_type.lower() != "launch"]
+        if not required_points:
+            return [0] * len(trackpoints)
+        pointer = 0
+        targets: list[int] = []
+        for track_index, _trackpoint in enumerate(trackpoints):
+            while pointer < len(required_points):
+                point_id = required_points[pointer].id
+                hit_index = hit_indices.get(point_id)
+                if hit_index is not None and hit_index < track_index:
+                    pointer += 1
+                    continue
+                break
+            if pointer >= len(required_points):
+                point = required_points[-1]
+            else:
+                point = required_points[pointer]
+            targets.append(waypoint_index_by_point_id.get(point.id, 0))
+            while pointer < len(required_points):
+                point_id = required_points[pointer].id
+                hit_index = hit_indices.get(point_id)
+                if hit_index is not None and hit_index <= track_index:
+                    pointer += 1
+                    continue
+                break
+        return targets
+
     # Compute leading coefficients if waypoints are available
     lc1, lc2 = 0.0, 0.0
     if distance_waypoints and trackpoints and started_at is not None:
@@ -762,6 +828,7 @@ def evaluate_task(
             task_class,
             task_sstart=task_sstart_epoch,
             task_sfinish=task_sfinish_epoch,
+            target_waypoint_indices=_leading_target_waypoint_indices(),
         )
 
     return {
@@ -1638,9 +1705,9 @@ def build_result_payload(session: Session, result: ScoreResult) -> dict:
         "status": result.status,
         "rank": result.rank,
         "distance_flown_km": result.distance_flown_km,
-        "started_at": result.started_at,
-        "ess_at": result.ess_at,
-        "goal_at": result.goal_at,
+        "started_at": _as_utc_aware(result.started_at),
+        "ess_at": _as_utc_aware(result.ess_at),
+        "goal_at": _as_utc_aware(result.goal_at),
         "elapsed_seconds": result.elapsed_seconds,
         "raw_score_points": result.raw_score_points,
         "score_points": result.score_points,

@@ -42,7 +42,8 @@ function taskTypeLabel(value: string): string {
 
 function formatClockTime(value: string | null | undefined, includeSeconds = false, timeZone?: string): string {
   if (!value) return "-";
-  const parsed = new Date(value);
+  const normalizedValue = /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}Z` : value;
+  const parsed = new Date(normalizedValue);
   if (Number.isNaN(parsed.getTime())) return value;
   try {
     return new Intl.DateTimeFormat("en-US", {

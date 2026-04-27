@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 import pytest
 
 from app.models import Task, TaskPoint, TrackPoint
-from app.services.scoring import _build_airscore_pilot_result, _build_formula, _compute_optimized_task_distance, _score_evaluations, evaluate_task
+from app.services.scoring import _as_utc_aware, _build_airscore_pilot_result, _build_formula, _compute_optimized_task_distance, _resolve_task_time_utc, _score_evaluations, evaluate_task
 
 
 def _task(task_id: int = 1, nominal_time_hours: float = 1.5) -> Task:
@@ -352,6 +352,19 @@ def test_fl_2026_timezone_inference_scores_first_gate_as_eastern_time() -> None:
     assert result["details"]["start_timing"]["start_gate_index"] == 2
 
 
+def test_task_clock_resolution_treats_naive_track_timestamps_as_utc() -> None:
+    task = _task()
+    task.start_open_time = "14:00:00"
+    naive_trackpoints = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 17, 31), 28.53303, -81.84666),
+    ]
+
+    resolved = _resolve_task_time_utc(task.start_open_time, naive_trackpoints, "America/New_York")
+
+    assert resolved == datetime(2026, 4, 23, 18, 0, tzinfo=UTC)
+    assert _as_utc_aware(datetime(2026, 4, 23, 18, 20)) == datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
+
+
 def test_flown_track_without_start_receives_minimum_distance_for_display() -> None:
     task = _task()
     task.minimum_distance_km = 5
@@ -368,6 +381,155 @@ def test_flown_track_without_start_receives_minimum_distance_for_display() -> No
 
     assert result["status"] == "partial"
     assert result["distance_flown_km"] == 5.0
+
+
+def test_gap2025_uses_distance_squared_leading_coeff2() -> None:
+    task = _task(nominal_time_hours=1.5)
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    _, waypoints = _compute_optimized_task_distance(_fl_2026_task_points())
+    start = datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
+    finish = datetime(2026, 4, 23, 20, 34, tzinfo=UTC)
+    event = type(
+        "EventStub",
+        (),
+        {
+            "timezone": "America/New_York",
+            "scoring_formula": "GAP2025",
+            "penalties_json": {"is_pg_comp": 0},
+            "nominal_distance_km": 50,
+            "nominal_time_hours": 1.5,
+            "nominal_launch": 0.96,
+            "minimum_distance_km": 5,
+            "nominal_goal_percent": 0.3,
+            "goal_ss_penalty": 0.0,
+            "time_points_if_not_in_goal": 0.8,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_leading_points": True,
+            "use_arrival_position_points": True,
+            "use_arrival_time_points": False,
+            "use_departure_points": False,
+            "use_difficulty_for_distance_points": True,
+            "use_flat_decline_of_timepoints": True,
+            "use_distance_squared_for_lc": True,
+            "leading_weight_factor": 1.0,
+        },
+    )()
+
+    def evaluation(pilot_id: int, coeff: float, coeff2: float) -> dict:
+        return {
+            "pilot_id": pilot_id,
+            "upload": type("UploadStub", (), {"id": pilot_id, "pilot_id": pilot_id})(),
+            "evaluation": {
+                "status": "goal",
+                "distance_flown_km": 123.843,
+                "started_at": start,
+                "ess_at": finish,
+                "goal_at": finish,
+                "elapsed_seconds": int((finish - start).total_seconds()),
+                "leading_coeff": coeff,
+                "leading_coeff2": coeff2,
+                "jump_the_gun_penalty_points": 0,
+                "details": {"hits": [], "total_distance_km": 123.843, "scoring_timezone": "America/New_York"},
+            },
+        }
+
+    scored = _score_evaluations(
+        task,
+        22,
+        [
+            evaluation(1, coeff=100.0, coeff2=1.0),
+            evaluation(2, coeff=1.0, coeff2=100.0),
+        ],
+        event,
+        airscore_waypoints=waypoints,
+    )
+    leading_by_pilot = {
+        row["pilot_id"]: row["details_json"]["gap"]["awarded_points"]["leading"]
+        for row in scored
+    }
+
+    assert leading_by_pilot[1] > leading_by_pilot[2]
+
+
+def test_landed_out_pilot_can_receive_leading_points_after_waypoint_progress() -> None:
+    task = _task(nominal_time_hours=1.5)
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    task_points = _fl_2026_task_points()
+    distance_km, waypoints = _compute_optimized_task_distance(task_points)
+    event = type(
+        "EventStub",
+        (),
+        {
+            "timezone": "America/New_York",
+            "scoring_formula": "GAP2025",
+            "penalties_json": {"is_pg_comp": 0},
+            "nominal_distance_km": 50,
+            "nominal_time_hours": 1.5,
+            "nominal_launch": 0.96,
+            "minimum_distance_km": 5,
+            "nominal_goal_percent": 0.3,
+            "goal_ss_penalty": 0.0,
+            "time_points_if_not_in_goal": 0.8,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_leading_points": True,
+            "use_arrival_position_points": True,
+            "use_arrival_time_points": False,
+            "use_departure_points": False,
+            "use_difficulty_for_distance_points": True,
+            "use_flat_decline_of_timepoints": True,
+            "use_distance_squared_for_lc": True,
+            "leading_weight_factor": 1.0,
+        },
+    )()
+    goal_track = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 17, 31, tzinfo=UTC), 28.53303, -81.84666),
+        _track_point_at(2, datetime(2026, 4, 23, 18, 20, 20, tzinfo=UTC), 28.57, -81.91),
+        _track_point_at(3, datetime(2026, 4, 23, 19, 10, tzinfo=UTC), 28.95917, -82.13416),
+        _track_point_at(4, datetime(2026, 4, 23, 19, 50, tzinfo=UTC), 29.06043, -82.37565),
+        _track_point_at(5, datetime(2026, 4, 23, 20, 20, tzinfo=UTC), 29.28913, -82.32232),
+        _track_point_at(6, datetime(2026, 4, 23, 20, 34, 17, tzinfo=UTC), 29.06043, -82.37565),
+    ]
+    landed_out_track = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 17, 31, tzinfo=UTC), 28.53303, -81.84666),
+        _track_point_at(2, datetime(2026, 4, 23, 18, 20, 20, tzinfo=UTC), 28.57, -81.91),
+        _track_point_at(3, datetime(2026, 4, 23, 18, 50, tzinfo=UTC), 28.95917, -82.13416),
+        _track_point_at(4, datetime(2026, 4, 23, 19, 20, tzinfo=UTC), 29.06043, -82.37565),
+        _track_point_at(5, datetime(2026, 4, 23, 19, 50, tzinfo=UTC), 29.28913, -82.32232),
+        _track_point_at(6, datetime(2026, 4, 23, 20, 0, tzinfo=UTC), 29.2, -82.35),
+    ]
+
+    scored = _score_evaluations(
+        task,
+        22,
+        [
+            {
+                "pilot_id": 1,
+                "upload": type("UploadStub", (), {"id": 1, "pilot_id": 1})(),
+                "evaluation": evaluate_task(task, task_points, goal_track, event_timezone="America/New_York", optimized_distance_km=distance_km, airscore_waypoints=waypoints, task_class="HG", event=event),
+            },
+            {
+                "pilot_id": 2,
+                "upload": type("UploadStub", (), {"id": 2, "pilot_id": 2})(),
+                "evaluation": evaluate_task(task, task_points, landed_out_track, event_timezone="America/New_York", optimized_distance_km=distance_km, airscore_waypoints=waypoints, task_class="HG", event=event),
+            },
+        ],
+        event,
+        airscore_waypoints=waypoints,
+    )
+    landed_out = next(row for row in scored if row["pilot_id"] == 2)
+    awarded = landed_out["details_json"]["gap"]["awarded_points"]
+
+    assert landed_out["status"] == "partial"
+    assert awarded["speed"] == 0
+    assert awarded["arrival"] == 0
+    assert awarded["leading"] > 0
 
 
 def test_non_goal_pilot_loses_speed_and_arrival_points() -> None:
