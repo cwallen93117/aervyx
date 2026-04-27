@@ -8,9 +8,9 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.models import Event, EventPilot, MeshDevice, Pilot, User
-from app.routers.auth import change_password, create_mesh_device, register, register_mesh_device, update_settings, update_user_account
+from app.routers.auth import change_password, create_mesh_device, register, register_mesh_device, update_mesh_device, update_settings, update_user_account
 from app.routers.pilots import assign_existing_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, PasswordChangeRequest, RegisterRequest
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, RegisterRequest
 
 
 def _session() -> Session:
@@ -184,6 +184,50 @@ def test_nontracking_mesh_device_does_not_replace_tracking_mirror() -> None:
     assert user.mesh_device_id == "!tracker"
     assert driver_device is not None
     assert driver_device.purpose == "driver_wifi"
+
+
+def test_mesh_device_update_can_rename_tracking_device_and_mirror() -> None:
+    session = _session()
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+
+    register_mesh_device(MeshDeviceRegister(mesh_device_id="!tracker"), user, session)
+
+    response = update_mesh_device(
+        "!tracker",
+        MeshDeviceUpdate(device_id="!NEWTRACK", label="Primary tracker", purpose="tracking"),
+        user,
+        session,
+    )
+
+    session.refresh(user)
+    old_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!tracker"))
+    new_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!newtrack"))
+    assert response.device_id == "!newtrack"
+    assert user.mesh_device_id == "!newtrack"
+    assert old_device is None
+    assert new_device is not None
+    assert new_device.label == "Primary tracker"
+    assert new_device.purpose == "tracking"
+
+
+def test_mesh_device_update_rejects_duplicate_device_id() -> None:
+    session = _session()
+    owner = User(username="owner@example.com", full_name="Owner User", role="pilot", password_hash="hash")
+    other = User(username="other@example.com", full_name="Other User", role="pilot", password_hash="hash")
+    session.add_all([owner, other])
+    session.commit()
+
+    create_mesh_device(MeshDeviceCreate(device_id="!mine", label="Mine", purpose="driver_mesh"), owner, session)
+    create_mesh_device(MeshDeviceCreate(device_id="!taken", label="Taken", purpose="driver_mesh"), other, session)
+
+    try:
+        update_mesh_device("!mine", MeshDeviceUpdate(device_id="!taken"), owner, session)
+    except Exception as exc:
+        assert getattr(exc, "status_code", None) == 409
+    else:
+        raise AssertionError("Expected duplicate device ID update to be rejected")
 
 
 def test_change_password_requires_current_password() -> None:

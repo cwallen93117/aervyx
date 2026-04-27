@@ -48,6 +48,13 @@ const normalizeUserPurpose = (purpose: MeshDevicePurpose): MeshDevicePurpose =>
 const purposeLabel = (purpose: string) =>
   PURPOSE_OPTIONS.find((option) => option.value === purpose)?.label ?? (purpose === "relay" ? "Base Station" : purpose);
 
+type MeshDeviceDraft = {
+  device_id: string;
+  label: string;
+  purpose: MeshDevicePurpose;
+  is_active: boolean;
+};
+
 export default function MeshDevicesManager({ token }: { token: string }) {
   const [devices, setDevices] = useState<MeshDeviceRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,7 +64,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
     label: "",
     purpose: "tracking",
   });
-  const [drafts, setDrafts] = useState<Record<string, { label: string; purpose: MeshDevicePurpose; is_active: boolean }>>({});
+  const [drafts, setDrafts] = useState<Record<string, MeshDeviceDraft>>({});
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const showFeedback = useCallback((type: "success" | "error", text: string) => {
@@ -71,7 +78,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
       setDevices(data);
       setDrafts(Object.fromEntries(data.map((device) => [
         device.device_id,
-        { label: device.label, purpose: normalizeUserPurpose(device.purpose), is_active: device.is_active },
+        { device_id: device.device_id, label: device.label, purpose: normalizeUserPurpose(device.purpose), is_active: device.is_active },
       ])));
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Failed to load Meshtastic devices");
@@ -109,11 +116,21 @@ export default function MeshDevicesManager({ token }: { token: string }) {
   async function saveDevice(device: MeshDeviceRecord) {
     const draft = drafts[device.device_id];
     if (!draft) return;
+    const nextDeviceId = draft.device_id.trim().toLowerCase();
+    if (!nextDeviceId) {
+      showFeedback("error", "Device ID is required.");
+      return;
+    }
     setSaving(true);
     try {
       await apiFetch<MeshDeviceRecord>(`/api/auth/mesh-devices/${encodeURIComponent(device.device_id)}`, token, {
         method: "PATCH",
-        body: JSON.stringify(draft),
+        body: JSON.stringify({
+          device_id: nextDeviceId,
+          label: draft.label,
+          purpose: draft.purpose,
+          is_active: draft.is_active,
+        }),
       });
       showFeedback("success", "Device updated.");
       await loadDevices();
@@ -210,7 +227,12 @@ export default function MeshDevicesManager({ token }: { token: string }) {
               <tr><td colSpan={6} className="participant-table-empty">Loading devices...</td></tr>
             ) : devices.length ? (
               devices.map((device) => {
-                const draft = drafts[device.device_id] ?? { label: device.label, purpose: normalizeUserPurpose(device.purpose), is_active: device.is_active };
+                const draft = drafts[device.device_id] ?? {
+                  device_id: device.device_id,
+                  label: device.label,
+                  purpose: normalizeUserPurpose(device.purpose),
+                  is_active: device.is_active,
+                };
                 const isPilotTracker = device.purpose === "tracking" && device.is_active;
                 return (
                   <tr key={device.device_id}>
@@ -223,7 +245,16 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                         }))}
                       />
                     </td>
-                    <td style={{ fontFamily: "monospace", fontSize: "0.78rem" }}>{device.device_id}</td>
+                    <td>
+                      <input
+                        value={draft.device_id}
+                        onChange={(event) => setDrafts((current) => ({
+                          ...current,
+                          [device.device_id]: { ...draft, device_id: event.target.value },
+                        }))}
+                        style={{ fontFamily: "monospace", fontSize: "0.78rem" }}
+                      />
+                    </td>
                     <td>
                       <select
                         value={draft.purpose}
@@ -263,7 +294,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                     </td>
                     <td>
                       <div className="button-row">
-                        <button type="button" className="ghost-button" disabled={saving} onClick={() => void saveDevice(device)}>Save</button>
+                        <button type="button" className="ghost-button" disabled={saving || !draft.device_id.trim()} onClick={() => void saveDevice(device)}>Save</button>
                         <button type="button" className="ghost-button danger-button" disabled={saving} onClick={() => void deleteDevice(device)}>Remove</button>
                       </div>
                       <div className="hint">{purposeLabel(device.purpose)} device</div>

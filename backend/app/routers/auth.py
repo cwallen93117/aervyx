@@ -686,21 +686,51 @@ def update_mesh_device(
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
 
+    next_device_id = normalized
+    if payload.device_id is not None:
+        next_device_id = _normalize_mesh_device_id(payload.device_id)
+        if next_device_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+        if next_device_id != normalized:
+            existing_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == next_device_id))
+            if existing_device is not None and existing_device.id != device.id:
+                owner = session.get(User, existing_device.owner_user_id)
+                owner_name = owner.full_name if owner else "another user"
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+            legacy_owner = session.scalar(select(User).where(User.mesh_device_id == next_device_id, User.id != user.id))
+            if legacy_owner is not None:
+                owner_name = legacy_owner.full_name or legacy_owner.username or "another user"
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+            device.device_id = next_device_id
+
     next_purpose = _normalize_mesh_purpose(payload.purpose) if payload.purpose is not None else device.purpose
     if payload.label is not None:
-        device.label = payload.label.strip()[:160] or _default_mesh_device_label(user, normalized)
+        device.label = payload.label.strip()[:160] or _default_mesh_device_label(user, next_device_id)
     if payload.is_active is not None:
         device.is_active = payload.is_active
     if next_purpose == TRACKING_MESH_PURPOSE:
-        _set_user_tracking_device(user, normalized, session, label=device.label, allow_transfer=False)
         device.purpose = TRACKING_MESH_PURPOSE
-        if payload.is_active is not None:
-            device.is_active = payload.is_active
-        if not device.is_active and user.mesh_device_id == normalized:
+        if payload.is_active is None:
+            device.is_active = True
+        other_tracking_devices = session.scalars(
+            select(MeshDevice).where(
+                MeshDevice.owner_user_id == user.id,
+                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
+                MeshDevice.id != device.id,
+            )
+        ).all()
+        for other in other_tracking_devices:
+            other.is_active = False
+            session.add(other)
+        if device.is_active:
+            user.mesh_device_id = next_device_id
+            session.add(user)
+        elif user.mesh_device_id in {normalized, next_device_id}:
             user.mesh_device_id = None
+            session.add(user)
     else:
         device.purpose = next_purpose
-        if user.mesh_device_id == normalized:
+        if user.mesh_device_id in {normalized, next_device_id}:
             user.mesh_device_id = None
             session.add(user)
     session.add(device)

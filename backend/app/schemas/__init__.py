@@ -167,6 +167,7 @@ class MeshDeviceCreate(BaseModel):
 
 
 class MeshDeviceUpdate(BaseModel):
+    device_id: str | None = None
     label: str | None = None
     purpose: str | None = None
     is_active: bool | None = None
