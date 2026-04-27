@@ -223,6 +223,30 @@ def test_gated_race_start_uses_latest_prior_gate() -> None:
     assert result["elapsed_seconds"] == 40 * 60
 
 
+def test_exit_start_uses_gate_opening_inside_exit_interval() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 14, 17, 30, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 14, 20, 30, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(3, datetime(2026, 3, 17, 16, 34, 17, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[0].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["actual_start_exit_after_at"] == track_points[1].recorded_at.isoformat()
+    assert result["started_at"] == datetime(2026, 3, 17, 14, 20, tzinfo=UTC)
+    assert result["elapsed_seconds"] == (2 * 3600) + (14 * 60) + 17
+
+
 def test_before_first_gate_start_scores_first_gate_with_jump_penalty() -> None:
     task = _task()
     task.task_type = "race_to_goal_with_gates"
@@ -303,7 +327,47 @@ def test_missed_turnpoint_blocks_later_goal_credit() -> None:
     assert result["details"]["missed_point"]["task_point_id"] == 3
     assert later_goal["hit"] is False
     assert later_goal["ignored_hit"] is True
+    assert result["distance_flown_km"] > 40
     assert result["distance_flown_km"] < 55
+
+
+def test_fl_2026_timezone_inference_scores_first_gate_as_eastern_time() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    task_points = _fl_2026_task_points()
+    track_points = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 17, 31, tzinfo=UTC), 28.53303, -81.84666),
+        _track_point_at(2, datetime(2026, 4, 23, 18, 20, 20, tzinfo=UTC), 28.57, -81.91),
+        _track_point_at(3, datetime(2026, 4, 23, 20, 34, 17, tzinfo=UTC), 29.06043, -82.37565),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["details"]["scoring_timezone"] == "America/New_York"
+    assert result["started_at"] == datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
+    assert result["details"]["start_timing"]["start_gate_index"] == 2
+
+
+def test_flown_track_without_start_receives_minimum_distance_for_display() -> None:
+    task = _task()
+    task.minimum_distance_km = 5
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.04, 0.04),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 5, tzinfo=UTC), 0.05, 0.05),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["status"] == "partial"
+    assert result["distance_flown_km"] == 5.0
 
 
 def test_non_goal_pilot_loses_speed_and_arrival_points() -> None:
@@ -345,6 +409,62 @@ def test_non_goal_pilot_loses_speed_and_arrival_points() -> None:
     assert awarded["distance"] > 0
     assert awarded["speed"] == 0
     assert awarded["arrival"] == 0
+
+
+def test_hg_gap2025_leading_and_arrival_weights_are_available() -> None:
+    task = _task(nominal_time_hours=1.5)
+    task.start_open_time = "14:00:00"
+    task.task_finish_time = "19:00:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    task_points = _fl_2026_task_points()
+    goal_track = [
+        _track_point_at(1, datetime(2026, 4, 23, 18, 17, 31, tzinfo=UTC), 28.53303, -81.84666),
+        _track_point_at(2, datetime(2026, 4, 23, 18, 20, 20, tzinfo=UTC), 28.57, -81.91),
+        _track_point_at(3, datetime(2026, 4, 23, 19, 10, tzinfo=UTC), 28.95917, -82.13416),
+        _track_point_at(4, datetime(2026, 4, 23, 19, 50, tzinfo=UTC), 29.06043, -82.37565),
+        _track_point_at(5, datetime(2026, 4, 23, 20, 20, tzinfo=UTC), 29.28913, -82.32232),
+        _track_point_at(6, datetime(2026, 4, 23, 20, 34, 17, tzinfo=UTC), 29.06043, -82.37565),
+    ]
+    event = type(
+        "EventStub",
+        (),
+        {
+            "timezone": "America/New_York",
+            "scoring_formula": "GAP2025",
+            "penalties_json": {"is_pg_comp": 0},
+            "nominal_distance_km": 50,
+            "nominal_time_hours": 1.5,
+            "nominal_launch": 0.96,
+            "minimum_distance_km": 5,
+            "nominal_goal_percent": 0.3,
+            "goal_ss_penalty": 0.0,
+            "time_points_if_not_in_goal": 0.8,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_leading_points": True,
+            "use_arrival_position_points": True,
+            "use_arrival_time_points": False,
+            "use_departure_points": False,
+            "use_difficulty_for_distance_points": True,
+            "use_flat_decline_of_timepoints": True,
+            "leading_weight_factor": 1.0,
+        },
+    )()
+    upload = type("UploadStub", (), {"id": 10, "pilot_id": 1})()
+    distance_km, waypoints = _compute_optimized_task_distance(task_points)
+    scored = _score_evaluations(
+        task,
+        22,
+        [{"upload": upload, "evaluation": evaluate_task(task, task_points, goal_track, event_timezone="America/New_York", optimized_distance_km=distance_km, airscore_waypoints=waypoints, task_class="HG", event=event)}],
+        event,
+        airscore_waypoints=waypoints,
+    )
+    available = scored[0]["details_json"]["gap"]["available_points"]
+
+    assert available["leading"] > 0
+    assert available["arrival"] > 0
+    assert available["speed"] > 0
 
 
 def test_launch_validity_saturates_at_one_for_well_launched_day() -> None:

@@ -49,12 +49,17 @@ function formatClockTime(value: string | null | undefined, includeSeconds = fals
       hour: "numeric",
       minute: "2-digit",
       second: includeSeconds ? "2-digit" : undefined,
-      hour12: true,
+      hour12: false,
       timeZone: timeZone || undefined,
     }).format(parsed);
   } catch {
-    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: true });
+    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: false });
   }
+}
+
+function resultScoringTimezone(result: ResultRecord, fallback?: string): string | undefined {
+  const timezone = result.details_json?.scoring_timezone;
+  return typeof timezone === "string" && timezone.trim() ? timezone : fallback;
 }
 
 function formatTaskClockLabel(value: string | null | undefined): string {
@@ -470,8 +475,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                 </td>
                                 <td>{pilot?.nation ?? "-"}</td>
                                 <td>-</td>
-                                <td>{isUnscored ? "-" : formatClockTime(result.started_at, true, eventForm.timezone)}</td>
-                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true, eventForm.timezone)}</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.started_at, true, resultScoringTimezone(result, eventForm.timezone))}</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true, resultScoringTimezone(result, eventForm.timezone))}</td>
                                 <td>{isUnscored ? "-" : formatElapsedSeconds(result.elapsed_seconds)}</td>
                                 <td>{isUnscored ? "-" : formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
                                 <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>

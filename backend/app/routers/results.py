@@ -22,7 +22,7 @@ from app.schemas import (
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
-from app.services.scoring import build_result_payload, rescore_task
+from app.services.scoring import build_result_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
 
 router = APIRouter(tags=["results"])
 
@@ -180,6 +180,23 @@ def rescore(task_id: int, admin: User = Depends(require_staff), session: Session
         select(ScoreResult).where(ScoreResult.task_id == task_id).order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in persisted_results]
+
+
+@router.get("/api/tasks/{task_id}/scoring-audit")
+def scoring_audit(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict:
+    if session.get(Task, task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return build_task_scoring_audit(session, task_id)
+
+
+@router.post("/api/tasks/{task_id}/repair-fl2026-task1")
+def repair_fl2026_task1(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict:
+    if session.get(Task, task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    payload = repair_fl2026_task1_settings(session, task_id)
+    log_action(session, actor_user_id=admin.id, action="task.repair_fl2026_task1", entity_type="task", entity_id=str(task_id), details={"status": payload.get("status")})
+    session.commit()
+    return payload
 
 
 @router.delete("/api/tasks/{task_id}/results")

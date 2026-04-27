@@ -808,10 +808,10 @@ export default function HomePage() {
   const taskResultsColumns = useMemo(() => {
     const columns: Array<{ key: "distance" | "speed" | "arrival" | "departure" | "leading"; label: string }> = [];
     if (eventForm.use_distance_points) columns.push({ key: "distance", label: "Dist. Points" });
+    if (eventForm.use_leading_points) columns.push({ key: "leading", label: "Leading Points" });
     if (eventForm.use_time_points) columns.push({ key: "speed", label: "Time Points" });
     if (eventForm.use_arrival_position_points || eventForm.use_arrival_time_points) columns.push({ key: "arrival", label: "Arrival Points" });
     if (eventForm.use_departure_points) columns.push({ key: "departure", label: "Departure Points" });
-    if (eventForm.use_leading_points) columns.push({ key: "leading", label: "Leading Points" });
     return columns;
   }, [
     eventForm.use_arrival_position_points,

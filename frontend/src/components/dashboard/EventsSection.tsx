@@ -17,6 +17,7 @@ import type {
 } from "./types";
 
 const builtInFormulaOptions = [
+  { value: "GAP2025", label: "GAP 2025" },
   { value: "GAP2021", label: "GAP 2021" },
   { value: "GAP2020", label: "GAP 2020" },
   { value: "GAP2018", label: "GAP 2018" },
@@ -91,6 +92,29 @@ const formulaPresetBase: FormulaPreset = {
 };
 
 const formulaPresets: Record<string, FormulaPreset> = {
+  GAP2025: {
+    ...formulaPresetBase,
+    nominal_goal_percent: 0.3,
+    nominal_distance_km: 50,
+    nominal_launch: 0.96,
+    goal_ss_penalty: 0,
+    time_points_if_not_in_goal: 0.8,
+    use_leading_points: true,
+    use_arrival_position_points: true,
+    use_flat_decline_of_timepoints: true,
+    redistribute_removed_time_points_as_distance_points: true,
+    use_distance_squared_for_lc: true,
+    use_semi_circle_control_zone_for_goal_line: true,
+    use_difficulty_for_distance_points: true,
+    use_proportional_leading_weight_if_nobody_in_goal: false,
+    use_best_score_for_ftv_validity: true,
+    stopped_glide_bonus: 5,
+    jump_the_gun_factor: 2,
+    jump_the_gun_max_seconds: 300,
+    min_time_span_for_valid_task_minutes: 45,
+    number_of_decimals_task_results: 1,
+    number_of_decimals_competition_results: 1,
+  },
   GAP2021: {
     ...formulaPresetBase,
     use_flat_decline_of_timepoints: true,
@@ -175,6 +199,12 @@ const formulaPresets: Record<string, FormulaPreset> = {
 /* ---------- Formula description / info per version ---------- */
 
 const formulaDescriptions: Record<string, { summary: string; details: string }> = {
+  GAP2025: {
+    summary: "Current GAP formula profile",
+    details:
+      "GAP 2025 keeps the post-2021 GAP model with difficulty-weighted distance, time, leading, and optional arrival position points. " +
+      "For hang-gliding Race to Goal tasks, enable leading and arrival position points when matching official AirScore output.",
+  },
   GAP2021: {
     summary: "Current FAI/CIVL standard (2021+)",
     details:
