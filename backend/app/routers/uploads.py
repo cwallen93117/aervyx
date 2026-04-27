@@ -5,6 +5,7 @@ import hashlib
 import io
 import re
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime as dt, time as dt_time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -25,6 +26,12 @@ from app.services.logbook import sync_task_upload_to_logbook
 from app.services.scoring import rescore_task
 from app.services.tracking import _publish
 router = APIRouter(tags=["uploads"])
+
+
+@dataclass
+class StoredUpload:
+    upload: IGCUpload
+    created: bool
 
 
 def _normalized_upload_source(value: str | None) -> str:
@@ -195,6 +202,38 @@ def _is_late_start_upload(session: Session, task: Task, upload: IGCUpload) -> bo
     return local_fix > close_time
 
 
+def _select_upload_for_scoring(
+    session: Session,
+    task: Task,
+    pilot_id: int,
+    upload: IGCUpload,
+    updated_by_user_id: int,
+) -> bool:
+    existing_input = session.scalar(
+        select(TaskScoringInput).where(
+            TaskScoringInput.task_id == task.id,
+            TaskScoringInput.pilot_id == pilot_id,
+        )
+    )
+    if existing_input is None:
+        session.add(TaskScoringInput(
+            task_id=task.id,
+            pilot_id=pilot_id,
+            selected_upload_id=upload.id,
+            updated_by_user_id=updated_by_user_id,
+        ))
+        session.flush()
+        return True
+
+    changed = existing_input.selected_upload_id != upload.id or existing_input.status_override is not None
+    if changed:
+        existing_input.selected_upload_id = upload.id
+        existing_input.status_override = None
+        existing_input.updated_by_user_id = updated_by_user_id
+        session.flush()
+    return changed
+
+
 def _auto_select_and_rescore(
     session: Session, task: Task, pilot_id: int, upload: IGCUpload, uploaded_by_user_id: int,
 ) -> None:
@@ -204,12 +243,6 @@ def _auto_select_and_rescore(
     if _is_late_start_upload(session, task, upload):
         return
 
-    existing_input = session.scalar(
-        select(TaskScoringInput).where(
-            TaskScoringInput.task_id == task.id,
-            TaskScoringInput.pilot_id == pilot_id,
-        )
-    )
     has_scored = (
         session.scalar(
             select(func.count()).select_from(ScoreResult).where(ScoreResult.task_id == task.id)
@@ -217,22 +250,17 @@ def _auto_select_and_rescore(
         or 0
     ) > 0
 
-    if existing_input is not None:
-        existing_input.selected_upload_id = upload.id
-        existing_input.updated_by_user_id = uploaded_by_user_id
-    elif has_scored:
-        session.add(TaskScoringInput(
-            task_id=task.id,
-            pilot_id=pilot_id,
-            selected_upload_id=upload.id,
-            updated_by_user_id=uploaded_by_user_id,
-        ))
-    else:
+    existing_input = session.scalar(
+        select(TaskScoringInput).where(
+            TaskScoringInput.task_id == task.id,
+            TaskScoringInput.pilot_id == pilot_id,
+        )
+    )
+    if existing_input is None and not has_scored:
         return
 
-    session.flush()
-
-    if has_scored:
+    changed = _select_upload_for_scoring(session, task, pilot_id, upload, uploaded_by_user_id)
+    if changed and has_scored:
         rescore_task(session, task.id)
         log_action(
             session,
@@ -252,7 +280,8 @@ async def _store_upload(
     pilot_id: int,
     uploaded_by_user_id: int,
     upload_source: str = "manual",
-) -> UploadResponse:
+    auto_select_and_rescore: bool = True,
+) -> StoredUpload:
     sha256 = hashlib.sha256(content).hexdigest()
     # Dedup: if the same file was already uploaded for this pilot/task, return existing
     existing = session.scalar(
@@ -263,7 +292,7 @@ async def _store_upload(
         )
     )
     if existing is not None:
-        return _serialize_upload(existing)
+        return StoredUpload(upload=existing, created=False)
     parsed = parse_igc(content)
     filename = file.filename or "track.igc"
     if upload_source == "manual":
@@ -316,8 +345,9 @@ async def _store_upload(
         "upload_id": upload.id,
     })
     # Auto-select newest upload and rescore if task has been scored
-    _auto_select_and_rescore(session, task, pilot_id, upload, uploaded_by_user_id)
-    return _serialize_upload(upload)
+    if auto_select_and_rescore:
+        _auto_select_and_rescore(session, task, pilot_id, upload, uploaded_by_user_id)
+    return StoredUpload(upload=upload, created=True)
 
 
 @router.post("/api/tasks/{task_id}/uploads", response_model=UploadResponse)
@@ -344,9 +374,9 @@ async def upload_igc(
     if len(content) > max_bytes:
         raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {get_settings().max_upload_size_mb} MB.")
     source = _normalized_upload_source(upload_source)
-    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source=source)
+    stored = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source=source)
     session.commit()
-    return response
+    return _serialize_upload(stored.upload)
 
 
 @router.post("/api/tasks/{task_id}/uploads/bulk", response_model=list[BulkUploadItemResponse])
@@ -359,6 +389,8 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
 
     max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
     results: list[BulkUploadItemResponse] = []
+    selection_change_count = 0
+    matched_count = 0
     for file in files:
         filename = file.filename or "track.igc"
         try:
@@ -383,15 +415,31 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
                     )
                 )
                 continue
-            upload_response = await _store_upload(session, task, file, content, matched_pilot.id, user.id, upload_source="bulk")
+            stored = await _store_upload(
+                session,
+                task,
+                file,
+                content,
+                matched_pilot.id,
+                user.id,
+                upload_source="bulk",
+                auto_select_and_rescore=False,
+            )
+            matched_count += 1
+            late_start = _is_late_start_upload(session, task, stored.upload)
+            if not late_start and _select_upload_for_scoring(session, task, matched_pilot.id, stored.upload, user.id):
+                selection_change_count += 1
+            message = "Matched and uploaded successfully." if stored.created else "Already uploaded; matched existing file."
+            if late_start:
+                message = f"{message} Not auto-selected because the first fix is after start close."
             results.append(
                 BulkUploadItemResponse(
                     filename=filename,
                     matched=True,
-                    upload_id=upload_response.id,
+                    upload_id=stored.upload.id,
                     pilot_id=matched_pilot.id,
                     pilot_name=f"{matched_pilot.first_name} {matched_pilot.last_name}".strip(),
-                    message="Matched and uploaded successfully.",
+                    message=message,
                 )
             )
         except Exception as exc:
@@ -402,6 +450,16 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
                     message=str(exc),
                 )
             )
+    if selection_change_count > 0:
+        rescore_task(session, task.id)
+        log_action(
+            session,
+            actor_user_id=user.id,
+            action="task.bulk_rescore",
+            entity_type="task",
+            entity_id=str(task.id),
+            details={"matched_count": matched_count, "selected_count": selection_change_count},
+        )
     session.commit()
     return results
 

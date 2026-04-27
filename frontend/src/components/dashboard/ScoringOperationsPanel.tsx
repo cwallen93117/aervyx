@@ -326,19 +326,17 @@ export default function ScoringOperationsPanel({
     try {
       setFeedback({ type: "pending", text: `Uploading ${Array.from(files).length} IGC files...` });
       const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${activePublishedTaskId}/uploads/bulk`, token, { method: "POST", body: formData });
-      const matchedUploads = batchResults.filter(
-        (item): item is BulkUploadItemRecord & { pilot_id: number; upload_id: number } =>
-          item.matched === true && item.pilot_id != null && item.upload_id != null,
-      );
-      if (matchedUploads.length) {
-        await Promise.all(
-          matchedUploads.map((item) => saveSelectionAndRescore(item.pilot_id, item.upload_id, null)),
-        );
-        await apiFetch(`/api/tasks/${activePublishedTaskId}/rescore`, token, { method: "POST" });
-      }
+      const matchedCount = batchResults.filter((item) => item.matched).length;
+      const duplicateCount = batchResults.filter((item) => item.message.toLowerCase().includes("already uploaded")).length;
+      const unmatchedCount = batchResults.length - matchedCount;
       await reloadTaskAndRows();
       await refreshEventSummary();
-      setFeedback({ type: "success", text: "Bulk upload complete and task scored." });
+      const details = [
+        `${matchedCount} matched`,
+        duplicateCount ? `${duplicateCount} already existed` : null,
+        unmatchedCount ? `${unmatchedCount} need review` : null,
+      ].filter(Boolean);
+      setFeedback({ type: "success", text: `Bulk upload complete and task scored: ${details.join(", ")}.` });
     } catch (caught) {
       setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Bulk upload failed." });
     }
