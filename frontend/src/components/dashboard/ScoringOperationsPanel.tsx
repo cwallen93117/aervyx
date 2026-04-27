@@ -448,6 +448,22 @@ export default function ScoringOperationsPanel({
               <button
                 type="button"
                 className="scoring-ops-footer-btn secondary"
+                onClick={() => bulkUploadRef.current?.click()}
+                disabled={!activePublishedTaskId}
+              >
+                Upload all IGCs
+              </button>
+              <button
+                type="button"
+                className="scoring-ops-footer-btn destructive"
+                onClick={() => setConfirmAction("delete_all")}
+                disabled={!activePublishedTaskId}
+              >
+                Delete all IGCs
+              </button>
+              <button
+                type="button"
+                className="scoring-ops-footer-btn secondary"
                 onClick={() => void handleRescoreTask()}
                 disabled={!activePublishedTaskId}
               >
@@ -624,26 +640,6 @@ export default function ScoringOperationsPanel({
           </div>
 
           <div className="scoring-ops-footer-actions">
-            <div className="scoring-ops-footer-main">
-              <div className="scoring-ops-footer-left">
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn secondary"
-                  onClick={() => bulkUploadRef.current?.click()}
-                  disabled={!activePublishedTaskId}
-                >
-                  Upload all IGCs
-                </button>
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn destructive"
-                  onClick={() => setConfirmAction("delete_all")}
-                  disabled={!activePublishedTaskId}
-                >
-                  Delete all IGCs
-                </button>
-              </div>
-            </div>
             <div className="scoring-ops-footer-note">
               Scoring uses the <strong>currently selected item</strong> in each pilot&apos;s dropdown - file, status, or blank.
             </div>
