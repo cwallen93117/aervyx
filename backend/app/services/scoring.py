@@ -217,10 +217,12 @@ def _find_exit_hit(
     prefer_latest: bool = False,
     margin_km: float = 0.0,
 ) -> tuple[int, datetime] | None:
-    inner_exit_km = max(radius_km - max(margin_km, 0.0), 0.0)
     outer_inside_km = radius_km + max(margin_km, 0.0)
-    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= outer_inside_km if cursor > 0 and cursor <= len(trackpoints) else None
-    previous_inside_idx: int | None = cursor - 1 if previous_inside else None
+    previous_inside_idx: int | None = None
+    if cursor > 0 and cursor <= len(trackpoints):
+        previous_distance = _distance_to_task_point(trackpoints[cursor - 1], point)
+        if previous_distance <= radius_km:
+            previous_inside_idx = cursor - 1
     candidate: tuple[int, datetime] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
@@ -228,18 +230,17 @@ def _find_exit_hit(
         if recorded_at is None:
             continue
         distance_km = _distance_to_task_point(trackpoint, point)
-        inside = distance_km <= outer_inside_km
+        inside_nominal = distance_km <= radius_km
+        outside_nominal = distance_km > radius_km
         if earliest_at is not None and recorded_at < earliest_at:
-            previous_inside = inside
-            previous_inside_idx = idx if inside else None
+            if inside_nominal:
+                previous_inside_idx = idx
+            elif distance_km > outer_inside_km:
+                previous_inside_idx = None
             continue
         if latest_at is not None and recorded_at > latest_at:
             break
-        if previous_inside is None:
-            previous_inside = inside
-            previous_inside_idx = idx if inside else None
-            continue
-        if previous_inside and distance_km >= inner_exit_km:
+        if previous_inside_idx is not None and outside_nominal:
             if previous_inside_idx is not None:
                 previous_inside_point = trackpoints[previous_inside_idx]
                 recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
@@ -249,9 +250,10 @@ def _find_exit_hit(
                 if not prefer_latest:
                     return candidate
             previous_inside_idx = None
-        elif inside:
+        if inside_nominal:
             previous_inside_idx = idx
-        previous_inside = inside
+        elif distance_km > outer_inside_km:
+            previous_inside_idx = None
     return candidate
 
 
@@ -264,10 +266,12 @@ def _find_exit_hit_with_interval(
     prefer_latest: bool = False,
     margin_km: float = 0.0,
 ) -> tuple[int, datetime, int | None, datetime | None] | None:
-    inner_exit_km = max(radius_km - max(margin_km, 0.0), 0.0)
     outer_inside_km = radius_km + max(margin_km, 0.0)
-    previous_inside: bool | None = _distance_to_task_point(trackpoints[cursor - 1], point) <= outer_inside_km if cursor > 0 and cursor <= len(trackpoints) else None
-    previous_inside_idx: int | None = cursor - 1 if previous_inside else None
+    previous_inside_idx: int | None = None
+    if cursor > 0 and cursor <= len(trackpoints):
+        previous_distance = _distance_to_task_point(trackpoints[cursor - 1], point)
+        if previous_distance <= radius_km:
+            previous_inside_idx = cursor - 1
     candidate: tuple[int, datetime, int | None, datetime | None] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
@@ -275,14 +279,11 @@ def _find_exit_hit_with_interval(
         if recorded_at is None:
             continue
         distance_km = _distance_to_task_point(trackpoint, point)
-        inside = distance_km <= outer_inside_km
+        inside_nominal = distance_km <= radius_km
+        outside_nominal = distance_km > radius_km
         if latest_at is not None and recorded_at > latest_at:
             break
-        if previous_inside is None:
-            previous_inside = inside
-            previous_inside_idx = idx if inside else None
-            continue
-        if previous_inside and distance_km >= inner_exit_km:
+        if previous_inside_idx is not None and outside_nominal:
             if previous_inside_idx is not None:
                 previous_inside_point = trackpoints[previous_inside_idx]
                 previous_recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
@@ -293,9 +294,10 @@ def _find_exit_hit_with_interval(
                 if not prefer_latest:
                     return candidate
             previous_inside_idx = None
-        elif inside:
+        if inside_nominal:
             previous_inside_idx = idx
-        previous_inside = inside
+        elif distance_km > outer_inside_km:
+            previous_inside_idx = None
     return candidate
 
 
@@ -640,6 +642,24 @@ def _isoformat_or_none(value: datetime | None) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+def _trackpoint_scoring_detail(trackpoint: TrackPoint | None) -> dict | None:
+    if trackpoint is None:
+        return None
+    altitude_m = trackpoint.pressure_altitude_m
+    if altitude_m is None:
+        altitude_m = trackpoint.gps_altitude_m
+    return {
+        "track_point_id": trackpoint.id,
+        "sequence": trackpoint.sequence,
+        "recorded_at": _isoformat_or_none(trackpoint.recorded_at),
+        "latitude": trackpoint.latitude,
+        "longitude": trackpoint.longitude,
+        "pressure_altitude_m": trackpoint.pressure_altitude_m,
+        "gps_altitude_m": trackpoint.gps_altitude_m,
+        "altitude_m": altitude_m,
+    }
+
+
 def _blank_evaluation(status: str) -> dict:
     return {
         "status": status,
@@ -726,8 +746,10 @@ def evaluate_task(
             "hit": False,
             "hit_at": None,
             "scored_hit_at": None,
+            "track_point": None,
             "ignored_hit": False,
             "ignored_hit_at": None,
+            "ignored_track_point": None,
             "required": point.point_type.lower() != "launch",
         }
         for point in ordered_points
@@ -769,6 +791,7 @@ def evaluate_task(
                 point_detail_state[point.id]["hit"] = True
                 point_detail_state[point.id]["hit_at"] = _isoformat_or_none(hit_at)
                 point_detail_state[point.id]["scored_hit_at"] = _isoformat_or_none(hit_at)
+                point_detail_state[point.id]["track_point"] = _trackpoint_scoring_detail(trackpoints[idx])
                 cursor = max(cursor, idx + 1)
             continue
 
@@ -790,6 +813,7 @@ def evaluate_task(
         point_detail_state[point.id]["hit"] = True
         point_detail_state[point.id]["hit_at"] = _isoformat_or_none(hit_at)
         point_detail_state[point.id]["scored_hit_at"] = _isoformat_or_none(hit_at)
+        point_detail_state[point.id]["track_point"] = _trackpoint_scoring_detail(trackpoints[idx])
         cursor = idx + 1
         last_required_point = point
         last_required_track_index = idx
@@ -806,6 +830,7 @@ def evaluate_task(
             idx, hit_at = ignored_hit
             point_detail_state[point.id]["ignored_hit"] = True
             point_detail_state[point.id]["ignored_hit_at"] = _isoformat_or_none(hit_at)
+            point_detail_state[point.id]["ignored_track_point"] = _trackpoint_scoring_detail(trackpoints[idx])
             ignored_cursor = idx + 1
 
     def _cumulative_distance_for_waypoint(point: TaskPoint | None) -> float:
@@ -818,13 +843,14 @@ def evaluate_task(
 
     progress_distance_m = _cumulative_distance_for_waypoint(last_required_point)
     if missed_point is not None and last_required_waypoint_index is not None and distance_waypoints:
+        progress_waypoints, _ = _prepare_waypoints_for_distance(airscore_waypoints or [], formula)
         cap_m = _cumulative_distance_for_waypoint(missed_point)
         missed_waypoint_index = waypoint_index_by_point_id.get(missed_point.id, last_required_waypoint_index)
         search_start = (last_required_track_index + 1) if last_required_track_index is not None else 0
         for trackpoint in trackpoints[search_start:]:
             coord = to_rad_dict(trackpoint.latitude, trackpoint.longitude, time=trackpoint.recorded_at.timestamp())
             try:
-                flown_m = airscore_distance_flown(distance_waypoints, missed_waypoint_index, coord)
+                flown_m = airscore_distance_flown(progress_waypoints, missed_waypoint_index, coord)
             except (IndexError, ZeroDivisionError):
                 continue
             progress_distance_m = max(progress_distance_m, min(flown_m, cap_m))
@@ -897,10 +923,11 @@ def evaluate_task(
     # Compute leading coefficients if waypoints are available
     lc1, lc2 = 0.0, 0.0
     if distance_waypoints and trackpoints and started_at is not None:
+        leading_waypoints, _ = _prepare_waypoints_for_distance(airscore_waypoints or [], formula)
         task_sstart_epoch = start_open_at.timestamp() if start_open_at is not None else 0.0
         task_sfinish_epoch = start_close_at.timestamp() if start_close_at is not None else 0.0
         lc1, lc2 = _compute_leading_coeff(
-            distance_waypoints, trackpoints, started_at,
+            leading_waypoints, trackpoints, started_at,
             ess_at if ess_at is not None else goal_at,
             scored_distance_m,
             task_class,
@@ -931,8 +958,10 @@ def evaluate_task(
                     "hit": point_detail_state[point.id]["hit"],
                     "hit_at": point_detail_state[point.id]["hit_at"],
                     "scored_hit_at": point_detail_state[point.id]["scored_hit_at"],
+                    "track_point": point_detail_state[point.id]["track_point"],
                     "ignored_hit": point_detail_state[point.id]["ignored_hit"],
                     "ignored_hit_at": point_detail_state[point.id]["ignored_hit_at"],
+                    "ignored_track_point": point_detail_state[point.id]["ignored_track_point"],
                     "required": point_detail_state[point.id]["required"],
                 }
                 for point in ordered_points
@@ -1884,6 +1913,11 @@ def _apply_fl2026_task1_status_input_repairs(session: Session, task: Task) -> bo
         for pilot in pilots
         if str(pilot.competition_number or "").strip()
     }
+    pilots_by_name = {
+        _normalize_name(f"{pilot.first_name or ''} {pilot.last_name or ''}"): pilot
+        for pilot in pilots
+        if _normalize_name(f"{pilot.first_name or ''} {pilot.last_name or ''}")
+    }
     existing_inputs = {
         entry.pilot_id: entry
         for entry in session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task.id)).all()
@@ -1900,7 +1934,7 @@ def _apply_fl2026_task1_status_input_repairs(session: Session, task: Task) -> bo
             changed = True
         return scoring_input
 
-    marcello = pilots_by_comp.get("50")
+    marcello = pilots_by_comp.get("50") or pilots_by_name.get("marcello pereira")
     if marcello is not None:
         scoring_input = ensure_input(marcello)
         if scoring_input.status_override != "absent" or scoring_input.selected_upload_id is not None:
@@ -1908,7 +1942,7 @@ def _apply_fl2026_task1_status_input_repairs(session: Session, task: Task) -> bo
             scoring_input.selected_upload_id = None
             changed = True
 
-    greg = pilots_by_comp.get("127")
+    greg = pilots_by_comp.get("127") or pilots_by_name.get("greg dinauer")
     if greg is not None:
         scoring_input = ensure_input(greg)
         if scoring_input.selected_upload_id is None and scoring_input.status_override != "minimum_distance":

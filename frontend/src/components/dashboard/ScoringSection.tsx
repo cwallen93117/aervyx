@@ -3,7 +3,7 @@
 import { useMemo, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { SectionCard } from "../SectionCard";
-import { TaskMap, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
+import { TaskMap, type MapLegMetric, type MapScoredTrackPoint, type MapTurnpoint, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
 import type {
   AccountSettingsRecord,
@@ -61,6 +61,105 @@ function formatClockTime(value: string | null | undefined, includeSeconds = fals
 function resultScoringTimezone(result: ResultRecord, fallback?: string): string | undefined {
   const timezone = result.details_json?.scoring_timezone;
   return typeof timezone === "string" && timezone.trim() ? timezone : fallback;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function numberValue(value: unknown): number | null {
+  const next = Number(value);
+  return Number.isFinite(next) ? next : null;
+}
+
+function trackFeatureForUpload(track: TrackCollection | null, uploadId: number) {
+  return track?.features.find((feature) => Number(feature.properties?.upload_id) === uploadId) ?? null;
+}
+
+function coordinateForTimestamp(feature: TrackCollection["features"][number] | null, timestamp: string | null) {
+  if (!feature || feature.geometry.type !== "LineString" || !timestamp) {
+    return null;
+  }
+  const target = Date.parse(timestamp);
+  const timestamps = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
+  if (Number.isNaN(target) || !timestamps.length) {
+    return null;
+  }
+  let bestIndex = -1;
+  let bestDelta = Number.POSITIVE_INFINITY;
+  timestamps.forEach((value, index) => {
+    const parsed = Date.parse(value);
+    if (Number.isNaN(parsed)) {
+      return;
+    }
+    const delta = Math.abs(parsed - target);
+    if (delta < bestDelta) {
+      bestDelta = delta;
+      bestIndex = index;
+    }
+  });
+  if (bestIndex < 0) {
+    return null;
+  }
+  return feature.geometry.coordinates[Math.min(bestIndex, feature.geometry.coordinates.length - 1)] ?? null;
+}
+
+function buildScoredTrackMarkers(
+  results: ResultRecord[],
+  selectedUploadIds: number[],
+  track: TrackCollection | null,
+  colorsByUploadId: Map<number, string>,
+): MapScoredTrackPoint[] {
+  const selected = new Set(selectedUploadIds);
+  const markers: MapScoredTrackPoint[] = [];
+  for (const result of results) {
+    if (result.upload_id == null || !selected.has(result.upload_id)) {
+      continue;
+    }
+    const hits = Array.isArray(result.details_json?.hits) ? result.details_json.hits : [];
+    const feature = trackFeatureForUpload(track, result.upload_id);
+    for (const [index, hitValue] of hits.entries()) {
+      if (!isPlainRecord(hitValue) || hitValue.hit !== true) {
+        continue;
+      }
+      const pointType = String(hitValue.point_type ?? "").toLowerCase();
+      if (!["start", "turnpoint", "ess", "endspeed", "goal"].includes(pointType)) {
+        continue;
+      }
+      const trackPoint = isPlainRecord(hitValue.track_point) ? hitValue.track_point : null;
+      const hitAt = stringValue(hitValue.hit_at) ?? stringValue(trackPoint?.recorded_at);
+      const coordinate = coordinateForTimestamp(feature, hitAt);
+      const latitude = numberValue(trackPoint?.latitude) ?? (coordinate ? Number(coordinate[1]) : null);
+      const longitude = numberValue(trackPoint?.longitude) ?? (coordinate ? Number(coordinate[0]) : null);
+      if (latitude == null || longitude == null) {
+        continue;
+      }
+      const altitudeM =
+        numberValue(trackPoint?.altitude_m) ??
+        numberValue(trackPoint?.pressure_altitude_m) ??
+        numberValue(trackPoint?.gps_altitude_m) ??
+        (coordinate && coordinate.length > 2 ? numberValue(coordinate[2]) : null);
+      markers.push({
+        id: `${result.id}-${hitValue.task_point_id ?? index}`,
+        uploadId: result.upload_id,
+        pilotName: result.pilot_name,
+        pointName: String(hitValue.name ?? hitValue.point_type ?? "Point"),
+        pointType: String(hitValue.point_type ?? ""),
+        direction: stringValue(hitValue.direction),
+        timestamp: hitAt,
+        scoredTimestamp: stringValue(hitValue.scored_hit_at),
+        latitude,
+        longitude,
+        altitudeM,
+        color: colorsByUploadId.get(result.upload_id) ?? null,
+      });
+    }
+  }
+  return markers;
 }
 
 function formatTaskClockLabel(value: string | null | undefined): string {
@@ -332,6 +431,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
     longitude: point.longitude,
   }));
   const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
+  const scoredTrackMarkers = useMemo(
+    () => buildScoredTrackMarkers(results, selectedResultUploadIds, resultsTrackOverlay, resultTrackColorsByUploadId),
+    [results, selectedResultUploadIds, resultsTrackOverlay, resultTrackColorsByUploadId],
+  );
   const taskResultsIncludePenalty = results.some((result) => Number(result.raw_score_points ?? result.score_points ?? 0) - Number(result.score_points ?? 0) > 0.05);
 
   if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
@@ -570,6 +673,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           totalDistanceKm={scoringTaskMetrics.totalDistanceKm}
                           optimizedDistanceKm={scoringTaskMetrics.optimizedDistanceKm}
                           track={resultsTrackOverlay}
+                          scoredTrackPoints={scoredTrackMarkers}
                           editable={false}
                         taskEditorOverlay={resultsTrackPilotList}
                         highlightedTrackUploadId={highlightedResultUploadId}

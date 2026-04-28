@@ -66,6 +66,20 @@ export type TrackCollection = {
     geometry: { type: string; coordinates: TrackPosition[] };
   }>;
 };
+export type MapScoredTrackPoint = {
+  id: string;
+  uploadId: number | null;
+  pilotName: string;
+  pointName: string;
+  pointType: string;
+  direction?: string | null;
+  timestamp?: string | null;
+  scoredTimestamp?: string | null;
+  latitude: number;
+  longitude: number;
+  altitudeM?: number | null;
+  color?: string | null;
+};
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 type BasemapMode = "streets" | "satellite" | "terrain";
 type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
@@ -309,6 +323,26 @@ function formatReplayTimeLabel(timestampMs: number | null | undefined, includeSe
     second: includeSeconds ? "2-digit" : undefined,
     hour12: true,
   });
+}
+
+function formatScoredTrackTimeLabel(value: string | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) {
+    return value;
+  }
+  return formatReplayTimeLabel(timestampMs, true);
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"]) {
@@ -1000,6 +1034,25 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
   if (hasSource(map, "replay-marker") && !map.getLayer("replay-marker-layer")) {
     // Replay pilot labels are rendered with deck.gl so they can follow the pilot altitude in 3D.
   }
+  if (hasSource(map, "scored-track-points") && !map.getLayer("scored-track-points-layer")) {
+    safeAddLayer(map, {
+      id: "scored-track-points-layer",
+      type: "circle",
+      source: "scored-track-points",
+      paint: {
+        "circle-radius": [
+          "case",
+          ["boolean", ["get", "highlighted"], false],
+          8,
+          6,
+        ],
+        "circle-color": ["coalesce", ["get", "color"], "#111827"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.96,
+      },
+    });
+  }
 }
 
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], optimizedRoute: [number, number][], track: TrackCollection | null) {
@@ -1047,6 +1100,7 @@ export const TaskMap = React.memo(function TaskMap({
   totalDistanceKm = 0,
   optimizedDistanceKm = 0,
   track,
+  scoredTrackPoints = [],
   livePositions = [],
   liveMarkerScale = 1,
   editable,
@@ -1080,6 +1134,7 @@ export const TaskMap = React.memo(function TaskMap({
   totalDistanceKm?: number;
   optimizedDistanceKm?: number;
   track: TrackCollection | null;
+  scoredTrackPoints?: MapScoredTrackPoint[];
   livePositions?: MapLivePosition[];
   liveMarkerScale?: number;
   editable: boolean;
@@ -1104,6 +1159,7 @@ export const TaskMap = React.memo(function TaskMap({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
+  const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
   const scaleControlRef = useRef<maplibregl.ScaleControl | null>(null);
   const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -1150,6 +1206,7 @@ export const TaskMap = React.memo(function TaskMap({
   const effectiveOptimizedRoute = oc?.optimized_route === false ? [] : optimizedRoute;
   const effectiveLegMetrics = oc?.leg_labels === false ? [] : legMetrics;
   const effectiveTaskPoints = oc?.task_route === false ? [] : taskPoints;
+  const effectiveScoredTrackPoints = oc?.flight_track === false ? [] : scoredTrackPoints;
 
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
@@ -1290,6 +1347,29 @@ export const TaskMap = React.memo(function TaskMap({
       })),
   }), [airspaces]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
+  const scoredTrackPointData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: effectiveScoredTrackPoints.map((point) => ({
+      type: "Feature",
+      properties: {
+        id: point.id,
+        upload_id: point.uploadId,
+        pilot_name: point.pilotName,
+        point_name: point.pointName,
+        point_type: point.pointType,
+        direction: point.direction ?? "",
+        timestamp: point.timestamp ?? "",
+        scored_timestamp: point.scoredTimestamp ?? "",
+        altitude_m: point.altitudeM ?? null,
+        altitude_label: point.altitudeM != null ? formatAltitudeLabel(point.altitudeM, units.altitude) : "",
+        latitude: point.latitude,
+        longitude: point.longitude,
+        color: point.color ?? "#111827",
+        highlighted: point.uploadId != null && point.uploadId === highlightedTrackUploadId,
+      },
+      geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
+    })),
+  }), [effectiveScoredTrackPoints, highlightedTrackUploadId, units.altitude]);
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const routeArrowData = useMemo(() => buildRouteArrowData(taskPoints.map((point) => [point.longitude, point.latitude])), [taskPoints]);
   const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
@@ -1996,6 +2076,8 @@ export const TaskMap = React.memo(function TaskMap({
           map.removeControl(deckOverlayRef.current);
           deckOverlayRef.current = null;
         }
+        scoredPointPopupRef.current?.remove();
+        scoredPointPopupRef.current = null;
         scaleControlRef.current = null;
         map.remove();
         mapRef.current = null;
@@ -2188,6 +2270,7 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
       ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
+      ensureGeoJsonSource(map, "scored-track-points", scoredTrackPointData as never);
       ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
@@ -2195,7 +2278,79 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [displayTrack, replayMarkerData, styleGeneration]);
+  }, [displayTrack, replayMarkerData, scoredTrackPointData, isPerspective3D, styleGeneration]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const layerId = "scored-track-points-layer";
+    const showPopup = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (!feature) {
+        return;
+      }
+      const properties = feature.properties ?? {};
+      const latitude = Number(properties.latitude);
+      const longitude = Number(properties.longitude);
+      const coordinateLabel = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+        : "--";
+      const trackTime = formatScoredTrackTimeLabel(String(properties.timestamp ?? ""));
+      const scoredTimeRaw = String(properties.scored_timestamp ?? "");
+      const scoredTime = scoredTimeRaw && scoredTimeRaw !== properties.timestamp
+        ? formatScoredTrackTimeLabel(scoredTimeRaw)
+        : "";
+      const direction = String(properties.direction ?? "");
+      const pointType = String(properties.point_type ?? "");
+      const pointLabel = [pointType, direction].filter(Boolean).join(" / ");
+      const html = `
+        <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
+          <div style="font-weight: 700; margin-bottom: 4px;">${escapeHtml(properties.point_name)}</div>
+          <div style="color: #475569; margin-bottom: 6px;">${escapeHtml(properties.pilot_name)}${pointLabel ? ` - ${escapeHtml(pointLabel)}` : ""}</div>
+          <div><strong>Track time:</strong> ${escapeHtml(trackTime)}</div>
+          ${scoredTime ? `<div><strong>Scored time:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
+          <div><strong>Altitude:</strong> ${escapeHtml(properties.altitude_label || "--")}</div>
+          <div><strong>GPS:</strong> ${escapeHtml(coordinateLabel)}</div>
+        </div>
+      `;
+      if (!scoredPointPopupRef.current) {
+        scoredPointPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+      }
+      map.getCanvas().style.cursor = "pointer";
+      scoredPointPopupRef.current
+        .setLngLat(event.lngLat)
+        .setHTML(html)
+        .addTo(map);
+    };
+    const hidePopup = () => {
+      map.getCanvas().style.cursor = "";
+      scoredPointPopupRef.current?.remove();
+    };
+    const attach = () => {
+      if (!map.getLayer(layerId)) {
+        return;
+      }
+      map.on("mousemove", layerId, showPopup);
+      map.on("mouseleave", layerId, hidePopup);
+    };
+    if (map.isStyleLoaded()) {
+      attach();
+    } else {
+      map.once("styledata", attach);
+    }
+    return () => {
+      try {
+        map.off("mousemove", layerId, showPopup);
+        map.off("mouseleave", layerId, hidePopup);
+      } catch {
+        // The layer can disappear while switching base maps.
+      }
+      map.off("styledata", attach);
+      hidePopup();
+    };
+  }, [scoredTrackPointData, styleGeneration]);
 
   // Fit map to data when signatures change
   useEffect(() => {

@@ -3,6 +3,7 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 
 from app.models import Event, Task, TaskPoint, TrackPoint
+from app.services.airscore import task as airscore_task_module
 from app.services.airscore.gap import select_coeff
 from app.services.scoring import (
     _apply_fl2026_task1_settings,
@@ -289,7 +290,7 @@ def test_before_first_gate_start_scores_first_gate_with_jump_penalty() -> None:
     assert pilot_result["penalty"] == 60
 
 
-def test_exit_start_uses_airscore_radius_margin_for_boundary_fix() -> None:
+def test_exit_start_uses_last_inside_fix_before_actual_exit() -> None:
     task = _task()
     task.start_open_time = "12:00:00"
     task.task_finish_time = "18:00:00"
@@ -300,16 +301,20 @@ def test_exit_start_uses_airscore_radius_margin_for_boundary_fix() -> None:
     ]
     track_points = [
         _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.0),
-        # About 997m from the centre: still barely inside the nominal cylinder,
-        # but outside radius - AirScore's minimum 5m tolerance.
-        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, 0.00896),
-        _track_point_at(3, datetime(2026, 3, 17, 12, 10, tzinfo=UTC), 0.04, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, 0.004),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 2, tzinfo=UTC), 0.0, 0.0092),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 10, tzinfo=UTC), 0.04, 0.0),
     ]
+    track_points[1].pressure_altitude_m = 321
 
     result = evaluate_task(task, task_points, track_points, event_timezone="UTC", event=event)
+    start_hit = result["details"]["hits"][0]
 
-    assert result["started_at"] == track_points[0].recorded_at
-    assert result["details"]["start_timing"]["actual_start_exit_after_at"] == track_points[1].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[1].recorded_at.isoformat()
+    assert start_hit["hit_at"] == track_points[1].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["actual_start_exit_after_at"] == track_points[2].recorded_at.isoformat()
+    assert start_hit["track_point"]["sequence"] == track_points[1].sequence
+    assert start_hit["track_point"]["altitude_m"] == 321
 
 
 def test_leading_coeff_accumulates_from_verified_start_crossing() -> None:
@@ -354,6 +359,19 @@ def test_leading_coeff_accumulates_from_verified_start_crossing() -> None:
 
     assert without_reset == 0
     assert with_reset > 0
+
+
+def test_airscore_distance_precompute_resets_dynamic_waypoint_state() -> None:
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.08, 0.0, 1000),
+    ]
+    _, waypoints = _compute_optimized_task_distance(task_points)
+
+    airscore_task_module._last_wpt_update = datetime(2026, 3, 17, 12, 0, tzinfo=UTC).timestamp()
+    _prepare_waypoints_for_distance(waypoints, {"errormargin": 0.05})
+
+    assert airscore_task_module._last_wpt_update == 0.0
 
 
 def test_goal_ss_penalty_preserves_explicit_zero() -> None:
