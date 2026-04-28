@@ -217,13 +217,15 @@ def _find_exit_hit(
     prefer_latest: bool = False,
     margin_km: float = 0.0,
 ) -> tuple[int, datetime] | None:
-    inner_exit_km = max(radius_km - max(margin_km, 0.0), 0.0)
     outer_inside_km = radius_km + max(margin_km, 0.0)
     armed_inside_idx: int | None = None
+    last_nominal_inside_idx: int | None = None
     if cursor > 0 and cursor <= len(trackpoints):
         previous_distance = _distance_to_task_point(trackpoints[cursor - 1], point)
         if previous_distance < outer_inside_km:
             armed_inside_idx = cursor - 1
+        if previous_distance <= radius_km:
+            last_nominal_inside_idx = cursor - 1
     candidate: tuple[int, datetime] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
@@ -236,23 +238,75 @@ def _find_exit_hit(
                 armed_inside_idx = idx
             else:
                 armed_inside_idx = None
+                last_nominal_inside_idx = None
+            if distance_km <= radius_km:
+                last_nominal_inside_idx = idx
             continue
         if latest_at is not None and recorded_at > latest_at:
             break
-        if armed_inside_idx is not None and distance_km >= inner_exit_km:
-            if armed_inside_idx is not None:
-                previous_inside_point = trackpoints[armed_inside_idx]
+        if armed_inside_idx is not None and distance_km > radius_km:
+            display_idx = last_nominal_inside_idx if last_nominal_inside_idx is not None else armed_inside_idx
+            if display_idx is not None:
+                previous_inside_point = trackpoints[display_idx]
                 recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
                 if recorded_at is None:
                     continue
-                candidate = (armed_inside_idx, recorded_at)
+                candidate = (display_idx, recorded_at)
                 if not prefer_latest:
                     return candidate
             armed_inside_idx = None
+            last_nominal_inside_idx = None
         if distance_km < outer_inside_km:
             armed_inside_idx = idx
+            if distance_km <= radius_km:
+                last_nominal_inside_idx = idx
         elif distance_km > outer_inside_km:
             armed_inside_idx = None
+            last_nominal_inside_idx = None
+    return candidate
+
+
+def _find_entry_hit_with_interval(
+    point: TaskPoint,
+    trackpoints: list[TrackPoint],
+    radius_km: float,
+    cursor: int = 0,
+    earliest_at: datetime | None = None,
+    latest_at: datetime | None = None,
+    prefer_latest: bool = False,
+    margin_km: float = 0.0,
+) -> tuple[int, datetime, int | None, datetime | None] | None:
+    entry_radius_km = radius_km + max(margin_km, 0.0)
+    previous_inside = _distance_to_task_point(trackpoints[cursor - 1], point) <= entry_radius_km if cursor > 0 and cursor <= len(trackpoints) else False
+    previous_outside_idx: int | None = None if previous_inside else cursor - 1 if cursor > 0 and cursor <= len(trackpoints) else None
+    candidate: tuple[int, datetime, int | None, datetime | None] | None = None
+    for idx in range(cursor, len(trackpoints)):
+        trackpoint = trackpoints[idx]
+        recorded_at = _as_utc_aware(trackpoint.recorded_at)
+        if recorded_at is None:
+            continue
+        distance_km = _distance_to_task_point(trackpoint, point)
+        inside = distance_km <= entry_radius_km
+        if earliest_at is not None and recorded_at < earliest_at:
+            previous_inside = inside
+            if not inside:
+                previous_outside_idx = idx
+            continue
+        if latest_at is not None and recorded_at > latest_at:
+            break
+        if inside and not previous_inside:
+            display_idx = previous_outside_idx if previous_outside_idx is not None else idx
+            display_point = trackpoints[display_idx]
+            display_recorded_at = _as_utc_aware(display_point.recorded_at)
+            if display_recorded_at is None:
+                previous_inside = inside
+                continue
+            candidate = (display_idx, display_recorded_at, idx, recorded_at)
+            if not prefer_latest:
+                return candidate
+        if not inside:
+            previous_outside_idx = idx
+        previous_inside = inside
     return candidate
 
 
@@ -265,13 +319,15 @@ def _find_exit_hit_with_interval(
     prefer_latest: bool = False,
     margin_km: float = 0.0,
 ) -> tuple[int, datetime, int | None, datetime | None] | None:
-    inner_exit_km = max(radius_km - max(margin_km, 0.0), 0.0)
     outer_inside_km = radius_km + max(margin_km, 0.0)
     armed_inside_idx: int | None = None
+    last_nominal_inside_idx: int | None = None
     if cursor > 0 and cursor <= len(trackpoints):
         previous_distance = _distance_to_task_point(trackpoints[cursor - 1], point)
         if previous_distance < outer_inside_km:
             armed_inside_idx = cursor - 1
+        if previous_distance <= radius_km:
+            last_nominal_inside_idx = cursor - 1
     candidate: tuple[int, datetime, int | None, datetime | None] | None = None
     for idx in range(cursor, len(trackpoints)):
         trackpoint = trackpoints[idx]
@@ -281,21 +337,26 @@ def _find_exit_hit_with_interval(
         distance_km = _distance_to_task_point(trackpoint, point)
         if latest_at is not None and recorded_at > latest_at:
             break
-        if armed_inside_idx is not None and distance_km >= inner_exit_km:
-            if armed_inside_idx is not None:
-                previous_inside_point = trackpoints[armed_inside_idx]
+        if armed_inside_idx is not None and distance_km > radius_km:
+            display_idx = last_nominal_inside_idx if last_nominal_inside_idx is not None else armed_inside_idx
+            if display_idx is not None:
+                previous_inside_point = trackpoints[display_idx]
                 previous_recorded_at = _as_utc_aware(previous_inside_point.recorded_at)
                 exit_recorded_at = _as_utc_aware(trackpoint.recorded_at)
                 if previous_recorded_at is None:
                     continue
-                candidate = (armed_inside_idx, previous_recorded_at, idx, exit_recorded_at)
+                candidate = (display_idx, previous_recorded_at, idx, exit_recorded_at)
                 if not prefer_latest:
                     return candidate
             armed_inside_idx = None
+            last_nominal_inside_idx = None
         if distance_km < outer_inside_km:
             armed_inside_idx = idx
+            if distance_km <= radius_km:
+                last_nominal_inside_idx = idx
         elif distance_km > outer_inside_km:
             armed_inside_idx = None
+            last_nominal_inside_idx = None
     return candidate
 
 
@@ -315,14 +376,20 @@ def _scored_start_from_gates(
     exit_after_at: datetime | None = None,
 ) -> tuple[datetime | None, dict]:
     if actual_start_at is None:
-        return None, {"actual_start_crossing_at": None, "scored_start_at": None}
+        return None, {
+            "actual_start_crossing_at": None,
+            "actual_start_exit_after_at": None,
+            "scored_start_at": None,
+        }
     gates = _start_gate_times(task, first_gate_at)
     if not gates:
         return actual_start_at, {
             "actual_start_crossing_at": _isoformat_or_none(actual_start_at),
+            "actual_start_exit_after_at": _isoformat_or_none(exit_after_at),
             "scored_start_at": _isoformat_or_none(actual_start_at),
             "start_gate_index": None,
             "jump_the_gun_seconds": 0,
+            "jump_the_gun_penalty_seconds": 0,
             "jump_the_gun_penalty_points": 0.0,
         }
 
@@ -799,6 +866,10 @@ def evaluate_task(
             exit_hit = _find_exit_hit_with_interval(point, trackpoints, point.radius_m / 1000.0, cursor=cursor, latest_at=latest_at, prefer_latest=True, margin_km=_point_margin_km(point))
             hit = (exit_hit[0], exit_hit[1]) if exit_hit is not None else None
             start_exit_after_at = exit_hit[3] if exit_hit is not None else None
+        elif is_start and _point_direction(point) == "enter":
+            entry_hit = _find_entry_hit_with_interval(point, trackpoints, point.radius_m / 1000.0, cursor=cursor, latest_at=latest_at, prefer_latest=True, margin_km=_point_margin_km(point))
+            hit = (entry_hit[0], entry_hit[1]) if entry_hit is not None else None
+            start_exit_after_at = entry_hit[3] if entry_hit is not None else None
         else:
             hit = _find_point_hit(point, cursor, latest_at=latest_at, prefer_latest=is_start)
         if hit is None:

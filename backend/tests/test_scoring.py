@@ -217,6 +217,26 @@ def test_enter_points_use_first_inside_fix_after_entry() -> None:
     assert turnpoint_hit["hit_at"] == track_points[3].recorded_at.isoformat()
 
 
+def test_enter_start_uses_outside_fix_before_entry_for_scoring_point() -> None:
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    task_points[0].direction = "enter"
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 0, tzinfo=UTC), 0.0, 0.02),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 1, tzinfo=UTC), 0.0, 0.004),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 10, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(_task(), task_points, track_points)
+    start_hit = result["details"]["hits"][0]
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[0].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["actual_start_exit_after_at"] == track_points[1].recorded_at.isoformat()
+    assert start_hit["track_point"]["sequence"] == track_points[0].sequence
+
+
 def test_gated_race_start_uses_latest_prior_gate() -> None:
     task = _task()
     task.task_type = "race_to_goal_with_gates"
@@ -332,7 +352,7 @@ def test_exit_start_rearms_from_airscore_margin_for_later_gate() -> None:
     track_points = [
         _track_point_at(1, datetime(2026, 3, 17, 12, 13, 55, tzinfo=UTC), 0.0, 0.004),
         _track_point_at(2, datetime(2026, 3, 17, 12, 13, 56, tzinfo=UTC), 0.0, 0.0092),
-        _track_point_at(3, datetime(2026, 3, 17, 12, 41, 0, tzinfo=UTC), 0.0, 0.009),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 41, 0, tzinfo=UTC), 0.0, 0.004),
         _track_point_at(4, datetime(2026, 3, 17, 12, 41, 1, tzinfo=UTC), 0.0, 0.0092),
         _track_point_at(5, datetime(2026, 3, 17, 14, 0, tzinfo=UTC), 0.04, 0.0),
     ]

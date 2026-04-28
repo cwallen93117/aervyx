@@ -131,7 +131,7 @@ function buildScoredTrackMarkers(
         continue;
       }
       const trackPoint = isPlainRecord(hitValue.track_point) ? hitValue.track_point : null;
-      const hitAt = stringValue(hitValue.hit_at) ?? stringValue(trackPoint?.recorded_at);
+      const hitAt = stringValue(trackPoint?.recorded_at) ?? stringValue(hitValue.hit_at);
       const coordinate = coordinateForTimestamp(feature, hitAt);
       const latitude = numberValue(trackPoint?.latitude) ?? (coordinate ? Number(coordinate[1]) : null);
       const longitude = numberValue(trackPoint?.longitude) ?? (coordinate ? Number(coordinate[0]) : null);

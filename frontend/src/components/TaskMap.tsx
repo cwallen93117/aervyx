@@ -363,8 +363,8 @@ function scoredTrackPointPopupHtml(point: ScoredTrackDeckPoint): string {
     <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
       <div style="font-weight: 700; margin-bottom: 4px;">${escapeHtml(point.pointName)}</div>
       <div style="color: #475569; margin-bottom: 6px;">${escapeHtml(point.pilotName)}${pointLabel ? ` - ${escapeHtml(pointLabel)}` : ""}</div>
-      <div><strong>Track time:</strong> ${escapeHtml(trackTime)}</div>
-      ${scoredTime ? `<div><strong>Scored time:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
+      <div><strong>Time:</strong> ${escapeHtml(trackTime)}</div>
+      ${scoredTime ? `<div><strong>Start Gate:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
       <div><strong>Altitude:</strong> ${escapeHtml(point.altitudeLabel || "--")}</div>
       <div><strong>GPS:</strong> ${escapeHtml(coordinateLabel)}</div>
     </div>
@@ -2385,8 +2385,8 @@ export const TaskMap = React.memo(function TaskMap({
         <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
           <div style="font-weight: 700; margin-bottom: 4px;">${escapeHtml(properties.point_name)}</div>
           <div style="color: #475569; margin-bottom: 6px;">${escapeHtml(properties.pilot_name)}${pointLabel ? ` - ${escapeHtml(pointLabel)}` : ""}</div>
-          <div><strong>Track time:</strong> ${escapeHtml(trackTime)}</div>
-          ${scoredTime ? `<div><strong>Scored time:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
+          <div><strong>Time:</strong> ${escapeHtml(trackTime)}</div>
+          ${scoredTime ? `<div><strong>Start Gate:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
           <div><strong>Altitude:</strong> ${escapeHtml(properties.altitude_label || "--")}</div>
           <div><strong>GPS:</strong> ${escapeHtml(coordinateLabel)}</div>
         </div>
