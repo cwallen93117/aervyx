@@ -1,7 +1,7 @@
 "use client";
 
 import { COORDINATE_SYSTEM } from "@deck.gl/core";
-import { IconLayer, PathLayer, PolygonLayer, TextLayer } from "@deck.gl/layers";
+import { IconLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -343,6 +343,32 @@ function escapeHtml(value: unknown): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+type ScoredTrackDeckPoint = MapScoredTrackPoint & {
+  position: [number, number, number];
+  deckColor: [number, number, number];
+  highlighted: boolean;
+  altitudeLabel: string;
+};
+
+function scoredTrackPointPopupHtml(point: ScoredTrackDeckPoint): string {
+  const coordinateLabel = `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
+  const trackTime = formatScoredTrackTimeLabel(point.timestamp);
+  const scoredTime = point.scoredTimestamp && point.scoredTimestamp !== point.timestamp
+    ? formatScoredTrackTimeLabel(point.scoredTimestamp)
+    : "";
+  const pointLabel = [point.pointType, point.direction].filter(Boolean).join(" / ");
+  return `
+    <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
+      <div style="font-weight: 700; margin-bottom: 4px;">${escapeHtml(point.pointName)}</div>
+      <div style="color: #475569; margin-bottom: 6px;">${escapeHtml(point.pilotName)}${pointLabel ? ` - ${escapeHtml(pointLabel)}` : ""}</div>
+      <div><strong>Track time:</strong> ${escapeHtml(trackTime)}</div>
+      ${scoredTime ? `<div><strong>Scored time:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
+      <div><strong>Altitude:</strong> ${escapeHtml(point.altitudeLabel || "--")}</div>
+      <div><strong>GPS:</strong> ${escapeHtml(coordinateLabel)}</div>
+    </div>
+  `;
 }
 
 function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"]) {
@@ -1370,6 +1396,17 @@ export const TaskMap = React.memo(function TaskMap({
       geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
     })),
   }), [effectiveScoredTrackPoints, highlightedTrackUploadId, units.altitude]);
+  const scoredTrackDeckPointData = useMemo<ScoredTrackDeckPoint[]>(
+    () =>
+      effectiveScoredTrackPoints.map((point) => ({
+        ...point,
+        position: [point.longitude, point.latitude, (point.altitudeM ?? 0) * effectiveAltitudeMultiplier],
+        deckColor: hexToRgb(String(point.color ?? "#111827")),
+        highlighted: point.uploadId != null && point.uploadId === highlightedTrackUploadId,
+        altitudeLabel: point.altitudeM != null ? formatAltitudeLabel(point.altitudeM, units.altitude) : "",
+      })),
+    [effectiveAltitudeMultiplier, effectiveScoredTrackPoints, highlightedTrackUploadId, units.altitude],
+  );
   const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
   const routeArrowData = useMemo(() => buildRouteArrowData(taskPoints.map((point) => [point.longitude, point.latitude])), [taskPoints]);
   const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
@@ -1715,6 +1752,45 @@ export const TaskMap = React.memo(function TaskMap({
         // }
       }
     }
+    if (scoredTrackDeckPointData.length) {
+      layers.push(
+        new ScatterplotLayer<ScoredTrackDeckPoint>({
+          id: "scored-track-point-markers",
+          data: scoredTrackDeckPointData,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          getPosition: (item: ScoredTrackDeckPoint) => item.position,
+          getFillColor: (item: ScoredTrackDeckPoint) => [...item.deckColor, 255] as [number, number, number, number],
+          getLineColor: [255, 255, 255, 255],
+          getRadius: (item: ScoredTrackDeckPoint) => (item.highlighted ? 8 : 6),
+          radiusUnits: "pixels",
+          radiusMinPixels: 6,
+          radiusMaxPixels: 10,
+          stroked: true,
+          lineWidthUnits: "pixels",
+          lineWidthMinPixels: 2,
+          pickable: true,
+          onHover: (info: { object?: ScoredTrackDeckPoint; coordinate?: number[] | null }) => {
+            const map = mapRef.current;
+            if (!map) {
+              return;
+            }
+            if (!info.object || !info.coordinate) {
+              map.getCanvas().style.cursor = "";
+              scoredPointPopupRef.current?.remove();
+              return;
+            }
+            if (!scoredPointPopupRef.current) {
+              scoredPointPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+            }
+            map.getCanvas().style.cursor = "pointer";
+            scoredPointPopupRef.current
+              .setLngLat([info.object.longitude, info.object.latitude])
+              .setHTML(scoredTrackPointPopupHtml(info.object))
+              .addTo(map);
+          },
+        }),
+      );
+    }
     const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
     if (labelData.length) {
       // Live mode only: draw a role-source ring and a role-shape icon at the pilot's
@@ -1835,7 +1911,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
