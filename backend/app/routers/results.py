@@ -50,7 +50,20 @@ def _upload_source(upload: IGCUpload) -> str:
     normalized = str(upload.metadata_json.get("upload_source") or "manual").strip().lower()
     if normalized == "auto":
         return "bulk"
+    if normalized == "bulk_review":
+        return "review"
     return normalized or "manual"
+
+
+def _upload_option_label(upload: IGCUpload) -> str:
+    source = _upload_source(upload)
+    label = f"{upload.filename} — {source.title()}"
+    pilot_name = str(upload.metadata_json.get("pilot_name") or "").strip()
+    if source == "review":
+        label = f"{upload.filename} — Needs review"
+        if pilot_name:
+            label = f"{label} (IGC: {pilot_name})"
+    return label
 
 
 def _penalty_summary(penalties: list[ScorePenalty]) -> str | None:
@@ -289,7 +302,7 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
                         id=upload.id,
                         filename=upload.filename,
                         upload_source=_upload_source(upload),
-                        label=f"{upload.filename} — {_upload_source(upload).title()}",
+                        label=_upload_option_label(upload),
                         uploaded_at=upload.uploaded_at,
                         late_start=_is_late_start(task, event_tz, first_fix_times.get(upload.id)),
                     )

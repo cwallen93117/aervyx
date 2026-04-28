@@ -10,7 +10,7 @@ from starlette.datastructures import UploadFile
 from app.db import Base
 from app.models import Event, EventPilot, IGCUpload, Pilot, Task, TaskScoringInput, User
 from app.routers import uploads as uploads_router
-from app.routers.uploads import _match_pilot_for_upload
+from app.routers.uploads import _match_pilot_candidate_for_upload, _match_pilot_for_upload
 
 
 def _session() -> Session:
@@ -19,7 +19,7 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
-def test_match_pilot_for_upload_uses_header_name() -> None:
+def test_match_pilot_for_upload_requires_filename_confirmation_for_header_name() -> None:
     session = _session()
     event = Event(name="Header Match", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
     pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com", competition_number="12")
@@ -34,9 +34,17 @@ def test_match_pilot_for_upload_uses_header_name() -> None:
         "random-track.igc",
         {"pilot_name": "Charles Allen"},
     )
+    candidate = _match_pilot_candidate_for_upload(
+        session,
+        event.id,
+        "random-track.igc",
+        {"pilot_name": "Charles Allen"},
+    )
 
-    assert matched is not None
-    assert matched.id == pilot.id
+    assert matched is None
+    assert candidate.pilot is not None
+    assert candidate.pilot.id == pilot.id
+    assert candidate.confidence == "review"
 
 
 def test_match_pilot_for_upload_uses_filename_when_header_missing() -> None:
@@ -57,6 +65,62 @@ def test_match_pilot_for_upload_uses_filename_when_header_missing() -> None:
 
     assert matched is not None
     assert matched.id == pilot.id
+
+
+def test_match_pilot_for_upload_uses_full_name_inside_timestamped_filename() -> None:
+    session = _session()
+    event = Event(name="Filename Match", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
+    rich = Pilot(first_name="Rich", last_name="Reinauer", email="rich@example.com", competition_number="737")
+    other_rich = Pilot(first_name="Rich", last_name="Other", email="other@example.com", competition_number="738")
+    session.add_all([event, rich, other_rich])
+    session.flush()
+    session.add_all([
+        EventPilot(event_id=event.id, pilot_id=rich.id),
+        EventPilot(event_id=event.id, pilot_id=other_rich.id),
+    ])
+    session.commit()
+
+    matched = _match_pilot_for_upload(
+        session,
+        event.id,
+        "Rich_Reinauer.1748889288000.7028.igc",
+        {},
+    )
+
+    assert matched is not None
+    assert matched.id == rich.id
+
+
+def test_match_pilot_for_upload_conflicting_header_is_review_only() -> None:
+    session = _session()
+    event = Event(name="Review Match", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
+    rich = Pilot(first_name="Rich", last_name="Reinauer", email="rich@example.com", competition_number="737")
+    robin = Pilot(first_name="Robin", last_name="Hamilton", email="robin@example.com", competition_number="99")
+    session.add_all([event, rich, robin])
+    session.flush()
+    session.add_all([
+        EventPilot(event_id=event.id, pilot_id=rich.id),
+        EventPilot(event_id=event.id, pilot_id=robin.id),
+    ])
+    session.commit()
+
+    matched = _match_pilot_for_upload(
+        session,
+        event.id,
+        "Rich_Reinauer.1748889288000.7028.igc",
+        {"pilot_name": "Robin Hamilton"},
+    )
+    candidate = _match_pilot_candidate_for_upload(
+        session,
+        event.id,
+        "Rich_Reinauer.1748889288000.7028.igc",
+        {"pilot_name": "Robin Hamilton"},
+    )
+
+    assert matched is None
+    assert candidate.pilot is not None
+    assert candidate.pilot.id == rich.id
+    assert candidate.confidence == "review"
 
 
 def _igc_content(pilot_name: str, second: int) -> bytes:
@@ -135,3 +199,33 @@ def test_bulk_upload_duplicate_files_reuse_existing_uploads(monkeypatch, tmp_pat
     assert [item.upload_id for item in duplicate_results] == [item.upload_id for item in first_results]
     assert all("Already uploaded" in item.message for item in duplicate_results)
     assert rescore_calls == [task.id]
+
+
+def test_bulk_upload_review_candidate_is_uploaded_but_not_selected(monkeypatch, tmp_path) -> None:
+    session = _session()
+    admin, task, pilots = _bulk_upload_fixture(session)
+    rescore_calls: list[int] = []
+    monkeypatch.setattr(uploads_router, "get_settings", lambda: SimpleNamespace(max_upload_size_mb=10, upload_root=str(tmp_path)))
+    monkeypatch.setattr(uploads_router, "_publish", lambda task_id, payload: None)
+    monkeypatch.setattr(uploads_router, "rescore_task", lambda active_session, task_id: rescore_calls.append(task_id) or [])
+
+    result = asyncio.run(uploads_router.bulk_upload_igc(
+        task.id,
+        [
+            _upload_file(
+                f"{pilots[0].first_name}_{pilots[0].last_name}.igc",
+                _igc_content(f"{pilots[1].first_name} {pilots[1].last_name}", 8),
+            )
+        ],
+        admin,
+        session,
+    ))[0]
+
+    assert result.matched is False
+    assert result.match_confidence == "review"
+    assert result.upload_id is not None
+    assert result.pilot_id == pilots[0].id
+    assert "not auto-selected" in result.message
+    assert session.scalar(select(func.count(IGCUpload.id))) == 1
+    assert session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task.id)).all() == []
+    assert rescore_calls == []

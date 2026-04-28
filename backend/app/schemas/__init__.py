@@ -533,6 +533,7 @@ class BulkUploadItemResponse(BaseModel):
     upload_id: int | None = None
     pilot_id: int | None = None
     pilot_name: str | None = None
+    match_confidence: str | None = None
     message: str
 
 

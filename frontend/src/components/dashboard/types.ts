@@ -266,7 +266,7 @@ export type ScoringOperationsRowRecord = {
 export type ScoringOperationsResponseRecord = { rows: ScoringOperationsRowRecord[] };
 export type ScoringInputSelectionRecord = { selected_upload_id: number | null; status_override: "minimum_distance" | "did_not_fly" | "absent" | null };
 export type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
-export type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; message: string };
+export type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; match_confidence?: string | null; message: string };
 export type AirspaceSourceKind = "" | "airspace" | "restricted_field";
 export type AirspaceSourceRecord = {
   id: number;
