@@ -317,6 +317,32 @@ def test_exit_start_uses_last_inside_fix_before_actual_exit() -> None:
     assert start_hit["track_point"]["altitude_m"] == 321
 
 
+def test_exit_start_rearms_from_airscore_margin_for_later_gate() -> None:
+    task = _task()
+    task.task_type = "race_to_goal_with_gates"
+    task.start_open_time = "12:00:00"
+    task.start_gate_count = 4
+    task.start_gate_interval_seconds = 20 * 60
+    task.task_finish_time = "18:00:00"
+    event = type("EventStub", (), {"turnpoint_radius_tolerance": 0.001, "turnpoint_radius_minimum_absolute_tolerance_m": 5})()
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 13, 55, tzinfo=UTC), 0.0, 0.004),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 13, 56, tzinfo=UTC), 0.0, 0.0092),
+        _track_point_at(3, datetime(2026, 3, 17, 12, 41, 0, tzinfo=UTC), 0.0, 0.009),
+        _track_point_at(4, datetime(2026, 3, 17, 12, 41, 1, tzinfo=UTC), 0.0, 0.0092),
+        _track_point_at(5, datetime(2026, 3, 17, 14, 0, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC", event=event)
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[2].recorded_at.isoformat()
+    assert result["started_at"] == datetime(2026, 3, 17, 12, 40, tzinfo=UTC)
+
+
 def test_leading_coeff_accumulates_from_verified_start_crossing() -> None:
     task_points = [
         _task_point(1, 1, "start", 0.0, 0.0, 1000),
