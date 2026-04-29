@@ -22,6 +22,8 @@ from app.services.airscore.gap import build_task_totals, day_quality, pilot_arri
 from app.services.airscore.route import find_shortest_route, task_distance as route_task_distance
 from app.services.airscore.task import distance_flown as airscore_distance_flown, precompute_waypoint_dist
 from app.services.airscore.track_lib import PI, distance as vincenty_distance, distance_deg, to_rad_dict
+from app.services.airscore.verify import coord_from_degrees as airscore_coord_from_degrees
+from app.services.airscore.verify import validate_task as airscore_validate_task
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
@@ -541,6 +543,7 @@ def _build_airscore_waypoints(task_points: list[TaskPoint]) -> list[dict]:
         wpt = to_rad_dict(tp.latitude, tp.longitude,
                           radius=radius_m,
                           type=wpt_type,
+                          aervyx_point_type=tp.point_type,
                           how=how,
                           shape="circle",
                           name=tp.name,
@@ -805,6 +808,90 @@ def _trackpoint_scoring_detail(trackpoint: TrackPoint | None) -> dict | None:
     }
 
 
+def _datetime_from_epoch(value: float | int | None) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        epoch = float(value)
+    except (TypeError, ValueError):
+        return None
+    if epoch <= 0:
+        return None
+    return datetime.fromtimestamp(epoch, tz=UTC)
+
+
+def _isoformat_epoch_or_none(value: float | int | None) -> str | None:
+    return _isoformat_or_none(_datetime_from_epoch(value))
+
+
+def _airscore_coord_from_trackpoint(trackpoint: TrackPoint) -> dict | None:
+    recorded_at = _as_utc_aware(trackpoint.recorded_at)
+    if recorded_at is None:
+        return None
+    altitude_m = trackpoint.pressure_altitude_m
+    if altitude_m is None:
+        altitude_m = trackpoint.gps_altitude_m
+    return airscore_coord_from_degrees(
+        trackpoint.latitude,
+        trackpoint.longitude,
+        recorded_at.timestamp(),
+        track_point_id=trackpoint.id,
+        sequence=trackpoint.sequence,
+        recorded_at=recorded_at.isoformat(),
+        pressure_altitude_m=trackpoint.pressure_altitude_m,
+        gps_altitude_m=trackpoint.gps_altitude_m,
+        altitude_m=altitude_m,
+    )
+
+
+def _airscore_task_type(task_type: str | None) -> str:
+    normalized = _normalized_task_type_for_scoring(task_type)
+    if normalized == "elapsed_time":
+        return "elapsed"
+    if normalized == "open_distance":
+        return "free"
+    return "race"
+
+
+def _build_airscore_verifier_task(
+    task: Task,
+    waypoints: list[dict],
+    start_open_at: datetime | None,
+    start_close_at: datetime | None,
+    task_finish_at: datetime | None,
+    task_class: str,
+) -> dict:
+    task_type = _airscore_task_type(getattr(task, "task_type", None))
+    sstart = start_open_at.timestamp() if start_open_at is not None else 0.0
+    sfinish = task_finish_at.timestamp() if task_finish_at is not None else start_close_at.timestamp() if start_close_at is not None else 0.0
+    return {
+        "type": task_type,
+        "sstart": sstart,
+        "sfinish": sfinish,
+        "start_close": start_close_at.timestamp() if start_close_at is not None else None,
+        "laststart": start_close_at.timestamp() if start_close_at is not None else sstart,
+        "interval": max(float(task.start_gate_interval_seconds or 0), 0.0),
+        "gate_count": max(int(task.start_gate_count or 1), 1),
+        "class": task_class,
+        "waypoints": waypoints,
+        "endssdistance": waypoints[0].get("_endssdist", 0.0) if waypoints else 0.0,
+        "startssdistance": waypoints[0].get("_startssdist", 0.0) if waypoints else 0.0,
+        "ssdistance": waypoints[0].get("_ssdist", 0.0) if waypoints else 0.0,
+    }
+
+
+def _convert_verify_details_times(details: dict) -> dict:
+    converted = copy.deepcopy(details)
+    for hit in converted.get("hits", []):
+        for key in ("hit_at", "scored_hit_at", "ignored_hit_at"):
+            hit[key] = _isoformat_epoch_or_none(hit.get(key))
+    start_timing = converted.get("start_timing") or {}
+    for key in ("actual_start_crossing_at", "actual_start_exit_after_at", "scored_start_at", "start_gate_time"):
+        start_timing[key] = _isoformat_epoch_or_none(start_timing.get(key))
+    converted["start_timing"] = start_timing
+    return converted
+
+
 def _blank_evaluation(status: str) -> dict:
     return {
         "status": status,
@@ -879,6 +966,7 @@ def evaluate_task(
     start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
     configured_start_close_at = _resolve_task_time_utc(task.start_close_time, trackpoints, timezone_name)
+    task_finish_at = _resolve_task_time_utc(task.task_finish_time, trackpoints, timezone_name)
     task_type = _normalized_task_type_for_scoring(getattr(task, "task_type", None))
     scored_start_close_at = configured_start_close_at if task_type == "elapsed_time" else start_close_at
     formula = _build_formula(task, event)
@@ -886,6 +974,50 @@ def evaluate_task(
     task_stats = _waypoint_distance_stats(distance_waypoints or airscore_waypoints or [], optimized_distance_km or 0.0)
     total_task_distance_km = task_stats["task_distance"] or (optimized_distance_km or 0.0)
     waypoint_index_by_point_id = {int(wpt["key"]): index for index, wpt in enumerate(distance_waypoints) if wpt.get("key") is not None}
+
+    if task_type != "open_distance":
+        verifier_coords = [
+            coord
+            for coord in (_airscore_coord_from_trackpoint(trackpoint) for trackpoint in trackpoints)
+            if coord is not None
+        ]
+        verifier_task = _build_airscore_verifier_task(
+            task,
+            distance_waypoints or airscore_waypoints or [],
+            start_open_at,
+            configured_start_close_at,
+            task_finish_at or start_close_at,
+            task_class,
+        )
+        verifier_result = airscore_validate_task(
+            {"coords": verifier_coords, "awards": {}},
+            verifier_task,
+            formula,
+        )
+        details = _convert_verify_details_times(verifier_result.get("details", {}))
+        details["total_distance_km"] = round(total_task_distance_km, 3)
+        details["task_stats"] = task_stats
+        details["scoring_timezone"] = timezone_name
+        airscore_result = dict(details.get("airscore_result") or verifier_result.get("details", {}).get("airscore_result") or {})
+        details["airscore_result"] = airscore_result
+        started_at = _datetime_from_epoch(verifier_result.get("startSS"))
+        ess_at = _datetime_from_epoch(verifier_result.get("endSS"))
+        goal_at = _datetime_from_epoch(verifier_result.get("goal_time"))
+        elapsed_seconds = int(verifier_result.get("time") or 0) or None
+        return {
+            "status": verifier_result.get("status", "uploaded"),
+            "distance_flown_km": round(float(verifier_result.get("distance", 0.0) or 0.0) / 1000.0, 3),
+            "started_at": started_at,
+            "ess_at": ess_at,
+            "goal_at": goal_at,
+            "elapsed_seconds": elapsed_seconds,
+            "score_points": 0.0,
+            "jump_the_gun_penalty_points": float(verifier_result.get("penalty", 0.0) or 0.0),
+            "leading_coeff": float(verifier_result.get("coeff", 0.0) or 0.0),
+            "leading_coeff2": float(verifier_result.get("coeff2", 0.0) or 0.0),
+            "airscore_result": airscore_result,
+            "details": details,
+        }
 
     hit_indices: dict[int, int] = {}
     hit_times: dict[int, datetime] = {}
@@ -1296,6 +1428,30 @@ def _apply_penalties(raw_score: float, penalties: list[ScorePenalty]) -> float:
 
 def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: float = 0) -> dict:
     """Convert an evaluation dict into an AirScore pilot result dict."""
+    verifier_result = evaluation.get("airscore_result")
+    if isinstance(verifier_result, dict) and verifier_result:
+        start_ss = float(verifier_result.get("startSS", 0) or 0)
+        end_ss = float(verifier_result.get("endSS", 0) or 0)
+        if start_ss <= 0:
+            end_ss = 0
+        time_val = end_ss - start_ss if (start_ss > 0 and end_ss > 0) else 0
+        return {
+            "pilot_id": pilot_id,
+            "distance": float(verifier_result.get("distance", 0.0) or 0.0),
+            "time": max(time_val, 0),
+            "startSS": start_ss,
+            "endSS": end_ss,
+            "goal": int(verifier_result.get("goal", 0) or 0),
+            "result": str(verifier_result.get("result", "lo") or "lo"),
+            "penalty": max(float(verifier_result.get("penalty", evaluation.get("jump_the_gun_penalty_points", 0.0)) or 0.0), 0.0),
+            "coeff": float(verifier_result.get("coeff", evaluation.get("leading_coeff", 0.0)) or 0.0),
+            "coeff2": float(verifier_result.get("coeff2", evaluation.get("leading_coeff2", 0.0)) or 0.0),
+            "stopalt": 0,
+            "stoptime": 0,
+            "place": 0,
+            "timeafter": 0,
+        }
+
     distance_m = evaluation["distance_flown_km"] * 1000.0
     started_at = evaluation.get("started_at")
     ess_at = evaluation.get("ess_at")
@@ -1879,8 +2035,10 @@ def build_task_scoring_audit(session: Session, task_id: int) -> dict:
                 "started_at": _isoformat_or_none(evaluation.get("started_at")),
                 "ess_at": _isoformat_or_none(evaluation.get("ess_at")),
                 "goal_at": _isoformat_or_none(evaluation.get("goal_at")),
+                "engine": evaluation.get("details", {}).get("engine"),
                 "start_timing": evaluation.get("details", {}).get("start_timing"),
                 "missed_point": evaluation.get("details", {}).get("missed_point"),
+                "airscore_result": evaluation.get("details", {}).get("airscore_result"),
             } if evaluation else None,
             "stored_result": {
                 "status": result.status,
@@ -2142,14 +2300,6 @@ def rescore_task(session: Session, task_id: int, apply_known_repairs: bool = Tru
         return []
     event = session.get(Event, task.event_id)
     task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all()
-    if apply_known_repairs and _is_fl2026_task1(task, event, task_points):
-        changed = False
-        if event is not None and _apply_fl2026_task1_settings(task, event, task_points):
-            changed = True
-        if _apply_fl2026_task1_status_input_repairs(session, task):
-            changed = True
-        if changed:
-            session.flush()
 
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id).order_by(IGCUpload.uploaded_at)).all()
     uploads_by_id = {upload.id: upload for upload in uploads}

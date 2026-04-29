@@ -270,6 +270,31 @@ def test_exit_start_uses_later_recrossing_inside_fix() -> None:
     assert result["started_at"] == track_points[2].recorded_at
 
 
+def test_hc_2025_elapsed_restart_chooses_later_start_crossing() -> None:
+    task = _task()
+    task.task_type = "elapsed_time"
+    task.start_open_time = "14:00:00"
+    task.start_close_time = "15:00:00"
+    task.task_finish_time = "19:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 39.09639, -75.89061, 5000),
+        _task_point(2, 2, "goal", 38.68586, -75.07051, 400),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2025, 6, 2, 18, 6, tzinfo=UTC), 39.09639, -75.89061),
+        _track_point_at(2, datetime(2025, 6, 2, 18, 7, tzinfo=UTC), 39.09639, -75.95000),
+        _track_point_at(3, datetime(2025, 6, 2, 18, 30, tzinfo=UTC), 39.09639, -75.89061),
+        _track_point_at(4, datetime(2025, 6, 2, 18, 33, tzinfo=UTC), 39.09639, -75.95000),
+        _track_point_at(5, datetime(2025, 6, 2, 20, 46, tzinfo=UTC), 38.68586, -75.07051),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="America/New_York")
+
+    assert result["details"]["engine"] == "airscore.verify"
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[2].recorded_at.isoformat()
+    assert result["started_at"] == track_points[2].recorded_at
+
+
 def test_enter_points_use_first_inside_fix_after_entry() -> None:
     task_points = [
         _task_point(1, 1, "start", 0.0, -0.04, 1000),
