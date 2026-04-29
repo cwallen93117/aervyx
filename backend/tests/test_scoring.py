@@ -135,6 +135,7 @@ def test_gap_breakdown_contains_airscore_style_point_buckets() -> None:
 
 def test_start_time_uses_exit_of_start_cylinder_after_open_time() -> None:
     task = _task()
+    task.task_type = "elapsed_time"
     task.start_open_time = "13:30:00"
     task.start_close_time = "20:00:00"
     task.task_start_time = "13:30:00"
@@ -151,8 +152,81 @@ def test_start_time_uses_exit_of_start_cylinder_after_open_time() -> None:
     ]
     result = evaluate_task(task, task_points, track_points, event_timezone="Eastern")
     assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[1].recorded_at.isoformat()
-    assert result["started_at"] == datetime(2025, 6, 2, 17, 30, tzinfo=UTC)
+    assert result["details"]["start_timing"]["start_scoring_mode"] == "elapsed_time"
+    assert result["details"]["start_timing"]["start_gate_index"] is None
+    assert result["started_at"] == track_points[1].recorded_at
     assert result["goal_at"] == track_points[3].recorded_at
+
+
+def test_elapsed_enter_start_uses_outside_fix_before_entry_as_start_time() -> None:
+    task = _task()
+    task.task_type = "elapsed_time"
+    task.start_open_time = "12:00:00"
+    task.start_close_time = "18:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    task_points[0].direction = "enter"
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 12, 5, tzinfo=UTC), 0.0, 0.02),
+        _track_point_at(2, datetime(2026, 3, 17, 12, 6, tzinfo=UTC), 0.0, 0.004),
+        _track_point_at(3, datetime(2026, 3, 17, 13, 0, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[0].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["actual_start_exit_after_at"] == track_points[1].recorded_at.isoformat()
+    assert result["started_at"] == track_points[0].recorded_at
+
+
+def test_elapsed_start_before_open_scores_open_time_with_jump_penalty() -> None:
+    task = _task()
+    task.task_type = "elapsed_time"
+    task.start_open_time = "12:00:00"
+    task.start_close_time = "18:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    event = type("EventStub", (), {"jump_the_gun_factor": 2.0, "jump_the_gun_max_seconds": 300})()
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 11, 59, 30, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 11, 59, 40, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(3, datetime(2026, 3, 17, 13, 0, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC", event=event)
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[0].recorded_at.isoformat()
+    assert result["started_at"] == datetime(2026, 3, 17, 12, 0, tzinfo=UTC)
+    assert result["details"]["start_timing"]["jump_the_gun_seconds"] == 30
+    assert result["jump_the_gun_penalty_points"] == 60
+
+
+def test_elapsed_start_after_close_is_detected_and_scored_at_start_close() -> None:
+    task = _task()
+    task.task_type = "elapsed_time"
+    task.start_open_time = "12:00:00"
+    task.start_close_time = "12:30:00"
+    task.task_finish_time = "18:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "goal", 0.04, 0.0, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 3, 17, 13, 0, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 3, 17, 13, 1, tzinfo=UTC), 0.02, 0.0),
+        _track_point_at(3, datetime(2026, 3, 17, 14, 0, tzinfo=UTC), 0.04, 0.0),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[0].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["scored_start_at"] == datetime(2026, 3, 17, 12, 30, tzinfo=UTC).isoformat()
+    assert result["started_at"] == datetime(2026, 3, 17, 12, 30, tzinfo=UTC)
+    assert result["elapsed_seconds"] == 90 * 60
 
 
 def test_missed_start_detection_does_not_leak_epoch_into_end_ss() -> None:

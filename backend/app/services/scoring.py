@@ -368,6 +368,66 @@ def _start_gate_times(task: Task, first_gate_at: datetime | None) -> list[dateti
     return [first_gate_at + timedelta(seconds=index * interval_seconds) for index in range(count)]
 
 
+def _normalized_task_type_for_scoring(task_type: str | None) -> str:
+    legacy_map = {
+        None: "race_to_goal_with_gates",
+        "race": "race_to_goal_with_gates",
+        "race_to_goal": "race_to_goal_with_gates",
+        "speedrun": "elapsed_time",
+        "speedrun_interval": "race_to_goal_with_gates",
+    }
+    return legacy_map.get(task_type, task_type)
+
+
+def _jump_the_gun_penalty(formula: dict, jump_seconds: int) -> tuple[int, float]:
+    max_jump_seconds = max(int(formula.get("jump_the_gun_max_seconds", 0) or 0), 0)
+    penalty_seconds = min(jump_seconds, max_jump_seconds) if max_jump_seconds > 0 else jump_seconds
+    penalty_points = max(float(formula.get("jump_the_gun_factor", 0.0) or 0.0), 0.0) * penalty_seconds
+    return penalty_seconds, penalty_points
+
+
+def _scored_elapsed_start(
+    actual_start_at: datetime | None,
+    earliest_start_at: datetime | None,
+    latest_start_at: datetime | None,
+    formula: dict,
+    exit_after_at: datetime | None = None,
+) -> tuple[datetime | None, dict]:
+    if actual_start_at is None:
+        return None, {
+            "actual_start_crossing_at": None,
+            "actual_start_exit_after_at": None,
+            "scored_start_at": None,
+            "start_scoring_mode": "elapsed_time",
+            "start_gate_index": None,
+            "start_gate_time": None,
+            "jump_the_gun_seconds": 0,
+            "jump_the_gun_penalty_seconds": 0,
+            "jump_the_gun_penalty_points": 0.0,
+        }
+
+    scored_start_at = actual_start_at
+    jump_seconds = 0
+    if earliest_start_at is not None and actual_start_at < earliest_start_at:
+        scored_start_at = earliest_start_at
+        jump_seconds = int((earliest_start_at - actual_start_at).total_seconds())
+    elif latest_start_at is not None and actual_start_at > latest_start_at:
+        scored_start_at = latest_start_at
+
+    penalty_seconds, penalty_points = _jump_the_gun_penalty(formula, jump_seconds)
+    return scored_start_at, {
+        "actual_start_crossing_at": _isoformat_or_none(actual_start_at),
+        "actual_start_exit_after_at": _isoformat_or_none(exit_after_at),
+        "scored_start_at": _isoformat_or_none(scored_start_at),
+        "start_scoring_mode": "elapsed_time",
+        "start_gate_index": None,
+        "start_gate_time": None,
+        "jump_the_gun_seconds": jump_seconds,
+        "jump_the_gun_penalty_seconds": penalty_seconds,
+        "jump_the_gun_penalty_points": round(penalty_points, 3),
+    }
+
+
 def _scored_start_from_gates(
     task: Task,
     actual_start_at: datetime | None,
@@ -380,6 +440,12 @@ def _scored_start_from_gates(
             "actual_start_crossing_at": None,
             "actual_start_exit_after_at": None,
             "scored_start_at": None,
+            "start_scoring_mode": "race_to_goal_with_gates",
+            "start_gate_index": None,
+            "start_gate_time": None,
+            "jump_the_gun_seconds": 0,
+            "jump_the_gun_penalty_seconds": 0,
+            "jump_the_gun_penalty_points": 0.0,
         }
     gates = _start_gate_times(task, first_gate_at)
     if not gates:
@@ -387,7 +453,9 @@ def _scored_start_from_gates(
             "actual_start_crossing_at": _isoformat_or_none(actual_start_at),
             "actual_start_exit_after_at": _isoformat_or_none(exit_after_at),
             "scored_start_at": _isoformat_or_none(actual_start_at),
+            "start_scoring_mode": "race_to_goal_with_gates",
             "start_gate_index": None,
+            "start_gate_time": None,
             "jump_the_gun_seconds": 0,
             "jump_the_gun_penalty_seconds": 0,
             "jump_the_gun_penalty_points": 0.0,
@@ -416,19 +484,31 @@ def _scored_start_from_gates(
                     break
         scored_start_at = gates[selected_index]
 
-    max_jump_seconds = max(int(formula.get("jump_the_gun_max_seconds", 0) or 0), 0)
-    penalty_seconds = min(jump_seconds, max_jump_seconds) if max_jump_seconds > 0 else jump_seconds
-    penalty_points = max(float(formula.get("jump_the_gun_factor", 0.0) or 0.0), 0.0) * penalty_seconds
+    penalty_seconds, penalty_points = _jump_the_gun_penalty(formula, jump_seconds)
     return scored_start_at, {
         "actual_start_crossing_at": _isoformat_or_none(actual_start_at),
         "actual_start_exit_after_at": _isoformat_or_none(exit_after_at),
         "scored_start_at": _isoformat_or_none(scored_start_at),
+        "start_scoring_mode": "race_to_goal_with_gates",
         "start_gate_index": selected_index + 1,
         "start_gate_time": _isoformat_or_none(scored_start_at),
         "jump_the_gun_seconds": jump_seconds,
         "jump_the_gun_penalty_seconds": penalty_seconds,
         "jump_the_gun_penalty_points": round(penalty_points, 3),
     }
+
+
+def _scored_start_for_task_type(
+    task: Task,
+    actual_start_at: datetime | None,
+    earliest_start_at: datetime | None,
+    latest_start_at: datetime | None,
+    formula: dict,
+    exit_after_at: datetime | None = None,
+) -> tuple[datetime | None, dict]:
+    if _normalized_task_type_for_scoring(getattr(task, "task_type", None)) == "elapsed_time":
+        return _scored_elapsed_start(actual_start_at, earliest_start_at, latest_start_at, formula, exit_after_at=exit_after_at)
+    return _scored_start_from_gates(task, actual_start_at, earliest_start_at, formula, exit_after_at=exit_after_at)
 
 
 # ---------- optimized task distance via AirScore Route ----------
@@ -798,6 +878,9 @@ def evaluate_task(
     timezone_name = _effective_timezone_name(event_timezone, ordered_points)
     start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
+    configured_start_close_at = _resolve_task_time_utc(task.start_close_time, trackpoints, timezone_name)
+    task_type = _normalized_task_type_for_scoring(getattr(task, "task_type", None))
+    scored_start_close_at = configured_start_close_at if task_type == "elapsed_time" else start_close_at
     formula = _build_formula(task, event)
     distance_waypoints, waypoint_distances = _prepare_waypoints_for_distance(airscore_waypoints or [], formula)
     task_stats = _waypoint_distance_stats(distance_waypoints or airscore_waypoints or [], optimized_distance_km or 0.0)
@@ -861,7 +944,7 @@ def evaluate_task(
             continue
 
         is_start = point.point_type.lower() == "start"
-        latest_at = start_close_at if is_start else None
+        latest_at = None if is_start and task_type == "elapsed_time" else start_close_at if is_start else None
         if is_start and _point_direction(point) == "exit":
             exit_hit = _find_exit_hit_with_interval(point, trackpoints, point.radius_m / 1000.0, cursor=cursor, latest_at=latest_at, prefer_latest=True, margin_km=_point_margin_km(point))
             hit = (exit_hit[0], exit_hit[1]) if exit_hit is not None else None
@@ -934,7 +1017,14 @@ def evaluate_task(
         ess_point = goal_point
 
     actual_started_at = hit_times.get(start_point.id) if start_point else None
-    started_at, start_timing_details = _scored_start_from_gates(task, actual_started_at, start_open_at, formula, exit_after_at=start_exit_after_at)
+    started_at, start_timing_details = _scored_start_for_task_type(
+        task,
+        actual_started_at,
+        start_open_at,
+        scored_start_close_at,
+        formula,
+        exit_after_at=start_exit_after_at,
+    )
     if start_point is not None and start_point.id in point_detail_state:
         point_detail_state[start_point.id]["scored_hit_at"] = _isoformat_or_none(started_at)
     ess_at = hit_times.get(ess_point.id) if ess_point else None
