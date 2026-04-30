@@ -84,30 +84,101 @@ function resolveApiBase() {
 // Airspace freshness indicator (shown in hero bar)
 // ---------------------------------------------------------------------------
 
-function AirspaceFreshnessStatus() {
+type AirspaceSourceStatus = {
+  last_fetched_at?: string | null;
+};
+
+type AirspaceRefreshResult = {
+  status?: string;
+  error?: string;
+};
+
+type AirspaceStatusResponse = {
+  sources?: {
+    class?: AirspaceSourceStatus;
+    sua?: AirspaceSourceStatus;
+    tfr?: AirspaceSourceStatus;
+  };
+  refreshed?: Record<string, AirspaceRefreshResult>;
+};
+
+function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: () => void }) {
   const [status, setStatus] = useState<{ airspace?: string; tfr?: string } | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  const applyStatus = useCallback((d: AirspaceStatusResponse) => {
+    const fmt = (iso: string | null | undefined) => {
+      if (!iso) return "--";
+      const dt = new Date(iso);
+      if (Number.isNaN(dt.getTime())) return "--";
+      return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    };
+    const airspaceTs = d.sources?.class?.last_fetched_at ?? d.sources?.sua?.last_fetched_at;
+    const tfrTs = d.sources?.tfr?.last_fetched_at;
+    setStatus({ airspace: fmt(airspaceTs), tfr: fmt(tfrTs) });
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    const api = resolveApiBase();
+    const response = await fetch(`${api}/api/faa-airspace/status`);
+    if (!response.ok) throw new Error(`Airspace status failed: ${response.status}`);
+    applyStatus(await response.json() as AirspaceStatusResponse);
+  }, [applyStatus]);
 
   useEffect(() => {
+    void loadStatus().catch(() => {});
+  }, [loadStatus]);
+
+  async function handleRefresh() {
     const api = resolveApiBase();
-    fetch(`${api}/api/faa-airspace/status`)
-      .then((r) => r.json())
-      .then((d) => {
-        const fmt = (iso: string | null) => {
-          if (!iso) return "—";
-          const dt = new Date(iso);
-          return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-        };
-        const airspaceTs = d.sources?.class?.last_fetched_at ?? d.sources?.sua?.last_fetched_at;
-        const tfrTs = d.sources?.tfr?.last_fetched_at;
-        setStatus({ airspace: fmt(airspaceTs), tfr: fmt(tfrTs) });
-      })
-      .catch(() => {});
-  }, []);
+    setRefreshing(true);
+    setRefreshError(null);
+    try {
+      const response = await fetch(`${api}/api/faa-airspace/refresh`, { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`Airspace refresh failed: ${response.status}`);
+      }
+      const payload = await response.json() as AirspaceStatusResponse;
+      const failedSources = Object.entries(payload.refreshed ?? {})
+        .filter(([, result]) => result.status === "error")
+        .map(([source]) => source);
+
+      applyStatus(payload);
+      onRefreshComplete?.();
+
+      if (failedSources.length > 0) {
+        setRefreshError(`Refresh failed for ${failedSources.join(", ")}`);
+      }
+    } catch (caught) {
+      setRefreshError(caught instanceof Error ? caught.message : "Refresh failed");
+      void loadStatus().catch(() => {});
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   if (!status) return null;
   return (
-    <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginLeft: 12, whiteSpace: "nowrap" }}>
-      Airspace: {status.airspace} &nbsp;·&nbsp; TFRs: {status.tfr}
+    <span className="airspace-freshness">
+      <span>Airspace: {status.airspace}</span>
+      <span aria-hidden="true">|</span>
+      <span>TFRs: {status.tfr}</span>
+      <button
+        type="button"
+        className="airspace-refresh-button"
+        onClick={() => void handleRefresh()}
+        disabled={refreshing}
+        title="Refresh FAA airspace and TFR data"
+        aria-label="Refresh FAA airspace and TFR data"
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M13 3v4H9" />
+          <path d="M12.1 7A4.7 4.7 0 1 0 10 12.4" />
+        </svg>
+        {refreshing ? "Refreshing" : "Refresh"}
+      </button>
+      {refreshError ? <span className="airspace-refresh-error">{refreshError}</span> : null}
     </span>
   );
 }
@@ -545,6 +616,7 @@ export default function HomePage() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [activeSection, setActiveSection] = useState<SidebarSection>("events");
+  const [airspaceRefreshToken, setAirspaceRefreshToken] = useState(0);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
@@ -2781,7 +2853,7 @@ export default function HomePage() {
         case "weather":
           return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} overlayConfig={mapOverlayConfig.config?.soaring_forecast} />;
         case "airspace":
-          return <AirspaceSection overlayConfig={mapOverlayConfig.config?.airspace_explorer} />;
+          return <AirspaceSection overlayConfig={mapOverlayConfig.config?.airspace_explorer} refreshToken={airspaceRefreshToken} />;
         case "settings":
           return (
             <SettingsSection
@@ -2870,7 +2942,9 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                {activeSection === "airspace" && <AirspaceFreshnessStatus />}
+                {activeSection === "airspace" && (
+                  <AirspaceFreshnessStatus onRefreshComplete={() => setAirspaceRefreshToken((current) => current + 1)} />
+                )}
                 {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}

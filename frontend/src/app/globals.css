@@ -445,6 +445,61 @@ input, select, textarea { font-family: inherit; }
   max-width: min(52vw, 720px);
 }
 
+.airspace-freshness {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 2px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.airspace-refresh-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--ink-secondary);
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+
+.airspace-refresh-button:hover:not(:disabled) {
+  background: var(--wash-alt);
+  border-color: var(--ink-muted);
+  color: var(--ink);
+}
+
+.airspace-refresh-button:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.airspace-refresh-button:disabled svg {
+  animation: airspace-refresh-spin 900ms linear infinite;
+}
+
+.airspace-refresh-error {
+  color: var(--danger, #dc2626);
+  font-weight: 600;
+}
+
+@keyframes airspace-refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .hero-actions {
   display: flex;
   align-items: center;
@@ -5276,6 +5331,11 @@ details[open] > summary {
 }
 
 @media (max-width: 780px) {
+  .airspace-freshness {
+    white-space: normal;
+    flex-wrap: wrap;
+  }
+
   .task-toolbar {
     display: flex;
     flex-direction: column;

@@ -46,11 +46,15 @@ const LYR_TFR_EXTRUSION = "faa-tfr-extrusion";
 const LYR_TFR_LINE = "faa-tfr-line";
 const LYR_TFR_LABEL = "faa-tfr-label";
 
+function emptyFeatureCollection(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function AirspaceExplorerMap({ overlayConfig }: { overlayConfig?: Record<string, boolean> }) {
+export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { overlayConfig?: Record<string, boolean>; refreshToken?: number }) {
   const oc = overlayConfig;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -172,6 +176,25 @@ export default function AirspaceExplorerMap({ overlayConfig }: { overlayConfig?:
       setTfrLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    if (!refreshToken) return;
+
+    loadedBoundsRef.current = null;
+    featureMapRef.current.clear();
+    const empty = emptyFeatureCollection();
+    setAirspaceData(empty);
+    setFeatureCount(0);
+
+    const map = mapRef.current;
+    if (map?.isStyleLoaded()) {
+      const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
+      if (src) src.setData(empty);
+      void fetchViewportAirspace(map);
+    }
+
+    void fetchTfrData();
+  }, [fetchTfrData, fetchViewportAirspace, refreshToken]);
 
   // -------------------------------------------------------------------
   // Initialize map
