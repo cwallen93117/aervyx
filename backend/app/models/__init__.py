@@ -82,6 +82,24 @@ class SiteSettings(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class IntegrationCredential(Base):
+    __tablename__ = "integration_credentials"
+
+    provider: Mapped[str] = mapped_column(String(80), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    base_url: Mapped[str] = mapped_column(String(255), default="https://api.faa.gov")
+    client_id_header: Mapped[str] = mapped_column(String(80), default="client_id")
+    client_secret_header: Mapped[str] = mapped_column(String(80), default="client_secret")
+    encrypted_client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_client_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_test_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class MapOverlayConfig(Base):
     __tablename__ = "map_overlay_config"
 
@@ -608,6 +626,10 @@ class FaaAirspaceFeature(Base):
     lower_desc: Mapped[str] = mapped_column(String(100), default="")
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    notam_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    effective_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notice_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     min_lat: Mapped[float] = mapped_column(Float, nullable=False)
     max_lat: Mapped[float] = mapped_column(Float, nullable=False)
     min_lon: Mapped[float] = mapped_column(Float, nullable=False)

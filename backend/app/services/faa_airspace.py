@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from datetime import datetime, timezone
 
@@ -20,6 +21,11 @@ from sqlalchemy import delete, select
 
 from app.db import SessionLocal
 from app.models import FaaAirspaceFeature, FaaAirspaceMeta
+from app.services.integration_credentials import (
+    FaaNotamsCredentials,
+    build_faa_notams_query_url,
+    get_effective_faa_notams_credentials,
+)
 
 logger = logging.getLogger("faa_airspace")
 
@@ -247,6 +253,253 @@ def _float_or_none(value) -> float | None:
         return None
 
 
+def _datetime_or_none(value) -> datetime | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        timestamp = float(value) / 1000 if float(value) > 10_000_000_000 else float(value)
+        try:
+            return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    if not isinstance(value, str):
+        return None
+
+    raw = value.strip()
+    if not raw:
+        return None
+    if re.fullmatch(r"\d+(\.\d+)?", raw):
+        return _datetime_or_none(float(raw))
+
+    normalized = raw.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(normalized)
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except ValueError:
+        pass
+
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%m/%d/%Y %H:%M", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+    return None
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return value.isoformat() if value else None
+
+
+def _flatten_properties(value: object, *, prefix: str = "") -> dict[str, object]:
+    if not isinstance(value, dict):
+        return {}
+    flattened: dict[str, object] = {}
+    for key, child in value.items():
+        key_str = str(key)
+        flat_key = f"{prefix}.{key_str}" if prefix else key_str
+        flattened[flat_key] = child
+        if isinstance(child, dict):
+            flattened.update(_flatten_properties(child, prefix=flat_key))
+    return flattened
+
+
+def _first_property(properties: dict, names: tuple[str, ...]):
+    flat = _flatten_properties(properties)
+    lowered = {key.lower().split(".")[-1]: value for key, value in flat.items()}
+    for name in names:
+        value = lowered.get(name.lower())
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def _clean_match_value(value: object) -> str:
+    text = str(value or "").upper()
+    text = re.sub(r"\b(NATIONAL DEFENSE AIRSPACE|TEMPORARY FLIGHT RESTRICTION|TFR)\b", " ", text)
+    return re.sub(r"[^A-Z0-9]+", "", text)
+
+
+def _timing_from_notam_properties(properties: dict) -> dict[str, object] | None:
+    notam_id = _first_property(
+        properties,
+        ("notam_id", "notamId", "notamID", "notamNumber", "notamKey", "NOTAM_KEY", "number", "id"),
+    )
+    effective_start = _datetime_or_none(_first_property(
+        properties,
+        (
+            "effectiveStart",
+            "effective_start",
+            "effectiveStartDate",
+            "startDate",
+            "startTime",
+            "validFrom",
+            "beginDate",
+            "begin",
+            "start",
+        ),
+    ))
+    effective_end = _datetime_or_none(_first_property(
+        properties,
+        (
+            "effectiveEnd",
+            "effective_end",
+            "effectiveEndDate",
+            "endDate",
+            "endTime",
+            "validTo",
+            "expireDate",
+            "expirationDate",
+            "end",
+        ),
+    ))
+    notice_time = _datetime_or_none(_first_property(
+        properties,
+        (
+            "noticeTime",
+            "notice_time",
+            "issued",
+            "issuedDate",
+            "issueDate",
+            "created",
+            "LAST_MODIFICATION_DATETIME",
+            "lastModificationDateTime",
+        ),
+    ))
+    if not (notam_id or effective_start or effective_end or notice_time):
+        return None
+    return {
+        "notam_id": str(notam_id) if notam_id else None,
+        "effective_start": effective_start,
+        "effective_end": effective_end,
+        "notice_time": notice_time,
+    }
+
+
+def _notam_record_keys(properties: dict) -> set[str]:
+    keys: set[str] = set()
+    notam_id = _first_property(
+        properties,
+        ("notam_id", "notamId", "notamID", "notamNumber", "notamKey", "NOTAM_KEY", "number", "id"),
+    )
+    if notam_id:
+        keys.add(f"id:{_clean_match_value(notam_id)}")
+
+    title = _first_property(properties, ("title", "TITLE", "name", "NAME", "description"))
+    if title:
+        cleaned = _clean_match_value(title)
+        if cleaned:
+            keys.add(f"name:{cleaned}")
+
+    city = _first_property(properties, ("city", "CITY", "location", "LOCATION"))
+    state = _first_property(properties, ("state", "STATE"))
+    if city:
+        city_key = _clean_match_value(city)
+        state_key = _clean_match_value(state) if state else ""
+        if city_key:
+            keys.add(f"loc:{city_key}:{state_key}")
+    return keys
+
+
+def _tfr_feature_keys(properties: dict) -> set[str]:
+    keys: set[str] = set()
+    for field in ("NOTAM_ID", "NOTAM_KEY", "notam_id", "notamId"):
+        if properties.get(field):
+            keys.add(f"id:{_clean_match_value(properties[field])}")
+
+    name = properties.get("NAME") or properties.get("TITLE") or properties.get("name")
+    if name:
+        cleaned = _clean_match_value(name)
+        if cleaned:
+            keys.add(f"name:{cleaned}")
+
+    city = properties.get("CITY") or properties.get("city")
+    state = properties.get("STATE") or properties.get("state")
+    if city:
+        city_key = _clean_match_value(city)
+        state_key = _clean_match_value(state) if state else ""
+        if city_key:
+            keys.add(f"loc:{city_key}:{state_key}")
+    return keys
+
+
+def _iter_notam_records(data: object) -> list[dict]:
+    if isinstance(data, dict):
+        if isinstance(data.get("features"), list):
+            return [item for item in data["features"] if isinstance(item, dict)]
+        for key in ("items", "notams", "results", "data"):
+            child = data.get(key)
+            if isinstance(child, list):
+                return [item for item in child if isinstance(item, dict)]
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    return []
+
+
+async def _fetch_notam_timing_index(
+    client: httpx.AsyncClient,
+    credentials: FaaNotamsCredentials,
+) -> dict[str, dict[str, object]]:
+    if not credentials.enabled or not credentials.configured:
+        return {}
+
+    url = build_faa_notams_query_url(credentials.base_url)
+    try:
+        response = await client.get(
+            url,
+            params={"format": "geoJson"},
+            headers=credentials.auth_headers(),
+            timeout=30,
+        )
+        if response.status_code in {401, 403}:
+            logger.warning("FAA NOTAMS API rejected credentials while enriching TFRs (%s)", response.status_code)
+            return {}
+        response.raise_for_status()
+        data = response.json()
+    except Exception:
+        logger.warning("FAA NOTAMS API timing enrichment failed; keeping public TFR geometry only.", exc_info=True)
+        return {}
+
+    index: dict[str, dict[str, object]] = {}
+    for record in _iter_notam_records(data):
+        properties = record.get("properties") if isinstance(record.get("properties"), dict) else record
+        timing = _timing_from_notam_properties(properties)
+        if timing is None:
+            continue
+        for key in _notam_record_keys(properties):
+            index.setdefault(key, timing)
+    return index
+
+
+async def _enrich_tfr_features_with_notam_timing(client: httpx.AsyncClient, features: list[dict]) -> list[dict]:
+    session = SessionLocal()
+    try:
+        credentials = get_effective_faa_notams_credentials(session)
+    finally:
+        session.close()
+
+    timing_index = await _fetch_notam_timing_index(client, credentials)
+    if not timing_index:
+        return features
+
+    enriched: list[dict] = []
+    for feature in features:
+        properties = feature.get("properties", {})
+        timing = None
+        for key in _tfr_feature_keys(properties):
+            timing = timing_index.get(key)
+            if timing is not None:
+                break
+        if timing is None:
+            enriched.append(feature)
+            continue
+        copied = dict(feature)
+        copied["properties"] = {**properties, "_notam_timing": timing}
+        enriched.append(copied)
+    return enriched
+
+
 def _normalize_class(f: dict) -> dict:
     p = f.get("properties", {})
     class_val = (p.get("CLASS") or "").upper()
@@ -328,6 +581,23 @@ def _normalize_sua(f: dict) -> dict:
 
 def _normalize_tfr(f: dict) -> dict:
     p = f.get("properties", {})
+    timing = p.get("_notam_timing") if isinstance(p.get("_notam_timing"), dict) else {}
+    notam_id = timing.get("notam_id") or _first_property(
+        p,
+        ("notam_id", "notamId", "notamID", "NOTAM_ID", "notamKey", "NOTAM_KEY", "number", "id"),
+    )
+    effective_start = _datetime_or_none(timing.get("effective_start")) or _datetime_or_none(_first_property(
+        p,
+        ("effectiveStart", "effective_start", "effectiveStartDate", "startDate", "startTime", "validFrom", "beginDate", "start"),
+    ))
+    effective_end = _datetime_or_none(timing.get("effective_end")) or _datetime_or_none(_first_property(
+        p,
+        ("effectiveEnd", "effective_end", "effectiveEndDate", "endDate", "endTime", "validTo", "expireDate", "expirationDate", "end"),
+    ))
+    notice_time = _datetime_or_none(timing.get("notice_time")) or _datetime_or_none(_first_property(
+        p,
+        ("noticeTime", "notice_time", "issued", "issuedDate", "issueDate", "created", "LAST_MODIFICATION_DATETIME"),
+    ))
     return {
         "type": "Feature",
         "geometry": f["geometry"],
@@ -335,6 +605,7 @@ def _normalize_tfr(f: dict) -> dict:
             "category": "TFR",
             "name": p.get("NAME") or "TFR",
             "ident": None,
+            "notamId": str(notam_id) if notam_id else None,
             "upperVal": None,
             "upperUom": "FT",
             "lowerVal": None,
@@ -343,6 +614,9 @@ def _normalize_tfr(f: dict) -> dict:
             "lowerDesc": "",
             "city": p.get("CITY"),
             "state": p.get("STATE"),
+            "effectiveStart": effective_start,
+            "effectiveEnd": effective_end,
+            "noticeTime": notice_time,
             "source": "tfr",
         },
     }
@@ -420,6 +694,10 @@ def _import_to_db(source: str, features: list[dict], edit_date: str | None) -> i
                 lower_desc=props["lowerDesc"],
                 city=props.get("city"),
                 state=props.get("state"),
+                notam_id=props.get("notamId"),
+                effective_start=props.get("effectiveStart"),
+                effective_end=props.get("effectiveEnd"),
+                notice_time=props.get("noticeTime"),
                 min_lat=bbox[0],
                 max_lat=bbox[1],
                 min_lon=bbox[2],
@@ -484,6 +762,10 @@ def _load_cache_from_db() -> int:
                     "lowerDesc": r.lower_desc,
                     "city": r.city,
                     "state": r.state,
+                    "notamId": r.notam_id,
+                    "effectiveStart": _iso_or_none(r.effective_start),
+                    "effectiveEnd": _iso_or_none(r.effective_end),
+                    "noticeTime": _iso_or_none(r.notice_time),
                     "source": r.source,
                 },
             }
@@ -529,6 +811,9 @@ async def _fetch_and_import(source: str) -> int:
             raw_features = await _fetch_arcgis_paginated(
                 client, cfg["base"], where_clauses, cfg["fields"],
             )
+
+        if source == "tfr":
+            raw_features = await _enrich_tfr_features_with_notam_timing(client, raw_features)
 
         # Check edit date for meta
         is_stale, edit_date = await _check_freshness(client, source)

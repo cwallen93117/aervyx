@@ -71,6 +71,13 @@ function filterTfrsByTime(data: GeoJSON.FeatureCollection, selectedTime?: string
   };
 }
 
+function formatPopupTime(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -509,6 +516,10 @@ export default function AirspaceExplorerMap({
     const upper = p.upperVal != null && Number(p.upperVal) > 0 ? `${p.upperVal} ${p.upperUom}` : "Unlimited";
     const lower = p.lowerVal != null && Number(p.lowerVal) > 0 ? `${p.lowerVal} ${p.lowerUom}` : "SFC";
     const loc = [p.city, p.state].filter(Boolean).join(", ");
+    const noticeTime = formatPopupTime(p.noticeTime);
+    const effectiveStart = formatPopupTime(p.effectiveStart);
+    const effectiveEnd = formatPopupTime(p.effectiveEnd);
+    const tfrTiming = cat === "TFR" && (noticeTime || effectiveStart || effectiveEnd || p.notamId);
 
     const html = `
       <div style="font-family:var(--ff-body,system-ui);font-size:13px;max-width:260px">
@@ -521,6 +532,13 @@ export default function AirspaceExplorerMap({
         <div style="font-size:12px;color:#cbd5e1">
           <span>Floor: ${lower}</span> · <span>Ceiling: ${upper}</span>
         </div>
+        ${tfrTiming ? `
+          <div style="font-size:12px;color:#cbd5e1;margin-top:6px">
+            ${p.notamId ? `<div>NOTAM: ${p.notamId}</div>` : ""}
+            ${noticeTime ? `<div>Notice: ${noticeTime}</div>` : ""}
+            ${effectiveStart || effectiveEnd ? `<div>Effective: ${effectiveStart ?? "unknown"} to ${effectiveEnd ?? "unknown"}</div>` : ""}
+          </div>
+        ` : ""}
       </div>
     `;
 

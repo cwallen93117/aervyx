@@ -46,8 +46,10 @@ export interface AirspaceProperties {
   lowerDesc: string;
   city?: string;
   state?: string;
+  notamId?: string | null;
   effectiveStart?: string | null;
   effectiveEnd?: string | null;
+  noticeTime?: string | null;
   /** "class" for controlled, "sua" for special-use, "tfr" for defense TFRs */
   source: "class" | "sua" | "tfr";
 }

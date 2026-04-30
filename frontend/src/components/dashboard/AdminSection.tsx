@@ -6,7 +6,7 @@ import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } f
 import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
 
-type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic";
+type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
 
 type MeshNode = {
   device_id: string;
@@ -44,6 +44,44 @@ type UnifiedDevice = {
   lastSeenAt: string | null;
 };
 
+type FaaCredentialsRecord = {
+  provider: string;
+  enabled: boolean;
+  base_url: string;
+  client_id_header: string;
+  client_secret_header: string;
+  client_id_configured: boolean;
+  client_secret_configured: boolean;
+  admin_client_id_configured: boolean;
+  admin_client_secret_configured: boolean;
+  credential_source: string;
+  env_override: boolean;
+  last_tested_at: string | null;
+  last_test_status: string | null;
+  last_test_message: string | null;
+  updated_by_user_id: number | null;
+  updated_at: string | null;
+};
+
+const DEFAULT_FAA_CREDENTIALS: FaaCredentialsRecord = {
+  provider: "faa_notams",
+  enabled: false,
+  base_url: "https://api.faa.gov",
+  client_id_header: "client_id",
+  client_secret_header: "client_secret",
+  client_id_configured: false,
+  client_secret_configured: false,
+  admin_client_id_configured: false,
+  admin_client_secret_configured: false,
+  credential_source: "none",
+  env_override: false,
+  last_tested_at: null,
+  last_test_status: null,
+  last_test_message: null,
+  updated_by_user_id: null,
+  updated_at: null,
+};
+
 function meshPurposeLabel(purpose: string | null | undefined) {
   switch (purpose) {
     case "tracking": return "Pilot";
@@ -52,6 +90,21 @@ function meshPurposeLabel(purpose: string | null | undefined) {
     case "driver_mesh": return "Driver";
     case "relay": return "Relay";
     default: return purpose ?? "Unregistered";
+  }
+}
+
+function formatOptionalDateTime(value: string | null | undefined): string {
+  if (!value) return "Never";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
+function credentialSourceLabel(source: string): string {
+  switch (source) {
+    case "environment": return "Environment variables";
+    case "admin": return "Admin settings";
+    default: return "Not configured";
   }
 }
 
@@ -367,6 +420,11 @@ export default function AdminSection(props: AdminSectionProps) {
   const [credentialsSaving, setCredentialsSaving] = useState(false);
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
   const [editingMeshUser, setEditingMeshUser] = useState<AdminUserRecord | null>(null);
+  const [faaCredentials, setFaaCredentials] = useState<FaaCredentialsRecord>(DEFAULT_FAA_CREDENTIALS);
+  const [faaClientId, setFaaClientId] = useState("");
+  const [faaClientSecret, setFaaClientSecret] = useState("");
+  const [faaFeedback, setFaaFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
+  const [faaLoading, setFaaLoading] = useState(false);
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -429,6 +487,126 @@ export default function AdminSection(props: AdminSectionProps) {
       setSiteMatchRadiusInput(siteSettings.site_match_radius_m.toLocaleString());
     }
   }, [isEditingSiteMatchRadius, siteSettings.site_match_radius_m]);
+
+  const loadFaaCredentials = useCallback(async () => {
+    setFaaLoading(true);
+    setFaaFeedback(null);
+    try {
+      const res = await fetch(`${apiBase}/api/admin/integrations/faa_notams`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      setFaaCredentials((await res.json()) as FaaCredentialsRecord);
+    } catch (caught) {
+      setFaaFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load FAA credentials." });
+    } finally {
+      setFaaLoading(false);
+    }
+  }, [apiBase, token]);
+
+  useEffect(() => {
+    if (activeTab !== "faa_credentials") return;
+    void loadFaaCredentials();
+  }, [activeTab, loadFaaCredentials]);
+
+  async function saveFaaCredentials() {
+    setFaaLoading(true);
+    setFaaFeedback({ type: "pending", text: "Saving FAA credentials..." });
+    try {
+      const payload: Record<string, string | boolean> = {
+        enabled: faaCredentials.enabled,
+        base_url: faaCredentials.base_url,
+        client_id_header: faaCredentials.client_id_header,
+        client_secret_header: faaCredentials.client_secret_header,
+      };
+      if (faaClientId.trim()) payload.client_id = faaClientId.trim();
+      if (faaClientSecret.trim()) payload.client_secret = faaClientSecret.trim();
+      const res = await fetch(`${apiBase}/api/admin/integrations/faa_notams`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      setFaaCredentials((await res.json()) as FaaCredentialsRecord);
+      setFaaClientId("");
+      setFaaClientSecret("");
+      setFaaFeedback({ type: "success", text: "FAA credentials saved." });
+    } catch (caught) {
+      setFaaFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save FAA credentials." });
+    } finally {
+      setFaaLoading(false);
+    }
+  }
+
+  async function clearFaaCredentials() {
+    const confirmed = window.confirm("Clear saved FAA client ID and client secret?");
+    if (!confirmed) return;
+    setFaaLoading(true);
+    setFaaFeedback({ type: "pending", text: "Clearing FAA credentials..." });
+    try {
+      const res = await fetch(`${apiBase}/api/admin/integrations/faa_notams`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          enabled: false,
+          base_url: faaCredentials.base_url,
+          client_id_header: faaCredentials.client_id_header,
+          client_secret_header: faaCredentials.client_secret_header,
+          clear_credentials: true,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      setFaaCredentials((await res.json()) as FaaCredentialsRecord);
+      setFaaClientId("");
+      setFaaClientSecret("");
+      setFaaFeedback({ type: "success", text: "Saved FAA credentials cleared." });
+    } catch (caught) {
+      setFaaFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not clear FAA credentials." });
+    } finally {
+      setFaaLoading(false);
+    }
+  }
+
+  async function testFaaCredentials() {
+    setFaaLoading(true);
+    setFaaFeedback({ type: "pending", text: "Testing FAA credentials..." });
+    try {
+      const res = await fetch(`${apiBase}/api/admin/integrations/faa_notams/test`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      const next = (await res.json()) as FaaCredentialsRecord;
+      setFaaCredentials(next);
+      setFaaFeedback({
+        type: next.last_test_status === "success" ? "success" : "error",
+        text: next.last_test_message ?? "FAA credential test completed.",
+      });
+    } catch (caught) {
+      setFaaFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not test FAA credentials." });
+    } finally {
+      setFaaLoading(false);
+    }
+  }
 
   const loadMeshNodes = useCallback(async () => {
     setMeshNodesLoading(true);
@@ -570,6 +748,13 @@ export default function AdminSection(props: AdminSectionProps) {
           onClick={() => setActiveTab("meshtastic")}
         >
           Meshtastic
+        </button>
+        <button
+          type="button"
+          className={activeTab === "faa_credentials" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("faa_credentials")}
+        >
+          FAA credentials
         </button>
         <button
           type="button"
@@ -1140,6 +1325,143 @@ export default function AdminSection(props: AdminSectionProps) {
                 Save Meshtastic settings
               </button>
               {siteSettingsFeedback ? <div className={`status-chip ${siteSettingsFeedback.type}`}>{siteSettingsFeedback.text}</div> : null}
+            </div>
+          </div>
+        </SectionCard>
+      ) : activeTab === "faa_credentials" ? (
+        <SectionCard title="FAA credentials">
+          <div className="stack form-block compact-clusters">
+            {faaFeedback ? <div className={`status-chip ${faaFeedback.type}`}>{faaFeedback.text}</div> : null}
+            <div className="fieldset-grid two-up">
+              <fieldset className="fieldset-cluster">
+                <legend>FAA NOTAMS API</legend>
+                <div className="cluster-stack">
+                  <label className="stack compact">
+                    <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <input
+                        type="checkbox"
+                        checked={faaCredentials.enabled}
+                        onChange={(event) =>
+                          setFaaCredentials((current) => ({
+                            ...current,
+                            enabled: event.target.checked,
+                          }))
+                        }
+                      />
+                      Enabled
+                    </span>
+                  </label>
+                  <label className="stack compact">
+                    <span>FAA API base URL</span>
+                    <input
+                      type="url"
+                      value={faaCredentials.base_url}
+                      placeholder="https://api.faa.gov"
+                      onChange={(event) =>
+                        setFaaCredentials((current) => ({
+                          ...current,
+                          base_url: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <div className="fieldset-grid two-up">
+                    <label className="stack compact">
+                      <span>Client ID header</span>
+                      <input
+                        type="text"
+                        value={faaCredentials.client_id_header}
+                        placeholder="client_id"
+                        onChange={(event) =>
+                          setFaaCredentials((current) => ({
+                            ...current,
+                            client_id_header: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="stack compact">
+                      <span>Client secret header</span>
+                      <input
+                        type="text"
+                        value={faaCredentials.client_secret_header}
+                        placeholder="client_secret"
+                        onChange={(event) =>
+                          setFaaCredentials((current) => ({
+                            ...current,
+                            client_secret_header: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                </div>
+              </fieldset>
+              <fieldset className="fieldset-cluster">
+                <legend>Credentials</legend>
+                <div className="cluster-stack">
+                  <label className="stack compact">
+                    <span>Client ID</span>
+                    <input
+                      type="password"
+                      value={faaClientId}
+                      placeholder={faaCredentials.admin_client_id_configured ? "Configured; leave blank to keep current" : "Enter FAA client ID"}
+                      onChange={(event) => setFaaClientId(event.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <label className="stack compact">
+                    <span>Client secret</span>
+                    <input
+                      type="password"
+                      value={faaClientSecret}
+                      placeholder={faaCredentials.admin_client_secret_configured ? "Configured; leave blank to keep current" : "Enter FAA client secret"}
+                      onChange={(event) => setFaaClientSecret(event.target.value)}
+                      autoComplete="off"
+                    />
+                  </label>
+                  <div className="stack compact">
+                    <span className="hint">Source: {credentialSourceLabel(faaCredentials.credential_source)}</span>
+                    <span className="hint">Client ID: {faaCredentials.client_id_configured ? "configured" : "missing"} / Client secret: {faaCredentials.client_secret_configured ? "configured" : "missing"}</span>
+                    {faaCredentials.env_override ? <span className="hint">Environment variables are currently taking precedence.</span> : null}
+                  </div>
+                </div>
+              </fieldset>
+            </div>
+            <fieldset className="fieldset-cluster">
+              <legend>Status</legend>
+              <div className="fieldset-grid two-up">
+                <div className="stack compact">
+                  <span className="hint">Last updated</span>
+                  <strong>{formatOptionalDateTime(faaCredentials.updated_at)}</strong>
+                </div>
+                <div className="stack compact">
+                  <span className="hint">Last tested</span>
+                  <strong>{formatOptionalDateTime(faaCredentials.last_tested_at)}</strong>
+                </div>
+                <div className="stack compact">
+                  <span className="hint">Test result</span>
+                  <strong>{faaCredentials.last_test_status ?? "Not tested"}</strong>
+                </div>
+                <div className="stack compact">
+                  <span className="hint">Message</span>
+                  <strong>{faaCredentials.last_test_message ?? "-"}</strong>
+                </div>
+              </div>
+            </fieldset>
+            <div className="button-row" style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+              <button type="button" disabled={faaLoading} onClick={() => void saveFaaCredentials()}>
+                {faaLoading ? "Working..." : "Save FAA credentials"}
+              </button>
+              <button type="button" className="ghost-button" disabled={faaLoading} onClick={() => void testFaaCredentials()}>
+                Test connection
+              </button>
+              <button type="button" className="ghost-button danger-button" disabled={faaLoading || (!faaCredentials.admin_client_id_configured && !faaCredentials.admin_client_secret_configured)} onClick={() => void clearFaaCredentials()}>
+                Clear credentials
+              </button>
+              <button type="button" className="ghost-button" disabled={faaLoading} onClick={() => void loadFaaCredentials()}>
+                Refresh
+              </button>
             </div>
           </div>
         </SectionCard>

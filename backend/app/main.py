@@ -11,7 +11,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import admin_db, airspace, app_release, auth, events, logbook, map_overlay_config, pilots, public, results, site_settings, sites, tasks, turnpoints, uploads
+from app.routers import admin_db, admin_integrations, airspace, app_release, auth, events, logbook, map_overlay_config, pilots, public, results, site_settings, sites, tasks, turnpoints, uploads
 from app.services.seeding import bootstrap_demo_data
 
 try:
@@ -151,6 +151,7 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.include_router(admin_db.router)
+app.include_router(admin_integrations.router)
 app.include_router(auth.router)
 app.include_router(site_settings.router)
 app.include_router(map_overlay_config.router)

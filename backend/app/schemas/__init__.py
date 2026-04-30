@@ -237,6 +237,35 @@ class SiteSettingsUpdate(BaseModel):
     mesh_profiles: dict | None = None
 
 
+class IntegrationCredentialsResponse(BaseModel):
+    provider: str
+    enabled: bool = False
+    base_url: str = "https://api.faa.gov"
+    client_id_header: str = "client_id"
+    client_secret_header: str = "client_secret"
+    client_id_configured: bool = False
+    client_secret_configured: bool = False
+    admin_client_id_configured: bool = False
+    admin_client_secret_configured: bool = False
+    credential_source: str = "none"
+    env_override: bool = False
+    last_tested_at: datetime | None = None
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    updated_by_user_id: int | None = None
+    updated_at: datetime | None = None
+
+
+class IntegrationCredentialsUpdate(BaseModel):
+    enabled: bool = False
+    base_url: str = Field(default="https://api.faa.gov", min_length=1, max_length=255)
+    client_id_header: str = Field(default="client_id", min_length=1, max_length=80)
+    client_secret_header: str = Field(default="client_secret", min_length=1, max_length=80)
+    client_id: str | None = None
+    client_secret: str | None = None
+    clear_credentials: bool = False
+
+
 class FlightSiteCreate(BaseModel):
     name: str
     city_state: str = ""

@@ -141,6 +141,49 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 )
             )
 
+        if "integration_credentials" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE integration_credentials (
+                      provider VARCHAR(80) PRIMARY KEY,
+                      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                      base_url VARCHAR(255) NOT NULL DEFAULT 'https://api.faa.gov',
+                      client_id_header VARCHAR(80) NOT NULL DEFAULT 'client_id',
+                      client_secret_header VARCHAR(80) NOT NULL DEFAULT 'client_secret',
+                      encrypted_client_id TEXT,
+                      encrypted_client_secret TEXT,
+                      last_tested_at TIMESTAMP,
+                      last_test_status VARCHAR(20),
+                      last_test_message TEXT,
+                      updated_by_user_id INTEGER,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(updated_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+                    )
+                    """
+                )
+            )
+        else:
+            integration_columns = {column["name"] for column in inspector.get_columns("integration_credentials")}
+            integration_statements = {
+                "enabled": "ALTER TABLE integration_credentials ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT FALSE",
+                "base_url": "ALTER TABLE integration_credentials ADD COLUMN base_url VARCHAR(255) NOT NULL DEFAULT 'https://api.faa.gov'",
+                "client_id_header": "ALTER TABLE integration_credentials ADD COLUMN client_id_header VARCHAR(80) NOT NULL DEFAULT 'client_id'",
+                "client_secret_header": "ALTER TABLE integration_credentials ADD COLUMN client_secret_header VARCHAR(80) NOT NULL DEFAULT 'client_secret'",
+                "encrypted_client_id": "ALTER TABLE integration_credentials ADD COLUMN encrypted_client_id TEXT",
+                "encrypted_client_secret": "ALTER TABLE integration_credentials ADD COLUMN encrypted_client_secret TEXT",
+                "last_tested_at": "ALTER TABLE integration_credentials ADD COLUMN last_tested_at TIMESTAMP",
+                "last_test_status": "ALTER TABLE integration_credentials ADD COLUMN last_test_status VARCHAR(20)",
+                "last_test_message": "ALTER TABLE integration_credentials ADD COLUMN last_test_message TEXT",
+                "updated_by_user_id": "ALTER TABLE integration_credentials ADD COLUMN updated_by_user_id INTEGER",
+                "created_at": "ALTER TABLE integration_credentials ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "ALTER TABLE integration_credentials ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            }
+            for column_name, statement in integration_statements.items():
+                if column_name not in integration_columns:
+                    connection.execute(text(statement))
+
         if "flight_sites" not in table_names:
             connection.execute(
                 text(
@@ -664,6 +707,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
                         lower_desc VARCHAR(100) DEFAULT '',
                         city VARCHAR(100),
                         state VARCHAR(10),
+                        notam_id VARCHAR(80),
+                        effective_start TIMESTAMP WITH TIME ZONE,
+                        effective_end TIMESTAMP WITH TIME ZONE,
+                        notice_time TIMESTAMP WITH TIME ZONE,
                         min_lat FLOAT NOT NULL,
                         max_lat FLOAT NOT NULL,
                         min_lon FLOAT NOT NULL,
@@ -677,6 +724,17 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_faa_airspace_source ON faa_airspace_features (source)"))
             connection.execute(text("CREATE INDEX ix_faa_airspace_category ON faa_airspace_features (category)"))
             connection.execute(text("CREATE INDEX ix_faa_airspace_bbox ON faa_airspace_features (min_lon, min_lat, max_lon, max_lat)"))
+        else:
+            faa_airspace_feature_columns = {column["name"] for column in inspector.get_columns("faa_airspace_features")}
+            faa_airspace_feature_statements = {
+                "notam_id": "ALTER TABLE faa_airspace_features ADD COLUMN notam_id VARCHAR(80)",
+                "effective_start": "ALTER TABLE faa_airspace_features ADD COLUMN effective_start TIMESTAMP WITH TIME ZONE",
+                "effective_end": "ALTER TABLE faa_airspace_features ADD COLUMN effective_end TIMESTAMP WITH TIME ZONE",
+                "notice_time": "ALTER TABLE faa_airspace_features ADD COLUMN notice_time TIMESTAMP WITH TIME ZONE",
+            }
+            for column_name, statement in faa_airspace_feature_statements.items():
+                if column_name not in faa_airspace_feature_columns:
+                    connection.execute(text(statement))
 
         if "faa_airspace_meta" not in table_names:
             connection.execute(
