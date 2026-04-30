@@ -99,8 +99,26 @@ type AirspaceStatusResponse = {
     sua?: AirspaceSourceStatus;
     tfr?: AirspaceSourceStatus;
   };
+  manual_refresh?: {
+    in_progress?: boolean;
+    results?: Record<string, AirspaceRefreshResult>;
+  };
   refreshed?: Record<string, AirspaceRefreshResult>;
 };
+
+const AIRSPACE_REFRESH_POLL_MS = 3000;
+const AIRSPACE_REFRESH_MAX_POLLS = 60;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function failedAirspaceSources(payload: AirspaceStatusResponse) {
+  const results = payload.manual_refresh?.results ?? payload.refreshed ?? {};
+  return Object.entries(results)
+    .filter(([, result]) => result.status === "error")
+    .map(([source]) => source);
+}
 
 function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: () => void }) {
   const [status, setStatus] = useState<{ airspace?: string; tfr?: string } | null>(null);
@@ -123,7 +141,9 @@ function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: ()
     const api = resolveApiBase();
     const response = await fetch(`${api}/api/faa-airspace/status`);
     if (!response.ok) throw new Error(`Airspace status failed: ${response.status}`);
-    applyStatus(await response.json() as AirspaceStatusResponse);
+    const payload = await response.json() as AirspaceStatusResponse;
+    applyStatus(payload);
+    return payload;
   }, [applyStatus]);
 
   useEffect(() => {
@@ -139,12 +159,21 @@ function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: ()
       if (!response.ok) {
         throw new Error(`Airspace refresh failed: ${response.status}`);
       }
-      const payload = await response.json() as AirspaceStatusResponse;
-      const failedSources = Object.entries(payload.refreshed ?? {})
-        .filter(([, result]) => result.status === "error")
-        .map(([source]) => source);
+      let payload = await response.json() as AirspaceStatusResponse;
 
       applyStatus(payload);
+
+      for (let attempt = 0; payload.manual_refresh?.in_progress && attempt < AIRSPACE_REFRESH_MAX_POLLS; attempt += 1) {
+        await sleep(AIRSPACE_REFRESH_POLL_MS);
+        payload = await loadStatus();
+      }
+
+      if (payload.manual_refresh?.in_progress) {
+        setRefreshError("Refresh is still running. Check again shortly.");
+        return;
+      }
+
+      const failedSources = failedAirspaceSources(payload);
       onRefreshComplete?.();
 
       if (failedSources.length > 0) {
