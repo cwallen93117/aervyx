@@ -1618,6 +1618,7 @@ button[type="submit"]:hover,
 
 .task-state-toggle {
   min-width: 112px;
+  height: 38px;
 }
 
 .task-toolbar-spacer {
