@@ -624,3 +624,4 @@ class FaaAirspaceMeta(Base):
     last_edit_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
     record_count: Mapped[int] = mapped_column(Integer, default=0)
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

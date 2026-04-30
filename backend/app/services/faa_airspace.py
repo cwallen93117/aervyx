@@ -144,6 +144,7 @@ def get_cache_status() -> dict:
                 "record_count": m.record_count,
                 "last_edit_date": m.last_edit_date,
                 "last_fetched_at": m.last_fetched_at.isoformat() if m.last_fetched_at else None,
+                "last_checked_at": m.last_checked_at.isoformat() if m.last_checked_at else None,
             }
         return {
             "cache_loaded": _feature_cache is not None,
@@ -194,6 +195,7 @@ async def _check_freshness(client: httpx.AsyncClient, source: str) -> tuple[bool
     """Check ArcGIS service metadata for lastEditDate.
     Returns (is_stale, new_edit_date_str)."""
     cfg = _SOURCES[source]
+    checked_at = datetime.now(timezone.utc)
     try:
         resp = await client.get(f"{cfg['base']}?f=json", timeout=15)
         resp.raise_for_status()
@@ -213,7 +215,19 @@ async def _check_freshness(client: httpx.AsyncClient, source: str) -> tuple[bool
         meta = session.scalars(
             select(FaaAirspaceMeta).where(FaaAirspaceMeta.source == source)
         ).first()
-        if meta is None or meta.last_edit_date != new_edit_date or meta.record_count == 0:
+        if meta is None:
+            session.add(FaaAirspaceMeta(
+                source=source,
+                last_edit_date=None,
+                record_count=0,
+                last_checked_at=checked_at,
+            ))
+            session.commit()
+            return True, new_edit_date
+
+        meta.last_checked_at = checked_at
+        session.commit()
+        if meta.last_edit_date != new_edit_date or meta.record_count == 0:
             return True, new_edit_date
         return False, new_edit_date
     finally:
@@ -223,6 +237,15 @@ async def _check_freshness(client: httpx.AsyncClient, source: str) -> tuple[bool
 # ---------------------------------------------------------------------------
 # Normalization (ported from frontend faaAirspace.ts)
 # ---------------------------------------------------------------------------
+
+def _float_or_none(value) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def _normalize_class(f: dict) -> dict:
     p = f.get("properties", {})
@@ -251,9 +274,9 @@ def _normalize_class(f: dict) -> dict:
             "category": category,
             "name": p.get("NAME") or p.get("IDENT") or "Unknown",
             "ident": p.get("IDENT"),
-            "upperVal": float(upper_val) if upper_val is not None else None,
+            "upperVal": _float_or_none(upper_val),
             "upperUom": p.get("UPPER_UOM") or "FT",
-            "lowerVal": float(lower_val) if lower_val is not None else None,
+            "lowerVal": _float_or_none(lower_val),
             "lowerUom": p.get("LOWER_UOM") or "FT",
             "upperDesc": p.get("UPPER_DESC") or "",
             "lowerDesc": p.get("LOWER_DESC") or "",
@@ -290,9 +313,9 @@ def _normalize_sua(f: dict) -> dict:
             "category": category,
             "name": p.get("NAME") or "Unknown",
             "ident": None,
-            "upperVal": float(upper_val) if upper_val is not None else None,
+            "upperVal": _float_or_none(upper_val),
             "upperUom": p.get("UPPER_UOM") or "FT",
-            "lowerVal": float(lower_val) if lower_val is not None else None,
+            "lowerVal": _float_or_none(lower_val),
             "lowerUom": p.get("LOWER_UOM") or "FT",
             "upperDesc": p.get("UPPER_DESC") or "",
             "lowerDesc": p.get("LOWER_DESC") or "",
@@ -414,12 +437,14 @@ def _import_to_db(source: str, features: list[dict], edit_date: str | None) -> i
             meta.last_edit_date = edit_date
             meta.record_count = count
             meta.last_fetched_at = now
+            meta.last_checked_at = now
         else:
             session.add(FaaAirspaceMeta(
                 source=source,
                 last_edit_date=edit_date,
                 record_count=count,
                 last_fetched_at=now,
+                last_checked_at=now,
             ))
 
         session.commit()

@@ -2,7 +2,7 @@
 
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import styles from "./AirspaceExplorerMap.module.css";
 import {
   type AirspaceCategory,
@@ -11,6 +11,7 @@ import {
   fetchAllAirspace,
   fetchTFRs,
   downloadOpenAir,
+  type AirspaceProperties,
 } from "../../lib/faaAirspace";
 
 // ---------------------------------------------------------------------------
@@ -50,11 +51,41 @@ function emptyFeatureCollection(): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features: [] };
 }
 
+function filterTfrsByTime(data: GeoJSON.FeatureCollection, selectedTime?: string): GeoJSON.FeatureCollection {
+  if (!selectedTime) return data;
+  const selectedMs = Date.parse(selectedTime);
+  if (Number.isNaN(selectedMs)) return data;
+
+  return {
+    type: "FeatureCollection",
+    features: data.features.filter((feature) => {
+      const properties = feature.properties as Partial<AirspaceProperties> | null;
+      const startMs = properties?.effectiveStart ? Date.parse(properties.effectiveStart) : Number.NaN;
+      const endMs = properties?.effectiveEnd ? Date.parse(properties.effectiveEnd) : Number.NaN;
+
+      if (Number.isNaN(startMs) && Number.isNaN(endMs)) return true;
+      if (!Number.isNaN(startMs) && selectedMs < startMs) return false;
+      if (!Number.isNaN(endMs) && selectedMs > endMs) return false;
+      return true;
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { overlayConfig?: Record<string, boolean>; refreshToken?: number }) {
+export default function AirspaceExplorerMap({
+  overlayConfig,
+  refreshToken,
+  tfrRefreshToken,
+  selectedTfrTime,
+}: {
+  overlayConfig?: Record<string, boolean>;
+  refreshToken?: number;
+  tfrRefreshToken?: number;
+  selectedTfrTime?: string;
+}) {
   const oc = overlayConfig;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -78,6 +109,10 @@ export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { o
   const [tfrLoading, setTfrLoading] = useState(false);
   const [featureCount, setFeatureCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const visibleTfrData = useMemo(
+    () => tfrData ? filterTfrsByTime(tfrData, selectedTfrTime) : null,
+    [selectedTfrTime, tfrData],
+  );
 
   // Track which bounds have already been loaded so we don't re-fetch
   const loadedBoundsRef = useRef<{ west: number; south: number; east: number; north: number } | null>(null);
@@ -164,18 +199,19 @@ export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { o
     try {
       const data = await fetchTFRs();
       setTfrData(data);
-
-      const map = mapRef.current;
-      if (map) {
-        const src = map.getSource(SRC_TFR) as maplibregl.GeoJSONSource | undefined;
-        if (src) src.setData(data);
-      }
     } catch {
       // TFR fetch failure is non-critical
     } finally {
       setTfrLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.isStyleLoaded() || !visibleTfrData) return;
+    const src = map.getSource(SRC_TFR) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(visibleTfrData);
+  }, [visibleTfrData]);
 
   useEffect(() => {
     if (!refreshToken) return;
@@ -195,6 +231,11 @@ export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { o
 
     void fetchTfrData();
   }, [fetchTfrData, fetchViewportAirspace, refreshToken]);
+
+  useEffect(() => {
+    if (!tfrRefreshToken) return;
+    void fetchTfrData();
+  }, [fetchTfrData, tfrRefreshToken]);
 
   // -------------------------------------------------------------------
   // Initialize map
@@ -523,7 +564,7 @@ export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { o
 
     const allFeatures = [
       ...(airspaceData?.features ?? []),
-      ...(visibleCategories.has("TFR") ? tfrData?.features ?? [] : []),
+      ...(visibleCategories.has("TFR") ? visibleTfrData?.features ?? [] : []),
     ].filter((f) => {
       const cat = (f.properties as { category: AirspaceCategory }).category;
       if (!visibleCategories.has(cat)) return false;
@@ -616,7 +657,7 @@ export default function AirspaceExplorerMap({ overlayConfig, refreshToken }: { o
               type="button"
               className={styles.exportBtn}
               onClick={handleExport}
-              disabled={featureCount === 0 && !tfrData?.features.length}
+              disabled={featureCount === 0 && !visibleTfrData?.features.length}
             >
               <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
                 <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />

@@ -447,13 +447,31 @@ input, select, textarea { font-family: inherit; }
 
 .airspace-freshness {
   display: inline-flex;
-  align-items: center;
+  align-items: stretch;
   gap: 8px;
   margin-left: 2px;
   min-width: 0;
   color: var(--muted);
   font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.airspace-status-stack {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 130px;
+  line-height: 1.2;
+}
+
+.airspace-checked-label {
+  color: #7a8aa1;
+  font-size: 0.6875rem;
+}
+
+.airspace-status-separator {
+  align-self: center;
 }
 
 .airspace-refresh-button {
@@ -490,8 +508,140 @@ input, select, textarea { font-family: inherit; }
 }
 
 .airspace-refresh-error {
+  align-self: center;
   color: var(--danger, #dc2626);
   font-weight: 600;
+}
+
+.airspace-tfr-timeline {
+  width: min(360px, 30vw);
+  min-width: 260px;
+  height: 58px;
+  display: flex;
+  align-items: stretch;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  user-select: none;
+}
+
+.airspace-tfr-timeline-track-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: 0 6px;
+}
+
+.airspace-tfr-timeline-days {
+  position: relative;
+  height: 17px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+.airspace-tfr-timeline-day {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 4px;
+  border-right: 1px solid rgba(255,255,255,0.12);
+  color: #94a3b8;
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  overflow: hidden;
+  text-transform: uppercase;
+}
+
+.airspace-tfr-timeline-hours {
+  position: relative;
+  height: 28px;
+  overflow: hidden;
+}
+
+.airspace-tfr-timeline-input {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.airspace-tfr-timeline-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.airspace-tfr-timeline-tick-mark {
+  width: 1px;
+  height: 9px;
+  margin-top: 2px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.45);
+}
+
+.airspace-tfr-timeline-tick-mark.midnight {
+  width: 1px;
+  height: 11px;
+  background: rgba(255,255,255,0.65);
+}
+
+.airspace-tfr-timeline-tick span {
+  margin-top: 2px;
+  color: #94a3b8;
+  font-size: 0.56rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.airspace-tfr-timeline-scrubber {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 2px;
+  border-radius: 1px;
+  background: #f97316;
+  box-shadow: 0 0 6px rgba(249,115,22,0.7);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.airspace-tfr-timeline-scrubber::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #f97316;
+  box-shadow: 0 0 4px rgba(249,115,22,0.8);
+  transform: translateX(-50%);
+}
+
+.airspace-tfr-timeline-current {
+  height: 13px;
+  padding-top: 1px;
+  color: #f97316;
+  font-size: 0.6rem;
+  font-weight: 600;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @keyframes airspace-refresh-spin {
@@ -5335,6 +5485,11 @@ details[open] > summary {
   .airspace-freshness {
     white-space: normal;
     flex-wrap: wrap;
+  }
+
+  .airspace-tfr-timeline {
+    width: 100%;
+    min-width: min(100%, 260px);
   }
 
   .task-toolbar {

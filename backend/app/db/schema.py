@@ -687,8 +687,13 @@ def ensure_runtime_schema(engine: Engine) -> None:
                         source VARCHAR(10) UNIQUE NOT NULL,
                         last_edit_date VARCHAR(40),
                         record_count INTEGER DEFAULT 0,
-                        last_fetched_at TIMESTAMP WITH TIME ZONE
+                        last_fetched_at TIMESTAMP WITH TIME ZONE,
+                        last_checked_at TIMESTAMP WITH TIME ZONE
                     )
                     """
                 )
             )
+        else:
+            faa_airspace_meta_columns = {column["name"] for column in inspector.get_columns("faa_airspace_meta")}
+            if "last_checked_at" not in faa_airspace_meta_columns:
+                connection.execute(text("ALTER TABLE faa_airspace_meta ADD COLUMN last_checked_at TIMESTAMP WITH TIME ZONE"))

@@ -86,6 +86,7 @@ function resolveApiBase() {
 
 type AirspaceSourceStatus = {
   last_fetched_at?: string | null;
+  last_checked_at?: string | null;
 };
 
 type AirspaceRefreshResult = {
@@ -101,6 +102,7 @@ type AirspaceStatusResponse = {
   };
   manual_refresh?: {
     in_progress?: boolean;
+    sources?: string[];
     results?: Record<string, AirspaceRefreshResult>;
   };
   refreshed?: Record<string, AirspaceRefreshResult>;
@@ -108,6 +110,8 @@ type AirspaceStatusResponse = {
 
 const AIRSPACE_REFRESH_POLL_MS = 3000;
 const AIRSPACE_REFRESH_MAX_POLLS = 60;
+const TFR_TIME_STEP_HOURS = 1;
+const TFR_TIME_WINDOW_HOURS = 24;
 
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -120,21 +124,156 @@ function failedAirspaceSources(payload: AirspaceStatusResponse) {
     .map(([source]) => source);
 }
 
-function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: () => void }) {
-  const [status, setStatus] = useState<{ airspace?: string; tfr?: string } | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
+function latestIso(...values: Array<string | null | undefined>) {
+  let latest: string | null = null;
+  let latestTime = 0;
+  for (const value of values) {
+    if (!value) continue;
+    const time = Date.parse(value);
+    if (Number.isNaN(time)) continue;
+    if (time > latestTime) {
+      latest = value;
+      latestTime = time;
+    }
+  }
+  return latest;
+}
+
+function buildTfrTimeSteps() {
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  const steps: string[] = [];
+  for (let hour = 0; hour <= TFR_TIME_WINDOW_HOURS; hour += TFR_TIME_STEP_HOURS) {
+    steps.push(new Date(start.getTime() + hour * 60 * 60 * 1000).toISOString());
+  }
+  return steps;
+}
+
+function formatAirspaceTimestamp(iso: string | null | undefined) {
+  if (!iso) return "--";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "--";
+  return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatTfrSliderLabel(iso: string | null | undefined) {
+  if (!iso) return "";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric" });
+}
+
+function getLocalHour(iso: string) {
+  return new Date(iso).getHours();
+}
+
+function getLocalMinute(iso: string) {
+  return new Date(iso).getMinutes();
+}
+
+function AirspaceTfrTimeSlider({ selectedTime, onTimeChange }: { selectedTime: string; onTimeChange: (time: string) => void }) {
+  const validTimes = useMemo(() => buildTfrTimeSteps(), []);
+  const selectedIdx = Math.max(0, validTimes.findIndex((time) => time === selectedTime));
+  const safeIdx = selectedIdx === -1 ? 0 : selectedIdx;
+  const scrubberPct = validTimes.length > 1 ? (safeIdx / (validTimes.length - 1)) * 100 : 0;
+  const dayGroups = useMemo(() => {
+    const groups: Array<{ label: string; startPct: number; widthPct: number }> = [];
+    let currentLabel = "";
+    let startIndex = 0;
+    validTimes.forEach((iso, index) => {
+      const label = new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      if (index === 0) {
+        currentLabel = label;
+        startIndex = 0;
+        return;
+      }
+      if (label !== currentLabel) {
+        groups.push({
+          label: currentLabel,
+          startPct: (startIndex / (validTimes.length - 1)) * 100,
+          widthPct: ((index - startIndex) / (validTimes.length - 1)) * 100,
+        });
+        currentLabel = label;
+        startIndex = index;
+      }
+    });
+    if (validTimes.length > 0) {
+      groups.push({
+        label: currentLabel,
+        startPct: (startIndex / (validTimes.length - 1)) * 100,
+        widthPct: ((validTimes.length - startIndex - 1) / (validTimes.length - 1)) * 100,
+      });
+    }
+    return groups;
+  }, [validTimes]);
+
+  return (
+    <div className="airspace-tfr-timeline" title="TFR display time">
+      <div className="airspace-tfr-timeline-track-area">
+        <div className="airspace-tfr-timeline-days">
+          {dayGroups.map((group) => (
+            <div key={group.label} className="airspace-tfr-timeline-day" style={{ left: `${group.startPct}%`, width: `${group.widthPct}%` }}>
+              {group.label}
+            </div>
+          ))}
+        </div>
+        <div className="airspace-tfr-timeline-hours">
+          <input
+            type="range"
+            className="airspace-tfr-timeline-input"
+            min={0}
+            max={validTimes.length - 1}
+            step={1}
+            value={safeIdx}
+            aria-label="TFR display time"
+            onChange={(event) => onTimeChange(validTimes[Number(event.target.value)])}
+          />
+          {validTimes.map((iso, index) => {
+            const hour = getLocalHour(iso);
+            const minute = getLocalMinute(iso);
+            if (minute !== 0 || hour % 3 !== 0) return null;
+            const pct = validTimes.length > 1 ? (index / (validTimes.length - 1)) * 100 : 0;
+            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+            const label = `${hour12}${hour < 12 ? "a" : "p"}`;
+            return (
+              <div key={iso} className="airspace-tfr-timeline-tick" style={{ left: `${pct}%` }}>
+                <div className={hour === 0 ? "airspace-tfr-timeline-tick-mark midnight" : "airspace-tfr-timeline-tick-mark"} />
+                <span>{label}</span>
+              </div>
+            );
+          })}
+          <div className="airspace-tfr-timeline-scrubber" style={{ left: `${scrubberPct}%` }} />
+        </div>
+        <div className="airspace-tfr-timeline-current">{formatTfrSliderLabel(validTimes[safeIdx])}</div>
+      </div>
+    </div>
+  );
+}
+
+function AirspaceFreshnessStatus({
+  selectedTfrTime,
+  onTfrTimeChange,
+  onAirspaceRefreshComplete,
+  onTfrRefreshComplete,
+}: {
+  selectedTfrTime: string;
+  onTfrTimeChange: (time: string) => void;
+  onAirspaceRefreshComplete?: () => void;
+  onTfrRefreshComplete?: () => void;
+}) {
+  const [status, setStatus] = useState<{ airspace?: string; airspaceChecked?: string; tfr?: string } | null>(null);
+  const [refreshing, setRefreshing] = useState<"airspace" | "tfr" | null>(null);
   const [refreshError, setRefreshError] = useState<string | null>(null);
 
   const applyStatus = useCallback((d: AirspaceStatusResponse) => {
-    const fmt = (iso: string | null | undefined) => {
-      if (!iso) return "--";
-      const dt = new Date(iso);
-      if (Number.isNaN(dt.getTime())) return "--";
-      return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-    };
-    const airspaceTs = d.sources?.class?.last_fetched_at ?? d.sources?.sua?.last_fetched_at;
+    const airspaceTs = latestIso(d.sources?.class?.last_fetched_at, d.sources?.sua?.last_fetched_at);
+    const airspaceCheckedTs = latestIso(d.sources?.class?.last_checked_at, d.sources?.sua?.last_checked_at);
     const tfrTs = d.sources?.tfr?.last_fetched_at;
-    setStatus({ airspace: fmt(airspaceTs), tfr: fmt(tfrTs) });
+    setStatus({
+      airspace: formatAirspaceTimestamp(airspaceTs),
+      airspaceChecked: formatAirspaceTimestamp(airspaceCheckedTs),
+      tfr: formatAirspaceTimestamp(tfrTs),
+    });
   }, []);
 
   const loadStatus = useCallback(async () => {
@@ -150,12 +289,13 @@ function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: ()
     void loadStatus().catch(() => {});
   }, [loadStatus]);
 
-  async function handleRefresh() {
+  async function handleRefresh(target: "airspace" | "tfr", sources: string, force: boolean) {
     const api = resolveApiBase();
-    setRefreshing(true);
+    setRefreshing(target);
     setRefreshError(null);
     try {
-      const response = await fetch(`${api}/api/faa-airspace/refresh`, { method: "POST" });
+      const params = new URLSearchParams({ sources, force: String(force) });
+      const response = await fetch(`${api}/api/faa-airspace/refresh?${params}`, { method: "POST" });
       if (!response.ok) {
         throw new Error(`Airspace refresh failed: ${response.status}`);
       }
@@ -174,7 +314,11 @@ function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: ()
       }
 
       const failedSources = failedAirspaceSources(payload);
-      onRefreshComplete?.();
+      if (target === "airspace") {
+        onAirspaceRefreshComplete?.();
+      } else {
+        onTfrRefreshComplete?.();
+      }
 
       if (failedSources.length > 0) {
         setRefreshError(`Refresh failed for ${failedSources.join(", ")}`);
@@ -183,30 +327,48 @@ function AirspaceFreshnessStatus({ onRefreshComplete }: { onRefreshComplete?: ()
       setRefreshError(caught instanceof Error ? caught.message : "Refresh failed");
       void loadStatus().catch(() => {});
     } finally {
-      setRefreshing(false);
+      setRefreshing(null);
     }
   }
 
   if (!status) return null;
   return (
     <span className="airspace-freshness">
-      <span>Airspace: {status.airspace}</span>
-      <span aria-hidden="true">|</span>
-      <span>TFRs: {status.tfr}</span>
+      <span className="airspace-status-stack">
+        <span>Airspace: {status.airspace}</span>
+        <span className="airspace-checked-label">Last checked: {status.airspaceChecked}</span>
+      </span>
       <button
         type="button"
         className="airspace-refresh-button"
-        onClick={() => void handleRefresh()}
-        disabled={refreshing}
-        title="Refresh FAA airspace and TFR data"
-        aria-label="Refresh FAA airspace and TFR data"
+        onClick={() => void handleRefresh("airspace", "class,sua,tfr", false)}
+        disabled={refreshing !== null}
+        title="Check FAA airspace and TFR data, then update stale sources"
+        aria-label="Check FAA airspace and TFR data"
       >
         <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M13 3v4H9" />
           <path d="M12.1 7A4.7 4.7 0 1 0 10 12.4" />
         </svg>
-        {refreshing ? "Refreshing" : "Refresh"}
+        {refreshing === "airspace" ? "Checking" : "Check"}
       </button>
+      <span className="airspace-status-separator" aria-hidden="true">|</span>
+      <span>TFRs: {status.tfr}</span>
+      <button
+        type="button"
+        className="airspace-refresh-button"
+        onClick={() => void handleRefresh("tfr", "tfr", true)}
+        disabled={refreshing !== null}
+        title="Refresh TFR data"
+        aria-label="Refresh TFR data"
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M13 3v4H9" />
+          <path d="M12.1 7A4.7 4.7 0 1 0 10 12.4" />
+        </svg>
+        {refreshing === "tfr" ? "Refreshing" : "Refresh"}
+      </button>
+      <AirspaceTfrTimeSlider selectedTime={selectedTfrTime} onTimeChange={onTfrTimeChange} />
       {refreshError ? <span className="airspace-refresh-error">{refreshError}</span> : null}
     </span>
   );
@@ -646,6 +808,8 @@ export default function HomePage() {
   const [user, setUser] = useState<User | null>(null);
   const [activeSection, setActiveSection] = useState<SidebarSection>("events");
   const [airspaceRefreshToken, setAirspaceRefreshToken] = useState(0);
+  const [tfrRefreshToken, setTfrRefreshToken] = useState(0);
+  const [selectedTfrTime, setSelectedTfrTime] = useState(() => buildTfrTimeSteps()[0]);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
@@ -2882,7 +3046,14 @@ export default function HomePage() {
         case "weather":
           return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} overlayConfig={mapOverlayConfig.config?.soaring_forecast} />;
         case "airspace":
-          return <AirspaceSection overlayConfig={mapOverlayConfig.config?.airspace_explorer} refreshToken={airspaceRefreshToken} />;
+          return (
+            <AirspaceSection
+              overlayConfig={mapOverlayConfig.config?.airspace_explorer}
+              refreshToken={airspaceRefreshToken}
+              tfrRefreshToken={tfrRefreshToken}
+              selectedTfrTime={selectedTfrTime}
+            />
+          );
         case "settings":
           return (
             <SettingsSection
@@ -2972,7 +3143,12 @@ export default function HomePage() {
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
                 {activeSection === "airspace" && (
-                  <AirspaceFreshnessStatus onRefreshComplete={() => setAirspaceRefreshToken((current) => current + 1)} />
+                  <AirspaceFreshnessStatus
+                    selectedTfrTime={selectedTfrTime}
+                    onTfrTimeChange={setSelectedTfrTime}
+                    onAirspaceRefreshComplete={() => setAirspaceRefreshToken((current) => current + 1)}
+                    onTfrRefreshComplete={() => setTfrRefreshToken((current) => current + 1)}
+                  />
                 )}
                 {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
                   <span className="hero-event-context">
