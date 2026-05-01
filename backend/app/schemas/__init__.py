@@ -508,11 +508,6 @@ class TaskInput(BaseModel):
     start_close_time: str | None = None
     start_gate_count: int = Field(default=1, ge=1)
     start_gate_interval_seconds: int | None = Field(default=None, ge=0)
-    nominal_distance_km: float = 60
-    nominal_time_hours: float = 1.5
-    nominal_launch: float = 0.95
-    minimum_distance_km: float = 5
-    penalties_json: dict = Field(default_factory=dict)
     points: list[TaskPointInput]
 
 
@@ -534,11 +529,6 @@ class TaskResponse(BaseModel):
     start_gate_count: int
     start_gate_interval_seconds: int | None
     version: int
-    nominal_distance_km: float
-    nominal_time_hours: float
-    nominal_launch: float
-    minimum_distance_km: float
-    penalties_json: dict
     published_at: datetime | None
     points: list[TaskPointResponse]
 

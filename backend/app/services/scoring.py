@@ -1293,10 +1293,12 @@ def _resolve_nondist_weights(penalties: dict, leading_weight_factor: float) -> d
 
 def _build_formula(task: Task, event: Event | None = None) -> dict:
     """
-    Build the AirScore-compatible formula dict from Aervyx Event + Task models.
-    Every event parameter is wired through here — nothing is hardcoded.
+    Build the AirScore-compatible formula dict from Aervyx Event models.
+
+    Task-level nominal/minimum columns are legacy storage only.  Event Details
+    are the single source of scoring parameters passed to AirScore.
     """
-    penalties = task.penalties_json or {}
+    penalties = getattr(event, "penalties_json", None) or {}
 
     def _ev(attr: str, default=None):
         """Get an event attribute, falling back to default."""
@@ -1311,10 +1313,10 @@ def _build_formula(task: Task, event: Event | None = None) -> dict:
     if nominal_goal > 1:
         nominal_goal /= 100.0
 
-    mindist_km = max(float(task.minimum_distance_km or _ev("minimum_distance_km", 5) or 5), 0.1)
-    nomdist_km = max(float(task.nominal_distance_km or _ev("nominal_distance_km", 60) or 60), 1.0)
-    nomtime_hours = float(task.nominal_time_hours or _ev("nominal_time_hours", 1.5) or 1.5)
-    nomlaunch = _clamp(float(task.nominal_launch or _ev("nominal_launch", 0.95) or 0.95), 0.1, 1.0)
+    mindist_km = max(float(_ev("minimum_distance_km", 5) or 5), 0.1)
+    nomdist_km = max(float(_ev("nominal_distance_km", 60) or 60), 1.0)
+    nomtime_hours = float(_ev("nominal_time_hours", 1.5) or 1.5)
+    nomlaunch = _clamp(float(_ev("nominal_launch", 0.95) or 0.95), 0.1, 1.0)
 
     # Arrival mode
     arrival_mode = "off"
@@ -2194,10 +2196,6 @@ def _apply_fl2026_task1_settings(task: Task, event: Event, task_points: list[Tas
     set_task("start_close_time", "19:00:00")
     set_task("start_gate_count", 4)
     set_task("start_gate_interval_seconds", 20 * 60)
-    set_task("nominal_distance_km", 50)
-    set_task("nominal_time_hours", 1.5)
-    set_task("nominal_launch", 0.96)
-    set_task("minimum_distance_km", 5)
 
     ordered_points = sorted(task_points, key=lambda point: point.position)
     for index, point in enumerate(ordered_points):

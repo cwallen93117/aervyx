@@ -282,11 +282,6 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
             start_gate_count=task.start_gate_count,
             start_gate_interval_seconds=task.start_gate_interval_seconds,
             version=task.version,
-            nominal_distance_km=task.nominal_distance_km,
-            nominal_time_hours=task.nominal_time_hours,
-            nominal_launch=task.nominal_launch,
-            minimum_distance_km=task.minimum_distance_km,
-            penalties_json=task.penalties_json,
             published_at=task.published_at,
         )
         session.add(duplicated_task)

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.routers.tasks import _task_response, delete_task, unpublish_task
+from app.schemas import TaskInput
 
 
 def _session() -> Session:
@@ -111,6 +112,35 @@ def test_task_response_filters_stale_turnpoints_when_sources_are_disabled() -> N
     assert response.task_type == "race_to_goal_with_gates"
     assert response.start_gate_count == 1
     assert [point.direction for point in response.points] == ["enter", "enter"]
+    assert not hasattr(response, "nominal_distance_km")
+    assert not hasattr(response, "minimum_distance_km")
+
+
+def test_task_input_ignores_deprecated_formula_fields() -> None:
+    payload = TaskInput(
+        name="Task 1",
+        nominal_distance_km=123,
+        nominal_time_hours=4,
+        nominal_launch=0.99,
+        minimum_distance_km=9,
+        penalties_json={"lineardist": 0.1},
+        points=[
+            {
+                "position": 1,
+                "point_type": "goal",
+                "radius_m": 400,
+                "name": "Goal",
+                "latitude": 38.0,
+                "longitude": -75.0,
+            }
+        ],
+    )
+
+    assert not hasattr(payload, "nominal_distance_km")
+    assert not hasattr(payload, "nominal_time_hours")
+    assert not hasattr(payload, "nominal_launch")
+    assert not hasattr(payload, "minimum_distance_km")
+    assert not hasattr(payload, "penalties_json")
 
 
 def test_task_response_preserves_all_points_without_active_slots() -> None:

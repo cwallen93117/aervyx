@@ -527,6 +527,71 @@ def test_goal_ss_penalty_preserves_explicit_zero() -> None:
     assert formula["sspenalty"] == 0.0
 
 
+def test_formula_uses_event_parameters_instead_of_task_defaults() -> None:
+    task = _task()
+    task.minimum_distance_km = 3
+    task.nominal_distance_km = 123
+    task.nominal_time_hours = 4
+    task.nominal_launch = 0.99
+    task.penalties_json = {"lineardist": 0.1}
+    event = Event(
+        name="HC 2025",
+        location="Maryland",
+        starts_on=date(2025, 5, 30),
+        ends_on=date(2025, 6, 7),
+        minimum_distance_km=5,
+        nominal_distance_km=55,
+        nominal_time_hours=1.5,
+        nominal_launch=0.4,
+        penalties_json={"lineardist": 0.5},
+    )
+
+    formula = _build_formula(task, event)
+
+    assert formula["mindist_km"] == 5
+    assert formula["nomdist_km"] == 55
+    assert formula["nomtime_seconds"] == 1.5 * 3600
+    assert formula["nomlaunch"] == 0.4
+    assert formula["lineardist"] == 0.5
+
+
+def test_formula_missing_event_values_use_defaults_not_task_values() -> None:
+    task = _task()
+    task.minimum_distance_km = 9
+    task.nominal_distance_km = 99
+    task.nominal_time_hours = 9
+    task.nominal_launch = 0.9
+    event = Event(
+        name="Legacy Event",
+        location="Somewhere",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 1, 2),
+    )
+
+    formula = _build_formula(task, event)
+
+    assert formula["mindist_km"] == 5
+    assert formula["nomdist_km"] == 60
+    assert formula["nomtime_seconds"] == 1.5 * 3600
+    assert formula["nomlaunch"] == 0.95
+
+
+def test_minimum_distance_override_uses_event_minimum_distance() -> None:
+    task = _task()
+    task.minimum_distance_km = 3
+    event = Event(
+        name="Minimum Distance Event",
+        location="Somewhere",
+        starts_on=date(2026, 1, 1),
+        ends_on=date(2026, 1, 2),
+        minimum_distance_km=7,
+    )
+
+    evaluation = _minimum_distance_evaluation(task, event)
+
+    assert evaluation["distance_flown_km"] == 7
+
+
 def _fl_2026_task_points() -> list[TaskPoint]:
     return [
         _task_point(1, 1, "launch", 28.53303, -81.84666, 400),

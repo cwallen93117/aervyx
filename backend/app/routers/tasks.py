@@ -79,11 +79,6 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         start_gate_count=task.start_gate_count or 1,
         start_gate_interval_seconds=task.start_gate_interval_seconds,
         version=task.version,
-        nominal_distance_km=task.nominal_distance_km,
-        nominal_time_hours=task.nominal_time_hours,
-        nominal_launch=task.nominal_launch,
-        minimum_distance_km=task.minimum_distance_km,
-        penalties_json=task.penalties_json,
         published_at=task.published_at,
         points=[
             TaskPointResponse(
@@ -126,11 +121,6 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
         start_close_time=payload.start_close_time,
         start_gate_count=payload.start_gate_count,
         start_gate_interval_seconds=payload.start_gate_interval_seconds,
-        nominal_distance_km=payload.nominal_distance_km,
-        nominal_time_hours=payload.nominal_time_hours,
-        nominal_launch=payload.nominal_launch,
-        minimum_distance_km=payload.minimum_distance_km,
-        penalties_json=payload.penalties_json,
     )
     session.add(task)
     session.flush()
@@ -166,11 +156,6 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
     task.start_close_time = payload.start_close_time
     task.start_gate_count = payload.start_gate_count
     task.start_gate_interval_seconds = payload.start_gate_interval_seconds
-    task.nominal_distance_km = payload.nominal_distance_km
-    task.nominal_time_hours = payload.nominal_time_hours
-    task.nominal_launch = payload.nominal_launch
-    task.minimum_distance_km = payload.minimum_distance_km
-    task.penalties_json = payload.penalties_json
     task.version += 1
     session.query(TaskPoint).filter(TaskPoint.task_id == task.id).delete()
     session.flush()

@@ -113,6 +113,11 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
         status="published",
         task_type="race_to_goal",
         task_start_time="13:30:00",
+        nominal_distance_km=123,
+        nominal_time_hours=4,
+        nominal_launch=0.99,
+        minimum_distance_km=9,
+        penalties_json={"lineardist": 0.1},
     )
     session.add(task)
     session.flush()
@@ -181,6 +186,11 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
     assert duplicated_task is not None
     assert duplicated_task.name == "Task 1"
     assert duplicated_task.task_type == "race_to_goal_with_gates"
+    assert duplicated_task.nominal_distance_km != task.nominal_distance_km
+    assert duplicated_task.nominal_time_hours != task.nominal_time_hours
+    assert duplicated_task.nominal_launch != task.nominal_launch
+    assert duplicated_task.minimum_distance_km != task.minimum_distance_km
+    assert duplicated_task.penalties_json != task.penalties_json
 
     duplicated_task_point = session.scalar(select(TaskPoint).where(TaskPoint.task_id == duplicated_task.id))
     assert duplicated_task_point is not None
