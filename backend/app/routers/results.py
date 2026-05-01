@@ -22,7 +22,6 @@ from app.schemas import (
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
-from app.services.hc2025_task1_audit import build_hc2025_task1_audit
 from app.services.scoring import build_result_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
 
 router = APIRouter(tags=["results"])
@@ -201,13 +200,6 @@ def scoring_audit(task_id: int, admin: User = Depends(require_staff), session: S
     if session.get(Task, task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return build_task_scoring_audit(session, task_id)
-
-
-@router.get("/api/tasks/{task_id}/hc2025-task1-audit")
-def hc2025_task1_audit(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict:
-    if session.get(Task, task_id) is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return build_hc2025_task1_audit(session, task_id)
 
 
 @router.post("/api/tasks/{task_id}/repair-fl2026-task1")
