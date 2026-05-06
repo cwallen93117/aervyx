@@ -4,7 +4,7 @@ import { COORDINATE_SYSTEM } from "@deck.gl/core";
 import { IconLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
-import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
@@ -1211,7 +1211,10 @@ export const TaskMap = React.memo(function TaskMap({
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isTaskEditorOverlayCollapsed, setIsTaskEditorOverlayCollapsed] = useState(false);
   const [isPerspective3D, setIsPerspective3D] = useState(false);
+  const taskEditorOverlayId = useId();
+  const hasTaskEditorOverlay = Boolean(taskEditorOverlay);
   // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
   // flat on the map plane; in 3D they scale by the user-selected multiplier.
   const effectiveAltitudeMultiplier = isPerspective3D ? altitudeMultiplier : 0;
@@ -1947,6 +1950,12 @@ export const TaskMap = React.memo(function TaskMap({
   }, [viewStateKey]);
 
   useEffect(() => {
+    if (!isFullscreen || !hasTaskEditorOverlay) {
+      setIsTaskEditorOverlayCollapsed(false);
+    }
+  }, [isFullscreen, hasTaskEditorOverlay]);
+
+  useEffect(() => {
     const nextReplayIndex = replayTotal > 0 ? replayTotal - 1 : 0;
     setIsReplaying(false);
     setReplayHasInteracted(false);
@@ -2634,12 +2643,22 @@ export const TaskMap = React.memo(function TaskMap({
       </div>
     ) : null;
 
-  const fullscreenCompositeOverlay = isFullscreen && taskEditorOverlay ? (
-    <div className="map-fullscreen-overlay-group">
-      <div className="map-fullscreen-overlay-top">
-        <div className="map-task-editor-overlay">{taskEditorOverlay}</div>
-        {distanceSummaryOverlay}
-      </div>
+  const hasFullscreenTaskEditorOverlay = isFullscreen && hasTaskEditorOverlay;
+  const showTaskEditorOverlay = hasFullscreenTaskEditorOverlay && !isTaskEditorOverlayCollapsed;
+  const taskEditorToggleLabel = isTaskEditorOverlayCollapsed ? "Expand task turnpoints overlay" : "Collapse task turnpoints overlay";
+
+  const fullscreenCompositeOverlay = hasFullscreenTaskEditorOverlay ? (
+    <div className={`map-fullscreen-overlay-group${isTaskEditorOverlayCollapsed ? " is-task-editor-collapsed" : ""}`}>
+      {showTaskEditorOverlay || distanceSummaryOverlay ? (
+        <div className="map-fullscreen-overlay-top">
+          {showTaskEditorOverlay ? (
+            <div id={taskEditorOverlayId} className="map-task-editor-overlay">
+              {taskEditorOverlay}
+            </div>
+          ) : null}
+          {distanceSummaryOverlay}
+        </div>
+      ) : null}
       {telemetryOverlay}
     </div>
   ) : null;
@@ -2664,13 +2683,37 @@ export const TaskMap = React.memo(function TaskMap({
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {fullscreenCompositeOverlay ?? (
           <>
-            {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
+            {showTaskEditorOverlay ? <div id={taskEditorOverlayId} className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
             {telemetryOverlay}
             {distanceSummaryOverlay}
           </>
         )}
       </div>
       <div className="map-control-stack">
+        {hasFullscreenTaskEditorOverlay ? (
+          <button
+            type="button"
+            className={`map-control-button map-control-task-editor-toggle${isTaskEditorOverlayCollapsed ? "" : " is-expanded"}`}
+            aria-label={taskEditorToggleLabel}
+            aria-controls={taskEditorOverlayId}
+            aria-expanded={!isTaskEditorOverlayCollapsed}
+            title={taskEditorToggleLabel}
+            onClick={() => setIsTaskEditorOverlayCollapsed((current) => !current)}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+              <path
+                d={isTaskEditorOverlayCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        ) : null}
         {oc?.["2d_3d_toggle"] !== false ? (
         <button
           type="button"

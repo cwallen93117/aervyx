@@ -3966,6 +3966,23 @@ button[type="submit"]:hover,
   background: #f0f0f0;
 }
 
+.map-control-task-editor-toggle {
+  color: #0f172a;
+}
+
+.map-control-task-editor-toggle.is-expanded {
+  background: var(--accent);
+  color: #fff;
+}
+
+.map-control-task-editor-toggle.is-expanded:hover {
+  background: var(--accent-hover);
+}
+
+.map-control-task-editor-toggle svg {
+  pointer-events: none;
+}
+
 .map-control-mode-button {
   font-size: 0.6875rem;
   font-weight: 700;
