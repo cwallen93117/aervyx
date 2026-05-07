@@ -91,6 +91,29 @@ def test_assign_existing_pilot_adds_them_to_event() -> None:
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
 
 
+def test_assign_existing_pilot_links_matching_email_user() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    generated_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    email_user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    event = Event(name="HC 2025 - myles", location="Myles", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC")
+    session.add_all([admin, pilot, generated_user, email_user, event])
+    session.flush()
+    generated_user.pilot_id = pilot.id
+    session.commit()
+
+    response = assign_existing_pilot(event.id, pilot.id, admin, session)
+
+    session.refresh(email_user)
+    session.refresh(generated_user)
+    assert response.portal_username == "c.allen@btcs.com"
+    assert email_user.pilot_id == pilot.id
+    assert generated_user.pilot_id is None
+    assert generated_user.is_active is False
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
+
+
 def test_update_settings_updates_pilot_profile_and_username_email() -> None:
     session = _session()
     pilot = Pilot(first_name="Robin", last_name="Wing", email="robin@example.com", nation="US")

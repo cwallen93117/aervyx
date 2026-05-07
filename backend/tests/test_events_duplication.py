@@ -1,12 +1,14 @@
 from datetime import date
 from pathlib import Path
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.events import _event_payload, duplicate_event, list_events
+from app.routers.events import _event_payload, duplicate_event, get_event, list_events
 
 
 def _session() -> Session:
@@ -54,6 +56,54 @@ def test_list_events_filters_pilot_visible_competitions() -> None:
     visible_names = {event.name for event in list_events(user=pilot_user, session=session)}
 
     assert visible_names == {"Public Comp", "Users Comp", "Participant Comp"}
+
+
+def test_list_events_includes_email_matched_participant_without_linked_pilot() -> None:
+    session = _session()
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    other_pilot = Pilot(first_name="Other", last_name="Pilot", email="other@example.com")
+    user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    participant_event = Event(name="HC 2025 - myles", location="Myles", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC", visibility="participants")
+    other_participant_event = Event(name="Other Participant Comp", location="Roster", starts_on=date(2026, 5, 10), ends_on=date(2026, 5, 12), timezone="UTC", visibility="participants")
+    private_event = Event(name="Private Comp", location="Hidden", starts_on=date(2026, 5, 13), ends_on=date(2026, 5, 15), timezone="UTC", visibility="private")
+    session.add_all([pilot, other_pilot, user, participant_event, other_participant_event, private_event])
+    session.flush()
+    session.add_all([
+        EventPilot(event_id=participant_event.id, pilot_id=pilot.id),
+        EventPilot(event_id=other_participant_event.id, pilot_id=other_pilot.id),
+        EventPilot(event_id=private_event.id, pilot_id=pilot.id),
+    ])
+    session.commit()
+
+    visible_names = {event.name for event in list_events(user=user, session=session)}
+
+    assert "HC 2025 - myles" in visible_names
+    assert "Other Participant Comp" not in visible_names
+    assert "Private Comp" not in visible_names
+
+
+def test_get_event_uses_same_email_participant_visibility() -> None:
+    session = _session()
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    unrelated = User(username="unrelated@example.com", full_name="Unrelated Pilot", role="pilot", pilot_id=None, password_hash="hash")
+    participant_event = Event(name="HC 2025 - myles", location="Myles", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC", visibility="participants")
+    private_event = Event(name="Private Comp", location="Hidden", starts_on=date(2026, 5, 13), ends_on=date(2026, 5, 15), timezone="UTC", visibility="private")
+    session.add_all([pilot, user, unrelated, participant_event, private_event])
+    session.flush()
+    session.add_all([
+        EventPilot(event_id=participant_event.id, pilot_id=pilot.id),
+        EventPilot(event_id=private_event.id, pilot_id=pilot.id),
+    ])
+    session.commit()
+
+    assert get_event(participant_event.id, user=user, session=session).name == "HC 2025 - myles"
+    with pytest.raises(HTTPException) as unrelated_error:
+        get_event(participant_event.id, user=unrelated, session=session)
+    assert unrelated_error.value.status_code == 404
+    with pytest.raises(HTTPException) as private_error:
+        get_event(private_event.id, user=user, session=session)
+    assert private_error.value.status_code == 404
 
 
 def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:

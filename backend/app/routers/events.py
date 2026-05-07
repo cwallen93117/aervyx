@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
-from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Pilot, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
 
 router = APIRouter(prefix="/api/events", tags=["events"])
+STAFF_ROLES = {"admin", "organizer"}
 
 DEFAULT_SCORING_PRESETS = [
     {"id": "airspace-minor", "label": "Airspace minor -5%", "penalty_type": "percentage", "value": 5, "reason": "Airspace minor"},
@@ -60,6 +61,40 @@ def _copy_stored_file(stored_path: str, new_event_id: int, source_id: int) -> st
     if not duplicate_path.exists():
         copy2(original_path, duplicate_path)
     return str(duplicate_path)
+
+
+def _primary_email_identity(user: User) -> str | None:
+    username = (user.username or "").strip().lower()
+    return username if "@" in username else None
+
+
+def _participant_event_ids(session: Session, user: User) -> set[int]:
+    event_ids: set[int] = set()
+    if user.pilot_id is not None:
+        event_ids.update(session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all())
+    email = _primary_email_identity(user)
+    if email:
+        event_ids.update(
+            session.scalars(
+                select(EventPilot.event_id)
+                .join(Pilot, Pilot.id == EventPilot.pilot_id)
+                .where(func.lower(Pilot.email) == email)
+            ).all()
+        )
+    return event_ids
+
+
+def _event_visible_to_user(session: Session, event: Event, user: User, participant_event_ids: set[int] | None = None) -> bool:
+    if user.role in STAFF_ROLES:
+        return True
+    visibility = event.visibility or "private"
+    if visibility in {"public", "users"}:
+        return True
+    if visibility == "participants":
+        if participant_event_ids is None:
+            participant_event_ids = _participant_event_ids(session, user)
+        return event.id in participant_event_ids
+    return False
 
 
 def _event_payload(session: Session, event: Event) -> EventResponse:
@@ -133,29 +168,15 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
 @router.get("", response_model=list[EventResponse])
 def list_events(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[EventResponse]:
     # Staff (admin/organizer) can see all events regardless of visibility
-    if user.role in {"admin", "organizer"}:
+    if user.role in STAFF_ROLES:
         events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
         return [_event_payload(session, event) for event in events]
 
-    # Regular users: public + users visibility
-    visible_events = list(
-        session.scalars(
-            select(Event).where(Event.visibility.in_(["public", "users"])).order_by(Event.updated_at.desc(), Event.name.asc())
-        ).all()
-    )
-
-    # Also include participant-visible events where user is a participant
-    if user.pilot_id is not None:
-        participant_event_ids = list(
-            session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all()
-        )
-        if participant_event_ids:
-            participant_events = list(
-                session.scalars(
-                    select(Event).where(Event.id.in_(participant_event_ids), Event.visibility == "participants")
-                ).all()
-            )
-            visible_events.extend(participant_events)
+    participant_event_ids = _participant_event_ids(session, user)
+    events = session.scalars(
+        select(Event).where(Event.visibility.in_(["public", "users", "participants"])).order_by(Event.updated_at.desc(), Event.name.asc())
+    ).all()
+    visible_events = [event for event in events if _event_visible_to_user(session, event, user, participant_event_ids)]
 
     # Deduplicate and sort by updated_at desc, name asc
     seen: set[int] = set()
@@ -321,17 +342,8 @@ def get_event(event_id: int, user: User = Depends(get_current_user), session: Se
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    # Staff can always see any event
-    if user.role not in {"admin", "organizer"}:
-        visibility = event.visibility or "private"
-        if visibility == "private":
-            raise HTTPException(status_code=404, detail="Event not found")
-        if visibility == "participants":
-            is_participant = user.pilot_id is not None and session.scalar(
-                select(EventPilot.id).where(EventPilot.event_id == event_id, EventPilot.pilot_id == user.pilot_id).limit(1)
-            )
-            if not is_participant:
-                raise HTTPException(status_code=404, detail="Event not found")
+    if not _event_visible_to_user(session, event, user):
+        raise HTTPException(status_code=404, detail="Event not found")
     return _event_payload(session, event)
 
 

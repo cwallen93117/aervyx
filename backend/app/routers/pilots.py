@@ -24,8 +24,63 @@ def _slug_username(first_name: str, last_name: str, competition_number: str | No
     return base or "pilot"
 
 
+def _email_identity(value: str | None) -> str | None:
+    candidate = (value or "").strip().lower()
+    return candidate if "@" in candidate else None
+
+
+def _is_auto_generated_user(user: User) -> bool:
+    return "@" not in (user.username or "")
+
+
+def _linked_user_for_pilot(session: Session, pilot: Pilot) -> User | None:
+    linked_users = session.scalars(
+        select(User).where(User.pilot_id == pilot.id, User.is_active.is_(True)).order_by(User.id.asc())
+    ).all()
+    if not linked_users:
+        return None
+    email = _email_identity(pilot.email)
+    if email:
+        email_user = next((user for user in linked_users if (user.username or "").strip().lower() == email), None)
+        if email_user is not None:
+            return email_user
+    return linked_users[0]
+
+
+def _link_matching_email_user(session: Session, pilot: Pilot) -> User | None:
+    email = _email_identity(pilot.email)
+    if email is None:
+        return None
+    email_user = session.scalar(
+        select(User).where(
+            func.lower(User.username) == email,
+            User.role == "pilot",
+            User.is_active.is_(True),
+        )
+    )
+    if email_user is None:
+        return None
+    linked_users = session.scalars(
+        select(User).where(User.pilot_id == pilot.id, User.is_active.is_(True)).order_by(User.id.asc())
+    ).all()
+    real_linked_user = next((user for user in linked_users if user.id != email_user.id and not _is_auto_generated_user(user)), None)
+    if real_linked_user is not None:
+        return None
+    for linked_user in linked_users:
+        if linked_user.id != email_user.id and _is_auto_generated_user(linked_user):
+            linked_user.is_active = False
+            linked_user.pilot_id = None
+            session.add(linked_user)
+    email_user.pilot_id = pilot.id
+    session.add(email_user)
+    return email_user
+
+
 def _ensure_portal_user(session: Session, pilot: Pilot, username: str | None, password: str | None) -> tuple[str, str | None]:
-    existing = session.scalar(select(User).where(User.pilot_id == pilot.id))
+    linked_email_user = _link_matching_email_user(session, pilot)
+    if linked_email_user is not None:
+        return linked_email_user.username, None
+    existing = _linked_user_for_pilot(session, pilot)
     generated_password = password or DEFAULT_PILOT_PASSWORD
     username_value = username or _slug_username(pilot.first_name, pilot.last_name, pilot.competition_number)
     if existing is None:
@@ -40,7 +95,7 @@ def _ensure_portal_user(session: Session, pilot: Pilot, username: str | None, pa
 
 
 def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = None) -> PilotResponse:
-    user = session.scalar(select(User).where(User.pilot_id == pilot.id))
+    user = _linked_user_for_pilot(session, pilot)
     return PilotResponse(
         id=pilot.id,
         first_name=pilot.first_name,
@@ -105,7 +160,8 @@ def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(re
     if existing is None:
         session.add(EventPilot(event_id=event_id, pilot_id=pilot_id))
         log_action(session, actor_user_id=admin.id, action="pilot.assign_existing", entity_type="pilot", entity_id=str(pilot_id), details={"event_id": event_id})
-        session.commit()
+    _link_matching_email_user(session, pilot)
+    session.commit()
     return _pilot_payload(session, pilot)
 
 
