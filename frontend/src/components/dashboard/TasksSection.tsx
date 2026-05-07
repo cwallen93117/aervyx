@@ -154,19 +154,13 @@ export default function TasksSection(props: TasksSectionProps) {
     <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
       <div className="map-task-editor-header">
         <div className="map-task-editor-title">
-          <strong>Task turnpoints</strong>
-          <span>{taskTurnpointCountLabel}</span>
-        </div>
-        <div className="map-task-editor-header-actions">
-          {toggleButton}
+          <div className="map-task-editor-title-row">
+            <strong>Task turnpoints</strong>
+            {toggleButton}
+          </div>
+          {!collapsed ? <span>{taskTurnpointCountLabel}</span> : null}
         </div>
       </div>
-      {collapsed ? (
-        <div className="map-task-editor-collapsed-summary">
-          <span>Total {formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
-          <span>Optimized {formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
-        </div>
-      ) : null}
       <div id={contentId} className="map-task-editor-body" hidden={collapsed}>
         <div className="map-task-editor-table-wrap">
           <table className="map-task-editor-table">

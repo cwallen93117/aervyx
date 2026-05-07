@@ -3934,8 +3934,8 @@ button[type="submit"]:hover,
 }
 
 .map-fullscreen-overlay-group.is-task-editor-collapsed .map-task-editor-overlay {
-  width: min(320px, calc(100vw - 24px));
-  max-width: min(320px, calc(100vw - 24px));
+  width: max-content;
+  max-width: calc(100vw - 24px);
 }
 
 .map-fullscreen-overlay-top .map-distance-summary {
@@ -4450,8 +4450,9 @@ button[type="submit"]:hover,
 }
 
 .map-task-editor.is-collapsed {
-  gap: 8px;
-  padding: 10px;
+  gap: 0;
+  padding: 6px 8px;
+  border-radius: var(--r-md);
 }
 
 .map-task-editor-header {
@@ -4468,11 +4469,11 @@ button[type="submit"]:hover,
   min-width: 0;
 }
 
-.map-task-editor-header-actions {
+.map-task-editor-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex: 0 0 auto;
+  gap: 10px;
+  min-width: 0;
 }
 
 .map-task-editor-header strong {
@@ -4515,18 +4516,21 @@ button[type="submit"]:hover,
   pointer-events: none;
 }
 
-.map-task-editor-collapsed-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  max-width: 100%;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--ink-secondary);
+.map-task-editor.is-collapsed .map-task-editor-header {
+  gap: 0;
 }
 
-.map-task-editor-collapsed-summary span {
-  white-space: nowrap;
+.map-task-editor.is-collapsed .map-task-editor-title {
+  gap: 0;
+}
+
+.map-task-editor.is-collapsed .map-task-editor-title-row {
+  gap: 8px;
+}
+
+.map-task-editor.is-collapsed .map-task-editor-collapse-button {
+  width: 32px;
+  height: 32px;
 }
 
 .map-task-editor-body[hidden] {
