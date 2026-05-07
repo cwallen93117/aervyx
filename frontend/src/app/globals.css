@@ -3933,6 +3933,11 @@ button[type="submit"]:hover,
   max-width: min(560px, calc(100vw - 198px));
 }
 
+.map-fullscreen-overlay-group.is-task-editor-collapsed .map-task-editor-overlay {
+  width: min(320px, calc(100vw - 24px));
+  max-width: min(320px, calc(100vw - 24px));
+}
+
 .map-fullscreen-overlay-top .map-distance-summary {
   flex: 0 0 auto;
 }
@@ -3966,21 +3971,9 @@ button[type="submit"]:hover,
   background: #f0f0f0;
 }
 
-.map-control-task-editor-toggle {
-  color: #0f172a;
-}
-
-.map-control-task-editor-toggle.is-expanded {
-  background: var(--accent);
-  color: #fff;
-}
-
-.map-control-task-editor-toggle.is-expanded:hover {
-  background: var(--accent-hover);
-}
-
-.map-control-task-editor-toggle svg {
-  pointer-events: none;
+.map-control-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.12), 0 0 0 5px rgba(37, 99, 235, 0.18);
 }
 
 .map-control-mode-button {
@@ -4456,11 +4449,30 @@ button[type="submit"]:hover,
   box-shadow: var(--shadow-lg);
 }
 
+.map-task-editor.is-collapsed {
+  gap: 8px;
+  padding: 10px;
+}
+
 .map-task-editor-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.map-task-editor-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.map-task-editor-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
 }
 
 .map-task-editor-header strong {
@@ -4471,6 +4483,54 @@ button[type="submit"]:hover,
 .map-task-editor-header span {
   font-size: 0.75rem;
   color: var(--muted);
+}
+
+.map-task-editor-collapse-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.map-task-editor-collapse-button:hover {
+  background: var(--accent-soft);
+  border-color: rgba(37, 99, 235, 0.24);
+  color: var(--accent);
+}
+
+.map-task-editor-collapse-button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18), var(--shadow-sm);
+}
+
+.map-task-editor-collapse-button svg {
+  pointer-events: none;
+}
+
+.map-task-editor-collapsed-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  max-width: 100%;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+}
+
+.map-task-editor-collapsed-summary span {
+  white-space: nowrap;
+}
+
+.map-task-editor-body[hidden] {
+  display: none;
 }
 
 .map-task-editor-table-wrap {

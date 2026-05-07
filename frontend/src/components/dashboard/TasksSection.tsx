@@ -2,7 +2,7 @@
 
 import type { KeyboardEvent } from "react";
 import { SectionCard } from "../SectionCard";
-import { type MapAirspaceRegion, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
+import { type MapAirspaceRegion, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import { TaskBuilderMap } from "../TaskBuilderMap";
 import type { AccountSettingsRecord, TaskDraftState, TaskPointRecord, TaskRecord } from "./types";
 
@@ -149,110 +149,124 @@ export default function TasksSection(props: TasksSectionProps) {
   if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
   const usesGatedStart = currentTaskTypeBehavior.usesMultipleGates;
   const taskIsPublished = selectedTask?.status === "published";
-  const fullscreenTaskEditor = canManagePlatform ? (
-    <div className="map-task-editor">
+  const taskTurnpointCountLabel = taskDraft.points.length ? `${taskDraft.points.length} in task` : "No turnpoints yet";
+  const fullscreenTaskEditor = canManagePlatform ? ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+    <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
       <div className="map-task-editor-header">
-        <strong>Task turnpoints</strong>
-        <span>{taskDraft.points.length ? `${taskDraft.points.length} in task` : "No turnpoints yet"}</span>
-      </div>
-      <div className="map-task-editor-table-wrap">
-        <table className="map-task-editor-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Direction</th>
-              <th>Radius (m)</th>
-              <th className="map-task-editor-distance-heading">
-                <strong>Distance</strong>
-                <em>(optimized)</em>
-              </th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {taskDraft.points.length ? (
-              taskDraft.points.map((point, index) => {
-                const legMetric = index > 0 ? taskDistanceMetrics.legMetrics[index - 1] ?? null : null;
-                const legDistanceKm = legMetric?.centerDistanceKm ?? null;
-                const optimizedLegDistanceKm = legMetric?.optimizedDistanceKm ?? null;
-                return (
-                  <tr
-                    key={`fullscreen-${point.turnpoint_id ?? point.name}-${index}`}
-                    draggable
-                    onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                    }}
-                  >
-                    <td className="map-task-editor-drag">{point.position}. &#x22EE;&#x22EE;</td>
-                    <td className="map-task-editor-name">
-                      <strong>{point.name}</strong>
-                    </td>
-                    <td className="map-task-editor-type">
-                      <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                        {taskPointTypeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="map-task-editor-direction">
-                      <select value={point.direction ?? "enter"} onChange={(event) => updatePoint(index, { direction: event.target.value as "enter" | "exit" })}>
-                        {pointDirectionOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="map-task-editor-radius">
-                      <input
-                        value={radiusInputValue(index, point)}
-                        onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onBlur={() => handleRadiusInputBlur(index, point)}
-                        onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                        inputMode="numeric"
-                      />
-                    </td>
-                    <td className="map-task-editor-distance">
-                      <strong>{legDistanceKm === null ? <span className="task-point-distance-empty">-</span> : formatDistance(legDistanceKm, settingsForm.distance_unit)}</strong>
-                      <span className="map-task-editor-distance-secondary">
-                        ({optimizedLegDistanceKm === null ? "-" : formatDistance(optimizedLegDistanceKm, settingsForm.distance_unit)})
-                      </span>
-                    </td>
-                    <td className="map-task-editor-actions">
-                      <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                    </td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={7} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="map-task-editor-footer">
-        <div className="map-task-editor-footer-row">
-          <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
-            <div className="map-task-editor-summary-row">
-              <strong>Total:</strong>
-              <span>{formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
-            </div>
-            <div className="map-task-editor-summary-row">
-              <strong>Optimized:</strong>
-              <span>{formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
-            </div>
-          </div>
-          <button type="button" className="map-task-editor-save" onClick={saveTask}>
-            Save task
-          </button>
+        <div className="map-task-editor-title">
+          <strong>Task turnpoints</strong>
+          <span>{taskTurnpointCountLabel}</span>
         </div>
-        {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
+        <div className="map-task-editor-header-actions">
+          {toggleButton}
+        </div>
+      </div>
+      {collapsed ? (
+        <div className="map-task-editor-collapsed-summary">
+          <span>Total {formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
+          <span>Optimized {formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
+        </div>
+      ) : null}
+      <div id={contentId} className="map-task-editor-body" hidden={collapsed}>
+        <div className="map-task-editor-table-wrap">
+          <table className="map-task-editor-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Direction</th>
+                <th>Radius (m)</th>
+                <th className="map-task-editor-distance-heading">
+                  <strong>Distance</strong>
+                  <em>(optimized)</em>
+                </th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {taskDraft.points.length ? (
+                taskDraft.points.map((point, index) => {
+                  const legMetric = index > 0 ? taskDistanceMetrics.legMetrics[index - 1] ?? null : null;
+                  const legDistanceKm = legMetric?.centerDistanceKm ?? null;
+                  const optimizedLegDistanceKm = legMetric?.optimizedDistanceKm ?? null;
+                  return (
+                    <tr
+                      key={`fullscreen-${point.turnpoint_id ?? point.name}-${index}`}
+                      draggable
+                      onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
+                      onDragOver={(event) => event.preventDefault()}
+                      onDrop={(event) => {
+                        event.preventDefault();
+                        movePoint(Number(event.dataTransfer.getData("text/plain")), index);
+                      }}
+                    >
+                      <td className="map-task-editor-drag">{point.position}. &#x22EE;&#x22EE;</td>
+                      <td className="map-task-editor-name">
+                        <strong>{point.name}</strong>
+                      </td>
+                      <td className="map-task-editor-type">
+                        <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
+                          {taskPointTypeOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="map-task-editor-direction">
+                        <select value={point.direction ?? "enter"} onChange={(event) => updatePoint(index, { direction: event.target.value as "enter" | "exit" })}>
+                          {pointDirectionOptions.map((option) => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="map-task-editor-radius">
+                        <input
+                          value={radiusInputValue(index, point)}
+                          onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
+                          onFocus={(event) => event.currentTarget.select()}
+                          onBlur={() => handleRadiusInputBlur(index, point)}
+                          onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
+                          inputMode="numeric"
+                        />
+                      </td>
+                      <td className="map-task-editor-distance">
+                        <strong>{legDistanceKm === null ? <span className="task-point-distance-empty">-</span> : formatDistance(legDistanceKm, settingsForm.distance_unit)}</strong>
+                        <span className="map-task-editor-distance-secondary">
+                          ({optimizedLegDistanceKm === null ? "-" : formatDistance(optimizedLegDistanceKm, settingsForm.distance_unit)})
+                        </span>
+                      </td>
+                      <td className="map-task-editor-actions">
+                        <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
+                      </td>
+                    </tr>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={7} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="map-task-editor-footer">
+          <div className="map-task-editor-footer-row">
+            <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
+              <div className="map-task-editor-summary-row">
+                <strong>Total:</strong>
+                <span>{formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
+              </div>
+              <div className="map-task-editor-summary-row">
+                <strong>Optimized:</strong>
+                <span>{formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
+              </div>
+            </div>
+            <button type="button" className="map-task-editor-save" onClick={saveTask}>
+              Save task
+            </button>
+          </div>
+          {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
+        </div>
       </div>
     </div>
   ) : undefined;

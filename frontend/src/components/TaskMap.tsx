@@ -81,6 +81,13 @@ export type MapScoredTrackPoint = {
   color?: string | null;
 };
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
+export type TaskEditorOverlayRenderProps = {
+  collapsed: boolean;
+  contentId: string;
+  overlayId: string;
+  toggleButton: ReactNode;
+};
+export type TaskEditorOverlayContent = ReactNode | ((props: TaskEditorOverlayRenderProps) => ReactNode);
 type BasemapMode = "streets" | "satellite" | "terrain";
 type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
 const REPLAY_SPEEDS = [1, 2, 5, 10, 15, 30, 45, 60, 120, 300] as const;
@@ -1165,7 +1172,7 @@ export const TaskMap = React.memo(function TaskMap({
   liveMarkerScale?: number;
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
-  taskEditorOverlay?: ReactNode;
+  taskEditorOverlay?: TaskEditorOverlayContent;
   hideFullscreenDistanceOverlay?: boolean;
   hideDistanceSummary?: boolean;
   highlightedTrackUploadId?: number | null;
@@ -1214,6 +1221,7 @@ export const TaskMap = React.memo(function TaskMap({
   const [isTaskEditorOverlayCollapsed, setIsTaskEditorOverlayCollapsed] = useState(false);
   const [isPerspective3D, setIsPerspective3D] = useState(false);
   const taskEditorOverlayId = useId();
+  const taskEditorOverlayContentId = useId();
   const hasTaskEditorOverlay = Boolean(taskEditorOverlay);
   // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
   // flat on the map plane; in 3D they scale by the user-selected multiplier.
@@ -2644,18 +2652,55 @@ export const TaskMap = React.memo(function TaskMap({
     ) : null;
 
   const hasFullscreenTaskEditorOverlay = isFullscreen && hasTaskEditorOverlay;
-  const showTaskEditorOverlay = hasFullscreenTaskEditorOverlay && !isTaskEditorOverlayCollapsed;
   const taskEditorToggleLabel = isTaskEditorOverlayCollapsed ? "Expand task turnpoints overlay" : "Collapse task turnpoints overlay";
+  const taskEditorOverlayToggleButton = hasFullscreenTaskEditorOverlay ? (
+    <button
+      type="button"
+      className="map-task-editor-collapse-button"
+      aria-label={taskEditorToggleLabel}
+      aria-controls={taskEditorOverlayContentId}
+      aria-expanded={!isTaskEditorOverlayCollapsed}
+      title={taskEditorToggleLabel}
+      onClick={() => setIsTaskEditorOverlayCollapsed((current) => !current)}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path
+          d={isTaskEditorOverlayCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  ) : null;
+  const renderedTaskEditorOverlay =
+    hasFullscreenTaskEditorOverlay && taskEditorOverlay
+      ? typeof taskEditorOverlay === "function"
+        ? taskEditorOverlay({
+            collapsed: isTaskEditorOverlayCollapsed,
+            contentId: taskEditorOverlayContentId,
+            overlayId: taskEditorOverlayId,
+            toggleButton: taskEditorOverlayToggleButton,
+          })
+        : (
+          <div id={taskEditorOverlayId} className={`map-task-editor-fallback${isTaskEditorOverlayCollapsed ? " is-collapsed" : ""}`}>
+            <div className="map-task-editor-fallback-actions">{taskEditorOverlayToggleButton}</div>
+            <div id={taskEditorOverlayContentId} hidden={isTaskEditorOverlayCollapsed}>
+              {taskEditorOverlay}
+            </div>
+          </div>
+        )
+      : null;
 
   const fullscreenCompositeOverlay = hasFullscreenTaskEditorOverlay ? (
     <div className={`map-fullscreen-overlay-group${isTaskEditorOverlayCollapsed ? " is-task-editor-collapsed" : ""}`}>
-      {showTaskEditorOverlay || distanceSummaryOverlay ? (
+      {renderedTaskEditorOverlay || distanceSummaryOverlay ? (
         <div className="map-fullscreen-overlay-top">
-          {showTaskEditorOverlay ? (
-            <div id={taskEditorOverlayId} className="map-task-editor-overlay">
-              {taskEditorOverlay}
-            </div>
-          ) : null}
+          {renderedTaskEditorOverlay ? <div className="map-task-editor-overlay">{renderedTaskEditorOverlay}</div> : null}
           {distanceSummaryOverlay}
         </div>
       ) : null}
@@ -2683,37 +2728,12 @@ export const TaskMap = React.memo(function TaskMap({
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {fullscreenCompositeOverlay ?? (
           <>
-            {showTaskEditorOverlay ? <div id={taskEditorOverlayId} className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
             {telemetryOverlay}
             {distanceSummaryOverlay}
           </>
         )}
       </div>
       <div className="map-control-stack">
-        {hasFullscreenTaskEditorOverlay ? (
-          <button
-            type="button"
-            className={`map-control-button map-control-task-editor-toggle${isTaskEditorOverlayCollapsed ? "" : " is-expanded"}`}
-            aria-label={taskEditorToggleLabel}
-            aria-controls={taskEditorOverlayId}
-            aria-expanded={!isTaskEditorOverlayCollapsed}
-            title={taskEditorToggleLabel}
-            onClick={() => setIsTaskEditorOverlayCollapsed((current) => !current)}
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
-              <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
-              <path
-                d={isTaskEditorOverlayCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        ) : null}
         {oc?.["2d_3d_toggle"] !== false ? (
         <button
           type="button"

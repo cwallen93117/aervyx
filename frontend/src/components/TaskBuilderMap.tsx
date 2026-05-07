@@ -1,6 +1,6 @@
 "use client";
 
-import { TaskMap, type MapAirspaceRegion, type MapLegMetric, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "./TaskMap";
+import { TaskMap, type MapAirspaceRegion, type MapLegMetric, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TaskEditorOverlayContent, type TrackCollection } from "./TaskMap";
 
 export interface TaskBuilderMapProps {
   selectedEventId: number | null;
@@ -15,7 +15,7 @@ export interface TaskBuilderMapProps {
   track?: TrackCollection | null;
   editable?: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
-  taskEditorOverlay?: React.ReactNode;
+  taskEditorOverlay?: TaskEditorOverlayContent;
   hideFullscreenDistanceOverlay?: boolean;
   units?: MapUnitPreferences;
   overlayConfig?: Record<string, boolean>;
