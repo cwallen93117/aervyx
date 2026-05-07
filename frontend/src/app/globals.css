@@ -964,8 +964,31 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.task-timing-layout {
+.fieldset-grid.two-up.task-timing-layout {
+  grid-template-columns: max-content max-content;
   align-items: start;
+  column-gap: 22px;
+  row-gap: 10px;
+}
+
+.task-timing-layout .cluster-stack {
+  width: max-content;
+}
+
+.task-timing-layout .stack.compact {
+  grid-template-columns: 128px auto;
+}
+
+.task-timing-layout .stack.compact input[type="time"] {
+  width: 116px;
+  min-width: 116px;
+  max-width: 116px;
+}
+
+.task-timing-layout .stack.compact input[type="number"] {
+  width: 76px;
+  min-width: 76px;
+  max-width: 76px;
 }
 
 .fieldset-grid.events-scoring-grid {
@@ -1823,6 +1846,12 @@ button[type="submit"]:hover,
   border-radius: var(--r-md);
   background: var(--wash);
   grid-column: 1 / -1;
+}
+
+.task-gate-settings .task-gate-times {
+  grid-column: auto;
+  margin-top: 0;
+  min-width: 238px;
 }
 
 .task-gate-times strong {
@@ -5235,6 +5264,23 @@ button[type="submit"]:hover,
 }
 
 @media (max-width: 720px) {
+  .fieldset-grid.two-up.task-timing-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .task-timing-layout .cluster-stack,
+  .task-gate-settings .task-gate-times {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .task-timing-layout .stack.compact input[type="time"],
+  .task-timing-layout .stack.compact input[type="number"] {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
   .fieldset-cluster .stack.compact,
   .compact-labeled-row label.stack.compact {
     grid-template-columns: 1fr;

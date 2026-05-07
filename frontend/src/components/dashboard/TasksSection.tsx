@@ -326,6 +326,10 @@ export default function TasksSection(props: TasksSectionProps) {
   }
   const usesGatedStart = currentTaskTypeBehavior.usesMultipleGates;
   const taskIsPublished = selectedTask?.status === "published";
+  const canEditStartWindow = canManagePlatform && currentTaskTypeBehavior.usesStartWindow;
+  const canEditTaskFinish = canManagePlatform;
+  const canEditStartGates = canManagePlatform && currentTaskTypeBehavior.usesMultipleGates;
+  const startGateTimesLabel = `Start gate times (${startGateLabels.length})`;
   const fullscreenTaskEditor = canManagePlatform ? ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
     <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
       <TaskTurnpointsList
@@ -427,32 +431,47 @@ export default function TasksSection(props: TasksSectionProps) {
               {usesGatedStart ? (
                 <>
                   <div className="cluster-stack">
-                    <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
                       <span>Start open</span>
-                      <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
+                      <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!canEditStartWindow} />
                     </label>
-                    <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
                       <span>Start close</span>
-                      <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
+                      <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canEditStartWindow} />
                     </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
+                    <label className={canEditTaskFinish ? "stack compact" : "stack compact field-disabled"}>
                       <span>Task finish</span>
-                      <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
+                      <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canEditTaskFinish} />
                     </label>
                   </div>
-                  <div className="cluster-stack">
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start gates</span>
-                      <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Gate interval (min)</span>
-                      <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                  </div>
-                  {startGateLabels.length ? (
+                  {canManagePlatform || startGateLabels.length ? (
+                    <div className="cluster-stack task-gate-settings">
+                      {canManagePlatform ? (
+                        <>
+                          <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
+                            <span>Start gates</span>
+                            <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!canEditStartGates} />
+                          </label>
+                          <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
+                            <span>Gate interval (min)</span>
+                            <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!canEditStartGates} />
+                          </label>
+                        </>
+                      ) : (
+                        <div className="task-gate-times task-gate-times-inline" aria-label="Start gate times">
+                          <strong>{startGateTimesLabel}</strong>
+                          <div className="task-gate-time-list">
+                            {startGateLabels.map((label) => (
+                              <span key={label} className="task-gate-time-chip">{label}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
+                  {canManagePlatform && startGateLabels.length ? (
                     <div className="task-gate-times" aria-label="Start gate times">
-                      <strong>Start gate times</strong>
+                      <strong>{startGateTimesLabel}</strong>
                       <div className="task-gate-time-list">
                         {startGateLabels.map((label) => (
                           <span key={label} className="task-gate-time-chip">{label}</span>
