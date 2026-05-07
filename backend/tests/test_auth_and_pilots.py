@@ -9,8 +9,10 @@ from starlette.requests import Request
 from app.db import Base
 from app.models import Event, EventPilot, MeshDevice, Pilot, User
 from app.routers.auth import change_password, create_mesh_device, register, register_mesh_device, update_mesh_device, update_settings, update_user_account
-from app.routers.pilots import assign_existing_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, RegisterRequest
+from app.routers.events import list_events
+from app.routers.pilots import assign_existing_pilot, create_pilot, update_pilot
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotUpsert, RegisterRequest
+from app.services.pilot_identity import repair_pilot_email_identities
 
 
 def _session() -> Session:
@@ -91,6 +93,68 @@ def test_assign_existing_pilot_adds_them_to_event() -> None:
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
 
 
+def test_create_pilot_with_email_creates_email_login_user() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    event = Event(name="Spring Open", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
+    session.add_all([admin, event])
+    session.commit()
+
+    response = create_pilot(
+        event.id,
+        PilotUpsert(
+            first_name="New",
+            last_name="Pilot",
+            email="New.Pilot@Example.com",
+            nation="US",
+            competition_number="12",
+            civl_id=None,
+        ),
+        admin,
+        session,
+    )
+
+    user = session.scalar(select(User).where(User.username == "new.pilot@example.com"))
+    assert response.email == "new.pilot@example.com"
+    assert response.portal_username == "new.pilot@example.com"
+    assert user is not None
+    assert user.pilot_id == response.id
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == response.id)) is not None
+
+
+def test_update_portal_only_pilot_to_email_renames_login() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email=None)
+    session.add_all([admin, pilot])
+    session.flush()
+    portal_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=pilot.id, password_hash="hash")
+    session.add(portal_user)
+    session.commit()
+
+    response = update_pilot(
+        pilot.id,
+        PilotUpsert(
+            first_name="Charles",
+            last_name="Allen",
+            email="C.Allen@BTCS.com",
+            nation=None,
+            competition_number=None,
+            civl_id=None,
+        ),
+        admin,
+        session,
+    )
+
+    session.refresh(portal_user)
+    assert response.id == pilot.id
+    assert response.email == "c.allen@btcs.com"
+    assert response.portal_username == "c.allen@btcs.com"
+    assert portal_user.username == "c.allen@btcs.com"
+    assert portal_user.pilot_id == pilot.id
+    assert portal_user.is_active is True
+
+
 def test_assign_existing_pilot_links_matching_email_user() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
@@ -112,6 +176,40 @@ def test_assign_existing_pilot_links_matching_email_user() -> None:
     assert generated_user.pilot_id is None
     assert generated_user.is_active is False
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
+
+
+def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> None:
+    session = _session()
+    email_pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    roster_pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    event = Event(
+        name="HC 2025 - myles",
+        location="Myles",
+        starts_on=date(2026, 5, 7),
+        ends_on=date(2026, 5, 9),
+        timezone="UTC",
+        visibility="participants",
+    )
+    session.add_all([email_pilot, roster_pilot, event])
+    session.flush()
+    email_user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=email_pilot.id, password_hash="hash")
+    generated_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=roster_pilot.id, password_hash="hash")
+    session.add_all([email_user, generated_user, EventPilot(event_id=event.id, pilot_id=roster_pilot.id)])
+    session.commit()
+
+    repair_pilot_email_identities(session)
+    session.commit()
+
+    session.refresh(email_user)
+    session.refresh(generated_user)
+    session.refresh(roster_pilot)
+    assert email_user.pilot_id == email_pilot.id
+    assert generated_user.pilot_id is None
+    assert generated_user.is_active is False
+    assert roster_pilot.email is None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == email_pilot.id)) is not None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == roster_pilot.id)) is None
+    assert {event.name for event in list_events(user=email_user, session=session)} == {"HC 2025 - myles"}
 
 
 def test_update_settings_updates_pilot_profile_and_username_email() -> None:

@@ -7,9 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
-from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Pilot, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
+from app.services.pilot_identity import participant_event_ids_for_user
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 STAFF_ROLES = {"admin", "organizer"}
@@ -63,27 +64,6 @@ def _copy_stored_file(stored_path: str, new_event_id: int, source_id: int) -> st
     return str(duplicate_path)
 
 
-def _primary_email_identity(user: User) -> str | None:
-    username = (user.username or "").strip().lower()
-    return username if "@" in username else None
-
-
-def _participant_event_ids(session: Session, user: User) -> set[int]:
-    event_ids: set[int] = set()
-    if user.pilot_id is not None:
-        event_ids.update(session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all())
-    email = _primary_email_identity(user)
-    if email:
-        event_ids.update(
-            session.scalars(
-                select(EventPilot.event_id)
-                .join(Pilot, Pilot.id == EventPilot.pilot_id)
-                .where(func.lower(Pilot.email) == email)
-            ).all()
-        )
-    return event_ids
-
-
 def _event_visible_to_user(session: Session, event: Event, user: User, participant_event_ids: set[int] | None = None) -> bool:
     if user.role in STAFF_ROLES:
         return True
@@ -92,7 +72,7 @@ def _event_visible_to_user(session: Session, event: Event, user: User, participa
         return True
     if visibility == "participants":
         if participant_event_ids is None:
-            participant_event_ids = _participant_event_ids(session, user)
+            participant_event_ids = participant_event_ids_for_user(session, user)
         return event.id in participant_event_ids
     return False
 
@@ -172,7 +152,7 @@ def list_events(user: User = Depends(get_current_user), session: Session = Depen
         events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
         return [_event_payload(session, event) for event in events]
 
-    participant_event_ids = _participant_event_ids(session, user)
+    participant_event_ids = participant_event_ids_for_user(session, user)
     events = session.scalars(
         select(Event).where(Event.visibility.in_(["public", "users", "participants"])).order_by(Event.updated_at.desc(), Event.name.asc())
     ).all()

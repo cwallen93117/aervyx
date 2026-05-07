@@ -12,6 +12,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
 from app.routers import admin_db, admin_integrations, airspace, app_release, auth, events, logbook, map_overlay_config, pilots, public, results, site_settings, sites, tasks, turnpoints, uploads
+from app.services.pilot_identity import repair_pilot_email_identities
 from app.services.seeding import bootstrap_demo_data
 
 try:
@@ -85,6 +86,9 @@ async def lifespan(app: FastAPI):
     session = SessionLocal()
     try:
         bootstrap_demo_data(session)
+        repaired_identities = repair_pilot_email_identities(session)
+        if repaired_identities:
+            _log.info("Repaired %d pilot email identities on startup", repaired_identities)
         session.commit()
     finally:
         session.close()

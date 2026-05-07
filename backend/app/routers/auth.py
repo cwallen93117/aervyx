@@ -37,6 +37,7 @@ from app.schemas import (
     UserEmailResponse,
     UserSummary,
 )
+from app.services.pilot_identity import repair_user_email_identity
 
 logger = logging.getLogger(__name__)
 
@@ -308,6 +309,9 @@ def login(request: Request, payload: LoginRequest, session: Session = Depends(ge
         user = session.scalar(select(User).where(User.username == payload.username.strip(), User.is_active.is_(True)))
     if user is None or not user.password_hash or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if repair_user_email_identity(session, user) is not None:
+        session.commit()
+        session.refresh(user)
     return TokenResponse(
         access_token=create_access_token(user.username),
         refresh_token=create_refresh_token(user.username),
@@ -406,6 +410,10 @@ def google_auth(request: Request, payload: GoogleAuthRequest, session: Session =
         session.commit()
         session.refresh(user)
         logger.info("User %s authenticated via Google sign-in", user.username)
+
+    if repair_user_email_identity(session, user) is not None:
+        session.commit()
+        session.refresh(user)
 
     return TokenResponse(
         access_token=create_access_token(user.username),

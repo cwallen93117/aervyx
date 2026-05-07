@@ -58,6 +58,8 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
   const [editSaving, setEditSaving] = useState(false);
   const assignedPilotIds = useMemo(() => new Set(pilots.map((pilot) => pilot.id)), [pilots]);
   const normalizedDirectorySearch = directorySearch.trim().toLowerCase();
+  const pilotLoginLabel = (pilot: PilotRecord) => pilot.email || pilot.portal_username || "No login";
+  const pilotLoginKind = (pilot: PilotRecord) => (pilot.email ? "Email login" : pilot.portal_username ? "Portal fallback" : "No login");
   const searchableDirectoryPilots = useMemo(() => {
     if (!sitePilots.length) return availableDirectoryPilots;
     return sitePilots;
@@ -102,7 +104,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                     <span>Search registered users</span>
                     <input
                       type="search"
-                      placeholder="Search by name, email, username, comp #, CIVL ID, nation, or * for all"
+                      placeholder="Search by name, login, comp #, CIVL ID, nation, or * for all"
                       value={directorySearch}
                       onChange={(event) => setDirectorySearch(event.target.value)}
                     />
@@ -117,8 +119,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                               <div>
                                 <strong>{pilot.first_name} {pilot.last_name}</strong>
                                 <span>
-                                  {pilot.portal_username ? `@${pilot.portal_username}` : "No portal username"}
-                                  {pilot.email ? ` - ${pilot.email}` : ""}
+                                  {pilotLoginKind(pilot)}: {pilotLoginLabel(pilot)}
                                   {pilot.competition_number ? ` - #${pilot.competition_number}` : ""}
                                   {pilot.civl_id ? ` - CIVL ${pilot.civl_id}` : ""}
                                   {pilot.nation ? ` - ${pilot.nation}` : ""}
@@ -153,7 +154,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                 </div>
                 <div className="participant-intake-grid participant-intake-grid--three">
                   <label className="stack compact">
-                    <span>Email</span>
+                    <span>Login email</span>
                     <input type="email" value={pilotForm.email} onChange={(event) => setPilotForm({ ...pilotForm, email: event.target.value })} placeholder="pilot@example.com" />
                   </label>
                   <label className="stack compact">
@@ -233,8 +234,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                 ) : null}
                 <th>Name</th>
                 <th>Competition #</th>
-                <th>Email</th>
-                <th>Portal</th>
+                <th>Login</th>
                 {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
               </tr>
             </thead>
@@ -259,8 +259,10 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                       <strong>{pilot.first_name} {pilot.last_name}</strong>
                     </td>
                     <td>{pilot.competition_number ?? "No comp #"}</td>
-                    <td>{pilot.email ?? "No email"}</td>
-                    <td>{pilot.portal_username ?? "No portal user"}</td>
+                    <td>
+                      <span>{pilotLoginLabel(pilot)}</span>
+                      {pilot.email || pilot.portal_username ? <span>{` - ${pilotLoginKind(pilot)}`}</span> : null}
+                    </td>
                     {canManagePlatform ? (
                       <td className="participant-table-actions">
                         <div className="compact-slot-actions participant-row-actions">
@@ -291,7 +293,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={canManagePlatform ? 6 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
+                  <td colSpan={canManagePlatform ? 5 : 3} className="participant-table-empty">No participants assigned to this event yet.</td>
                 </tr>
               )}
             </tbody>
@@ -313,7 +315,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
               </div>
               <div className="participant-intake-grid participant-intake-grid--two">
                 <label className="stack compact">
-                  <span>Email</span>
+                  <span>Login email</span>
                   <input type="email" value={editForm.email} onChange={(event) => setEditForm({ ...editForm, email: event.target.value })} />
                 </label>
                 <label className="stack compact">

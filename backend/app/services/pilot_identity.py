@@ -1,0 +1,336 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.core.security import hash_password
+from app.models import (
+    BuddyGroupMember,
+    DriverAssignment,
+    EventPilot,
+    IGCUpload,
+    LivePosition,
+    Pilot,
+    PilotFlight,
+    PilotLanding,
+    ScorePenalty,
+    ScoreResult,
+    SosAlert,
+    TaskScoringInput,
+    TrackingSession,
+    User,
+)
+from app.services.seeding import DEFAULT_PILOT_PASSWORD
+
+
+@dataclass
+class PilotIdentityResult:
+    pilot: Pilot
+    user: User | None
+    temp_password: str | None = None
+
+
+def normalize_email(value: str | None) -> str | None:
+    candidate = (value or "").strip().lower()
+    return candidate if "@" in candidate else None
+
+
+def is_auto_generated_user(user: User) -> bool:
+    return "@" not in (user.username or "")
+
+
+def linked_user_for_pilot(session: Session, pilot: Pilot) -> User | None:
+    linked_users = session.scalars(
+        select(User).where(User.pilot_id == pilot.id, User.is_active.is_(True)).order_by(User.id.asc())
+    ).all()
+    if not linked_users:
+        return None
+    email = normalize_email(pilot.email)
+    if email:
+        email_user = next((user for user in linked_users if normalize_email(user.username) == email), None)
+        if email_user is not None:
+            return email_user
+    return linked_users[0]
+
+
+def find_pilot_user_by_email(session: Session, email: str | None) -> User | None:
+    normalized = normalize_email(email)
+    if normalized is None:
+        return None
+    return session.scalar(
+        select(User).where(
+            func.lower(User.username) == normalized,
+            User.role == "pilot",
+            User.is_active.is_(True),
+        )
+    )
+
+
+def find_canonical_pilot_by_email(session: Session, email: str | None, preferred: Pilot | None = None) -> Pilot | None:
+    normalized = normalize_email(email)
+    if normalized is None:
+        return preferred
+    email_user = find_pilot_user_by_email(session, normalized)
+    if email_user is not None and email_user.pilot_id:
+        pilot = session.get(Pilot, email_user.pilot_id)
+        if pilot is not None:
+            return pilot
+    candidates = session.scalars(select(Pilot).where(func.lower(Pilot.email) == normalized).order_by(Pilot.id.asc())).all()
+    if preferred is not None and normalize_email(preferred.email) == normalized and preferred in candidates:
+        return preferred
+    if not candidates:
+        return preferred
+    return max(candidates, key=lambda pilot: (_event_membership_count(session, pilot.id), -pilot.id))
+
+
+def participant_event_ids_for_user(session: Session, user: User) -> set[int]:
+    event_ids: set[int] = set()
+    if user.pilot_id is not None:
+        event_ids.update(session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all())
+    email = normalize_email(user.username)
+    if email:
+        event_ids.update(
+            session.scalars(
+                select(EventPilot.event_id)
+                .join(Pilot, Pilot.id == EventPilot.pilot_id)
+                .where(func.lower(Pilot.email) == email)
+            ).all()
+        )
+    return event_ids
+
+
+def apply_pilot_profile(
+    pilot: Pilot,
+    *,
+    first_name: str,
+    last_name: str,
+    email: str | None,
+    nation: str | None,
+    competition_number: str | None,
+    civl_id: str | None,
+) -> None:
+    pilot.first_name = first_name
+    pilot.last_name = last_name
+    pilot.email = normalize_email(email)
+    pilot.nation = nation
+    pilot.competition_number = competition_number
+    pilot.civl_id = civl_id
+
+
+def ensure_event_membership(session: Session, event_id: int, pilot_id: int) -> EventPilot:
+    existing = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == pilot_id))
+    if existing is not None:
+        return existing
+    membership = EventPilot(event_id=event_id, pilot_id=pilot_id)
+    session.add(membership)
+    return membership
+
+
+def ensure_pilot_login_identity(
+    session: Session,
+    pilot: Pilot,
+    username: str | None = None,
+    password: str | None = None,
+    *,
+    create_user: bool = True,
+) -> PilotIdentityResult:
+    email = normalize_email(pilot.email)
+    if email is None:
+        return _ensure_portal_identity(session, pilot, username, password, create_user=create_user)
+
+    pilot.email = email
+    email_user = find_pilot_user_by_email(session, email)
+    canonical = find_canonical_pilot_by_email(session, email, preferred=pilot) or pilot
+    if canonical.id != pilot.id:
+        source_has_history = _has_pilot_history(session, pilot.id)
+        _copy_profile(source=pilot, target=canonical)
+        _merge_event_memberships(session, source_pilot_id=pilot.id, target_pilot_id=canonical.id)
+        _retire_auto_users(session, source_pilot_id=pilot.id, except_user_id=email_user.id if email_user else None)
+        if not source_has_history:
+            pilot.email = None
+            session.add(pilot)
+
+    if email_user is not None:
+        email_user.pilot_id = canonical.id
+        if not email_user.full_name:
+            email_user.full_name = _pilot_full_name(canonical)
+        session.add_all([canonical, email_user])
+        _retire_auto_users(session, source_pilot_id=canonical.id, except_user_id=email_user.id)
+        return PilotIdentityResult(pilot=canonical, user=email_user)
+
+    linked_user = linked_user_for_pilot(session, canonical)
+    if linked_user is not None and is_auto_generated_user(linked_user):
+        linked_user.username = email
+        linked_user.full_name = _pilot_full_name(canonical)
+        linked_user.role = "pilot"
+        linked_user.profile_type = "pilot"
+        linked_user.is_active = True
+        if password:
+            linked_user.password_hash = hash_password(password)
+        elif not linked_user.password_hash:
+            linked_user.password_hash = hash_password(DEFAULT_PILOT_PASSWORD)
+        session.add_all([canonical, linked_user])
+        return PilotIdentityResult(pilot=canonical, user=linked_user)
+
+    if linked_user is not None:
+        session.add(canonical)
+        return PilotIdentityResult(pilot=canonical, user=linked_user)
+
+    if not create_user:
+        session.add(canonical)
+        return PilotIdentityResult(pilot=canonical, user=None)
+
+    generated_password = password or DEFAULT_PILOT_PASSWORD
+    user = User(
+        username=email,
+        full_name=_pilot_full_name(canonical),
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=canonical.id,
+        password_hash=hash_password(generated_password),
+    )
+    session.add_all([canonical, user])
+    return PilotIdentityResult(pilot=canonical, user=user, temp_password=generated_password)
+
+
+def repair_user_email_identity(session: Session, user: User) -> PilotIdentityResult | None:
+    email = normalize_email(user.username)
+    if user.role != "pilot" or email is None:
+        return None
+
+    pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
+    if pilot is None:
+        pilot = find_canonical_pilot_by_email(session, email)
+        if pilot is None:
+            return None
+        user.pilot_id = pilot.id
+        session.add(user)
+
+    if normalize_email(pilot.email) != email:
+        pilot.email = email
+    return ensure_pilot_login_identity(session, pilot, create_user=False)
+
+
+def repair_pilot_email_identities(session: Session) -> int:
+    changed = 0
+    users = session.scalars(select(User).where(User.role == "pilot", User.is_active.is_(True)).order_by(User.id.asc())).all()
+    for user in users:
+        before = user.pilot_id
+        result = repair_user_email_identity(session, user)
+        if result is not None and user.pilot_id != before:
+            changed += 1
+
+    pilots = session.scalars(select(Pilot).where(Pilot.email.is_not(None)).order_by(Pilot.id.asc())).all()
+    for pilot in pilots:
+        email = normalize_email(pilot.email)
+        if email and find_pilot_user_by_email(session, email) is not None:
+            result = ensure_pilot_login_identity(session, pilot, create_user=False)
+            if result.pilot.id != pilot.id:
+                changed += 1
+    return changed
+
+
+def _ensure_portal_identity(
+    session: Session,
+    pilot: Pilot,
+    username: str | None,
+    password: str | None,
+    *,
+    create_user: bool,
+) -> PilotIdentityResult:
+    existing = linked_user_for_pilot(session, pilot)
+    if existing is not None or not create_user:
+        return PilotIdentityResult(pilot=pilot, user=existing)
+
+    generated_password = password or DEFAULT_PILOT_PASSWORD
+    base_username = username or _slug_username(pilot.first_name, pilot.last_name, pilot.competition_number)
+    candidate = base_username
+    suffix = 1
+    while session.scalar(select(User).where(User.username == candidate)) is not None:
+        suffix += 1
+        candidate = f"{base_username}-{suffix}"
+    user = User(
+        username=candidate,
+        full_name=_pilot_full_name(pilot),
+        role="pilot",
+        pilot_id=pilot.id,
+        password_hash=hash_password(generated_password),
+    )
+    session.add(user)
+    return PilotIdentityResult(pilot=pilot, user=user, temp_password=generated_password)
+
+
+def _copy_profile(source: Pilot, target: Pilot) -> None:
+    target.first_name = source.first_name or target.first_name
+    target.last_name = source.last_name or target.last_name
+    target.email = normalize_email(source.email) or target.email
+    target.nation = source.nation or target.nation
+    target.competition_number = source.competition_number or target.competition_number
+    target.civl_id = source.civl_id or target.civl_id
+
+
+def _merge_event_memberships(session: Session, source_pilot_id: int, target_pilot_id: int) -> None:
+    if source_pilot_id == target_pilot_id:
+        return
+    source_memberships = session.scalars(select(EventPilot).where(EventPilot.pilot_id == source_pilot_id)).all()
+    remove_source_memberships = not _has_pilot_history(session, source_pilot_id)
+    for membership in source_memberships:
+        existing_target = session.scalar(
+            select(EventPilot).where(EventPilot.event_id == membership.event_id, EventPilot.pilot_id == target_pilot_id)
+        )
+        if existing_target is None:
+            if remove_source_memberships:
+                membership.pilot_id = target_pilot_id
+                session.add(membership)
+            else:
+                session.add(EventPilot(event_id=membership.event_id, pilot_id=target_pilot_id))
+        elif remove_source_memberships:
+            session.delete(membership)
+
+
+def _retire_auto_users(session: Session, source_pilot_id: int, except_user_id: int | None = None) -> None:
+    users = session.scalars(select(User).where(User.pilot_id == source_pilot_id, User.is_active.is_(True))).all()
+    for user in users:
+        if user.id == except_user_id:
+            continue
+        if is_auto_generated_user(user):
+            user.is_active = False
+            user.pilot_id = None
+            session.add(user)
+
+
+def _has_pilot_history(session: Session, pilot_id: int) -> bool:
+    history_models = (
+        IGCUpload,
+        PilotFlight,
+        TaskScoringInput,
+        ScorePenalty,
+        ScoreResult,
+        LivePosition,
+        TrackingSession,
+        SosAlert,
+        DriverAssignment,
+        PilotLanding,
+        BuddyGroupMember,
+    )
+    for model in history_models:
+        if session.scalar(select(model.id).where(model.pilot_id == pilot_id).limit(1)) is not None:
+            return True
+    return False
+
+
+def _event_membership_count(session: Session, pilot_id: int) -> int:
+    return session.scalar(select(func.count()).select_from(EventPilot).where(EventPilot.pilot_id == pilot_id)) or 0
+
+
+def _pilot_full_name(pilot: Pilot) -> str:
+    return f"{pilot.first_name or ''} {pilot.last_name or ''}".strip() or normalize_email(pilot.email) or "Pilot"
+
+
+def _slug_username(first_name: str, last_name: str, competition_number: str | None) -> str:
+    import re
+
+    base = re.sub(r"[^a-z0-9]+", "-", f"{first_name}-{last_name}-{competition_number or 'pilot'}".lower()).strip("-")
+    return base or "pilot"
