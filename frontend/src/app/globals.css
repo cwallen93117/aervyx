@@ -1783,6 +1783,63 @@ button[type="submit"]:hover,
   margin-top: -2px;
 }
 
+.pilot-task-nav {
+  flex: 1 1 100%;
+  margin-bottom: 0;
+}
+
+.pilot-task-nav-empty {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  padding: 8px 12px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.task-readonly-list {
+  display: grid;
+  gap: 0;
+}
+
+.task-readonly-row {
+  display: grid;
+  grid-template-columns: minmax(112px, 0.42fr) minmax(0, 1fr);
+  gap: 14px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.task-readonly-row:last-child {
+  border-bottom: 0;
+}
+
+.task-readonly-row span {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.task-readonly-row strong {
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  word-break: break-word;
+}
+
+.task-readonly-gates {
+  margin-top: 8px;
+}
+
+.task-readonly-empty {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
 .task-turnpoint-rail {
   display: flex;
   flex-direction: column;
@@ -5279,6 +5336,20 @@ button[type="submit"]:hover,
     width: 100%;
     min-width: 0;
     max-width: none;
+  }
+
+  .pilot-task-nav {
+    width: 100%;
+  }
+
+  .pilot-task-nav .scoring-nav-btn {
+    flex: 1 1 calc(50% - 6px);
+  }
+
+  .task-readonly-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+    padding: 9px 0;
   }
 
   .fieldset-cluster .stack.compact,

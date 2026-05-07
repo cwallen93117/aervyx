@@ -27,6 +27,15 @@ const taskTypeOptions = [
   { value: "open_distance", label: "Open Distance" },
 ] as const;
 
+function taskTypeLabel(value: string | null | undefined): string {
+  return taskTypeOptions.find((option) => option.value === value)?.label ?? "Not set";
+}
+
+function displayTaskValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "Not set";
+  return String(value);
+}
+
 function toSimplePointType(pointType: string): string {
   if (pointType === "launch") return "start";
   if (pointType === "ESS") return "goal";
@@ -330,6 +339,24 @@ export default function TasksSection(props: TasksSectionProps) {
   const canEditTaskFinish = canManagePlatform;
   const canEditStartGates = canManagePlatform && currentTaskTypeBehavior.usesMultipleGates;
   const startGateTimesLabel = `Start gate times (${startGateLabels.length})`;
+  const pilotTaskSetupRows = [
+    { label: "Task name", value: displayTaskValue(taskDraft.name) },
+    { label: "Task date", value: displayTaskValue(taskDraft.task_date) },
+    { label: "Task type", value: taskTypeLabel(taskDraft.task_type) },
+  ];
+  const pilotTimingRows = usesGatedStart
+    ? [
+        { label: "Start open", value: displayTaskValue(taskDraft.start_open_time) },
+        { label: "Start close", value: displayTaskValue(taskDraft.start_close_time) },
+        { label: "Task finish", value: displayTaskValue(taskDraft.task_finish_time) },
+        { label: "Start gates", value: displayTaskValue(taskDraft.start_gate_count) },
+        { label: "Gate interval", value: taskDraft.start_gate_interval_minutes === "" ? "Not set" : `${taskDraft.start_gate_interval_minutes} min` },
+      ]
+    : [
+        { label: "Task start", value: displayTaskValue(taskDraft.task_start_time) },
+        { label: "Start close", value: displayTaskValue(taskDraft.start_close_time) },
+        { label: "Task finish", value: displayTaskValue(taskDraft.task_finish_time) },
+      ];
   const fullscreenTaskEditor = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
     <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
       <TaskTurnpointsList
@@ -381,15 +408,15 @@ export default function TasksSection(props: TasksSectionProps) {
     <SectionCard>
       <div className="stack form-block compact-clusters">
         <div className="task-toolbar">
-          <label className="stack compact task-toolbar-picker">
-            <span>Selected task</span>
-            <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-              <option value="">Select a task</option>
-              {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-            </select>
-          </label>
           {canManagePlatform ? (
             <>
+              <label className="stack compact task-toolbar-picker">
+                <span>Selected task</span>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
+                  <option value="">Select a task</option>
+                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                </select>
+              </label>
               <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
               <button type="button" className="ghost-button" onClick={duplicateTask} disabled={!taskDraft.id}>Duplicate</button>
               <button type="button" className="primary-button" onClick={saveTask}>Save task</button>
@@ -403,106 +430,138 @@ export default function TasksSection(props: TasksSectionProps) {
               </button>
               <button type="button" className="ghost-button danger-button task-delete-button task-toolbar-delete" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
             </>
-          ) : null}
+          ) : (
+            <div className="scoring-nav pilot-task-nav" aria-label="Select task">
+              {tasks.length ? tasks.map((task, index) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  className={selectedTaskId === task.id ? "scoring-nav-btn active" : "scoring-nav-btn"}
+                  onClick={() => void loadTask(token, task.id, task, activeSection === "scoring")}
+                >
+                  {task.name || `Task ${index + 1}`}
+                </button>
+              )) : <span className="pilot-task-nav-empty">No tasks available</span>}
+            </div>
+          )}
         </div>
         {canManagePlatform && taskFeedback ? <div className={`status-chip ${taskFeedback.type} task-toolbar-feedback`}>{taskFeedback.text}</div> : null}
         <div className="fieldset-grid two-up">
           <fieldset className="fieldset-cluster">
             <legend>Task setup</legend>
-            <div className="cluster-stack">
-              <label className="stack compact">
-                <span>Task name</span>
-                <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
-              </label>
-              <label className="stack compact">
-                <span>Task date</span>
-                <input type="date" value={taskDraft.task_date} onChange={(event) => setTaskDraft({ ...taskDraft, task_date: event.target.value })} disabled={!canManagePlatform} />
-              </label>
-              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                <span>Task type</span>
-                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
-                  {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-            </div>
+            {canManagePlatform ? (
+              <div className="cluster-stack">
+                <label className="stack compact">
+                  <span>Task name</span>
+                  <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
+                </label>
+                <label className="stack compact">
+                  <span>Task date</span>
+                  <input type="date" value={taskDraft.task_date} onChange={(event) => setTaskDraft({ ...taskDraft, task_date: event.target.value })} disabled={!canManagePlatform} />
+                </label>
+                <label className="stack compact">
+                  <span>Task type</span>
+                  <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
+                    {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+              </div>
+            ) : (
+              <div className="task-readonly-list">
+                {pilotTaskSetupRows.map((row) => (
+                  <div key={row.label} className="task-readonly-row">
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
           </fieldset>
 
           <fieldset className="fieldset-cluster">
             <legend>Timing and gates</legend>
-            <div className="fieldset-grid two-up task-timing-layout">
-              {usesGatedStart ? (
-                <>
-                  <div className="cluster-stack">
-                    <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start open</span>
-                      <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!canEditStartWindow} />
-                    </label>
-                    <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start close</span>
-                      <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canEditStartWindow} />
-                    </label>
-                    <label className={canEditTaskFinish ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Task finish</span>
-                      <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canEditTaskFinish} />
-                    </label>
-                  </div>
-                  {canManagePlatform || startGateLabels.length ? (
-                    <div className="cluster-stack task-gate-settings">
-                      {canManagePlatform ? (
-                        <>
-                          <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
-                            <span>Start gates</span>
-                            <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!canEditStartGates} />
-                          </label>
-                          <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
-                            <span>Gate interval (min)</span>
-                            <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!canEditStartGates} />
-                          </label>
-                        </>
-                      ) : (
-                        <div className="task-gate-times task-gate-times-inline" aria-label="Start gate times">
-                          <strong>{startGateTimesLabel}</strong>
-                          <div className="task-gate-time-list">
-                            {startGateLabels.map((label) => (
-                              <span key={label} className="task-gate-time-chip">{label}</span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
+            {canManagePlatform ? (
+              <div className="fieldset-grid two-up task-timing-layout">
+                {usesGatedStart ? (
+                  <>
+                    <div className="cluster-stack">
+                      <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
+                        <span>Start open</span>
+                        <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!canEditStartWindow} />
+                      </label>
+                      <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
+                        <span>Start close</span>
+                        <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canEditStartWindow} />
+                      </label>
+                      <label className={canEditTaskFinish ? "stack compact" : "stack compact field-disabled"}>
+                        <span>Task finish</span>
+                        <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canEditTaskFinish} />
+                      </label>
                     </div>
-                  ) : null}
-                  {canManagePlatform && startGateLabels.length ? (
-                    <div className="task-gate-times" aria-label="Start gate times">
-                      <strong>{startGateTimesLabel}</strong>
-                      <div className="task-gate-time-list">
-                        {startGateLabels.map((label) => (
-                          <span key={label} className="task-gate-time-chip">{label}</span>
-                        ))}
+                    {canManagePlatform || startGateLabels.length ? (
+                      <div className="cluster-stack task-gate-settings">
+                        <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
+                          <span>Start gates</span>
+                          <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!canEditStartGates} />
+                        </label>
+                        <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
+                          <span>Gate interval (min)</span>
+                          <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!canEditStartGates} />
+                        </label>
                       </div>
+                    ) : null}
+                    {startGateLabels.length ? (
+                      <div className="task-gate-times" aria-label="Start gate times">
+                        <strong>{startGateTimesLabel}</strong>
+                        <div className="task-gate-time-list">
+                          {startGateLabels.map((label) => (
+                            <span key={label} className="task-gate-time-chip">{label}</span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <>
+                    <div className="cluster-stack">
+                      <label className="stack compact">
+                        <span>Task start</span>
+                        <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
+                      </label>
+                      <label className="stack compact">
+                        <span>Start close</span>
+                        <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canManagePlatform} />
+                      </label>
                     </div>
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  <div className="cluster-stack">
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Task start</span>
-                      <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start close</span>
-                      <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
+                    <div className="cluster-stack">
+                      <label className="stack compact">
+                        <span>Task finish</span>
+                        <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
+                      </label>
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="task-readonly-list">
+                {pilotTimingRows.map((row) => (
+                  <div key={row.label} className="task-readonly-row">
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
                   </div>
-                  <div className="cluster-stack">
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Task finish</span>
-                      <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
+                ))}
+                {usesGatedStart ? (
+                  <div className="task-gate-times task-readonly-gates" aria-label="Start gate times">
+                    <strong>{startGateTimesLabel}</strong>
+                    <div className="task-gate-time-list">
+                      {startGateLabels.length ? startGateLabels.map((label) => (
+                        <span key={label} className="task-gate-time-chip">{label}</span>
+                      )) : <span className="task-readonly-empty">Not set</span>}
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
+                ) : null}
+              </div>
+            )}
           </fieldset>
         </div>
         <div className="task-builder-layout">
