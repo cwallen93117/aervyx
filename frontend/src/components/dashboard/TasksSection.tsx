@@ -330,7 +330,7 @@ export default function TasksSection(props: TasksSectionProps) {
   const canEditTaskFinish = canManagePlatform;
   const canEditStartGates = canManagePlatform && currentTaskTypeBehavior.usesMultipleGates;
   const startGateTimesLabel = `Start gate times (${startGateLabels.length})`;
-  const fullscreenTaskEditor = canManagePlatform ? ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+  const fullscreenTaskEditor = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
     <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
       <TaskTurnpointsList
         taskDraft={taskDraft}
@@ -352,28 +352,30 @@ export default function TasksSection(props: TasksSectionProps) {
         handleRadiusInputKeyDown={handleRadiusInputKeyDown}
         radiusInputValue={radiusInputValue}
       />
-      <div className="map-task-editor-body" hidden={collapsed}>
-        <div className="map-task-editor-footer">
-          <div className="map-task-editor-footer-row">
-            <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
-              <div className="map-task-editor-summary-row">
-                <strong>Total:</strong>
-                <span>{formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
+      {canManagePlatform ? (
+        <div className="map-task-editor-body" hidden={collapsed}>
+          <div className="map-task-editor-footer">
+            <div className="map-task-editor-footer-row">
+              <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
+                <div className="map-task-editor-summary-row">
+                  <strong>Total:</strong>
+                  <span>{formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
+                </div>
+                <div className="map-task-editor-summary-row">
+                  <strong>Optimized:</strong>
+                  <span>{formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
+                </div>
               </div>
-              <div className="map-task-editor-summary-row">
-                <strong>Optimized:</strong>
-                <span>{formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
-              </div>
+              <button type="button" className="map-task-editor-save" onClick={saveTask}>
+                Save task
+              </button>
             </div>
-            <button type="button" className="map-task-editor-save" onClick={saveTask}>
-              Save task
-            </button>
+            {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
           </div>
-          {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
         </div>
-      </div>
+      ) : null}
     </div>
-  ) : undefined;
+  );
   return (
     <div className="section-stack">
     <SectionCard>
