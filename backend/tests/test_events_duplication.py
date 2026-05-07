@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.events import _event_payload, duplicate_event
+from app.routers.events import _event_payload, duplicate_event, list_events
 
 
 def _session() -> Session:
@@ -33,6 +33,27 @@ def test_event_payload_includes_default_start_gate_settings() -> None:
 
     assert payload.default_start_gate_count == 5
     assert payload.default_start_gate_interval_seconds == 900
+
+
+def test_list_events_filters_pilot_visible_competitions() -> None:
+    session = _session()
+    pilot = Pilot(first_name="Visible", last_name="Pilot", email="pilot@example.com")
+    session.add(pilot)
+    session.flush()
+    pilot_user = User(username="visible-pilot", full_name="Visible Pilot", role="pilot", pilot_id=pilot.id, password_hash="hash")
+    public_event = Event(name="Public Comp", location="Open", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC", visibility="public")
+    users_event = Event(name="Users Comp", location="Portal", starts_on=date(2026, 5, 4), ends_on=date(2026, 5, 6), timezone="UTC", visibility="users")
+    participant_event = Event(name="Participant Comp", location="Roster", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC", visibility="participants")
+    other_participant_event = Event(name="Other Participant Comp", location="Roster", starts_on=date(2026, 5, 10), ends_on=date(2026, 5, 12), timezone="UTC", visibility="participants")
+    private_event = Event(name="Private Comp", location="Hidden", starts_on=date(2026, 5, 13), ends_on=date(2026, 5, 15), timezone="UTC", visibility="private")
+    session.add_all([pilot_user, public_event, users_event, participant_event, other_participant_event, private_event])
+    session.flush()
+    session.add(EventPilot(event_id=participant_event.id, pilot_id=pilot.id))
+    session.commit()
+
+    visible_names = {event.name for event in list_events(user=pilot_user, session=session)}
+
+    assert visible_names == {"Public Comp", "Users Comp", "Participant Comp"}
 
 
 def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:

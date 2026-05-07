@@ -381,6 +381,8 @@ const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
 const SESSION_COOKIE = "flightcomp_session";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
+type SidebarItem = { id: SidebarSection; label: string; description?: string };
+
 const adminSidebarItems = [
   { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
@@ -393,50 +395,54 @@ const adminSidebarItems = [
   { id: "sos", label: "SOS Alerts" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
 const organizerSidebarItems = [
   { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
-  { id: "weather", label: "Weather" },
-  { id: "airspace", label: "Airspace" },
   { id: "sos", label: "SOS Alerts" },
   { id: "settings", label: "Settings" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
 const pilotSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
-  { id: "weather", label: "Weather" },
-  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
 const guestSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
+
+const adminSidebarItemIds = new Set<SidebarSection>(adminSidebarItems.map((item) => item.id));
+const organizerSidebarItemIds = new Set<SidebarSection>(organizerSidebarItems.map((item) => item.id));
+const pilotSidebarItemIds = new Set<SidebarSection>(pilotSidebarItems.map((item) => item.id));
+const guestSidebarItemIds = new Set<SidebarSection>(guestSidebarItems.map((item) => item.id));
+
+function sidebarItemsForRole(role: User["role"] | null): SidebarItem[] {
+  if (role === "admin") return adminSidebarItems;
+  if (role === "organizer") return organizerSidebarItems;
+  if (role === "pilot") return pilotSidebarItems;
+  return guestSidebarItems;
+}
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
-  if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
-      return section;
-    }
-    return "tasks";
+  const allowedSections =
+    role === "admin"
+      ? adminSidebarItemIds
+      : role === "organizer"
+        ? organizerSidebarItemIds
+        : role === "pilot"
+          ? pilotSidebarItemIds
+          : guestSidebarItemIds;
+  if (section && allowedSections.has(section as SidebarSection)) {
+    return section as SidebarSection;
   }
-  if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "sos" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
-      return section;
-    }
-    return "events";
-  }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "sos" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings" || section === "admin") {
-    return section;
-  }
+  if (role === "pilot") return "tasks";
+  if (role === null) return "scoring";
   return "events";
 }
 
@@ -1137,7 +1143,7 @@ export default function HomePage() {
     ),
     [canManagePlatform, taskDraft.points, turnpoints],
   );
-  const sidebarItems = user?.role === "admin" ? adminSidebarItems : user?.role === "organizer" ? organizerSidebarItems : pilotSidebarItems;
+  const sidebarItems = sidebarItemsForRole(user?.role ?? null);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -1180,8 +1186,10 @@ export default function HomePage() {
   }, [activeSection, user]);
 
   useEffect(() => {
-    if (user?.role === "pilot" && activeSection === "events") {
-      setActiveSection("tasks");
+    if (!user) return;
+    const normalizedSection = normalizeSectionForRole(activeSection, user.role);
+    if (normalizedSection !== activeSection) {
+      setActiveSection(normalizedSection);
     }
   }, [activeSection, user]);
 
@@ -3142,6 +3150,27 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
+                {user.role === "pilot" && activeSection === "tasks" ? (
+                  <label className="hero-event-select" aria-label="Current competition">
+                    <select
+                      value={selectedEventId ?? ""}
+                      onChange={(event) => {
+                        const nextEventId = Number(event.target.value);
+                        const nextEvent = events.find((candidate) => candidate.id === nextEventId);
+                        if (nextEvent) void loadEvent(token, nextEvent.id, nextEvent, user, undefined, "tasks");
+                      }}
+                      disabled={!events.length || workspaceLoading}
+                    >
+                      {!events.length ? <option value="">No available comps</option> : null}
+                      {events.length && selectedEventId === null ? <option value="">Select comp</option> : null}
+                      {events.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.name}{event.location ? ` - ${event.location}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
                 {activeSection === "airspace" && (
                   <AirspaceFreshnessStatus
                     selectedTfrTime={selectedTfrTime}
@@ -3150,7 +3179,7 @@ export default function HomePage() {
                     onTfrRefreshComplete={() => setTfrRefreshToken((current) => current + 1)}
                   />
                 )}
-                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
+                {!(user.role === "pilot" && activeSection === "tasks") && activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
                   </span>

@@ -146,7 +146,17 @@ export default function TasksSection(props: TasksSectionProps) {
     radiusInputValue,
     overlayConfig,
   } = props;
-  if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
+  if (!selectedEventId) {
+    return canManagePlatform ? (
+      <SectionCard title="Tasks" description="Create or select an event first.">
+        <p className="hint">Tasks need an event context before they can be built.</p>
+      </SectionCard>
+    ) : (
+      <SectionCard title="Tasks" description="No competition selected.">
+        <p className="hint">Choose an available competition from the Tasks header. If none are listed, no competitions are visible to this account yet.</p>
+      </SectionCard>
+    );
+  }
   const usesGatedStart = currentTaskTypeBehavior.usesMultipleGates;
   const taskIsPublished = selectedTask?.status === "published";
   const taskTurnpointCountLabel = taskDraft.points.length ? `${taskDraft.points.length} in task` : "No turnpoints yet";

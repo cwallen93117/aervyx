@@ -445,6 +445,20 @@ input, select, textarea { font-family: inherit; }
   max-width: min(52vw, 720px);
 }
 
+.hero-event-select {
+  min-width: min(340px, 46vw);
+  max-width: min(460px, 56vw);
+}
+
+.hero-event-select select {
+  min-height: 32px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
 .airspace-freshness {
   display: inline-flex;
   align-items: stretch;
@@ -5598,6 +5612,12 @@ details[open] > summary {
     margin-left: 0;
   }
 
+  .hero-event-select {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+  }
+
   .participant-intake-split,
   .participant-intake-row,
   .participant-intake-grid--two,
@@ -6365,6 +6385,10 @@ html[data-theme="dark"] {
 html[data-theme="dark"] .hero-event-context {
   color: rgba(255, 255, 255, 0.42);
   border-left-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .hero-event-select select {
+  color: rgba(255, 255, 255, 0.88);
 }
 
 /* ── Section cards ── */
