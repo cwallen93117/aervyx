@@ -1906,20 +1906,23 @@ button[type="submit"]:hover,
   --task-point-visible-rows: 5;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   background: var(--panel);
 }
 
 .task-point-list-grid-header,
 .task-point-list-grid-row {
   display: grid;
-  grid-template-columns: 44px minmax(116px, 1.25fr) 112px 88px 72px 96px;
+  grid-template-columns: 44px minmax(116px, 1.25fr) 128px 88px 72px 96px;
   align-items: center;
+  min-width: 544px;
 }
 
 .task-point-list-grid-header.has-actions,
 .task-point-list-grid-row.has-actions {
-  grid-template-columns: 44px minmax(116px, 1.25fr) 112px 88px 72px 96px 92px;
+  grid-template-columns: 44px minmax(116px, 1.25fr) 128px 88px 72px 96px 92px;
+  min-width: 636px;
 }
 
 .task-point-list-grid-header {
@@ -1945,7 +1948,7 @@ button[type="submit"]:hover,
 }
 
 .task-point-list-grid-header > span:nth-child(3) {
-  width: 112px;
+  width: 128px;
   justify-self: center;
 }
 
@@ -1995,11 +1998,24 @@ button[type="submit"]:hover,
 .task-point-list-scroll {
   height: calc(var(--task-point-row-height) * var(--task-point-visible-rows));
   max-height: calc(var(--task-point-row-height) * var(--task-point-visible-rows));
+  min-width: 544px;
   overflow-y: scroll;
   overflow-x: hidden;
   scrollbar-gutter: stable;
   scrollbar-width: auto;
   scrollbar-color: var(--line-strong) var(--wash);
+}
+
+.task-point-list-scroll.has-actions {
+  min-width: 636px;
+}
+
+.task-point-list-empty {
+  margin: 0;
+  padding: 16px;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  text-align: center;
 }
 
 .task-point-list-scroll::-webkit-scrollbar {
@@ -2059,7 +2075,7 @@ button[type="submit"]:hover,
 }
 
 .task-point-row-type {
-  width: 112px;
+  width: 128px;
   justify-self: center;
 }
 
@@ -3900,14 +3916,14 @@ button[type="submit"]:hover,
 
 .map-task-editor-overlay {
   position: relative;
-  width: min(560px, calc(100vw - 24px));
+  width: min(720px, calc(100vw - 24px));
   max-height: calc(100vh - 180px);
   overflow: hidden;
 }
 
 .map-fullscreen-overlay-top .map-task-editor-overlay {
   width: auto;
-  max-width: min(560px, calc(100vw - 198px));
+  max-width: min(720px, calc(100vw - 198px));
 }
 
 .map-fullscreen-overlay-group.is-task-editor-collapsed .map-task-editor-overlay {
@@ -4432,35 +4448,11 @@ button[type="submit"]:hover,
   border-radius: var(--r-md);
 }
 
-.map-task-editor-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.map-task-editor-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.map-task-editor-title-row {
+.task-turnpoints-panel-title-row {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-}
-
-.map-task-editor-header strong {
-  font-size: 0.875rem;
-  color: var(--ink);
-}
-
-.map-task-editor-header span {
-  font-size: 0.75rem;
-  color: var(--muted);
 }
 
 .map-task-editor-collapse-button {
@@ -4493,15 +4485,13 @@ button[type="submit"]:hover,
   pointer-events: none;
 }
 
-.map-task-editor.is-collapsed .map-task-editor-header {
-  gap: 0;
+.task-turnpoints-panel.is-collapsed .task-turnpoints-panel-header {
+  padding-bottom: 0;
+  border-bottom: none;
+  margin-bottom: 0;
 }
 
-.map-task-editor.is-collapsed .map-task-editor-title {
-  gap: 0;
-}
-
-.map-task-editor.is-collapsed .map-task-editor-title-row {
+.task-turnpoints-panel.is-collapsed .task-turnpoints-panel-title-row {
   gap: 8px;
 }
 
@@ -4512,152 +4502,6 @@ button[type="submit"]:hover,
 
 .map-task-editor-body[hidden] {
   display: none;
-}
-
-.map-task-editor-table-wrap {
-  --map-task-editor-row-height: 52px;
-  overflow-y: scroll;
-  overflow-x: hidden;
-  max-height: calc(40px + (var(--map-task-editor-row-height) * 5));
-  scrollbar-gutter: stable;
-  scrollbar-width: auto;
-  scrollbar-color: var(--line-strong) var(--wash);
-}
-
-.map-task-editor-table-wrap::-webkit-scrollbar {
-  width: 14px;
-}
-
-.map-task-editor-table-wrap::-webkit-scrollbar-track {
-  background: var(--wash);
-}
-
-.map-task-editor-table-wrap::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-  border-radius: 999px;
-  border: 3px solid var(--wash);
-}
-
-.map-task-editor-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.75rem;
-  table-layout: auto;
-}
-
-.map-task-editor-table th,
-.map-task-editor-table td {
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--line);
-  vertical-align: middle;
-}
-
-.map-task-editor-table th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: inset 0 -1px 0 var(--line);
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted);
-  text-align: center;
-}
-
-.map-task-editor-table td strong {
-  display: block;
-  font-size: 0.75rem;
-}
-
-.map-task-editor-name {
-  min-width: 160px;
-}
-
-.map-task-editor-type {
-  width: 184px;
-}
-
-.map-task-editor-direction {
-  width: 96px;
-}
-
-.map-task-editor-radius {
-  width: 104px;
-}
-
-.map-task-editor-distance {
-  width: 118px;
-  text-align: center;
-}
-
-.map-task-editor-distance-heading {
-  display: grid;
-  gap: 2px;
-  justify-items: center;
-  text-align: center;
-}
-
-.map-task-editor-distance-heading strong {
-  font: inherit;
-}
-
-.map-task-editor-distance-heading em {
-  font-style: normal;
-  font-weight: 600;
-  font-size: 0.625rem;
-  letter-spacing: 0.02em;
-  text-transform: none;
-  color: var(--muted);
-}
-
-.map-task-editor-actions {
-  width: 86px;
-}
-
-.map-task-editor-table select,
-.map-task-editor-table input {
-  height: 32px;
-  width: 100%;
-  min-width: 0;
-  padding: 6px 10px;
-  font-size: 0.75rem;
-}
-
-.map-task-editor-radius input {
-  text-align: center;
-}
-
-.map-task-editor-table .ghost-button {
-  height: 32px;
-  padding: 6px 10px;
-  font-size: 0.75rem;
-}
-
-.map-task-editor-distance strong {
-  display: block;
-  font-size: 0.75rem;
-  line-height: 1.2;
-}
-
-.map-task-editor-distance-secondary {
-  display: block;
-  font-size: 0.6875rem;
-  line-height: 1.15;
-  color: var(--muted);
-  white-space: nowrap;
-}
-
-.map-task-editor-drag {
-  color: var(--muted);
-  white-space: nowrap;
-  cursor: grab;
-}
-
-.map-task-editor-empty {
-  text-align: center;
-  color: var(--muted);
 }
 
 .map-task-editor-footer {
