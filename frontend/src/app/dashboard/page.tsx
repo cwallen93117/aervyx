@@ -3142,7 +3142,6 @@ export default function HomePage() {
             items={sidebarItems}
             activeItem={activeSection}
             onSelect={(id) => { setActiveSection(id as SidebarSection); setMessage(""); setError(""); }}
-            eventName={selectedEvent?.name ?? null}
             compact={sidebarCompact}
             onToggleCompact={() => setSidebarCompact((current) => !current)}
           />

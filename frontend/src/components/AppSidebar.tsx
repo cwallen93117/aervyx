@@ -101,28 +101,19 @@ export function AppSidebar({
   items,
   activeItem,
   onSelect,
-  eventName,
   compact,
   onToggleCompact,
 }: {
   items: SidebarItem[];
   activeItem: string;
   onSelect: (id: string) => void;
-  eventName: string | null;
   compact: boolean;
   onToggleCompact: () => void;
 }) {
-  const showEventContext = !compact && activeItem !== "admin" && activeItem !== "settings" && activeItem !== "logbook" && activeItem !== "weather" && activeItem !== "airspace";
   return (
     <aside className={compact ? "panel nav-sidebar compact-mode" : "panel nav-sidebar"}>
       <div className="sidebar-brand">
         <div className="sidebar-brand-row">
-          {showEventContext ? (
-            <div>
-              <span className="context-label">Selected event</span>
-              <p className="eyebrow">{eventName ?? "No event selected"}</p>
-            </div>
-          ) : null}
           <button
             type="button"
             className="sidebar-toggle"

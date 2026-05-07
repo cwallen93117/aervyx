@@ -120,23 +120,11 @@ input, select, textarea { font-family: inherit; }
 .sidebar-brand-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .workspace-shell.sidebar-compact .sidebar-brand-row {
   justify-content: center;
-}
-
-.sidebar-brand .eyebrow {
-  font-size: 1.25rem;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.01em;
-  text-transform: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 130px;
 }
 
 .sidebar-toggle {
@@ -155,31 +143,6 @@ input, select, textarea { font-family: inherit; }
 .sidebar-toggle:hover {
   background: rgba(255, 255, 255, 0.15);
   color: var(--sb-ink);
-}
-
-.sidebar-context {
-  padding: 12px 18px;
-  border-bottom: 1px solid var(--sb-line);
-}
-
-.context-label {
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: var(--sb-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: block;
-  margin-bottom: 4px;
-}
-
-.sidebar-context strong {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--sb-ink);
-  display: block;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .sidebar-nav {
