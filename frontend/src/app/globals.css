@@ -1834,6 +1834,10 @@ button[type="submit"]:hover,
   margin-top: 8px;
 }
 
+.task-readonly-list-gates-only .task-readonly-gates {
+  margin-top: 0;
+}
+
 .task-readonly-empty {
   color: var(--muted);
   font-size: 0.75rem;
