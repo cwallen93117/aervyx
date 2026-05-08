@@ -349,8 +349,6 @@ export default function TasksSection(props: TasksSectionProps) {
         { label: "Start open", value: displayTaskValue(taskDraft.start_open_time) },
         { label: "Start close", value: displayTaskValue(taskDraft.start_close_time) },
         { label: "Task finish", value: displayTaskValue(taskDraft.task_finish_time) },
-        { label: "Start gates", value: displayTaskValue(taskDraft.start_gate_count) },
-        { label: "Gate interval", value: taskDraft.start_gate_interval_minutes === "" ? "Not set" : `${taskDraft.start_gate_interval_minutes} min` },
       ]
     : [
         { label: "Task start", value: displayTaskValue(taskDraft.task_start_time) },
