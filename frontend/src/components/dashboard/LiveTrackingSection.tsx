@@ -8,10 +8,13 @@ import {
   TaskMap,
   type MapAirspaceRegion,
   type MapLivePosition,
+  type TaskEditorOverlayRenderProps,
   type MapTurnpoint,
   type MapUnitPreferences,
   type TrackCollection,
 } from "../TaskMap";
+import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type { BuddyGroup, TaskPointRecord, TaskRecord } from "./types";
 import {
   TRACK_COLORS,
@@ -479,7 +482,24 @@ export default function LiveTrackingSection({
   }, [trackingSource, tasks, buddyGroups]);
 
   const isSourceActive = trackingSource !== null;
-  const showTaskMap = trackingSource?.type === "task" && selectedTask;
+  const showTaskMap = trackingSource?.type === "task" && selectedTask !== null;
+  const liveTaskDistanceMetrics = useMemo(() => computeTaskOptimization(showTaskMap ? taskPoints : []), [showTaskMap, taskPoints]);
+  const liveTaskFullscreenOverlay = showTaskMap
+    ? ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+        <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
+          <TaskTurnpointsTable
+            points={taskPoints}
+            taskPointAdvanced
+            turnpoints={turnpoints}
+            taskDistanceMetrics={liveTaskDistanceMetrics}
+            distanceUnit={units.distance}
+            collapsed={collapsed}
+            contentId={contentId}
+            titleAction={toggleButton}
+          />
+        </div>
+      )
+    : undefined;
 
   return (
     <div className="section-stack">
@@ -611,9 +631,12 @@ export default function LiveTrackingSection({
                   fitTurnpoints={showTaskMap ? turnpoints : []}
                   airspaces={showTaskMap ? visibleAirspaces : []}
                   taskPoints={showTaskMap ? taskPoints : []}
+                  optimizedRoute={showTaskMap ? liveTaskDistanceMetrics.routeCoordinates : []}
+                  legMetrics={showTaskMap ? liveTaskDistanceMetrics.legMetrics : []}
                   track={liveTrack}
                   livePositions={livePositions}
                   editable={false}
+                  taskEditorOverlay={liveTaskFullscreenOverlay}
                   mode="live"
                   units={units}
                   overlayConfig={overlayConfig}

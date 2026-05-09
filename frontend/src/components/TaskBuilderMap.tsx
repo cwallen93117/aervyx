@@ -10,13 +10,10 @@ export interface TaskBuilderMapProps {
   taskPoints: MapTaskPoint[];
   optimizedRoute?: [number, number][];
   legMetrics?: MapLegMetric[];
-  totalDistanceKm?: number;
-  optimizedDistanceKm?: number;
   track?: TrackCollection | null;
   editable?: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: TaskEditorOverlayContent;
-  hideFullscreenDistanceOverlay?: boolean;
   units?: MapUnitPreferences;
   overlayConfig?: Record<string, boolean>;
 }
@@ -29,13 +26,10 @@ export function TaskBuilderMap({
   taskPoints,
   optimizedRoute = [],
   legMetrics = [],
-  totalDistanceKm = 0,
-  optimizedDistanceKm = 0,
   track = null,
   editable = false,
   onSelectTurnpoint,
   taskEditorOverlay,
-  hideFullscreenDistanceOverlay = false,
   units,
   overlayConfig,
 }: TaskBuilderMapProps) {
@@ -49,13 +43,10 @@ export function TaskBuilderMap({
       taskPoints={taskPoints}
       optimizedRoute={optimizedRoute}
       legMetrics={legMetrics}
-      totalDistanceKm={totalDistanceKm}
-      optimizedDistanceKm={optimizedDistanceKm}
       track={track}
       editable={editable}
       onSelectTurnpoint={onSelectTurnpoint}
       taskEditorOverlay={taskEditorOverlay}
-      hideFullscreenDistanceOverlay={hideFullscreenDistanceOverlay}
       fitKey={selectedTaskId}
       viewStateKey={viewStateKey}
       units={units}

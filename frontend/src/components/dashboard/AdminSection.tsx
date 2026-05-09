@@ -1116,11 +1116,8 @@ export default function AdminSection(props: AdminSectionProps) {
                       taskPoints={previewTaskPoints}
                       optimizedRoute={[]}
                       legMetrics={[]}
-                      totalDistanceKm={0}
-                      optimizedDistanceKm={0}
                       track={null}
                       editable={false}
-                      hideDistanceSummary
                       fitKey={selectedSite ? `${selectedSite.id}:${sitePreviewFitNonce}` : "site-preview-empty"}
                       fitMaxZoom={11}
                       overlayConfig={mapOverlayConfig.config?.admin_site_preview}
@@ -1985,11 +1982,8 @@ function LiveTrackingTab({
             taskPoints={[]}
             optimizedRoute={[]}
             legMetrics={[]}
-            totalDistanceKm={0}
-            optimizedDistanceKm={0}
             track={null}
             editable={false}
-            hideDistanceSummary
             livePositions={livePositions}
             liveMarkerScale={1.8}
             fitKey={`live-tracking-${livePositions.length}`}

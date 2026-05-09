@@ -3932,43 +3932,12 @@ button[type="submit"]:hover,
   max-width: calc(100vw - 24px);
 }
 
-.map-distance-box,
-.map-distance-summary {
+.map-distance-box {
   padding: 8px 10px;
   border-radius: var(--r-md);
   border: 1px solid var(--line);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow-sm);
-}
-
-.map-distance-summary {
-  min-width: 164px;
-}
-
-.map-distance-summary-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 0.75rem;
-}
-
-.map-distance-summary-row + .map-distance-summary-row {
-  margin-top: 4px;
-}
-
-.map-distance-summary-row strong {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.map-distance-summary-row span {
-  font-size: 0.875rem;
-  font-weight: 700;
-  color: var(--ink);
 }
 
 .map-style-picker {
@@ -4013,16 +3982,12 @@ button[type="submit"]:hover,
 
 .map-fullscreen-overlay-top .map-task-editor-overlay {
   width: auto;
-  max-width: min(720px, calc(100vw - 198px));
+  max-width: min(720px, calc(100vw - 24px));
 }
 
 .map-fullscreen-overlay-group.is-task-editor-collapsed .map-task-editor-overlay {
   width: max-content;
   max-width: calc(100vw - 24px);
-}
-
-.map-fullscreen-overlay-top .map-distance-summary {
-  flex: 0 0 auto;
 }
 
 .map-control-stack {
@@ -4585,6 +4550,43 @@ button[type="submit"]:hover,
   gap: 8px;
 }
 
+.task-turnpoints-distance-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.task-turnpoints-distance-summary span {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(248, 250, 252, 0.92);
+  color: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.task-turnpoints-distance-summary strong {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 640px) {
+  .task-turnpoints-distance-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .map-task-editor.is-collapsed .map-task-editor-collapse-button {
   width: 32px;
   height: 32px;
@@ -4605,38 +4607,7 @@ button[type="submit"]:hover,
     align-items: stretch;
     gap: 10px;
   }
-  
-.map-task-editor-summary {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    justify-content: center;
-    gap: 4px;
-    min-width: 0;
-    padding: 8px 12px;
-    border: 1px solid var(--line);
-    border-radius: var(--r-md);
-    background: rgba(255, 255, 255, 0.92);
-    font-size: 0.75rem;
-    color: var(--ink-secondary);
-  }
-  
-.map-task-editor-summary-row {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    white-space: nowrap;
-  }
-  
-.map-task-editor-summary strong {
-    font-size: 0.6875rem;
-    font-weight: 700;
-    color: var(--muted);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    min-width: 62px;
-  }
-  
+
 .map-task-editor-save {
     display: inline-flex;
     align-items: center;

@@ -932,7 +932,6 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   taskPoints={[]}
                   track={replayTrack}
                   editable={false}
-                  hideDistanceSummary
                   highlightedTrackUploadId={replayFlight.id}
                   units={units}
                   telemetrySmoothing={telemetrySmoothing}

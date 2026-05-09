@@ -3,8 +3,9 @@
 import { useMemo, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { SectionCard } from "../SectionCard";
-import { TaskMap, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
+import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
+import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type {
   AccountSettingsRecord,
   EventFormState,
@@ -333,6 +334,23 @@ export default function ScoringSection(props: ScoringSectionProps) {
   }));
   const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
   const taskResultsIncludePenalty = results.some((result) => Number(result.raw_score_points ?? result.score_points ?? 0) - Number(result.score_points ?? 0) > 0.05);
+  const scoringFullscreenOverlay = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+    <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
+      <TaskTurnpointsTable
+        points={scoringTaskPoints}
+        taskPointAdvanced
+        turnpoints={allTurnpoints}
+        taskDistanceMetrics={scoringTaskMetrics}
+        distanceUnit={settingsForm.distance_unit}
+        collapsed={collapsed}
+        contentId={contentId}
+        titleAction={toggleButton}
+      />
+      <div className="map-task-editor-body" hidden={collapsed}>
+        {resultsTrackPilotList}
+      </div>
+    </div>
+  );
 
   if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
   return (
@@ -567,11 +585,9 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         taskPoints={scoringTaskPoints}
                           optimizedRoute={scoringTaskMetrics.routeCoordinates}
                           legMetrics={scoringTaskMetrics.legMetrics}
-                          totalDistanceKm={scoringTaskMetrics.totalDistanceKm}
-                          optimizedDistanceKm={scoringTaskMetrics.optimizedDistanceKm}
                           track={resultsTrackOverlay}
                           editable={false}
-                        taskEditorOverlay={resultsTrackPilotList}
+                        taskEditorOverlay={scoringFullscreenOverlay}
                         highlightedTrackUploadId={highlightedResultUploadId}
                         fitKey={selectedTaskId}
                         fitTurnpoints={allTurnpoints}

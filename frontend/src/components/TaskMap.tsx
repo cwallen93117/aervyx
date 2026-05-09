@@ -1130,8 +1130,6 @@ export const TaskMap = React.memo(function TaskMap({
   taskPoints,
   optimizedRoute = [],
   legMetrics = [],
-  totalDistanceKm = 0,
-  optimizedDistanceKm = 0,
   track,
   scoredTrackPoints = [],
   livePositions = [],
@@ -1139,8 +1137,6 @@ export const TaskMap = React.memo(function TaskMap({
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
-  hideFullscreenDistanceOverlay = false,
-  hideDistanceSummary = false,
   highlightedTrackUploadId,
   fitKey,
   fitTurnpoints,
@@ -1164,8 +1160,6 @@ export const TaskMap = React.memo(function TaskMap({
   taskPoints: MapTaskPoint[];
   optimizedRoute?: [number, number][];
   legMetrics?: MapLegMetric[];
-  totalDistanceKm?: number;
-  optimizedDistanceKm?: number;
   track: TrackCollection | null;
   scoredTrackPoints?: MapScoredTrackPoint[];
   livePositions?: MapLivePosition[];
@@ -1173,8 +1167,6 @@ export const TaskMap = React.memo(function TaskMap({
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: TaskEditorOverlayContent;
-  hideFullscreenDistanceOverlay?: boolean;
-  hideDistanceSummary?: boolean;
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
@@ -2682,20 +2674,6 @@ export const TaskMap = React.memo(function TaskMap({
     </div>
   ) : null;
 
-  const distanceSummaryOverlay =
-    !hideDistanceSummary && !(isFullscreen && hideFullscreenDistanceOverlay) && oc?.distance_summary !== false ? (
-      <div className="map-distance-summary" aria-label="Task distance summary">
-        <div className="map-distance-summary-row">
-          <strong>Total:</strong>
-          <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
-        </div>
-        <div className="map-distance-summary-row">
-          <strong>Optimized:</strong>
-          <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
-        </div>
-      </div>
-    ) : null;
-
   const hasFullscreenTaskEditorOverlay = isFullscreen && hasTaskEditorOverlay;
   const taskEditorToggleLabel = isTaskEditorOverlayCollapsed ? "Expand task turnpoints overlay" : "Collapse task turnpoints overlay";
   const taskEditorOverlayToggleButton = hasFullscreenTaskEditorOverlay ? (
@@ -2743,10 +2721,9 @@ export const TaskMap = React.memo(function TaskMap({
 
   const fullscreenCompositeOverlay = hasFullscreenTaskEditorOverlay ? (
     <div className={`map-fullscreen-overlay-group${isTaskEditorOverlayCollapsed ? " is-task-editor-collapsed" : ""}`}>
-      {renderedTaskEditorOverlay || distanceSummaryOverlay ? (
+      {renderedTaskEditorOverlay ? (
         <div className="map-fullscreen-overlay-top">
           {renderedTaskEditorOverlay ? <div className="map-task-editor-overlay">{renderedTaskEditorOverlay}</div> : null}
-          {distanceSummaryOverlay}
         </div>
       ) : null}
       {telemetryOverlay}
@@ -2774,7 +2751,6 @@ export const TaskMap = React.memo(function TaskMap({
         {fullscreenCompositeOverlay ?? (
           <>
             {telemetryOverlay}
-            {distanceSummaryOverlay}
           </>
         )}
       </div>
