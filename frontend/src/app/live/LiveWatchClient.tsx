@@ -342,9 +342,6 @@ export function LiveWatchClient() {
             ) : null}
           </select>
         </div>
-        <span className="live-status" style={{ marginLeft: 12, opacity: 0.7 }}>
-          {sourceLabel}
-        </span>
         {loading ? <span className="live-status">Connecting...</span> : null}
         {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
