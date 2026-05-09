@@ -378,6 +378,81 @@ export function LiveWatchClient() {
     }
   }, [sources]);
 
+  const renderPilotSidebar = (className = "live-sidebar") => (
+    <div className={className}>
+      <div className="live-sidebar-header">
+        <strong>{sourceLabel}</strong>
+        <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
+      </div>
+      <div className="live-pilot-list">
+        {activePilotIds.length > 0 ? (
+          activePilotIds.map((pilotId) => {
+            const pos = livePositionsByPilot.get(pilotId);
+            const name = pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`;
+            const color = colorForPilot(pilotId, activePilotIds);
+            return (
+              <div key={pilotId} className="live-pilot-row">
+                <span className="live-pilot-badge" style={{ color }}>
+                  <PilotRoleBadge
+                    profileType={pos?.profile_type}
+                    aircraftType={pos?.aircraft_icon}
+                    color={color}
+                    size={16}
+                  />
+                </span>
+                <div className="live-pilot-info">
+                  <strong>{name}</strong>
+                  <span className="live-pilot-stats">
+                    {convertAltitude(pos?.alt ?? null, defaultUnits.altitude)}
+                    {pos?.speed != null ? ` - ${convertSpeed(pos.speed, defaultUnits.speed)}` : ""}
+                    {pos?.timestamp ? ` - ${formatRelativeTime(pos.timestamp)}` : ""}
+                  </span>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="live-pilot-empty">
+            {loading
+              ? "Connecting..."
+              : selected.type === "event"
+                ? "Waiting for competition pilots..."
+                : selected.type === "buddies"
+                  ? "Waiting for group pilots..."
+                  : "Waiting for pilots..."}
+          </div>
+        )}
+      </div>
+      <div className="live-sidebar-legend" aria-label="Map legend">
+        <div className="live-sidebar-legend-title">Legend</div>
+        <div className="live-sidebar-legend-row">
+          <span className="live-sidebar-legend-item">
+            <PilotRoleBadge profileType="driver" color="#cbd5e1" size={14} />
+            Driver
+          </span>
+          <span className="live-sidebar-legend-item">
+            <PilotRoleBadge profileType="stationary_node" color="#cbd5e1" size={14} />
+            Node
+          </span>
+        </div>
+        <div className="live-sidebar-legend-row">
+          <span className="live-sidebar-legend-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+            Cellular
+          </span>
+          <span className="live-sidebar-legend-item">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" />
+            </svg>
+            Mesh
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="live-page">
       <header className="live-header">
@@ -431,82 +506,13 @@ export function LiveWatchClient() {
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}
+            fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
+            fullscreenSidebarLabel="pilot list"
             fitKey={liveMapFitKey}
           />
         </div>
 
-        <div className="live-sidebar">
-          <div className="live-sidebar-header">
-            <strong>{sourceLabel}</strong>
-            <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
-          </div>
-          <div className="live-pilot-list">
-            {activePilotIds.length > 0 ? (
-              activePilotIds.map((pilotId) => {
-                const pos = livePositionsByPilot.get(pilotId);
-                const name = pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`;
-                const color = colorForPilot(pilotId, activePilotIds);
-                return (
-                  <div key={pilotId} className="live-pilot-row">
-                    <span className="live-pilot-badge" style={{ color }}>
-                      <PilotRoleBadge
-                        profileType={pos?.profile_type}
-                        aircraftType={pos?.aircraft_icon}
-                        color={color}
-                        size={16}
-                      />
-                    </span>
-                    <div className="live-pilot-info">
-                      <strong>{name}</strong>
-                      <span className="live-pilot-stats">
-                        {convertAltitude(pos?.alt ?? null, defaultUnits.altitude)}
-                        {pos?.speed != null ? ` - ${convertSpeed(pos.speed, defaultUnits.speed)}` : ""}
-                        {pos?.timestamp ? ` - ${formatRelativeTime(pos.timestamp)}` : ""}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="live-pilot-empty">
-                {loading
-                  ? "Connecting..."
-                  : selected.type === "event"
-                    ? "Waiting for competition pilots..."
-                    : selected.type === "buddies"
-                      ? "Waiting for group pilots..."
-                      : "Waiting for pilots..."}
-              </div>
-            )}
-          </div>
-          <div className="live-sidebar-legend" aria-label="Map legend">
-            <div className="live-sidebar-legend-title">Legend</div>
-            <div className="live-sidebar-legend-row">
-              <span className="live-sidebar-legend-item">
-                <PilotRoleBadge profileType="driver" color="#cbd5e1" size={14} />
-                Driver
-              </span>
-              <span className="live-sidebar-legend-item">
-                <PilotRoleBadge profileType="stationary_node" color="#cbd5e1" size={14} />
-                Node
-              </span>
-            </div>
-            <div className="live-sidebar-legend-row">
-              <span className="live-sidebar-legend-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" />
-                </svg>
-                Cellular
-              </span>
-              <span className="live-sidebar-legend-item">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="2.5" strokeDasharray="4 3" aria-hidden="true">
-                  <circle cx="12" cy="12" r="9" />
-                </svg>
-                Mesh
-              </span>
-            </div>
-          </div>
-        </div>
+        {renderPilotSidebar()}
       </div>
     </div>
   );

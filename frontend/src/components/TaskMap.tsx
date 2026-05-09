@@ -1137,6 +1137,8 @@ export const TaskMap = React.memo(function TaskMap({
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
+  fullscreenSidebar,
+  fullscreenSidebarLabel = "Pilot list",
   highlightedTrackUploadId,
   fitKey,
   fitTurnpoints,
@@ -1167,6 +1169,8 @@ export const TaskMap = React.memo(function TaskMap({
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: TaskEditorOverlayContent;
+  fullscreenSidebar?: ReactNode;
+  fullscreenSidebarLabel?: string;
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
@@ -1212,9 +1216,11 @@ export const TaskMap = React.memo(function TaskMap({
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTaskEditorOverlayCollapsed, setIsTaskEditorOverlayCollapsed] = useState(false);
+  const [isFullscreenSidebarCollapsed, setIsFullscreenSidebarCollapsed] = useState(false);
   const [isPerspective3D, setIsPerspective3D] = useState(false);
   const taskEditorOverlayId = useId();
   const taskEditorOverlayContentId = useId();
+  const fullscreenSidebarContentId = useId();
   const oc = overlayConfig;
   const hasTaskEditorOverlay = Boolean(taskEditorOverlay) && oc?.fullscreen_editor_panel !== false;
   // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
@@ -1984,6 +1990,12 @@ export const TaskMap = React.memo(function TaskMap({
   }, [isFullscreen, hasTaskEditorOverlay]);
 
   useEffect(() => {
+    if (!isFullscreen || !fullscreenSidebar) {
+      setIsFullscreenSidebarCollapsed(false);
+    }
+  }, [isFullscreen, fullscreenSidebar]);
+
+  useEffect(() => {
     const nextReplayIndex = replayTotal > 0 ? replayTotal - 1 : 0;
     setIsReplaying(false);
     setReplayHasInteracted(false);
@@ -2729,10 +2741,59 @@ export const TaskMap = React.memo(function TaskMap({
       {telemetryOverlay}
     </div>
   ) : null;
+  const hasFullscreenSidebar = isFullscreen && Boolean(fullscreenSidebar);
+  const fullscreenSidebarToggleLabel = isFullscreenSidebarCollapsed
+    ? `Show ${fullscreenSidebarLabel}`
+    : `Hide ${fullscreenSidebarLabel}`;
+  const fullscreenSidebarPanel = hasFullscreenSidebar ? (
+    <aside
+      className={`map-fullscreen-live-sidebar${isFullscreenSidebarCollapsed ? " is-collapsed" : ""}`}
+      aria-label={fullscreenSidebarLabel}
+    >
+      <div className="map-fullscreen-live-sidebar-toolbar">
+        <button
+          type="button"
+          className="map-fullscreen-live-sidebar-toggle"
+          aria-label={fullscreenSidebarToggleLabel}
+          aria-controls={fullscreenSidebarContentId}
+          aria-expanded={!isFullscreenSidebarCollapsed}
+          title={fullscreenSidebarToggleLabel}
+          onClick={() => setIsFullscreenSidebarCollapsed((current) => !current)}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path
+              d={isFullscreenSidebarCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+      <div
+        id={fullscreenSidebarContentId}
+        className="map-fullscreen-live-sidebar-content"
+        hidden={isFullscreenSidebarCollapsed}
+      >
+        {fullscreenSidebar}
+      </div>
+    </aside>
+  ) : null;
+  const mapShellClassName = [
+    "map-shell",
+    isFullscreen ? "map-shell-fullscreen" : "",
+    replayVisible && mode === "replay" ? "has-replay" : "",
+    hasFullscreenSidebar ? "has-fullscreen-live-sidebar" : "",
+    hasFullscreenSidebar && isFullscreenSidebarCollapsed ? "is-fullscreen-live-sidebar-collapsed" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <div
-      className={`${isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}${replayVisible && mode === "replay" ? " has-replay" : ""}`}
+      className={mapShellClassName}
       ref={shellRef}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
@@ -2747,6 +2808,7 @@ export const TaskMap = React.memo(function TaskMap({
               : undefined
         }
       />
+      {fullscreenSidebarPanel}
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {fullscreenCompositeOverlay ?? (
           <>
