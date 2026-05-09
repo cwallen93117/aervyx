@@ -2117,6 +2117,7 @@ export default function HomePage() {
       visible_airspace_classes_json: nextForm.visible_airspace_classes_json,
       show_restricted_fields: nextForm.show_restricted_fields,
       penalties_json: penaltiesJson,
+      is_public_tracking: nextForm.is_public_tracking,
       visibility: nextForm.visibility,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });

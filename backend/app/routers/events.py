@@ -134,6 +134,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         visible_airspace_classes_json=list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]),
         show_restricted_fields=True if event.show_restricted_fields is None else event.show_restricted_fields,
         penalties_json=event.penalties_json or {},
+        is_public_tracking=event.is_public_tracking,
         visibility=event.visibility or "private",
         created_at=event.created_at,
         updated_at=event.updated_at,

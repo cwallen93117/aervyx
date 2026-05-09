@@ -37,6 +37,24 @@ def test_event_payload_includes_default_start_gate_settings() -> None:
     assert payload.default_start_gate_interval_seconds == 900
 
 
+def test_event_payload_includes_public_live_tracking_flag() -> None:
+    session = _session()
+    event = Event(
+        name="Live Public",
+        location="Florida",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+        is_public_tracking=True,
+    )
+    session.add(event)
+    session.commit()
+
+    payload = _event_payload(session, event)
+
+    assert payload.is_public_tracking is True
+
+
 def test_list_events_filters_pilot_visible_competitions() -> None:
     session = _session()
     pilot = Pilot(first_name="Visible", last_name="Pilot", email="pilot@example.com")
