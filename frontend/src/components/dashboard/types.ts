@@ -74,8 +74,21 @@ export type AdminSiteScanIgcResultRecord = {
   total_igc_scanned: number;
   sites: AdminSiteRecord[];
 };
+export type MapOverlayContextConfig = Record<string, boolean>;
+export type MapOverlayConfigShape = {
+  schema_version?: number;
+  groups?: Record<string, MapOverlayContextConfig>;
+  task_builder?: MapOverlayContextConfig;
+  scoring?: MapOverlayContextConfig;
+  logbook_replay?: MapOverlayContextConfig;
+  dashboard_live?: MapOverlayContextConfig;
+  public_live?: MapOverlayContextConfig;
+  airspace_explorer?: MapOverlayContextConfig;
+  soaring_forecast?: MapOverlayContextConfig;
+  admin_site_preview?: MapOverlayContextConfig;
+};
 export type MapOverlayConfigRecord = {
-  config: Record<string, Record<string, boolean>>;
+  config: MapOverlayConfigShape;
   updated_at?: string | null;
 };
 export type SiteSettingsRecord = {

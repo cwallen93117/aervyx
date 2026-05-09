@@ -343,6 +343,8 @@ function findClosestTimeIdx(validTimes: string[], target: string): number {
 /* ------------------------------------------------------------------ */
 export function SoaringForecastMap({ units, overlayConfig }: { units: Units; overlayConfig?: Record<string, boolean> }) {
   const oc = overlayConfig;
+  const showWeatherRaster = oc?.weather_raster !== false;
+  const showWindBarbOverlay = oc?.wind_barbs !== false && oc?.wind_barb_toggle !== false;
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const blobUrlRef = useRef<string | null>(null);
@@ -436,7 +438,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady || !activeRun) return;
-    if (oc?.weather_overlay === false) { safeRemove(map, blobUrlRef); return; }
+    if (!showWeatherRaster) { safeRemove(map, blobUrlRef); return; }
 
     const vt = validTimes[selectedTimeIdx];
     if (!vt) return;
@@ -519,7 +521,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
 
     return () => { cancelled = true; safeRemove(map, blobUrlRef); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeModel, activeOverlay, selectedTimeIdx, activeRun, validTimes, mapReady, barbBoundsKey]);
+  }, [activeModel, activeOverlay, selectedTimeIdx, activeRun, validTimes, mapReady, barbBoundsKey, showWeatherRaster]);
 
   // Update opacity without refetching
   useEffect(() => {
@@ -563,7 +565,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
 
-    if (!showWindBarbs || windBarbsRef.current.length === 0) return;
+    if (!showWindBarbOverlay || !showWindBarbs || windBarbsRef.current.length === 0) return;
 
     const dpr = window.devicePixelRatio || 1;
     ctx.save();
@@ -711,7 +713,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
     }
 
     ctx.restore();
-  }, [showWindBarbs]);
+  }, [showWindBarbOverlay, showWindBarbs]);
 
   // Schedule a redraw via rAF
   const scheduleDrawBarbs = useCallback(() => {
@@ -769,7 +771,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
 
   // Fetch wind barb data when relevant params change
   useEffect(() => {
-    if (oc?.wind_barb_toggle === false) {
+    if (!showWindBarbOverlay) {
       windBarbsRef.current = [];
       scheduleDrawBarbs();
       return;
@@ -817,7 +819,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
 
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbs, mapReady, validTimes, barbBoundsKey]);
+  }, [activeModel, activeRun, selectedTimeIdx, windBarbLevel, showWindBarbOverlay, showWindBarbs, mapReady, validTimes, barbBoundsKey]);
 
   // Redraw when showWindBarbs toggles
   useEffect(() => { scheduleDrawBarbs(); }, [showWindBarbs, scheduleDrawBarbs]);
@@ -1161,7 +1163,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
         )}
 
         {/* Wind barbs */}
-        {oc?.wind_barb_toggle !== false && (
+        {showWindBarbOverlay && (
         <div className={styles.section}>
           <p className={styles.sectionLabel}>Wind Barbs</p>
           <label className={styles.windBarbToggle}>
@@ -1339,7 +1341,7 @@ export function SoaringForecastMap({ units, overlayConfig }: { units: Units; ove
                   {validTimes[selectedTimeIdx]
                     ? formatVT(validTimes[selectedTimeIdx])
                     : ""}
-                  {activeRun && (
+                  {activeRun && oc?.model_run_selector !== false && (
                     <span className={styles.timelineRunBadge}>
                       {activeRun.date.slice(0,4)}-{activeRun.date.slice(4,6)}-{activeRun.date.slice(6,8)} {activeRun.hour}Z
                     </span>

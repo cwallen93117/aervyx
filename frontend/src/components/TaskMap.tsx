@@ -1193,6 +1193,7 @@ export const TaskMap = React.memo(function TaskMap({
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
+  const fullscreenControlRef = useRef<maplibregl.FullscreenControl | null>(null);
   const scaleControlRef = useRef<maplibregl.ScaleControl | null>(null);
   const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -1222,7 +1223,8 @@ export const TaskMap = React.memo(function TaskMap({
   const [isPerspective3D, setIsPerspective3D] = useState(false);
   const taskEditorOverlayId = useId();
   const taskEditorOverlayContentId = useId();
-  const hasTaskEditorOverlay = Boolean(taskEditorOverlay);
+  const oc = overlayConfig;
+  const hasTaskEditorOverlay = Boolean(taskEditorOverlay) && oc?.fullscreen_editor_panel !== false;
   // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
   // flat on the map plane; in 3D they scale by the user-selected multiplier.
   const effectiveAltitudeMultiplier = isPerspective3D ? altitudeMultiplier : 0;
@@ -1235,15 +1237,19 @@ export const TaskMap = React.memo(function TaskMap({
   const gpsWatchIdRef = useRef<number | null>(null);
 
   // Overlay config: filter data layers based on admin toggle matrix
-  const oc = overlayConfig;
   const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
   const effectiveAirspaces = oc?.airspaces === false ? [] : (airspaces ?? []);
+  const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
   const effectiveTrack = oc?.flight_track === false ? null : track;
+  const effectiveHighlightedTrackUploadId = oc?.track_highlight === false ? null : highlightedTrackUploadId;
   const effectiveLivePositions = oc?.live_positions === false ? [] : livePositions;
+  const effectiveLiveLabelPositions = oc?.live_labels === false ? [] : effectiveLivePositions;
   const effectiveOptimizedRoute = oc?.optimized_route === false ? [] : optimizedRoute;
   const effectiveLegMetrics = oc?.leg_labels === false ? [] : legMetrics;
-  const effectiveTaskPoints = oc?.task_route === false ? [] : taskPoints;
+  const effectiveTaskRoutePoints = oc?.task_route === false ? [] : taskPoints;
+  const effectiveTaskCylinderPoints = oc?.task_cylinders === false ? [] : taskPoints;
   const effectiveScoredTrackPoints = oc?.flight_track === false ? [] : scoredTrackPoints;
+  const clickToAddTurnpointEnabledRef = useRef(oc?.click_to_add_turnpoint !== false);
 
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
@@ -1262,7 +1268,14 @@ export const TaskMap = React.memo(function TaskMap({
       // Clear pan-lock so waypoint geometry updates can auto-fit again
       manualViewChangedRef.current = false;
       // Refit to task bounds
-      const target = resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints, livePositions);
+      const target = resolveFitTarget(
+        effectiveTaskRoutePoints,
+        effectiveOptimizedRoute,
+        effectiveTurnpoints,
+        effectiveTrack,
+        fitTurnpoints,
+        effectiveLivePositions,
+      );
       if (target.kind !== "fallback") {
         const coords = target.coordinates as [number, number][];
         if (coords.length >= 2) {
@@ -1305,7 +1318,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
       gpsWatchIdRef.current = watchId;
     }
-  }, [gpsFollowing, turnpoints, taskPoints, track, fitTurnpoints, fitMaxZoom]);
+  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints, gpsFollowing]);
 
   // Cleanup GPS watch on unmount
   useEffect(() => {
@@ -1316,10 +1329,10 @@ export const TaskMap = React.memo(function TaskMap({
     };
   }, []);
 
-  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
+  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTurnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [effectiveTurnpoints]);
   const livePositionData = useMemo(() => ({
     type: "FeatureCollection",
-    features: livePositions.map((position) => ({
+    features: effectiveLivePositions.map((position) => ({
       type: "Feature",
       properties: {
         id: position.id,
@@ -1335,10 +1348,10 @@ export const TaskMap = React.memo(function TaskMap({
         coordinates: [position.longitude, position.latitude],
       },
     })),
-  }), [livePositions]);
-  const livePilotLabelData = useMemo(
+  }), [effectiveLivePositions]);
+  const livePilotMarkerData = useMemo(
     () =>
-      livePositions.map((position) => ({
+      effectiveLivePositions.map((position) => ({
         nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
         altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
         position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
@@ -1347,11 +1360,24 @@ export const TaskMap = React.memo(function TaskMap({
         positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
         aircraftType: normalizeAircraftIcon(position.aircraftType),
       })),
-    [effectiveAltitudeMultiplier, livePositions, units.altitude],
+    [effectiveAltitudeMultiplier, effectiveLivePositions, units.altitude],
+  );
+  const livePilotLabelData = useMemo(
+    () =>
+      effectiveLiveLabelPositions.map((position) => ({
+        nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
+        altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
+        position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
+        color: hexToRgb(String(position.color ?? "#0ea5e9")),
+        profileType: (position.profileType ?? "pilot") as "pilot" | "driver" | "stationary_node",
+        positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
+        aircraftType: normalizeAircraftIcon(position.aircraftType),
+      })),
+    [effectiveAltitudeMultiplier, effectiveLiveLabelPositions, units.altitude],
   );
   const airspaceData = useMemo(() => ({
     type: "FeatureCollection",
-    features: airspaces.map((airspace) => ({
+    features: effectiveAirspaces.map((airspace) => ({
       type: "Feature",
       properties: {
         id: airspace.id,
@@ -1367,10 +1393,10 @@ export const TaskMap = React.memo(function TaskMap({
       },
       geometry: airspace.geometry_json,
     })),
-  }), [airspaces]);
+  }), [effectiveAirspaces]);
   const airspaceLabelData = useMemo(() => ({
     type: "FeatureCollection",
-    features: airspaces
+    features: effectiveAirspaceLabels
       .filter((airspace) => airspace.label_latitude !== null && airspace.label_longitude !== null)
       .map((airspace) => ({
         type: "Feature",
@@ -1382,8 +1408,8 @@ export const TaskMap = React.memo(function TaskMap({
           coordinates: [airspace.label_longitude as number, airspace.label_latitude as number],
         },
       })),
-  }), [airspaces]);
-  const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
+  }), [effectiveAirspaceLabels]);
+  const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskRoutePoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [effectiveTaskRoutePoints]);
   const scoredTrackPointData = useMemo(() => ({
     type: "FeatureCollection",
     features: effectiveScoredTrackPoints.map((point) => ({
@@ -1402,60 +1428,60 @@ export const TaskMap = React.memo(function TaskMap({
         latitude: point.latitude,
         longitude: point.longitude,
         color: point.color ?? "#111827",
-        highlighted: point.uploadId != null && point.uploadId === highlightedTrackUploadId,
+        highlighted: point.uploadId != null && point.uploadId === effectiveHighlightedTrackUploadId,
       },
       geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
     })),
-  }), [effectiveScoredTrackPoints, highlightedTrackUploadId, units.altitude]);
+  }), [effectiveHighlightedTrackUploadId, effectiveScoredTrackPoints, units.altitude]);
   const scoredTrackDeckPointData = useMemo<ScoredTrackDeckPoint[]>(
     () =>
       effectiveScoredTrackPoints.map((point) => ({
         ...point,
         position: [point.longitude, point.latitude, (point.altitudeM ?? 0) * effectiveAltitudeMultiplier],
         deckColor: hexToRgb(String(point.color ?? "#111827")),
-        highlighted: point.uploadId != null && point.uploadId === highlightedTrackUploadId,
+        highlighted: point.uploadId != null && point.uploadId === effectiveHighlightedTrackUploadId,
         altitudeLabel: point.altitudeM != null ? formatAltitudeLabel(point.altitudeM, units.altitude) : "",
       })),
-    [effectiveAltitudeMultiplier, effectiveScoredTrackPoints, highlightedTrackUploadId, units.altitude],
+    [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveScoredTrackPoints, units.altitude],
   );
-  const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
-  const routeArrowData = useMemo(() => buildRouteArrowData(taskPoints.map((point) => [point.longitude, point.latitude])), [taskPoints]);
-  const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
+  const routeData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskRoutePoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: effectiveTaskRoutePoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [effectiveTaskRoutePoints]);
+  const routeArrowData = useMemo(() => buildRouteArrowData(effectiveTaskRoutePoints.map((point) => [point.longitude, point.latitude])), [effectiveTaskRoutePoints]);
+  const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: effectiveOptimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: effectiveOptimizedRoute } }] : [] }), [effectiveOptimizedRoute]);
   const optimizedRoutePointData = useMemo(() => ({
     type: "FeatureCollection",
-    features: optimizedRoute.map((coordinate, index) => ({
+    features: effectiveOptimizedRoute.map((coordinate, index) => ({
       type: "Feature",
       properties: { index: index + 1 },
       geometry: { type: "Point", coordinates: coordinate },
     })),
-  }), [optimizedRoute]);
+  }), [effectiveOptimizedRoute]);
   const legLabelData = useMemo(() => ({
     type: "FeatureCollection",
-    features: legMetrics.map((leg) => ({
+    features: effectiveLegMetrics.map((leg) => ({
       type: "Feature",
       properties: { label: formatDistanceLabel(leg.optimizedDistanceKm, units.distance) },
       geometry: { type: "Point", coordinates: leg.midpoint },
     })),
-  }), [legMetrics, units.distance]);
-  const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
-  const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(taskPoints, optimizedRoute), [optimizedRoute, taskPoints]);
+  }), [effectiveLegMetrics, units.distance]);
+  const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskCylinderPoints.map(buildCircle) }), [effectiveTaskCylinderPoints]);
+  const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(effectiveTaskRoutePoints, effectiveOptimizedRoute), [effectiveOptimizedRoute, effectiveTaskRoutePoints]);
   const resolvedFitTarget = useMemo(
-    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints, effectiveLivePositions),
-    [fitTurnpoints, optimizedRoute, taskPoints, track, turnpoints, effectiveLivePositions],
+    () => resolveFitTarget(effectiveTaskRoutePoints, effectiveOptimizedRoute, effectiveTurnpoints, effectiveTrack, fitTurnpoints, effectiveLivePositions),
+    [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitTurnpoints],
   );
   const cylinderVolumes = useMemo<TaskCylinderVolume[]>(
     () =>
-      taskPoints.map((point) => ({
+      effectiveTaskCylinderPoints.map((point) => ({
         polygon: (buildCircle(point).geometry.coordinates[0] as [number, number][]),
         pointType: point.point_type,
       })),
-    [taskPoints],
+    [effectiveTaskCylinderPoints],
   );
   const trackFeatureTimelines = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [] as Array<{ uploadId: number; timestamps: number[]; coordinateCount: number }>;
     }
-    return track.features.map((feature) => {
+    return effectiveTrack.features.map((feature) => {
       const raw = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
       const timestamps = raw
         .slice(0, feature.geometry.coordinates.length)
@@ -1467,16 +1493,16 @@ export const TaskMap = React.memo(function TaskMap({
         coordinateCount: feature.geometry.coordinates.length,
       };
     });
-  }, [track]);
+  }, [effectiveTrack]);
   const effectiveTelemetrySmoothing = useMemo(
     () => resolveAdaptiveTelemetrySmoothing(telemetrySmoothing, mode, isReplaying, replaySpeed),
     [isReplaying, mode, replaySpeed, telemetrySmoothing],
   );
   const smoothedTrackTelemetrySeries = useMemo<TrackTelemetrySeries[]>(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [];
     }
-    return track.features.map((feature, featureIndex) => {
+    return effectiveTrack.features.map((feature, featureIndex) => {
       const timestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
       const limitedCoordinates = feature.geometry.coordinates.slice(0, timestamps.length);
       const series = buildTrackTelemetrySeries(limitedCoordinates, timestamps, effectiveTelemetrySmoothing);
@@ -1489,7 +1515,7 @@ export const TaskMap = React.memo(function TaskMap({
         glideRatio: series.glideRatio,
       };
     });
-  }, [effectiveTelemetrySmoothing, track, trackFeatureTimelines]);
+  }, [effectiveTelemetrySmoothing, effectiveTrack, trackFeatureTimelines]);
   const replayTimeline = useMemo(() => {
     const unique = new Set<number>();
     trackFeatureTimelines.forEach((feature) => {
@@ -1500,13 +1526,13 @@ export const TaskMap = React.memo(function TaskMap({
   const replayTotal = replayTimeline.length;
   const maxMapPitch = Math.max(0, Math.min(85, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
   const visibleTrackLengths = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [] as number[];
     }
     const hasReplay = replayTotal > 0;
     const shouldSliceTrack = hasReplay && (isReplaying || replayHasInteracted);
     const currentReplayTime = hasReplay ? replayTimeline[Math.min(replayIndex, replayTotal - 1)] : null;
-    return track.features.map((feature, featureIndex) => {
+    return effectiveTrack.features.map((feature, featureIndex) => {
       if (!shouldSliceTrack || currentReplayTime == null) {
         return feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0;
       }
@@ -1520,9 +1546,9 @@ export const TaskMap = React.memo(function TaskMap({
       }
       return Math.min(replayCoordinateIndex + 1, feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0);
     });
-  }, [isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, track, trackFeatureTimelines]);
+  }, [effectiveTrack, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, trackFeatureTimelines]);
   const fullTrackPathData = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [] as Array<{
         uploadId: number;
         path: [number, number, number][];
@@ -1530,22 +1556,22 @@ export const TaskMap = React.memo(function TaskMap({
         highlighted: boolean;
       }>;
     }
-    return track.features
+    return effectiveTrack.features
       .filter((feature) => feature.geometry.type === "LineString")
       .map((feature, featureIndex) => ({
         uploadId: Number(feature.properties?.upload_id ?? 0),
         path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
         color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
-        highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+        highlighted: Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId,
       }));
-  }, [effectiveAltitudeMultiplier, highlightedTrackUploadId, track]);
+  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack]);
   const displayTrack = useMemo<TrackCollection | null>(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return null;
     }
     return {
       type: "FeatureCollection",
-      features: track.features.map((feature, featureIndex) => ({
+      features: effectiveTrack.features.map((feature, featureIndex) => ({
         ...feature,
         geometry: {
           ...feature.geometry,
@@ -1556,14 +1582,14 @@ export const TaskMap = React.memo(function TaskMap({
         },
       })),
     };
-  }, [fullTrackPathData, track, visibleTrackLengths]);
+  }, [effectiveTrack, fullTrackPathData, visibleTrackLengths]);
   const replayMarkerData = useMemo(() => {
-    if (!track || !replayTotal) {
+    if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
     }
     const shouldUseReplayPosition = isReplaying || replayHasInteracted;
     const currentReplayTime = replayTimeline[Math.min(replayIndex, replayTotal - 1)];
-    const features = track.features.flatMap((feature, featureIndex) => {
+    const features = effectiveTrack.features.flatMap((feature, featureIndex) => {
       if (feature.geometry.type !== "LineString" || !feature.geometry.coordinates.length) {
         return [];
       }
@@ -1589,7 +1615,7 @@ export const TaskMap = React.memo(function TaskMap({
             upload_id: Number(feature.properties?.upload_id ?? 0),
             color: String(feature.properties?.color ?? "#2563eb"),
             aircraft_icon: normalizeAircraftIcon(feature.properties?.aircraft_icon),
-            highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+            highlighted: Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId,
             label: aircraftPilotLabel(
               normalizeAircraftIcon(feature.properties?.aircraft_icon),
               String(feature.properties?.pilot_name ?? "Pilot"),
@@ -1613,7 +1639,7 @@ export const TaskMap = React.memo(function TaskMap({
       type: "FeatureCollection",
       features,
     };
-  }, [effectiveAltitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, track, trackFeatureTimelines, units.altitude]);
+  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, trackFeatureTimelines, units.altitude]);
   const replayPilotLabelData = useMemo(
     () =>
       (replayMarkerData.features as Array<{ geometry?: { coordinates?: [number, number, number] | [number, number] }; properties?: Record<string, unknown> }>)
@@ -1636,11 +1662,11 @@ export const TaskMap = React.memo(function TaskMap({
     [replayMarkerData],
   );
   const maxScoredTrackAltitudeM = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return 15000;
     }
     let maxAltitude = 0;
-    for (const feature of track.features) {
+    for (const feature of effectiveTrack.features) {
       if (feature.geometry.type !== "LineString") {
         continue;
       }
@@ -1651,7 +1677,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
     }
     return maxAltitude > 0 ? maxAltitude : 15000;
-  }, [track]);
+  }, [effectiveTrack]);
   const deckTrackLayers = useMemo(() => {
     const layers = [];
     if (isPerspective3D && cylinderVolumes.length) {
@@ -1803,71 +1829,69 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
+    const liveMarkerData = mode === "live" ? livePilotMarkerData : [];
+    if (liveMarkerData.length) {
+      type LiveMarkerItem = {
+        position: [number, number, number];
+        color: [number, number, number];
+        profileType?: "pilot" | "driver" | "stationary_node";
+        positionSource?: "cellular" | "mesh" | "other";
+        aircraftType?: "hang_glider" | "paraglider" | "sailplane";
+      };
+      layers.push(
+        new IconLayer({
+          id: `live-pilot-rings-${mode}`,
+          data: liveMarkerData as LiveMarkerItem[],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: LiveMarkerItem) => item.position,
+          getIcon: (item: LiveMarkerItem) => {
+            const source = item.positionSource ?? "other";
+            return {
+              url: RING_ICON_DATA_URIS[source],
+              width: 48,
+              height: 48,
+              mask: true,
+            };
+          },
+          getColor: (item: LiveMarkerItem) => [...item.color, 255],
+          getSize: Math.round(28 * liveMarkerScale),
+          sizeUnits: "pixels",
+          sizeMinPixels: Math.round(20 * liveMarkerScale),
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+      layers.push(
+        new IconLayer({
+          id: `live-pilot-role-icons-${mode}`,
+          data: liveMarkerData as LiveMarkerItem[],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: LiveMarkerItem) => item.position,
+          getIcon: (item: LiveMarkerItem) => {
+            const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
+            return {
+              url: ROLE_ICON_DATA_URIS[iconKey],
+              width: 48,
+              height: 48,
+              mask: true,
+            };
+          },
+          getColor: (item: LiveMarkerItem) => [...item.color, 255],
+          getSize: Math.round(18 * liveMarkerScale),
+          sizeUnits: "pixels",
+          sizeMinPixels: Math.round(12 * liveMarkerScale),
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+    }
     if (labelData.length) {
-      // Live mode only: draw a role-source ring and a role-shape icon at the pilot's
-      // current position. We keep the existing name + altitude text labels and just
-      // push them up a few pixels so the ring + icon fit beneath them.
-      if (mode === "live") {
-        type LiveLabelItem = {
-          position: [number, number, number];
-          color: [number, number, number];
-          profileType?: "pilot" | "driver" | "stationary_node";
-          positionSource?: "cellular" | "mesh" | "other";
-          aircraftType?: "hang_glider" | "paraglider" | "sailplane";
-        };
-        layers.push(
-          new IconLayer({
-            id: `live-pilot-rings-${mode}`,
-            data: labelData as LiveLabelItem[],
-            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-            billboard: true,
-            getPosition: (item: LiveLabelItem) => item.position,
-            getIcon: (item: LiveLabelItem) => {
-              const source = item.positionSource ?? "other";
-              return {
-                url: RING_ICON_DATA_URIS[source],
-                width: 48,
-                height: 48,
-                mask: true,
-              };
-            },
-            getColor: (item: LiveLabelItem) => [...item.color, 255],
-            getSize: Math.round(28 * liveMarkerScale),
-            sizeUnits: "pixels",
-            sizeMinPixels: Math.round(20 * liveMarkerScale),
-            pickable: false,
-            parameters: {
-              depthTest: false,
-            },
-          }),
-        );
-        layers.push(
-          new IconLayer({
-            id: `live-pilot-role-icons-${mode}`,
-            data: labelData as LiveLabelItem[],
-            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-            billboard: true,
-            getPosition: (item: LiveLabelItem) => item.position,
-            getIcon: (item: LiveLabelItem) => {
-              const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
-              return {
-                url: ROLE_ICON_DATA_URIS[iconKey],
-                width: 48,
-                height: 48,
-                mask: true,
-              };
-            },
-            getColor: (item: LiveLabelItem) => [...item.color, 255],
-            getSize: Math.round(18 * liveMarkerScale),
-            sizeUnits: "pixels",
-            sizeMinPixels: Math.round(12 * liveMarkerScale),
-            pickable: false,
-            parameters: {
-              depthTest: false,
-            },
-          }),
-        );
-      }
       layers.push(
         new TextLayer({
           id: `pilot-name-labels-${mode}`,
@@ -1922,7 +1946,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -1933,16 +1957,20 @@ export const TaskMap = React.memo(function TaskMap({
   }, [effectiveTurnpoints]);
 
   useEffect(() => {
-    taskPointsRef.current = effectiveTaskPoints;
-  }, [effectiveTaskPoints]);
+    taskPointsRef.current = effectiveTaskRoutePoints;
+  }, [effectiveTaskRoutePoints]);
 
   useEffect(() => {
     optimizedRouteRef.current = effectiveOptimizedRoute;
   }, [effectiveOptimizedRoute]);
 
   useEffect(() => {
-    trackRef.current = track;
-  }, [track]);
+    trackRef.current = effectiveTrack;
+  }, [effectiveTrack]);
+
+  useEffect(() => {
+    clickToAddTurnpointEnabledRef.current = oc?.click_to_add_turnpoint !== false;
+  }, [oc?.click_to_add_turnpoint]);
 
   useEffect(() => {
     replayIndexRef.current = replayIndex;
@@ -1975,7 +2003,7 @@ export const TaskMap = React.memo(function TaskMap({
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-  }, [track, replayTimeline, replayTotal]);
+  }, [effectiveTrack, replayTimeline, replayTotal]);
 
   useEffect(() => {
     if (!isReplaying || replayTotal <= 1) {
@@ -2063,9 +2091,6 @@ export const TaskMap = React.memo(function TaskMap({
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
-      if (oc?.fullscreen_toggle !== false) {
-        map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
-      }
       const scaleControl = new maplibregl.ScaleControl({
         maxWidth: 96,
         unit: units.distance === "mi" ? "imperial" : "metric",
@@ -2110,7 +2135,7 @@ export const TaskMap = React.memo(function TaskMap({
       map.on("rotatestart", markManualInteraction);
       map.on("pitchstart", markManualInteraction);
       map.on("click", (event) => {
-        if (!editableRef.current || !onSelectTurnpointRef.current) {
+        if (!editableRef.current || !onSelectTurnpointRef.current || !clickToAddTurnpointEnabledRef.current) {
           return;
         }
         const features = map.queryRenderedFeatures(event.point, { layers: ["turnpoints-layer"] });
@@ -2169,6 +2194,10 @@ export const TaskMap = React.memo(function TaskMap({
           map.removeControl(deckOverlayRef.current);
           deckOverlayRef.current = null;
         }
+        if (fullscreenControlRef.current) {
+          map.removeControl(fullscreenControlRef.current);
+          fullscreenControlRef.current = null;
+        }
         scoredPointPopupRef.current?.remove();
         scoredPointPopupRef.current = null;
         scaleControlRef.current = null;
@@ -2181,6 +2210,22 @@ export const TaskMap = React.memo(function TaskMap({
     }
     // Keep the base map instance stable; geometry changes are handled by the source/layer sync effects below.
     }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const enabled = oc?.fullscreen_toggle !== false;
+    if (enabled && !fullscreenControlRef.current) {
+      const control = new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined });
+      map.addControl(control, "top-right");
+      fullscreenControlRef.current = control;
+    } else if (!enabled && fullscreenControlRef.current) {
+      map.removeControl(fullscreenControlRef.current);
+      fullscreenControlRef.current = null;
+    }
+  }, [oc?.fullscreen_toggle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2455,8 +2500,8 @@ export const TaskMap = React.memo(function TaskMap({
     const nextFitKey = fitKeyValue;
     const nextFitTargetKind = fitTargetKind;
     const previousHighlightedTrackUploadId = previousHighlightedTrackUploadIdRef.current;
-    const highlightSelectionChanged = previousHighlightedTrackUploadId !== highlightedTrackUploadId;
-    previousHighlightedTrackUploadIdRef.current = highlightedTrackUploadId;
+    const highlightSelectionChanged = previousHighlightedTrackUploadId !== effectiveHighlightedTrackUploadId;
+    previousHighlightedTrackUploadIdRef.current = effectiveHighlightedTrackUploadId;
     const previousFitTargetKind = fitTargetKindRef.current;
     const fitKeyChanged = nextFitKey !== fitKeyRef.current;
     const geometryChanged = nextFitGeometrySignature !== fitGeometrySignatureRef.current;
@@ -2511,21 +2556,21 @@ export const TaskMap = React.memo(function TaskMap({
     fitGeometrySignatureRef.current = nextFitGeometrySignature;
     fitKeyRef.current = nextFitKey;
     fitTargetKindRef.current = nextFitTargetKind;
-  }, [applyFitBounds, fitGeometrySignature, fitKeyValue, fitTargetKind]);
+  }, [applyFitBounds, effectiveHighlightedTrackUploadId, fitGeometrySignature, fitKeyValue, fitTargetKind]);
 
   const replayVisible = !!effectiveTrack && replayTotal > 0 && oc?.replay_scrubber !== false;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[replayTotal - 1]) : "--:--";
   const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
   const highlightedTrackSnapshot = useMemo<HighlightedTrackSnapshot | null>(() => {
-    if (!track || highlightedTrackUploadId == null) {
+    if (!effectiveTrack || effectiveHighlightedTrackUploadId == null) {
       return null;
     }
-    const highlightedFeature = track.features.find((feature) => Number(feature.properties?.upload_id) === highlightedTrackUploadId);
+    const highlightedFeature = effectiveTrack.features.find((feature) => Number(feature.properties?.upload_id) === effectiveHighlightedTrackUploadId);
     if (!highlightedFeature || highlightedFeature.geometry.type !== "LineString" || !highlightedFeature.geometry.coordinates.length) {
       return null;
     }
-    const timestamps = trackFeatureTimelines.find((feature) => feature.uploadId === highlightedTrackUploadId)?.timestamps ?? [];
+    const timestamps = trackFeatureTimelines.find((feature) => feature.uploadId === effectiveHighlightedTrackUploadId)?.timestamps ?? [];
     const shouldUseReplayPosition = replayVisible && (isReplaying || replayHasInteracted);
     const coordinateIndex = timestamps.length
       ? (() => {
@@ -2541,7 +2586,7 @@ export const TaskMap = React.memo(function TaskMap({
     if (!coordinate) {
       return null;
     }
-    const telemetrySeries = smoothedTrackTelemetrySeries.find((series) => series.uploadId === highlightedTrackUploadId);
+    const telemetrySeries = smoothedTrackTelemetrySeries.find((series) => series.uploadId === effectiveHighlightedTrackUploadId);
     return {
       pilotName: String(highlightedFeature.properties?.pilot_name ?? "Pilot"),
       coordinate: [coordinate[0], coordinate[1]] as [number, number],
@@ -2554,7 +2599,7 @@ export const TaskMap = React.memo(function TaskMap({
       glideRatio: telemetrySeries?.glideRatio[coordinateIndex] ?? null,
       color: String(highlightedFeature.properties?.color ?? "#2563eb"),
     };
-  }, [highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, replayVisible, smoothedTrackTelemetrySeries, track, trackFeatureTimelines]);
+  }, [effectiveHighlightedTrackUploadId, effectiveTrack, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, replayVisible, smoothedTrackTelemetrySeries, trackFeatureTimelines]);
   const highlightedTrackSnapshotRef = useRef<HighlightedTrackSnapshot | null>(null);
   const telemetryThrottleMs = useMemo(
     () => (mode === "replay" && isReplaying ? replayTelemetryThrottleMs(replaySpeed) : 0),
@@ -2575,18 +2620,18 @@ export const TaskMap = React.memo(function TaskMap({
       setDisplayedHighlightedTrackSnapshot(highlightedTrackSnapshotRef.current);
     }, telemetryThrottleMs);
     return () => window.clearInterval(intervalId);
-  }, [telemetryThrottleMs, highlightedTrackUploadId]);
+  }, [effectiveHighlightedTrackUploadId, telemetryThrottleMs]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isPerspective3D) {
       return;
     }
-    if (highlightedTrackUploadId == null || !highlightedTrackSnapshot) {
+    if (effectiveHighlightedTrackUploadId == null || !highlightedTrackSnapshot) {
       lastCenteredHighlightRef.current = null;
       return;
     }
-    if (lastCenteredHighlightRef.current === highlightedTrackUploadId) {
+    if (lastCenteredHighlightRef.current === effectiveHighlightedTrackUploadId) {
       return;
     }
     const currentZoom = map.getZoom();
@@ -2603,8 +2648,8 @@ export const TaskMap = React.memo(function TaskMap({
       easing: (value) => 1 - Math.pow(1 - value, 3),
       essential: true,
     });
-    lastCenteredHighlightRef.current = highlightedTrackUploadId;
-  }, [highlightedTrackSnapshot, highlightedTrackUploadId, isPerspective3D]);
+    lastCenteredHighlightRef.current = effectiveHighlightedTrackUploadId;
+  }, [effectiveHighlightedTrackUploadId, highlightedTrackSnapshot, isPerspective3D]);
 
   // Fly to a specific position when the parent requests it (e.g. pilot row click).
   useEffect(() => {
@@ -2869,15 +2914,17 @@ export const TaskMap = React.memo(function TaskMap({
                   </svg>
                 )}
               </button>
-              <label className="replay-speed-select">
-                <select aria-label="Replay speed" value={String(replaySpeed)} onChange={(event) => setReplaySpeed(Number(event.target.value))}>
-                  {REPLAY_SPEEDS.map((speed) => (
-                    <option key={speed} value={speed}>
-                      {speed}x
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {oc?.replay_speed !== false ? (
+                <label className="replay-speed-select">
+                  <select aria-label="Replay speed" value={String(replaySpeed)} onChange={(event) => setReplaySpeed(Number(event.target.value))}>
+                    {REPLAY_SPEEDS.map((speed) => (
+                      <option key={speed} value={speed}>
+                        {speed}x
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           </div>
         </div>

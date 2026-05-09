@@ -119,43 +119,15 @@ const MAP_CONTEXTS = [
   { key: "admin_site_preview", label: "Admin" },
 ] as const;
 
-const ALL_FEATURES = [
-  { key: "turnpoints", label: "Turnpoints", maps: ["task_builder", "scoring", "dashboard_live", "public_live", "admin_site_preview"] },
-  { key: "task_route", label: "Task route", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
-  { key: "task_cylinders", label: "Task cylinders", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
-  { key: "optimized_route", label: "Optimized route", maps: ["task_builder", "scoring"] },
-  { key: "leg_labels", label: "Leg labels", maps: ["task_builder", "scoring"] },
-  { key: "airspaces", label: "Airspace regions", maps: ["task_builder", "scoring", "dashboard_live"] },
-  { key: "airspace_labels", label: "Airspace labels", maps: ["task_builder", "scoring", "dashboard_live"] },
-  { key: "flight_track", label: "Flight track", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live"] },
-  { key: "track_highlight", label: "Track highlight", maps: ["scoring", "logbook_replay"] },
-  { key: "live_positions", label: "Live positions", maps: ["dashboard_live", "public_live"] },
-  { key: "live_labels", label: "Live pilot labels", maps: ["dashboard_live", "public_live"] },
-  { key: "distance_summary", label: "Distance summary", maps: ["task_builder", "scoring"] },
-  { key: "gps_button", label: "GPS follow button", maps: ["public_live"] },
-  { key: "replay_scrubber", label: "Replay scrubber", maps: ["logbook_replay"] },
-  { key: "replay_speed", label: "Replay speed", maps: ["logbook_replay"] },
-  { key: "click_to_add_turnpoint", label: "Click to add TP", maps: ["task_builder"] },
-  { key: "fullscreen_editor_panel", label: "Fullscreen editor", maps: ["task_builder", "scoring"] },
-  { key: "fullscreen_toggle", label: "Fullscreen toggle", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "admin_site_preview"] },
-  { key: "2d_3d_toggle", label: "2D/3D toggle", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "airspace_explorer", "admin_site_preview"] },
-  { key: "basemap_selector", label: "Basemap selector", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "admin_site_preview"] },
-  { key: "altitude_slider", label: "Altitude slider", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "admin_site_preview"] },
-  { key: "airspace_regions", label: "Airspace regions (explorer)", maps: ["airspace_explorer"] },
-  { key: "tfrs", label: "TFRs", maps: ["airspace_explorer"] },
-  { key: "tfr_labels", label: "TFR labels", maps: ["airspace_explorer"] },
-  { key: "category_toggles", label: "Category toggles", maps: ["airspace_explorer"] },
-  { key: "export_openair", label: "Export OpenAir", maps: ["airspace_explorer"] },
-  { key: "legend", label: "Legend", maps: ["airspace_explorer", "soaring_forecast"] },
-  { key: "weather_raster", label: "Weather raster", maps: ["soaring_forecast"] },
-  { key: "wind_barbs", label: "Wind barbs", maps: ["soaring_forecast"] },
-  { key: "sounding_popup", label: "Sounding popup", maps: ["soaring_forecast"] },
-  { key: "model_selector", label: "Model selector", maps: ["soaring_forecast"] },
-  { key: "overlay_tabs", label: "Overlay tabs", maps: ["soaring_forecast"] },
-  { key: "wind_barb_toggle", label: "Wind barb toggle", maps: ["soaring_forecast"] },
-  { key: "opacity_slider", label: "Opacity slider", maps: ["soaring_forecast"] },
-  { key: "time_scrubber", label: "Time scrubber", maps: ["soaring_forecast"] },
-  { key: "model_run_selector", label: "Model run selector", maps: ["soaring_forecast"] },
+const MAP_GROUPS = [
+  { key: "tasks", label: "Tasks", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
+  { key: "airspace", label: "Airspace", maps: ["task_builder", "scoring", "dashboard_live", "airspace_explorer"] },
+  { key: "flight_tracks", label: "Flight Tracks", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live"] },
+  { key: "live_tracking", label: "Live Tracking", maps: ["dashboard_live", "public_live"] },
+  { key: "replay", label: "Replay", maps: ["logbook_replay"] },
+  { key: "weather", label: "Weather", maps: ["soaring_forecast"] },
+  { key: "map_controls", label: "Map Controls", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "airspace_explorer", "admin_site_preview"] },
+  { key: "site_preview", label: "Site Preview", maps: ["admin_site_preview"] },
 ] as const;
 type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
 type SortDir = "asc" | "desc";
@@ -1180,30 +1152,39 @@ export default function AdminSection(props: AdminSectionProps) {
                   </tr>
                 </thead>
                 <tbody>
-                  {ALL_FEATURES.map((feature) => (
-                    <tr key={feature.key}>
-                      <td>{feature.label}</td>
+                  {MAP_GROUPS.map((group) => (
+                    <tr key={group.key}>
+                      <td>{group.label}</td>
                       {MAP_CONTEXTS.map((ctx) => {
-                        const native = (feature.maps as readonly string[]).includes(ctx.key);
-                        const checked = mapOverlayConfig.config?.[ctx.key]?.[feature.key] === true || (native && mapOverlayConfig.config?.[ctx.key]?.[feature.key] !== false);
+                        const native = (group.maps as readonly string[]).includes(ctx.key);
+                        const groupConfig = mapOverlayConfig.config?.groups?.[ctx.key];
+                        const checked = groupConfig?.[group.key] === true || (native && groupConfig?.[group.key] !== false);
                         return (
                           <td key={ctx.key} style={{ textAlign: "center" }}>
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => {
-                                setMapOverlayConfig((prev) => ({
-                                  ...prev,
-                                  config: {
-                                    ...prev.config,
-                                    [ctx.key]: {
-                                      ...prev.config?.[ctx.key],
-                                      [feature.key]: !checked,
+                            {native ? (
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => {
+                                  setMapOverlayConfig((prev) => ({
+                                    ...prev,
+                                    config: {
+                                      ...prev.config,
+                                      schema_version: 2,
+                                      groups: {
+                                        ...(prev.config?.groups ?? {}),
+                                        [ctx.key]: {
+                                          ...(prev.config?.groups?.[ctx.key] ?? {}),
+                                          [group.key]: !checked,
+                                        },
+                                      },
                                     },
-                                  },
-                                }));
-                              }}
-                            />
+                                  }));
+                                }}
+                              />
+                            ) : (
+                              <span aria-hidden="true">-</span>
+                            )}
                           </td>
                         );
                       })}
@@ -1466,7 +1447,14 @@ export default function AdminSection(props: AdminSectionProps) {
           </div>
         </SectionCard>
       ) : activeTab === "live_tracking" ? (
-        <LiveTrackingTab debugStatus={debugStatus} refreshDebugStatus={refreshDebugStatus} refreshMeshNodes={loadMeshNodes} meshNodes={meshNodes} meshNodesLoading={meshNodesLoading} />
+        <LiveTrackingTab
+          debugStatus={debugStatus}
+          refreshDebugStatus={refreshDebugStatus}
+          refreshMeshNodes={loadMeshNodes}
+          meshNodes={meshNodes}
+          meshNodesLoading={meshNodesLoading}
+          overlayConfig={mapOverlayConfig.config.dashboard_live}
+        />
       ) : (
         <SectionCard title="Site settings">
           <div className="stack form-block compact-clusters">
@@ -1625,12 +1613,14 @@ function LiveTrackingTab({
   refreshMeshNodes,
   meshNodes,
   meshNodesLoading,
+  overlayConfig,
 }: {
   debugStatus: import("./types").DebugStatusResponse | null;
   refreshDebugStatus: () => void;
   refreshMeshNodes: () => Promise<void>;
   meshNodes: MeshNode[];
   meshNodesLoading: boolean;
+  overlayConfig?: MapOverlayConfigRecord["config"]["dashboard_live"];
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [focusPos, setFocusPos] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
@@ -2005,6 +1995,7 @@ function LiveTrackingTab({
             fitKey={`live-tracking-${livePositions.length}`}
             focusPosition={focusPos}
             mode="live"
+            overlayConfig={overlayConfig}
           />
         </div>
 
