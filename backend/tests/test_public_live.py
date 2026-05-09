@@ -54,7 +54,57 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
 
     assert [event.name for event in payload.events] == ["Open Distance Classic"]
     assert [task.name for task in payload.events[0].tasks] == ["Published task", "Active task"]
+    assert payload.events[0].map_task is not None
+    assert payload.events[0].map_task.name == "Active task"
     assert [(group.name, group.member_count) for group in payload.buddy_groups] == [("Public crew", 1)]
+
+
+def test_public_live_map_task_falls_back_to_newest_published_task() -> None:
+    session = _session()
+    event = Event(
+        name="Fallback Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        is_public_tracking=True,
+    )
+    session.add(event)
+    session.flush()
+    session.add_all(
+        [
+            Task(event_id=event.id, name="Older published", status="published", task_date=date(2026, 5, 2)),
+            Task(event_id=event.id, name="Newest published", status="published", task_date=date(2026, 5, 5)),
+            Task(event_id=event.id, name="Newest draft", status="draft", task_date=date(2026, 5, 6)),
+        ]
+    )
+    session.commit()
+
+    payload = get_public_live_sources(session)
+
+    assert payload.events[0].map_task is not None
+    assert payload.events[0].map_task.name == "Newest published"
+
+
+def test_public_live_map_task_is_empty_without_active_or_published_tasks() -> None:
+    session = _session()
+    event = Event(
+        name="Draft Only Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        is_public_tracking=True,
+    )
+    session.add(event)
+    session.flush()
+    session.add(Task(event_id=event.id, name="Draft task", status="draft", task_date=date(2026, 5, 6)))
+    session.commit()
+
+    payload = get_public_live_sources(session)
+
+    assert payload.events[0].tasks == []
+    assert payload.events[0].map_task is None
 
 
 def test_public_event_positions_are_limited_to_competition_pilots() -> None:

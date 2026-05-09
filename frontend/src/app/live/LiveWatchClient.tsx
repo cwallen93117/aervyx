@@ -28,8 +28,11 @@ type PublicEventSource = {
   starts_on: string;
   ends_on: string;
   timezone: string;
-  tasks: { id: number; name: string; status: string; task_date: string | null }[];
+  map_task: PublicTaskSource | null;
+  tasks: PublicTaskSource[];
 };
+
+type PublicTaskSource = { id: number; name: string; status: string; task_date: string | null };
 
 type PublicBuddySource = {
   id: number;
@@ -48,6 +51,13 @@ type SelectedSource =
   | { type: "buddies"; groupId: number; groupName: string };
 
 type LivePositionWithName = LivePositionRecord & { pilot_name?: string | null };
+type TaskInfoResponse = {
+  id: number;
+  name: string;
+  task_type: string;
+  task_date: string | null;
+  turnpoints: { position: number; name: string; point_type: string; radius_m: number; latitude: number; longitude: number }[];
+};
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
 const allUsersSource: SelectedSource = { type: "all_users" };
@@ -69,8 +79,8 @@ export function LiveWatchClient() {
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
   const [pilotNameById, setPilotNameById] = useState<Map<number, string>>(new Map());
-  const [turnpoints] = useState<MapTurnpoint[]>([]);
-  const [taskPoints] = useState<MapTaskPoint[]>([]);
+  const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
+  const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
@@ -124,6 +134,15 @@ export function LiveWatchClient() {
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 
   const track = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById), [positionsByPilot, pilotNameById]);
+  const selectedEventId = selected.type === "event" ? selected.eventId : null;
+  const selectedEvent = useMemo(
+    () => sources.events.find((event) => event.id === selectedEventId) ?? null,
+    [selectedEventId, sources.events],
+  );
+  const selectedMapTaskId = selectedEvent?.map_task?.id ?? null;
+  const taskOverlaysEnabled = overlayConfig
+    ? overlayConfig.turnpoints !== false || overlayConfig.task_route !== false || overlayConfig.task_cylinders !== false
+    : true;
 
   useEffect(() => {
     const latest = new Map<number, LivePositionRecord>();
@@ -265,6 +284,55 @@ export function LiveWatchClient() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!selectedMapTaskId || !taskOverlaysEnabled) {
+      setTurnpoints([]);
+      setTaskPoints([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setTurnpoints([]);
+    setTaskPoints([]);
+    (async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/public/live/task/${selectedMapTaskId}/info`, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error(`Task info failed: ${response.status}`);
+        }
+        const task = (await response.json()) as TaskInfoResponse;
+        if (cancelled) return;
+        const points: MapTaskPoint[] = task.turnpoints.map((point) => ({
+          position: point.position,
+          point_type: point.point_type,
+          radius_m: point.radius_m,
+          name: point.name,
+          latitude: point.latitude,
+          longitude: point.longitude,
+        }));
+        setTaskPoints(points);
+        setTurnpoints(points.map((point) => ({
+          id: point.position,
+          name: point.name,
+          code: null,
+          latitude: point.latitude,
+          longitude: point.longitude,
+        })));
+      } catch {
+        if (!cancelled) {
+          setTurnpoints([]);
+          setTaskPoints([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, selectedMapTaskId, taskOverlaysEnabled]);
+
+  useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
         const res = await fetch(`${apiBase}/api/map-overlay-config/public`);
@@ -356,7 +424,7 @@ export function LiveWatchClient() {
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}
-            fitKey={sourceDropdownValue}
+            fitKey={`${sourceDropdownValue}:${selectedMapTaskId ?? "no-task"}:${taskOverlaysEnabled ? "tasks-on" : "tasks-off"}`}
           />
         </div>
 

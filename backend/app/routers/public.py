@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -62,6 +62,7 @@ class PublicEventSummary(BaseModel):
     starts_on: str
     ends_on: str
     timezone: str
+    map_task: PublicTaskSummary | None = None
     tasks: list[PublicTaskSummary]
 
 
@@ -227,6 +228,7 @@ def get_public_live_sources(session: Session = Depends(get_session)) -> PublicLi
             )
             .order_by(Task.task_date.asc(), Task.id.asc())
         ).all()
+        map_task = _select_public_event_map_task(tasks)
         event_summaries.append(
             PublicEventSummary(
                 id=event.id,
@@ -235,15 +237,8 @@ def get_public_live_sources(session: Session = Depends(get_session)) -> PublicLi
                 starts_on=event.starts_on.isoformat(),
                 ends_on=event.ends_on.isoformat(),
                 timezone=event.timezone,
-                tasks=[
-                    PublicTaskSummary(
-                        id=task.id,
-                        name=task.name,
-                        status=task.status,
-                        task_date=task.task_date.isoformat() if task.task_date else None,
-                    )
-                    for task in tasks
-                ],
+                map_task=_public_task_summary(map_task) if map_task else None,
+                tasks=[_public_task_summary(task) for task in tasks],
             )
         )
 
@@ -266,6 +261,30 @@ def get_public_live_sources(session: Session = Depends(get_session)) -> PublicLi
     ]
 
     return PublicLiveSourcesResponse(events=event_summaries, buddy_groups=buddy_summaries)
+
+
+def _public_task_summary(task: Task) -> PublicTaskSummary:
+    return PublicTaskSummary(
+        id=task.id,
+        name=task.name,
+        status=task.status,
+        task_date=task.task_date.isoformat() if task.task_date else None,
+    )
+
+
+def _select_public_event_map_task(tasks: list[Task]) -> Task | None:
+    if not tasks:
+        return None
+
+    return max(
+        tasks,
+        key=lambda task: (
+            task.status == "active",
+            task.task_date is not None,
+            task.task_date or date.min,
+            task.id,
+        ),
+    )
 
 
 def _get_public_task(task_id: int, session: Session) -> Task:
