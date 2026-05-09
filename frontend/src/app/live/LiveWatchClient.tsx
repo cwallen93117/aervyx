@@ -21,22 +21,13 @@ import {
   mergePositionGroup,
 } from "../../lib/live-tracking-utils";
 
-// ---------------------------------------------------------------------------
-// DEBUG MODE — "show all" live tracking
-// ---------------------------------------------------------------------------
-// The competition-task and buddy-group filters are temporarily disabled so
-// every device sending positions shows up on the public Watch Live page.
-// To restore the competition/buddy filter UI, un-comment every block tagged
-// with "FILTER:" below and swap the SSE URL back to the source-specific
-// endpoints.
-
-/* FILTER: (restore-path types)
 type PublicEventSource = {
   id: number;
   name: string;
   location: string;
   starts_on: string;
   ends_on: string;
+  timezone: string;
   tasks: { id: number; name: string; status: string; task_date: string | null }[];
 };
 
@@ -51,61 +42,67 @@ type PublicSources = {
   buddy_groups: PublicBuddySource[];
 };
 
-type TaskInfoResponse = {
-  name: string;
-  task_type: string;
-  task_date: string | null;
-  turnpoints: { position: number; name: string; point_type: string; radius_m: number; latitude: number; longitude: number }[];
-};
-
 type SelectedSource =
-  | { type: "task"; taskId: number; eventName: string }
-  | { type: "buddies"; groupId: number; groupName: string }
-  | null;
-*/
+  | { type: "all_users" }
+  | { type: "event"; eventId: number; eventName: string }
+  | { type: "buddies"; groupId: number; groupName: string };
+
+type LivePositionWithName = LivePositionRecord & { pilot_name?: string | null };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
+const allUsersSource: SelectedSource = { type: "all_users" };
+
+function collectPilotNames(positions: LivePositionWithName[]) {
+  const names = new Map<number, string>();
+  for (const pos of positions) {
+    const pilotId = pos.pilot_id;
+    if (pilotId != null && pos.pilot_name) {
+      names.set(pilotId, pos.pilot_name);
+    }
+  }
+  return names;
+}
 
 export function LiveWatchClient() {
-  // FILTER: dropdown-driven source selection (competition / buddy group)
-  // const [sources, setSources] = useState<PublicSources | null>(null);
-  // const [selected, setSelected] = useState<SelectedSource>(null);
+  const [sources, setSources] = useState<PublicSources>({ events: [], buddy_groups: [] });
+  const [selected, setSelected] = useState<SelectedSource>(allUsersSource);
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
   const [pilotNameById, setPilotNameById] = useState<Map<number, string>>(new Map());
-  // turnpoints/taskPoints were populated from the task-info endpoint in the
-  // competition filter flow. They stay empty in SHOW_ALL debug mode.
   const [turnpoints] = useState<MapTurnpoint[]>([]);
   const [taskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
-  const [error] = useState("");
+  const [error, setError] = useState("");
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
   const sseControllerRef = useRef<AbortController | null>(null);
 
   const apiBase = useMemo(() => resolveApiBase(), []);
 
-  // FILTER: Fetch available public sources on mount (events + buddy groups)
-  // useEffect(() => {
-  //   let cancelled = false;
-  //   (async () => {
-  //     try {
-  //       const response = await fetch(`${apiBase}/api/public/live/sources`, { cache: "no-store" });
-  //       if (response.ok && !cancelled) {
-  //         setSources(await response.json());
-  //       }
-  //     } catch {
-  //       if (!cancelled) setError("Unable to load live sources");
-  //     }
-  //   })();
-  //   return () => { cancelled = true; };
-  // }, [apiBase]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`${apiBase}/api/public/live/sources`, { cache: "no-store" });
+        if (response.ok && !cancelled) {
+          setSources((await response.json()) as PublicSources);
+        } else if (!response.ok && !cancelled) {
+          setError("Unable to load live sources.");
+        }
+      } catch {
+        if (!cancelled) {
+          setError("Unable to load live sources.");
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
-  // Derived: active pilot IDs sorted for consistent coloring
   const activePilotIds = useMemo(() => {
     return Array.from(positionsByPilot.keys()).sort((a, b) => a - b);
   }, [positionsByPilot]);
 
-  // Build live position markers for map
   const livePositions: MapLivePosition[] = useMemo(() => {
     return Array.from(livePositionsByPilot.entries()).map(([pilotId, pos]) => ({
       id: pos.id,
@@ -126,10 +123,8 @@ export function LiveWatchClient() {
     }));
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 
-  // Build track collection for map
   const track = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById), [positionsByPilot, pilotNameById]);
 
-  // Update latest position per pilot when positionsByPilot changes
   useEffect(() => {
     const latest = new Map<number, LivePositionRecord>();
     for (const [pilotId, positions] of positionsByPilot) {
@@ -140,52 +135,59 @@ export function LiveWatchClient() {
     setLivePositionsByPilot(latest);
   }, [positionsByPilot]);
 
-  // Connect SSE — SHOW_ALL mode always connects to the global "show all" stream
-  const connectSSE = useCallback(() => {
+  const sourceLabel = useMemo(() => {
+    if (selected.type === "event") {
+      return selected.eventName;
+    }
+    if (selected.type === "buddies") {
+      return selected.groupName;
+    }
+    return "All users";
+  }, [selected]);
+
+  const sourceDropdownValue = useMemo(() => {
+    if (selected.type === "event") {
+      return `event:${selected.eventId}`;
+    }
+    if (selected.type === "buddies") {
+      return `buddies:${selected.groupId}`;
+    }
+    return "all_users";
+  }, [selected]);
+
+  const connectSSE = useCallback((source: SelectedSource) => {
     sseControllerRef.current?.abort();
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
     setPilotNameById(new Map());
+    setError("");
 
     const controller = new AbortController();
     sseControllerRef.current = controller;
     setLoading(true);
 
-    // FILTER: Source-specific URLs (competition task OR buddy group)
-    // const sseUrl = source.type === "task"
-    //   ? `${apiBase}/api/public/live/task/${source.taskId}`
-    //   : `${apiBase}/api/public/live/buddies/${source.groupId}`;
-    // const historyUrl = source.type === "task"
-    //   ? `${apiBase}/api/public/live/task/${source.taskId}/positions`
-    //   : `${apiBase}/api/public/live/buddies/${source.groupId}/positions`;
-    const sseUrl = `${apiBase}/api/public/live/all`;
-    const historyUrl = `${apiBase}/api/public/live/all/positions?minutes=60`;
+    const sourcePath =
+      source.type === "event"
+        ? `events/${source.eventId}`
+        : source.type === "buddies"
+          ? `buddies/${source.groupId}`
+          : "all";
+    const sseUrl = `${apiBase}/api/public/live/${sourcePath}`;
+    const historyUrl = `${apiBase}/api/public/live/${sourcePath}/positions?minutes=60&limit=10000`;
 
-    // FILTER: Fetch task info for turnpoints (only applies to task filter)
-    // if (source.type === "task") {
-    //   fetch(`${apiBase}/api/public/live/task/${source.taskId}/info`, ...)
-    //     .then(...);
-    // }
-
-    // Fetch position history
     fetch(historyUrl, { cache: "no-store", signal: controller.signal })
-      .then((r) => r.ok ? r.json() : [])
-      .then((positions: LivePositionRecord[]) => {
+      .then((r) => (r.ok ? r.json() : []))
+      .then((positions: LivePositionWithName[]) => {
         if (!controller.signal.aborted && positions.length) {
           setPositionsByPilot((current) => mergePositionGroup(current, positions));
-          const names = new Map<number, string>();
-          for (const pos of positions) {
-            const pid = pos.pilot_id ?? 0;
-            if (!names.has(pid)) {
-              names.set(pid, (pos as Record<string, unknown>).pilot_name as string ?? `Pilot ${pid}`);
-            }
+          const names = collectPilotNames(positions);
+          if (names.size) {
+            setPilotNameById((prev) => new Map([...prev, ...names]));
           }
-          if (names.size) setPilotNameById((prev) => new Map([...prev, ...names]));
         }
       })
       .catch(() => {});
 
-    // Open SSE connection
     (async () => {
       let retryCount = 0;
       while (!controller.signal.aborted) {
@@ -199,6 +201,7 @@ export function LiveWatchClient() {
             throw new Error(`SSE failed: ${response.status}`);
           }
           setLoading(false);
+          setError("");
           retryCount = 0;
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
@@ -221,19 +224,20 @@ export function LiveWatchClient() {
                   const parsed = JSON.parse(data);
                   if (eventType === "snapshot" && Array.isArray(parsed)) {
                     setPositionsByPilot((current) => mergePositionGroup(current, parsed));
-                    const names = new Map<number, string>();
-                    for (const pos of parsed) {
-                      const pid = pos.pilot_id ?? 0;
-                      if (pos.pilot_name) names.set(pid, pos.pilot_name);
+                    const names = collectPilotNames(parsed);
+                    if (names.size) {
+                      setPilotNameById((prev) => new Map([...prev, ...names]));
                     }
-                    if (names.size) setPilotNameById((prev) => new Map([...prev, ...names]));
                   } else if (eventType === "position" && parsed) {
                     setPositionsByPilot((current) => mergePositionGroup(current, [parsed]));
-                    if (parsed.pilot_name && parsed.pilot_id != null) {
-                      setPilotNameById((prev) => new Map([...prev, [parsed.pilot_id, parsed.pilot_name]]));
+                    const names = collectPilotNames([parsed]);
+                    if (names.size) {
+                      setPilotNameById((prev) => new Map([...prev, ...names]));
                     }
                   }
-                } catch { /* ignore parse errors */ }
+                } catch {
+                  // Ignore malformed event payloads without breaking the stream.
+                }
                 eventType = "";
               }
             }
@@ -242,6 +246,7 @@ export function LiveWatchClient() {
           if (controller.signal.aborted) break;
           retryCount++;
           setLoading(false);
+          setError("Live connection interrupted; retrying...");
           const delay = Math.min(3000 * retryCount, 15000);
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
@@ -253,46 +258,55 @@ export function LiveWatchClient() {
     };
   }, [apiBase]);
 
-  // Open SSE on mount (SHOW_ALL mode — no dropdown change needed)
   useEffect(() => {
-    const cleanup = connectSSE();
+    const cleanup = connectSSE(selected);
     return cleanup;
-  }, [connectSSE]);
+  }, [connectSSE, selected]);
 
-  // Fetch map overlay config on mount (public_live slice for TaskMap)
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${resolveApiBase()}/api/map-overlay-config/public`);
+        const res = await fetch(`${apiBase}/api/map-overlay-config/public`);
         if (res.ok) {
           const data = await res.json();
           if (!cancelled && data?.config?.public_live) {
             setOverlayConfig(data.config.public_live);
           }
         }
-      } catch { /* ignore — use defaults */ }
+      } catch {
+        // Use map defaults if public overlay configuration is unavailable.
+      }
     })();
-    return () => { cancelled = true; };
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
-  // FILTER: Dropdown change handler (competition task / buddy group)
-  // function handleSourceChange(value: string) {
-  //   if (!value) { setSelected(null); return; }
-  //   if (value.startsWith("task:")) {
-  //     const taskId = Number(value.slice(5));
-  //     const event = sources?.events.find((e) => e.tasks.some((t) => t.id === taskId));
-  //     setSelected({ type: "task", taskId, eventName: event?.name ?? "Event" });
-  //   } else if (value.startsWith("buddies:")) {
-  //     const groupId = Number(value.slice(8));
-  //     const group = sources?.buddy_groups.find((g) => g.id === groupId);
-  //     setSelected({ type: "buddies", groupId, groupName: group?.name ?? "Group" });
-  //   }
-  // }
+  const handleSourceChange = useCallback((value: string) => {
+    if (value === "all_users") {
+      setSelected(allUsersSource);
+      return;
+    }
+    if (value.startsWith("event:")) {
+      const eventId = Number(value.slice(6));
+      const event = sources.events.find((item) => item.id === eventId);
+      if (event) {
+        setSelected({ type: "event", eventId, eventName: event.name });
+      }
+      return;
+    }
+    if (value.startsWith("buddies:")) {
+      const groupId = Number(value.slice(8));
+      const group = sources.buddy_groups.find((item) => item.id === groupId);
+      if (group) {
+        setSelected({ type: "buddies", groupId, groupName: group.name });
+      }
+    }
+  }, [sources]);
 
   return (
     <div className="live-page">
-      {/* Header */}
       <header className="live-header">
         <a href="/" className="live-brand" title="Back to Aervyx">
           <svg viewBox="0 0 30 30" width="24" height="24" fill="none">
@@ -301,33 +315,40 @@ export function LiveWatchClient() {
           </svg>
         </a>
         <span className="live-title">Watch Live</span>
-        <span className="live-status" style={{ marginLeft: 12, opacity: 0.7 }}>
-          Debug: showing all devices
-        </span>
-        {/* FILTER: Source selection dropdown (competition task / buddy group)
         <div className="live-source-picker">
-          <select value={dropdownValue} onChange={(e) => handleSourceChange(e.target.value)}>
-            <option value="">Select a source...</option>
-            {sources?.events.map((event) =>
-              event.tasks.map((task) => (
-                <option key={`task:${task.id}`} value={`task:${task.id}`}>
-                  {event.name} — {task.name}
-                </option>
-              ))
-            )}
-            {sources?.buddy_groups.map((group) => (
-              <option key={`buddies:${group.id}`} value={`buddies:${group.id}`}>
-                Buddy: {group.name} ({group.member_count})
-              </option>
-            ))}
+          <select
+            aria-label="Live tracking source"
+            value={sourceDropdownValue}
+            onChange={(event) => handleSourceChange(event.target.value)}
+          >
+            <option value="all_users">All users</option>
+            {sources.events.length > 0 ? (
+              <optgroup label="Competitions">
+                {sources.events.map((event) => (
+                  <option key={`event:${event.id}`} value={`event:${event.id}`}>
+                    {event.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
+            {sources.buddy_groups.length > 0 ? (
+              <optgroup label="Buddy groups">
+                {sources.buddy_groups.map((group) => (
+                  <option key={`buddies:${group.id}`} value={`buddies:${group.id}`}>
+                    {group.name} ({group.member_count})
+                  </option>
+                ))}
+              </optgroup>
+            ) : null}
           </select>
         </div>
-        */}
+        <span className="live-status" style={{ marginLeft: 12, opacity: 0.7 }}>
+          {sourceLabel}
+        </span>
         {loading ? <span className="live-status">Connecting...</span> : null}
         {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 
-      {/* Body */}
       <div className="live-body">
         <div className="live-map" style={{ position: "relative" }}>
           <TaskMap
@@ -340,6 +361,7 @@ export function LiveWatchClient() {
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}
+            fitKey={sourceDropdownValue}
           />
           {activePilotIds.length === 0 && !loading ? (
             <div
@@ -361,16 +383,15 @@ export function LiveWatchClient() {
                   margin: 0,
                 }}
               >
-                Waiting for live positions…
+                Waiting for live positions...
               </p>
             </div>
           ) : null}
         </div>
 
-        {/* Pilot sidebar — always mounted so layout is stable from first frame */}
         <div className="live-sidebar">
           <div className="live-sidebar-header">
-            <strong>All active devices</strong>
+            <strong>{sourceLabel}</strong>
             <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
           </div>
           <div className="live-pilot-list">
@@ -393,8 +414,8 @@ export function LiveWatchClient() {
                       <strong>{name}</strong>
                       <span className="live-pilot-stats">
                         {convertAltitude(pos?.alt ?? null, defaultUnits.altitude)}
-                        {pos?.speed != null ? ` · ${convertSpeed(pos.speed, defaultUnits.speed)}` : ""}
-                        {pos?.timestamp ? ` · ${formatRelativeTime(pos.timestamp)}` : ""}
+                        {pos?.speed != null ? ` - ${convertSpeed(pos.speed, defaultUnits.speed)}` : ""}
+                        {pos?.timestamp ? ` - ${formatRelativeTime(pos.timestamp)}` : ""}
                       </span>
                     </div>
                   </div>
@@ -402,7 +423,13 @@ export function LiveWatchClient() {
               })
             ) : (
               <div className="live-pilot-empty">
-                {loading ? "Connecting…" : "Waiting for pilots…"}
+                {loading
+                  ? "Connecting..."
+                  : selected.type === "event"
+                    ? "Waiting for competition pilots..."
+                    : selected.type === "buddies"
+                      ? "Waiting for group pilots..."
+                      : "Waiting for pilots..."}
               </div>
             )}
           </div>

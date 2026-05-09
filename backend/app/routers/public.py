@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -16,7 +17,6 @@ from app.models import (
     BuddyGroupMember,
     Event,
     EventPilot,
-    LivePosition,
     Pilot,
     ScoreResult,
     Task,
@@ -30,6 +30,8 @@ from app.services.tracking import (
     get_all_recent_positions,
     get_live_positions,
     get_live_positions_for_pilots,
+    get_position_history,
+    get_position_history_for_pilots,
     subscribe,
     subscribe_global,
     subscribe_pilots,
@@ -90,6 +92,8 @@ class PublicPositionResponse(BaseModel):
     device_id: str | None
     battery_level: int | None
     aircraft_icon: str = "hang_glider"
+    profile_type: str = "pilot"
+    position_source: str = "other"
 
 
 class PublicTurnpointInfo(BaseModel):
@@ -275,12 +279,87 @@ def _get_public_task(task_id: int, session: Session) -> Task:
     return task
 
 
+def _get_public_event(event_id: int, session: Session) -> Event:
+    """Load an event and verify public tracking is enabled. Raises 404 otherwise."""
+    event = session.get(Event, event_id)
+    if event is None or not event.is_public_tracking:
+        raise HTTPException(status_code=404, detail="Event not found")
+    return event
+
+
+def _public_event_pilot_ids(event_id: int, session: Session) -> list[int]:
+    return list(
+        session.scalars(
+            select(EventPilot.pilot_id)
+            .where(EventPilot.event_id == event_id)
+            .order_by(EventPilot.pilot_id.asc())
+        ).all()
+    )
+
+
 def _get_public_buddy_group(group_id: int, session: Session) -> BuddyGroup:
     """Load a buddy group and verify it is public. Raises 404 otherwise."""
     group = session.get(BuddyGroup, group_id)
     if group is None or not group.is_public:
         raise HTTPException(status_code=404, detail="Buddy group not found")
     return group
+
+
+@router.get("/live/events/{event_id}")
+async def public_event_live_sse(
+    event_id: int,
+    session: Session = Depends(get_session),
+) -> StreamingResponse:
+    """SSE stream of live positions for every pilot in a publicly-tracked event."""
+    _get_public_event(event_id, session)
+    pilot_ids = _public_event_pilot_ids(event_id, session)
+
+    queue = subscribe_pilots(pilot_ids)
+
+    async def event_stream():
+        try:
+            snapshot = get_live_positions_for_pilots(session, pilot_ids)
+            yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
+
+            while True:
+                try:
+                    message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    event_type = message.pop("event", "position") if isinstance(message, dict) else "position"
+                    yield f"event: {event_type}\ndata: {json.dumps(message)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        finally:
+            unsubscribe_pilots(pilot_ids, queue)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/live/events/{event_id}/positions", response_model=list[PublicPositionResponse])
+def public_event_positions(
+    event_id: int,
+    minutes: int = Query(60),
+    limit: int = Query(10000),
+    session: Session = Depends(get_session),
+) -> list[PublicPositionResponse]:
+    """Position history for all pilots in a publicly-tracked event."""
+    _get_public_event(event_id, session)
+    pilot_ids = _public_event_pilot_ids(event_id, session)
+    if not pilot_ids:
+        return []
+
+    minutes = max(1, min(minutes, 24 * 60))
+    limit = max(1, min(limit, 10000))
+    since = datetime.now(UTC) - timedelta(minutes=minutes)
+    rows = get_position_history_for_pilots(session, pilot_ids, since=since, limit=limit)
+    return [PublicPositionResponse(**row) for row in rows]
 
 
 @router.get("/live/task/{task_id}")
@@ -324,34 +403,10 @@ def public_task_positions(
     task_id: int,
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
-    """Position history for a publicly-tracked task (up to 10 000 records, newest first)."""
+    """Position history for a publicly-tracked task (up to 10 000 records)."""
     _get_public_task(task_id, session)
-
-    rows = session.scalars(
-        select(LivePosition)
-        .where(LivePosition.task_id == task_id)
-        .order_by(LivePosition.timestamp.desc())
-        .limit(10000)
-    ).all()
-
-    return [
-        PublicPositionResponse(
-            id=str(row.id),
-            pilot_id=row.pilot_id,
-            task_id=row.task_id,
-            lat=row.lat,
-            lon=row.lon,
-            alt=row.alt,
-            speed=row.speed,
-            heading=row.heading,
-            accuracy=row.accuracy,
-            timestamp=row.timestamp.isoformat(),
-            source=row.source,
-            device_id=row.device_id,
-            battery_level=row.battery_level,
-        )
-        for row in rows
-    ]
+    rows = get_position_history(session, task_id, limit=10000)
+    return [PublicPositionResponse(**row) for row in rows]
 
 
 @router.get("/live/task/{task_id}/info", response_model=PublicTaskInfoResponse)
@@ -431,9 +486,11 @@ async def public_buddy_group_live_sse(
 @router.get("/live/buddies/{group_id}/positions", response_model=list[PublicPositionResponse])
 def public_buddy_group_positions(
     group_id: int,
+    minutes: int = Query(60),
+    limit: int = Query(10000),
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
-    """Position history for all pilots in a public buddy group (up to 10 000 records, newest first)."""
+    """Position history for all pilots in a public buddy group (up to 10 000 records)."""
     group = _get_public_buddy_group(group_id, session)
 
     pilot_ids = session.scalars(
@@ -443,44 +500,22 @@ def public_buddy_group_positions(
 
     if not pilot_ids:
         return []
-
-    rows = session.scalars(
-        select(LivePosition)
-        .where(LivePosition.pilot_id.in_(pilot_ids))
-        .order_by(LivePosition.timestamp.desc())
-        .limit(10000)
-    ).all()
-
-    return [
-        PublicPositionResponse(
-            id=str(row.id),
-            pilot_id=row.pilot_id,
-            task_id=row.task_id,
-            lat=row.lat,
-            lon=row.lon,
-            alt=row.alt,
-            speed=row.speed,
-            heading=row.heading,
-            accuracy=row.accuracy,
-            timestamp=row.timestamp.isoformat(),
-            source=row.source,
-            device_id=row.device_id,
-            battery_level=row.battery_level,
-        )
-        for row in rows
-    ]
+    minutes = max(1, min(minutes, 24 * 60))
+    limit = max(1, min(limit, 10000))
+    since = datetime.now(UTC) - timedelta(minutes=minutes)
+    rows = get_position_history_for_pilots(session, pilot_ids, since=since, limit=limit)
+    return [PublicPositionResponse(**row) for row in rows]
 
 
 # ---------------------------------------------------------------------------
-# DEBUG "show all" live tracking endpoints
+# All-users live tracking endpoints
 # ---------------------------------------------------------------------------
-# These endpoints bypass event/buddy-group filters and expose EVERY device
-# that sends location updates. Intended for debug/testing only; remove or
-# gate behind auth before going fully live with competition filtering.
+# These endpoints intentionally back the "All users" option on the public
+# Watch Live page.
 
 @router.get("/live/all")
 async def public_all_live_sse() -> StreamingResponse:
-    """SSE stream of ALL live positions from every device (debug mode)."""
+    """SSE stream of all live positions from every device."""
     queue = subscribe_global()
 
     async def event_stream():

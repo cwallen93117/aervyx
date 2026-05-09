@@ -134,6 +134,17 @@ def _profile_types_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int,
     return profile_types
 
 
+def _pilot_names_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int, str]:
+    if not pilot_ids:
+        return {}
+    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids)).order_by(User.id.asc())).all()
+    pilot_names: dict[int, str] = {}
+    for user in users:
+        if user.pilot_id is not None and user.pilot_id not in pilot_names:
+            pilot_names[user.pilot_id] = user.full_name
+    return pilot_names
+
+
 def _stationary_node_by_device(session: Session, device_ids: list[str]) -> dict[str, User]:
     """Return a map of ``device_id → User`` for any stationary-node users matching the given device IDs."""
     if not device_ids:
@@ -440,6 +451,7 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
     pilot_id_list = [pilot_id for pilot_id in active_pilots if pilot_id is not None]
     aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, pilot_id_list)
     profile_types_by_pilot = _profile_types_by_pilot(session, pilot_id_list)
+    pilot_names_by_pilot = _pilot_names_by_pilot(session, pilot_id_list)
 
     # Use a subquery with ROW_NUMBER() to get latest position per pilot
     row_num = sa_func.row_number().over(
@@ -464,6 +476,7 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
         {
             "id": str(row.id),
             "pilot_id": row.pilot_id,
+            "pilot_name": pilot_names_by_pilot.get(row.pilot_id),
             "task_id": row.task_id,
             "lat": row.lat,
             "lon": row.lon,
@@ -572,10 +585,12 @@ def get_position_history(
     pilot_id_list = [pos.pilot_id for pos in rows if pos.pilot_id is not None]
     aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, pilot_id_list)
     profile_types_by_pilot = _profile_types_by_pilot(session, pilot_id_list)
+    pilot_names_by_pilot = _pilot_names_by_pilot(session, pilot_id_list)
     return [
         {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,
+            "pilot_name": pilot_names_by_pilot.get(pos.pilot_id),
             "task_id": pos.task_id,
             "lat": pos.lat,
             "lon": pos.lon,
@@ -608,6 +623,7 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
 
     aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
     profile_types = _profile_types_by_pilot(session, pilot_ids)
+    pilot_names = _pilot_names_by_pilot(session, pilot_ids)
 
     row_num = sa_func.row_number().over(
         partition_by=LivePosition.pilot_id,
@@ -628,6 +644,7 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
         {
             "id": str(row.id),
             "pilot_id": row.pilot_id,
+            "pilot_name": pilot_names.get(row.pilot_id),
             "task_id": row.task_id,
             "lat": row.lat,
             "lon": row.lon,
@@ -741,10 +758,12 @@ def get_position_history_for_pilots(
     rows = session.scalars(query).all()
     aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
     profile_types = _profile_types_by_pilot(session, pilot_ids)
+    pilot_names = _pilot_names_by_pilot(session, pilot_ids)
     return [
         {
             "id": str(pos.id),
             "pilot_id": pos.pilot_id,
+            "pilot_name": pilot_names.get(pos.pilot_id),
             "task_id": pos.task_id,
             "lat": pos.lat,
             "lon": pos.lon,
