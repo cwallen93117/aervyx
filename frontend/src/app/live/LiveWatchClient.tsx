@@ -342,8 +342,6 @@ export function LiveWatchClient() {
             ) : null}
           </select>
         </div>
-        {loading ? <span className="live-status">Connecting...</span> : null}
-        {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 
       <div className="live-body">
@@ -360,30 +358,6 @@ export function LiveWatchClient() {
             overlayConfig={overlayConfig}
             fitKey={sourceDropdownValue}
           />
-          {activePilotIds.length === 0 && !loading ? (
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                pointerEvents: "none",
-              }}
-            >
-              <p
-                style={{
-                  background: "rgba(0,0,0,0.6)",
-                  padding: "8px 14px",
-                  borderRadius: 6,
-                  color: "#fff",
-                  margin: 0,
-                }}
-              >
-                Waiting for live positions...
-              </p>
-            </div>
-          ) : null}
         </div>
 
         <div className="live-sidebar">
