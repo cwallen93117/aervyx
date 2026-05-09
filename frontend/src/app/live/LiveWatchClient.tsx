@@ -20,6 +20,7 @@ import {
   buildTrackCollection,
   mergePositionGroup,
 } from "../../lib/live-tracking-utils";
+import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 type PublicEventSource = {
   id: number;
@@ -143,6 +144,7 @@ export function LiveWatchClient() {
   const taskOverlaysEnabled = overlayConfig
     ? overlayConfig.turnpoints !== false || overlayConfig.task_route !== false || overlayConfig.task_cylinders !== false
     : true;
+  const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskPoints), [taskPoints]);
 
   useEffect(() => {
     const latest = new Map<number, LivePositionRecord>();
@@ -173,6 +175,9 @@ export function LiveWatchClient() {
     }
     return "all_users";
   }, [selected]);
+  const liveMapFitKey = selected.type === "event" && selectedMapTaskId
+    ? `${sourceDropdownValue}:task:${selectedMapTaskId}:points:${taskPoints.length}`
+    : sourceDropdownValue;
 
   const connectSSE = useCallback((source: SelectedSource) => {
     sseControllerRef.current?.abort();
@@ -419,12 +424,14 @@ export function LiveWatchClient() {
             taskPoints={taskPoints}
             livePositions={livePositions}
             track={track}
+            optimizedRoute={taskDistanceMetrics.routeCoordinates}
+            legMetrics={taskDistanceMetrics.legMetrics}
             mode="live"
             units={defaultUnits}
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}
-            fitKey={`${sourceDropdownValue}:${selectedMapTaskId ?? "no-task"}:${taskOverlaysEnabled ? "tasks-on" : "tasks-off"}`}
+            fitKey={liveMapFitKey}
           />
         </div>
 
