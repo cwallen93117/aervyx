@@ -1286,6 +1286,23 @@ export const TaskMap = React.memo(function TaskMap({
     setGpsFollowing(false);
   }, []);
 
+  const fitToCurrentTarget = useCallback((map: maplibregl.Map, duration = 600) => {
+    const target = resolveFitTarget(
+      effectiveTaskRoutePoints,
+      effectiveOptimizedRoute,
+      effectiveTurnpoints,
+      effectiveTrack,
+      fitTurnpoints,
+      effectiveLivePositions,
+    );
+    if (target.kind === "fallback") {
+      return false;
+    }
+    programmaticCameraMoveRef.current = true;
+    fitMapToCoordinates(map, target.coordinates, { padding: 60, maxZoom: fitMaxZoom, duration });
+    return true;
+  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints]);
+
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
     const map = mapRef.current;
@@ -1296,18 +1313,7 @@ export const TaskMap = React.memo(function TaskMap({
       // Clear pan-lock so waypoint geometry updates can auto-fit again
       manualViewChangedRef.current = false;
       // Refit to task bounds
-      const target = resolveFitTarget(
-        effectiveTaskRoutePoints,
-        effectiveOptimizedRoute,
-        effectiveTurnpoints,
-        effectiveTrack,
-        fitTurnpoints,
-        effectiveLivePositions,
-      );
-      if (target.kind !== "fallback") {
-        programmaticCameraMoveRef.current = true;
-        fitMapToCoordinates(map, target.coordinates, { padding: 60, maxZoom: fitMaxZoom, duration: 600 });
-      }
+      fitToCurrentTarget(map);
     } else {
       // Start following — clear any pan-lock so the button always re-centers
       if (!("geolocation" in navigator)) return;
@@ -1338,7 +1344,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
       gpsWatchIdRef.current = watchId;
     }
-  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints, gpsFollowing, stopGpsFollowing]);
+  }, [fitToCurrentTarget, gpsFollowing, stopGpsFollowing]);
 
   // Cleanup GPS watch on unmount
   useEffect(() => {
@@ -2424,14 +2430,14 @@ export const TaskMap = React.memo(function TaskMap({
     }
     manualViewChangedRef.current = false;
     const doFit = () => {
-      applyFitBounds(map, true);
+      fitToCurrentTarget(map);
     };
     if (map.isStyleLoaded()) {
       doFit();
     } else {
       map.once("styledata", doFit);
     }
-  }, [applyFitBounds, fitOnceKeyValue, gpsFollowing]);
+  }, [fitOnceKeyValue, fitToCurrentTarget, gpsFollowing]);
 
   // Sync track data to map
   useEffect(() => {

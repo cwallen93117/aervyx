@@ -384,6 +384,12 @@ export function LiveWatchClient() {
     }
   }, [sources]);
 
+  const requestSelectedEventFit = useCallback(() => {
+    if (selected.type === "event") {
+      setEventFitRequestId((current) => current + 1);
+    }
+  }, [selected]);
+
   const renderPilotSidebar = (className = "live-sidebar") => (
     <div className={className}>
       <div className="live-sidebar-header">
@@ -474,6 +480,7 @@ export function LiveWatchClient() {
             aria-label="Live tracking source"
             value={sourceDropdownValue}
             onChange={(event) => handleSourceChange(event.target.value)}
+            onClick={requestSelectedEventFit}
           >
             <option value="all_users">All users</option>
             {sources.events.length > 0 ? (
