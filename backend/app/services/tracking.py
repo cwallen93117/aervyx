@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db import SessionLocal
 from app.models import Event, EventPilot, LivePosition, MeshDevice, Task, TrackingSession, User
 
 
@@ -25,6 +26,58 @@ VALID_PROFILE_TYPES_ALL = {"pilot", "driver", "stationary_node"}
 TRACKING_MESH_PURPOSE = "tracking"
 DRIVER_MESH_PURPOSES = {"driver_wifi", "driver_mesh"}
 STATIONARY_MESH_PURPOSES = {"base_station", "relay"}
+LIVE_POSITION_RETENTION_DAYS = 2
+LIVE_POSITION_PRUNE_INTERVAL_SECONDS = 3600
+
+
+def prune_old_live_positions(
+    retention_days: int = LIVE_POSITION_RETENTION_DAYS,
+    *,
+    now: datetime | None = None,
+) -> int:
+    """Delete live tracking fixes older than the retention window."""
+    reference_time = now or datetime.now(UTC)
+    if reference_time.tzinfo is None:
+        reference_time = reference_time.replace(tzinfo=UTC)
+    cutoff = reference_time - timedelta(days=retention_days)
+
+    session = SessionLocal()
+    try:
+        deleted = (
+            session.query(LivePosition)
+            .filter(LivePosition.timestamp < cutoff)
+            .delete(synchronize_session=False)
+        )
+        session.commit()
+        if deleted:
+            logger.info("Pruned %d live positions older than %d days", deleted, retention_days)
+        return int(deleted)
+    except Exception:
+        session.rollback()
+        logger.warning("Failed to prune old live positions", exc_info=True)
+        return 0
+    finally:
+        session.close()
+
+
+async def _live_position_prune_loop(
+    retention_days: int = LIVE_POSITION_RETENTION_DAYS,
+    interval_seconds: int = LIVE_POSITION_PRUNE_INTERVAL_SECONDS,
+) -> None:
+    while True:
+        await asyncio.sleep(interval_seconds)
+        await asyncio.to_thread(prune_old_live_positions, retention_days)
+
+
+async def start_live_position_pruner() -> asyncio.Task[None]:
+    """Launch the live-position retention pruner as an asyncio background task."""
+    task = asyncio.create_task(_live_position_prune_loop(), name="live-position-pruner")
+    logger.info(
+        "Live position pruner started: retention=%d days interval=%d seconds",
+        LIVE_POSITION_RETENTION_DAYS,
+        LIVE_POSITION_PRUNE_INTERVAL_SECONDS,
+    )
+    return task
 
 
 def _normalize_aircraft_icon(value: str | None) -> str:

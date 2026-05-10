@@ -34,14 +34,20 @@ import logging
 import struct
 import threading
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import LivePosition, MeshDevice, SiteSettings, User
-from app.services.tracking import resolve_active_task_id, resolve_mesh_device_assignment, store_position
+from app.models import MeshDevice, SiteSettings, User
+from app.services.tracking import (
+    LIVE_POSITION_RETENTION_DAYS,
+    prune_old_live_positions,
+    resolve_active_task_id,
+    resolve_mesh_device_assignment,
+    store_position,
+)
 
 logger = logging.getLogger("aervyx.mqtt")
 
@@ -57,10 +63,6 @@ mqtt_reconnect_event: threading.Event | None = None
 # subsequent POSITION_APP messages for the same device.
 _battery_cache: dict[str, tuple[int, float]] = {}
 _BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
-_MQTT_POSITION_RETENTION_DAYS = 2
-_MQTT_PRUNE_INTERVAL_S = 3600
-_MESH_POSITION_SOURCES = ("mqtt_gateway", "mesh_relay")
-_last_mqtt_prune_at: float = 0.0
 
 
 def _parse_position(raw: bytes | bytearray) -> dict | None:
@@ -443,38 +445,9 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
         session.close()
 
 
-def prune_old_mqtt_positions(retention_days: int = _MQTT_POSITION_RETENTION_DAYS) -> int:
-    """Delete persisted mesh positions older than the retention window."""
-    cutoff = datetime.now(UTC) - timedelta(days=retention_days)
-    session = SessionLocal()
-    try:
-        deleted = (
-            session.query(LivePosition)
-            .filter(
-                LivePosition.source.in_(_MESH_POSITION_SOURCES),
-                LivePosition.timestamp < cutoff,
-            )
-            .delete(synchronize_session=False)
-        )
-        session.commit()
-        if deleted:
-            logger.info("Pruned %d mesh live positions older than %d days", deleted, retention_days)
-        return int(deleted)
-    except Exception:
-        session.rollback()
-        logger.warning("Failed to prune old mesh live positions", exc_info=True)
-        return 0
-    finally:
-        session.close()
-
-
-def _maybe_prune_old_mqtt_positions() -> None:
-    global _last_mqtt_prune_at
-    now = time.monotonic()
-    if now - _last_mqtt_prune_at < _MQTT_PRUNE_INTERVAL_S:
-        return
-    _last_mqtt_prune_at = now
-    prune_old_mqtt_positions()
+def prune_old_mqtt_positions(retention_days: int = LIVE_POSITION_RETENTION_DAYS) -> int:
+    """Backward-compatible wrapper for the global live-position retention rule."""
+    return prune_old_live_positions(retention_days=retention_days)
 
 
 def request_mqtt_reconnect() -> None:
@@ -517,8 +490,6 @@ def _paho_subscribe_loop() -> None:
     global mqtt_connected
 
     while True:
-        _maybe_prune_old_mqtt_positions()
-
         host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
         if not host:
             print("[MQTT] Not configured or disabled — sleeping 30s", flush=True)

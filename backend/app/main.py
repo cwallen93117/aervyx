@@ -61,6 +61,12 @@ except ImportError:
     start_mqtt_subscriber = None
 
 try:
+    from app.services.tracking import prune_old_live_positions, start_live_position_pruner
+except ImportError:
+    prune_old_live_positions = None
+    start_live_position_pruner = None
+
+try:
     from app.services.faa_airspace import start_faa_airspace_refresh
 except ImportError:
     start_faa_airspace_refresh = None
@@ -111,12 +117,24 @@ async def lifespan(app: FastAPI):
         except Exception:
             _log.warning("Demand tracker prune failed on startup", exc_info=True)
 
+    # Prune old live tracking rows on startup; IGC/TrackPoint data is permanent.
+    if prune_old_live_positions is not None:
+        try:
+            pruned_live = prune_old_live_positions()
+            if pruned_live:
+                _log.info("Pruned %d old live position rows on startup", pruned_live)
+        except Exception:
+            _log.warning("Live position prune failed on startup", exc_info=True)
+
     mqtt_task = await start_mqtt_subscriber() if start_mqtt_subscriber is not None else None
+    live_position_prune_task = await start_live_position_pruner() if start_live_position_pruner is not None else None
     faa_task = await start_faa_airspace_refresh() if start_faa_airspace_refresh is not None else None
     raster_task = await start_raster_scheduler() if start_raster_scheduler is not None else None
     yield
     if mqtt_task is not None:
         mqtt_task.cancel()
+    if live_position_prune_task is not None:
+        live_position_prune_task.cancel()
     if faa_task is not None:
         faa_task.cancel()
     if raster_task is not None:

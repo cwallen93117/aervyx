@@ -7,7 +7,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.models import LivePosition, MeshDevice, Pilot, User
-from app.services import mqtt_subscriber
+from app.services import mqtt_subscriber, tracking
 
 
 def _session_factory(monkeypatch):
@@ -20,6 +20,7 @@ def _session_factory(monkeypatch):
     Base.metadata.create_all(bind=engine)
     factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
     monkeypatch.setattr(mqtt_subscriber, "SessionLocal", factory)
+    monkeypatch.setattr(tracking, "SessionLocal", factory)
     return factory
 
 
@@ -159,7 +160,7 @@ def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypat
     assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == ["!active", "!base"]
 
 
-def test_prune_old_mqtt_positions_only_deletes_expired_mesh_rows(monkeypatch) -> None:
+def test_prune_old_mqtt_positions_delegates_to_all_live_position_retention(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     now = datetime.now(UTC)
     with factory() as session:
@@ -197,8 +198,8 @@ def test_prune_old_mqtt_positions_only_deletes_expired_mesh_rows(monkeypatch) ->
         )
         session.commit()
 
-    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 2
+    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 3
 
     with factory() as session:
         remaining = session.scalars(select(LivePosition).order_by(LivePosition.device_id)).all()
-        assert [position.device_id for position in remaining] == ["!recent-mqtt", "app-device"]
+        assert [position.device_id for position in remaining] == ["!recent-mqtt"]
