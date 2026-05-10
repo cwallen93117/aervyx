@@ -1164,6 +1164,7 @@ export const TaskMap = React.memo(function TaskMap({
   fullscreenSidebarLabel = "Pilot list",
   highlightedTrackUploadId,
   fitKey,
+  fitOnceKey,
   fitTurnpoints,
   fitMaxZoom = 10,
   viewStateKey,
@@ -1196,6 +1197,7 @@ export const TaskMap = React.memo(function TaskMap({
   fullscreenSidebarLabel?: string;
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
+  fitOnceKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
   fitMaxZoom?: number;
   viewStateKey?: string | number | null;
@@ -1222,6 +1224,7 @@ export const TaskMap = React.memo(function TaskMap({
   const viewStateKeyRef = useRef(viewStateKey);
   const fitGeometrySignatureRef = useRef("");
   const fitKeyRef = useRef<string>("");
+  const fitOnceKeyRef = useRef<string>("");
   const fitPendingForGeometryRef = useRef(false);
   const fitTargetKindRef = useRef<FitTarget["kind"]>("fallback");
   const renderedTaskGeometrySignatureRef = useRef("");
@@ -1968,6 +1971,7 @@ export const TaskMap = React.memo(function TaskMap({
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
   const fitKeyValue = String(fitKey ?? "");
+  const fitOnceKeyValue = String(fitOnceKey ?? "");
 
   useEffect(() => {
     turnpointsRef.current = effectiveTurnpoints;
@@ -2408,6 +2412,26 @@ export const TaskMap = React.memo(function TaskMap({
       console.error("Unable to sync task geometry to the map.", error);
     }
   }, [routeData, routeArrowData, cylinderData, taskPointData, optimizedRouteData, optimizedRoutePointData, legLabelData, styleGeneration, taskGeometrySignature]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !fitOnceKeyValue || fitOnceKeyValue === fitOnceKeyRef.current) {
+      return;
+    }
+    fitOnceKeyRef.current = fitOnceKeyValue;
+    if (gpsFollowing) {
+      return;
+    }
+    manualViewChangedRef.current = false;
+    const doFit = () => {
+      applyFitBounds(map, true);
+    };
+    if (map.isStyleLoaded()) {
+      doFit();
+    } else {
+      map.once("styledata", doFit);
+    }
+  }, [applyFitBounds, fitOnceKeyValue, gpsFollowing]);
 
   // Sync track data to map
   useEffect(() => {

@@ -84,6 +84,7 @@ export function LiveWatchClient() {
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [eventFitRequestId, setEventFitRequestId] = useState(0);
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
   const sseControllerRef = useRef<AbortController | null>(null);
 
@@ -179,9 +180,9 @@ export function LiveWatchClient() {
     }
     return "all_users";
   }, [selected]);
-  const liveMapFitKey = selected.type === "event" && selectedMapTaskId && taskPoints.length > 0
-    ? `${sourceDropdownValue}:task:${selectedMapTaskId}:${taskFitGeometryKey}`
-    : sourceDropdownValue;
+  const eventFitOnceKey = selected.type === "event" && selectedMapTaskId && taskPoints.length > 0 && eventFitRequestId > 0
+    ? `event-select:${eventFitRequestId}:task:${selectedMapTaskId}:${taskFitGeometryKey}`
+    : null;
 
   const connectSSE = useCallback((source: SelectedSource) => {
     sseControllerRef.current?.abort();
@@ -370,6 +371,7 @@ export function LiveWatchClient() {
       const event = sources.events.find((item) => item.id === eventId);
       if (event) {
         setSelected({ type: "event", eventId, eventName: event.name });
+        setEventFitRequestId((current) => current + 1);
       }
       return;
     }
@@ -512,7 +514,8 @@ export function LiveWatchClient() {
             overlayConfig={overlayConfig}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"
-            fitKey={liveMapFitKey}
+            fitKey={sourceDropdownValue}
+            fitOnceKey={eventFitOnceKey}
           />
         </div>
 
