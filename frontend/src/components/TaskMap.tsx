@@ -1261,6 +1261,10 @@ export const TaskMap = React.memo(function TaskMap({
   const [mapReadyNonce, setMapReadyNonce] = useState(0);
   const gpsWatchIdRef = useRef<number | null>(null);
   const gpsFollowingRef = useRef(false);
+  const gpsLocateRequestIdRef = useRef(0);
+  const gpsLastCameraCenterRef = useRef<[number, number] | null>(null);
+  const gpsHasLocationRef = useRef(false);
+  const gpsHighAccuracyReceivedRef = useRef(false);
 
   // Overlay config: filter data layers based on admin toggle matrix
   const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
@@ -1278,6 +1282,10 @@ export const TaskMap = React.memo(function TaskMap({
   const clickToAddTurnpointEnabledRef = useRef(oc?.click_to_add_turnpoint !== false);
 
   const stopGpsFollowing = useCallback((map: maplibregl.Map) => {
+    gpsLocateRequestIdRef.current += 1;
+    gpsLastCameraCenterRef.current = null;
+    gpsHasLocationRef.current = false;
+    gpsHighAccuracyReceivedRef.current = false;
     if (gpsWatchIdRef.current != null) {
       navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       gpsWatchIdRef.current = null;
@@ -1324,25 +1332,73 @@ export const TaskMap = React.memo(function TaskMap({
       gpsFollowingRef.current = true;
       setGpsFollowing(true);
       map.stop();
+      const locateRequestId = gpsLocateRequestIdRef.current + 1;
+      gpsLocateRequestIdRef.current = locateRequestId;
+      gpsLastCameraCenterRef.current = null;
+      gpsHasLocationRef.current = false;
+      gpsHighAccuracyReceivedRef.current = false;
+
+      const isCurrentLocateRequest = () => gpsLocateRequestIdRef.current === locateRequestId && mapRef.current === map;
+      const applyLocationFix = (pos: GeolocationPosition, accuracyMode: "quick" | "high") => {
+        if (!isCurrentLocateRequest()) {
+          return;
+        }
+        if (accuracyMode === "quick" && gpsHighAccuracyReceivedRef.current) {
+          return;
+        }
+        const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+        const src = map.getSource("user-location") as maplibregl.GeoJSONSource | undefined;
+        const geojson = { type: "FeatureCollection" as const, features: [{ type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: lngLat } }] };
+        if (src) {
+          src.setData(geojson);
+        } else {
+          map.addSource("user-location", { type: "geojson", data: geojson });
+          map.addLayer({ id: "user-location-pulse", type: "circle", source: "user-location", paint: { "circle-radius": 18, "circle-color": "#2563eb", "circle-opacity": 0.15 } });
+          map.addLayer({ id: "user-location-dot", type: "circle", source: "user-location", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
+        }
+        gpsHasLocationRef.current = true;
+        if (accuracyMode === "high") {
+          gpsHighAccuracyReceivedRef.current = true;
+        }
+
+        // Stop centering if user has panned away — they're exploring the map.
+        if (manualViewChangedRef.current) {
+          return;
+        }
+        const previousCenter = gpsLastCameraCenterRef.current;
+        const movedMeters = previousCenter
+          ? new maplibregl.LngLat(previousCenter[0], previousCenter[1]).distanceTo(new maplibregl.LngLat(lngLat[0], lngLat[1]))
+          : Number.POSITIVE_INFINITY;
+        if (movedMeters <= 30) {
+          return;
+        }
+        gpsLastCameraCenterRef.current = lngLat;
+        programmaticCameraMoveRef.current = true;
+        map.easeTo({
+          center: lngLat,
+          zoom: Math.max(map.getZoom(), 13),
+          duration: accuracyMode === "quick" ? 250 : 600,
+        });
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => applyLocationFix(pos, "quick"),
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 1200 },
+      );
       const watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
-          const src = map.getSource("user-location") as maplibregl.GeoJSONSource | undefined;
-          const geojson = { type: "FeatureCollection" as const, features: [{ type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: lngLat } }] };
-          if (src) {
-            src.setData(geojson);
-          } else {
-            map.addSource("user-location", { type: "geojson", data: geojson });
-            map.addLayer({ id: "user-location-pulse", type: "circle", source: "user-location", paint: { "circle-radius": 18, "circle-color": "#2563eb", "circle-opacity": 0.15 } });
-            map.addLayer({ id: "user-location-dot", type: "circle", source: "user-location", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
-          }
-          // Stop centering if user has panned away — they're exploring the map
-          if (!manualViewChangedRef.current) {
-            programmaticCameraMoveRef.current = true;
-            map.easeTo({ center: lngLat, zoom: Math.max(map.getZoom(), 13), duration: 600 });
-          }
-        },
+        (pos) => applyLocationFix(pos, "high"),
         () => {
+          if (!isCurrentLocateRequest() || gpsHasLocationRef.current) {
+            return;
+          }
+          gpsLocateRequestIdRef.current += 1;
+          gpsLastCameraCenterRef.current = null;
+          gpsHighAccuracyReceivedRef.current = false;
+          if (gpsWatchIdRef.current != null) {
+            navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+            gpsWatchIdRef.current = null;
+          }
           gpsFollowingRef.current = false;
           setGpsFollowing(false);
         },
@@ -1355,6 +1411,7 @@ export const TaskMap = React.memo(function TaskMap({
   // Cleanup GPS watch on unmount
   useEffect(() => {
     return () => {
+      gpsLocateRequestIdRef.current += 1;
       if (gpsWatchIdRef.current != null) {
         navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       }
