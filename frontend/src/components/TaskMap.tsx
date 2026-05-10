@@ -2899,7 +2899,7 @@ export const TaskMap = React.memo(function TaskMap({
         ref={containerRef}
         style={
           isFullscreen
-            ? { height: replayVisible && mode === "replay" ? "calc(100vh - 104px)" : "100vh", minHeight: replayVisible && mode === "replay" ? "calc(100vh - 104px)" : "100vh" }
+            ? { height: "100vh", minHeight: "100vh" }
             : replayVisible && mode === "replay"
               ? { height: "calc(420px - 104px)", minHeight: "calc(420px - 104px)" }
               : undefined

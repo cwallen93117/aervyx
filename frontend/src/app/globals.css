@@ -3909,8 +3909,8 @@ button[type="submit"]:hover,
 .map-shell.map-shell-fullscreen.has-replay .map-card,
 .map-shell.has-replay:fullscreen .map-card,
 .map-shell.has-replay:-webkit-full-screen .map-card {
-  height: calc(100vh - 104px);
-  min-height: calc(100vh - 104px);
+  height: 100vh;
+  min-height: 100vh;
 }
 
 .map-fullscreen-sidebar {
