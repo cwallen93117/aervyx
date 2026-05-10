@@ -1260,6 +1260,7 @@ export const TaskMap = React.memo(function TaskMap({
   const [gpsFollowing, setGpsFollowing] = useState(false);
   const [mapReadyNonce, setMapReadyNonce] = useState(0);
   const gpsWatchIdRef = useRef<number | null>(null);
+  const gpsFollowingRef = useRef(false);
 
   // Overlay config: filter data layers based on admin toggle matrix
   const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
@@ -1284,6 +1285,7 @@ export const TaskMap = React.memo(function TaskMap({
     try { map.removeLayer("user-location-pulse"); } catch {}
     try { map.removeLayer("user-location-dot"); } catch {}
     try { map.removeSource("user-location"); } catch {}
+    gpsFollowingRef.current = false;
     setGpsFollowing(false);
   }, []);
 
@@ -1308,7 +1310,7 @@ export const TaskMap = React.memo(function TaskMap({
   const handleGpsToggle = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (gpsFollowing) {
+    if (gpsFollowingRef.current) {
       // Stop following — zoom back to task/turnpoints
       stopGpsFollowing(map);
       // Clear pan-lock so waypoint geometry updates can auto-fit again
@@ -1319,7 +1321,9 @@ export const TaskMap = React.memo(function TaskMap({
       // Start following — clear any pan-lock so the button always re-centers
       if (!("geolocation" in navigator)) return;
       manualViewChangedRef.current = false;
+      gpsFollowingRef.current = true;
       setGpsFollowing(true);
+      map.stop();
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
           const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
@@ -1339,6 +1343,7 @@ export const TaskMap = React.memo(function TaskMap({
           }
         },
         () => {
+          gpsFollowingRef.current = false;
           setGpsFollowing(false);
         },
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
@@ -1353,6 +1358,7 @@ export const TaskMap = React.memo(function TaskMap({
       if (gpsWatchIdRef.current != null) {
         navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       }
+      gpsFollowingRef.current = false;
     };
   }, []);
 
@@ -2427,7 +2433,7 @@ export const TaskMap = React.memo(function TaskMap({
       return;
     }
     fitOnceKeyRef.current = fitOnceKeyValue;
-    if (gpsFollowing) {
+    if (gpsFollowingRef.current) {
       return;
     }
     manualViewChangedRef.current = false;
@@ -2558,7 +2564,7 @@ export const TaskMap = React.memo(function TaskMap({
     if (fitKeyChanged) {
       fitPendingForGeometryRef.current = true;
     }
-    if (gpsFollowing) {
+    if (gpsFollowingRef.current) {
       fitPendingForGeometryRef.current = false;
       fitGeometrySignatureRef.current = nextFitGeometrySignature;
       fitKeyRef.current = nextFitKey;
