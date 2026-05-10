@@ -145,6 +145,10 @@ export function LiveWatchClient() {
     ? overlayConfig.turnpoints !== false || overlayConfig.task_route !== false || overlayConfig.task_cylinders !== false
     : true;
   const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskPoints), [taskPoints]);
+  const taskFitGeometryKey = useMemo(
+    () => taskPoints.map((point) => `${point.position}:${point.latitude.toFixed(6)}:${point.longitude.toFixed(6)}:${point.radius_m}`).join("|"),
+    [taskPoints],
+  );
 
   useEffect(() => {
     const latest = new Map<number, LivePositionRecord>();
@@ -175,8 +179,8 @@ export function LiveWatchClient() {
     }
     return "all_users";
   }, [selected]);
-  const liveMapFitKey = selected.type === "event" && selectedMapTaskId
-    ? `${sourceDropdownValue}:task:${selectedMapTaskId}:points:${taskPoints.length}`
+  const liveMapFitKey = selected.type === "event" && selectedMapTaskId && taskPoints.length > 0
+    ? `${sourceDropdownValue}:task:${selectedMapTaskId}:${taskFitGeometryKey}`
     : sourceDropdownValue;
 
   const connectSSE = useCallback((source: SelectedSource) => {

@@ -625,6 +625,29 @@ function buildBoundsOptions(
   } as const;
 }
 
+function fitMapToCoordinates(
+  map: maplibregl.Map,
+  coordinates: [number, number][],
+  { padding, maxZoom, duration }: { padding: number; maxZoom: number; duration: number },
+) {
+  if (coordinates.length === 0) {
+    return;
+  }
+  if (coordinates.length === 1) {
+    map.easeTo({
+      center: coordinates[0],
+      zoom: maxZoom,
+      duration,
+    });
+    return;
+  }
+  const lngLatBounds = new maplibregl.LngLatBounds();
+  for (const coordinate of coordinates) {
+    lngLatBounds.extend(coordinate);
+  }
+  map.fitBounds(lngLatBounds, { padding, maxZoom, duration });
+}
+
 function averageWithinWindow(values: Array<number | null>, timestamps: number[], windowMs: number): Array<number | null> {
   if (!values.length) {
     return [];
@@ -1249,20 +1272,24 @@ export const TaskMap = React.memo(function TaskMap({
   const effectiveScoredTrackPoints = oc?.flight_track === false ? [] : scoredTrackPoints;
   const clickToAddTurnpointEnabledRef = useRef(oc?.click_to_add_turnpoint !== false);
 
+  const stopGpsFollowing = useCallback((map: maplibregl.Map) => {
+    if (gpsWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+    }
+    try { map.removeLayer("user-location-pulse"); } catch {}
+    try { map.removeLayer("user-location-dot"); } catch {}
+    try { map.removeSource("user-location"); } catch {}
+    setGpsFollowing(false);
+  }, []);
+
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
     if (gpsFollowing) {
       // Stop following — zoom back to task/turnpoints
-      if (gpsWatchIdRef.current != null) {
-        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
-        gpsWatchIdRef.current = null;
-      }
-      try { map.removeLayer("user-location-pulse"); } catch {}
-      try { map.removeLayer("user-location-dot"); } catch {}
-      try { map.removeSource("user-location"); } catch {}
-      setGpsFollowing(false);
+      stopGpsFollowing(map);
       // Clear pan-lock so waypoint geometry updates can auto-fit again
       manualViewChangedRef.current = false;
       // Refit to task bounds
@@ -1275,16 +1302,8 @@ export const TaskMap = React.memo(function TaskMap({
         effectiveLivePositions,
       );
       if (target.kind !== "fallback") {
-        const coords = target.coordinates as [number, number][];
-        if (coords.length >= 2) {
-          const bnds = new maplibregl.LngLatBounds();
-          for (const c of coords) bnds.extend(c);
-          programmaticCameraMoveRef.current = true;
-          map.fitBounds(bnds, { padding: 60, maxZoom: fitMaxZoom, duration: 600 });
-        } else if (coords.length === 1) {
-          programmaticCameraMoveRef.current = true;
-          map.easeTo({ center: coords[0], zoom: fitMaxZoom, duration: 600 });
-        }
+        programmaticCameraMoveRef.current = true;
+        fitMapToCoordinates(map, target.coordinates, { padding: 60, maxZoom: fitMaxZoom, duration: 600 });
       }
     } else {
       // Start following — clear any pan-lock so the button always re-centers
@@ -1316,7 +1335,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
       gpsWatchIdRef.current = watchId;
     }
-  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints, gpsFollowing]);
+  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints, gpsFollowing, stopGpsFollowing]);
 
   // Cleanup GPS watch on unmount
   useEffect(() => {
@@ -2305,21 +2324,8 @@ export const TaskMap = React.memo(function TaskMap({
       map.fitBounds(USA_FIT_BOUNDS, { padding: 32, maxZoom: 5, duration: 0 });
       return;
     }
-    if (fitBounds.length === 1) {
-      programmaticCameraMoveRef.current = true;
-      map.easeTo({
-        center: fitBounds[0],
-        zoom: fitMaxZoom,
-        duration: ms,
-      });
-      return;
-    }
-    const lngLatBounds = new maplibregl.LngLatBounds();
-    for (const coordinate of fitBounds) {
-      lngLatBounds.extend(coordinate);
-    }
     programmaticCameraMoveRef.current = true;
-    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: fitMaxZoom, duration: ms });
+    fitMapToCoordinates(map, fitBounds, { padding: 72, maxZoom: fitMaxZoom, duration: ms });
   }, [fitBounds, fitMaxZoom]);
 
   // Sync turnpoint data to map
@@ -2524,6 +2530,13 @@ export const TaskMap = React.memo(function TaskMap({
     if (fitKeyChanged) {
       fitPendingForGeometryRef.current = true;
     }
+    if (gpsFollowing) {
+      fitPendingForGeometryRef.current = false;
+      fitGeometrySignatureRef.current = nextFitGeometrySignature;
+      fitKeyRef.current = nextFitKey;
+      fitTargetKindRef.current = nextFitTargetKind;
+      return;
+    }
     const highlightOnlySelectionChange =
       highlightSelectionChanged &&
       !fitKeyChanged &&
@@ -2560,7 +2573,7 @@ export const TaskMap = React.memo(function TaskMap({
     fitGeometrySignatureRef.current = nextFitGeometrySignature;
     fitKeyRef.current = nextFitKey;
     fitTargetKindRef.current = nextFitTargetKind;
-  }, [applyFitBounds, effectiveHighlightedTrackUploadId, fitGeometrySignature, fitKeyValue, fitTargetKind]);
+  }, [applyFitBounds, effectiveHighlightedTrackUploadId, fitGeometrySignature, fitKeyValue, fitTargetKind, gpsFollowing]);
 
   const replayVisible = !!effectiveTrack && replayTotal > 0 && oc?.replay_scrubber !== false;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
