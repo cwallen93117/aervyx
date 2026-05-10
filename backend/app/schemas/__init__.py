@@ -587,6 +587,11 @@ class PilotSummaryResponse(BaseModel):
     task_result_states: dict[int, str] = Field(default_factory=dict)
 
 
+class TaskResultSummaryResponse(BaseModel):
+    task_id: int
+    day_quality: float | None = None
+
+
 class TaskScoringInputUpdate(BaseModel):
     selected_upload_id: int | None = None
     status_override: str | None = None

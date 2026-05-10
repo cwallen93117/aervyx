@@ -3696,6 +3696,11 @@ button[type="submit"]:hover,
   text-align: center;
 }
 
+.overall-task-summary-table thead th,
+.overall-task-summary-table tbody td {
+  text-align: center;
+}
+
 .results-table-task thead th {
   padding: 6px 8px;
   white-space: normal;

@@ -15,6 +15,7 @@ import type {
   SiteSettingsRecord,
   ScoresPortalTab,
   ScoringTab,
+  TaskResultSummaryRecord,
   TaskDraftState,
   TaskRecord,
   UploadRecord,
@@ -39,6 +40,14 @@ function normalizeTaskType(value: string | null | undefined): string {
 
 function taskTypeLabel(value: string): string {
   return taskTypeOptions.find((option) => option.value === normalizeTaskType(value))?.label ?? value;
+}
+
+function taskTypeLabelWithGateCount(task: TaskRecord): string {
+  const label = taskTypeLabel(task.task_type);
+  if (normalizeTaskType(task.task_type) === "race_to_goal_with_gates" && task.start_gate_count > 1) {
+    return `${label} with ${task.start_gate_count} start gates`;
+  }
+  return label;
 }
 
 function formatClockTime(value: string | null | undefined, includeSeconds = false, timeZone?: string): string {
@@ -128,12 +137,11 @@ function formatMeters(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.max(0, Math.round(value || 0)));
 }
 
-function taskDayQuality(results: ResultRecord[]): string {
-  const firstGap = results.find((result) => result.details_json?.gap)?.details_json?.gap as
-    | { validity?: { overall?: number } }
-    | undefined;
-  const overall = Number(firstGap?.validity?.overall ?? NaN);
-  return Number.isFinite(overall) ? overall.toFixed(3) : "-";
+function formatDayQualityPercent(value: number | null | undefined): string {
+  const dayQuality = Number(value ?? NaN);
+  if (!Number.isFinite(dayQuality)) return "-";
+  const percent = dayQuality * 100;
+  return `${percent.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}%`;
 }
 
 function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
@@ -183,6 +191,7 @@ export interface ScoringSectionProps {
   pilotNameById: Map<number, string>;
   uploadById: Map<number, UploadRecord>;
   pilotSummary: PilotSummaryRecord[];
+  taskResultSummary: TaskResultSummaryRecord[];
   scoredTasks: TaskRecord[];
   taskMetricsById: Map<number, { totalDistanceKm: number; optimizedDistanceKm: number; routeCoordinates: [number, number][]; legMetrics: MapLegMetric[] }>;
   taskDraft: TaskDraftState;
@@ -253,6 +262,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     pilotNameById,
     uploadById,
     pilotSummary,
+    taskResultSummary,
     scoredTasks,
     taskMetricsById,
     taskDraft,
@@ -301,6 +311,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
   const scoringTaskMetrics = computeTaskOptimization(scoringTaskPoints);
+  const taskResultSummaryById = useMemo(() => new Map(taskResultSummary.map((summary) => [summary.task_id, summary])), [taskResultSummary]);
   const overallTaskResultStates = useMemo(() => {
     const states = new Map<number, string>();
     for (const task of scoredTasks) {
@@ -406,7 +417,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                     <p>{selectedTask?.name ?? taskDraft.name} {taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type) ? `- ${taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)}` : ""}</p>
                   </div>
                   <div className="results-table-wrap">
-                    <table className="results-table results-table-compact">
+                    <table className="results-table results-table-compact overall-task-summary-table">
                       <thead>
                         <tr>
                           <th>No</th>
@@ -627,8 +638,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             <td><strong>{task.name}</strong></td>
                             <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                             <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
-                            <td>{selectedTaskId === task.id ? taskDayQuality(results) : "-"}</td>
-                            <td>{taskTypeLabel(task.task_type)}</td>
+                            <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
+                            <td>{taskTypeLabelWithGateCount(task)}</td>
                           </tr>
                         ))}
                       </tbody>

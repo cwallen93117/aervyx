@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 
@@ -19,6 +20,7 @@ from app.schemas import (
     ScoringOperationsResultSummary,
     ScoringOperationsRow,
     ScoringUploadOption,
+    TaskResultSummaryResponse,
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
@@ -126,6 +128,22 @@ def _effective_selected_upload_id(entry: TaskScoringInput | None) -> int | None:
     if entry is not None and entry.selected_upload_id is not None:
         return entry.selected_upload_id
     return None
+
+
+def _gap_day_quality(details_json: dict | None) -> float | None:
+    if not isinstance(details_json, dict):
+        return None
+    gap = details_json.get("gap")
+    if not isinstance(gap, dict):
+        return None
+    validity = gap.get("validity")
+    if not isinstance(validity, dict):
+        return None
+    try:
+        value = float(validity.get("overall"))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 @router.get("/api/tasks/{task_id}/results", response_model=list[ScoreResultResponse])
@@ -509,6 +527,31 @@ def unpublish_task_results(task_id: int, admin: User = Depends(require_staff), s
     )
     session.commit()
     return {"status": "ok", "unpublished_count": unpublished_count}
+
+
+@router.get("/api/events/{event_id}/task-result-summary", response_model=list[TaskResultSummaryResponse])
+def task_result_summary(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TaskResultSummaryResponse]:
+    rows_query = (
+        select(ScoreResult.task_id, ScoreResult.details_json)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .where(Task.event_id == event_id)
+        .order_by(ScoreResult.task_id.asc(), ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
+    )
+    if user.role not in {"admin", "organizer"}:
+        rows_query = rows_query.where(ScoreResult.result_state == "official")
+
+    summaries_by_task: dict[int, float | None] = {}
+    for task_id, details_json in session.execute(rows_query).all():
+        task_id_int = int(task_id)
+        summaries_by_task.setdefault(task_id_int, None)
+        day_quality = _gap_day_quality(details_json)
+        if summaries_by_task[task_id_int] is None and day_quality is not None:
+            summaries_by_task[task_id_int] = day_quality
+
+    return [
+        TaskResultSummaryResponse(task_id=task_id, day_quality=day_quality)
+        for task_id, day_quality in sorted(summaries_by_task.items())
+    ]
 
 
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])

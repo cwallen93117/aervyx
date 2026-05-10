@@ -45,6 +45,7 @@ import {
   type TaskRecord,
   type ResultRecord,
   type PilotSummaryRecord,
+  type TaskResultSummaryRecord,
   type UploadRecord,
   type TurnpointUploadResponse,
   type BulkUploadItemRecord,
@@ -844,6 +845,7 @@ export default function HomePage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [results, setResults] = useState<ResultRecord[]>([]);
   const [pilotSummary, setPilotSummary] = useState<PilotSummaryRecord[]>([]);
+  const [taskResultSummary, setTaskResultSummary] = useState<TaskResultSummaryRecord[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
@@ -1294,6 +1296,7 @@ export default function HomePage() {
       setAirspaceSources([]);
       setTasks([]);
       setPilotSummary([]);
+      setTaskResultSummary([]);
       setResults([]);
       setUploads([]);
       setTrack(null);
@@ -1311,8 +1314,12 @@ export default function HomePage() {
   }
 
   async function refreshPilotSummary(activeToken: string, eventId: number) {
-    const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken);
+    const [loadedSummary, loadedTaskSummary] = await Promise.all([
+      apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
+      apiFetch<TaskResultSummaryRecord[]>(`/api/events/${eventId}/task-result-summary`, activeToken),
+    ]);
     setPilotSummary(loadedSummary);
+    setTaskResultSummary(loadedTaskSummary);
     setPilotSummaryEventId(eventId);
     return loadedSummary;
   }
@@ -1696,6 +1703,7 @@ export default function HomePage() {
       setAirspaceSources(loadedAirspaceSources);
       setTasks(visibleTasks);
       setPilotSummary([]);
+      setTaskResultSummary([]);
       setPilotSummaryEventId(null);
       setTrack(null);
       setSelectedResultUploadIds([]);
@@ -2214,6 +2222,7 @@ export default function HomePage() {
       setTasks([]);
       setResults([]);
       setPilotSummary([]);
+      setTaskResultSummary([]);
       setUploads([]);
       setTrack(null);
       setTaskPointAdvanced(false);
@@ -2947,6 +2956,7 @@ export default function HomePage() {
               pilotNameById={pilotNameById}
               uploadById={uploadById}
               pilotSummary={pilotSummary}
+              taskResultSummary={taskResultSummary}
               scoredTasks={scoredTasks}
               taskMetricsById={taskMetricsById}
               taskDraft={taskDraft}
