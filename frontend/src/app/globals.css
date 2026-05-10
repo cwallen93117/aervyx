@@ -4168,15 +4168,20 @@ button[type="submit"]:hover,
 }
 
 .live-source-picker select {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e2e8f0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #fcfdff;
+  color: #0f172a;
+  border: 1px solid #cad7e8;
   border-radius: 6px;
   padding: 10px 12px;
   font-size: 0.8125rem;
   min-width: 200px;
   min-height: 44px;
   cursor: pointer;
+}
+
+.live-source-picker select option {
+  background: #ffffff;
+  color: #0f172a;
 }
 
 .live-source-picker select:focus {
@@ -6597,6 +6602,12 @@ html[data-theme="dark"] .map-style-picker span {
 
 html[data-theme="dark"] .map-style-picker select,
 html[data-theme="dark"] .replay-speed-select select {
+  background: #fcfdff;
+  border-color: #cad7e8;
+  color: #0f172a;
+}
+
+html[data-theme="dark"] .live-source-picker select {
   background: #fcfdff;
   border-color: #cad7e8;
   color: #0f172a;
