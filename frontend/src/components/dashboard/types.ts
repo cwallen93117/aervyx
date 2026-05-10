@@ -391,6 +391,21 @@ export type DebugActiveSession = {
   has_mesh: boolean;
 };
 
+export type DebugMeshDevice = {
+  owner_user_id: number;
+  owner_name: string | null;
+  owner_pilot_id: number | null;
+  device_id: string;
+  label: string;
+  purpose: MeshDevicePurpose | string;
+  is_active: boolean;
+  is_connected: boolean;
+  last_seen_at: string | null;
+  battery_level: number | null;
+  source: string | null;
+  last_position: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
+};
+
 export type DebugSosAlert = {
   pilot_id: number;
   pilot_name: string;
@@ -407,6 +422,7 @@ export type DebugStatusResponse = {
   sse_subscriber_count: number;
   sse_subscribers_by_task: Record<string, number>;
   active_sessions: DebugActiveSession[];
+  registered_mesh_devices: DebugMeshDevice[];
   recent_sos_alerts: DebugSosAlert[];
   position_stats: {
     last_hour_total: number;

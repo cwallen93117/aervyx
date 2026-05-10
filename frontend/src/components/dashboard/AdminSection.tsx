@@ -28,16 +28,32 @@ type MeshNode = {
   position_source: string;
 };
 
+type MeshDeviceDebug = NonNullable<DebugStatusResponse["registered_mesh_devices"]>[number];
+
+type MeshDeviceStatus = {
+  key: string;
+  deviceId: string;
+  label: string | null;
+  purpose: string | null;
+  isActive: boolean;
+  isConnected: boolean;
+  registeredOwnerUserId: number | null;
+  registeredOwnerName: string | null;
+  ownerPilotId: number | null;
+  source: string | null;
+  positionSource: string;
+  batteryLevel: number | null;
+  lastSeenAt: string | null;
+  lastPosition: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
+};
+
 type UnifiedDevice = {
   key: string;
   pilot_id: number | null;
   pilot_name: string;
   profile_type: string | null;
   session: import("./types").DebugActiveSession | null;
-  meshNode: MeshNode | null;
-  deviceLabel: string | null;
-  devicePurpose: string | null;
-  registeredOwnerName: string | null;
+  meshDevices: MeshDeviceStatus[];
   hasPhone: boolean;
   hasMesh: boolean;
   isOnline: boolean;
@@ -733,7 +749,7 @@ export default function AdminSection(props: AdminSectionProps) {
           className={activeTab === "live_tracking" ? "tab-button active" : "tab-button"}
           onClick={() => setActiveTab("live_tracking")}
         >
-          Live Tracking
+          Live Tracking Debugging
         </button>
       </div>
       {activeTab === "platform_users" ? (
@@ -1604,6 +1620,70 @@ function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange"
   return "red";
 }
 
+function isRecentTrackingFix(isoOrNull: string | null | undefined): boolean {
+  if (!isoOrNull) return false;
+  return Date.now() - new Date(isoOrNull).getTime() < 60_000;
+}
+
+function latestTimestamp(left: string | null | undefined, right: string | null | undefined): string | null {
+  if (!left) return right ?? null;
+  if (!right) return left;
+  return new Date(right).getTime() > new Date(left).getTime() ? right : left;
+}
+
+function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
+  return {
+    key: `registered-${device.device_id}`,
+    deviceId: device.device_id,
+    label: device.label,
+    purpose: device.purpose,
+    isActive: device.is_active,
+    isConnected: device.is_connected,
+    registeredOwnerUserId: device.owner_user_id,
+    registeredOwnerName: device.owner_name,
+    ownerPilotId: device.owner_pilot_id,
+    source: device.source,
+    positionSource: "mesh",
+    batteryLevel: device.battery_level,
+    lastSeenAt: device.last_seen_at,
+    lastPosition: device.last_position,
+  };
+}
+
+function meshDeviceFromNode(node: MeshNode): MeshDeviceStatus {
+  return {
+    key: `node-${node.device_id}`,
+    deviceId: node.device_id,
+    label: node.device_label,
+    purpose: node.device_purpose,
+    isActive: true,
+    isConnected: isRecentTrackingFix(node.timestamp),
+    registeredOwnerUserId: node.registered_owner_user_id,
+    registeredOwnerName: node.registered_owner_name,
+    ownerPilotId: node.pilot_id,
+    source: node.source,
+    positionSource: node.position_source,
+    batteryLevel: node.battery_level,
+    lastSeenAt: node.timestamp,
+    lastPosition: {
+      lat: node.lat,
+      lon: node.lon,
+      alt: node.alt,
+      speed: node.speed,
+      heading: node.heading,
+    },
+  };
+}
+
+function formatDebugPosition(position: MeshDeviceStatus["lastPosition"] | import("./types").DebugActiveSession["last_position"] | null | undefined): string {
+  if (!position) return "\u2014";
+  const parts = [`${position.lat.toFixed(5)}, ${position.lon.toFixed(5)}`];
+  if (position.alt != null) parts.push(`${Math.round(position.alt)}m`);
+  if (position.speed != null) parts.push(`${position.speed.toFixed(1)} km/h`);
+  if ("heading" in position && position.heading != null) parts.push(`${Math.round(position.heading)}deg`);
+  return parts.join(" | ");
+}
+
 function LiveTrackingTab({
   debugStatus,
   refreshDebugStatus,
@@ -1623,90 +1703,90 @@ function LiveTrackingTab({
   const [focusPos, setFocusPos] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
 
   function handleRowClick(d: UnifiedDevice) {
-    const useNode = d.meshNode != null && (
+    const newestMesh = d.meshDevices
+      .filter((device) => device.lastPosition && (device.lastPosition.lat !== 0 || device.lastPosition.lon !== 0))
+      .sort((a, b) => {
+        const ta = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
+        const tb = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
+        return tb - ta;
+      })[0];
+    const useMesh = newestMesh != null && (
       !d.session?.last_seen_at ||
-      new Date(d.meshNode.timestamp).getTime() > new Date(d.session.last_seen_at).getTime()
+      new Date(newestMesh.lastSeenAt ?? 0).getTime() > new Date(d.session.last_seen_at).getTime()
     );
-    const lat = useNode ? d.meshNode!.lat : (d.session?.last_position?.lat ?? 0);
-    const lon = useNode ? d.meshNode!.lon : (d.session?.last_position?.lon ?? 0);
-    if (lat === 0 && lon === 0) return;
-    setFocusPos({ lat, lon, key: `${d.key}-${Date.now()}` });
+    const pos = useMesh ? newestMesh.lastPosition : d.session?.last_position;
+    if (!pos || (pos.lat === 0 && pos.lon === 0)) return;
+    setFocusPos({ lat: pos.lat, lon: pos.lon, key: `${d.key}-${Date.now()}` });
   }
 
   const unified = useMemo<UnifiedDevice[]>(() => {
-    const byPilot = new Map<number, UnifiedDevice>();
+    const byKey = new Map<string, UnifiedDevice>();
+
+    function ensureRow(key: string, pilotId: number | null, name: string, profileType: string | null): UnifiedDevice {
+      const existing = byKey.get(key);
+      if (existing) {
+        if (!existing.profile_type && profileType) existing.profile_type = profileType;
+        if (existing.pilot_name === key && name) existing.pilot_name = name;
+        return existing;
+      }
+      const created: UnifiedDevice = {
+        key,
+        pilot_id: pilotId,
+        pilot_name: name,
+        profile_type: profileType,
+        session: null,
+        meshDevices: [],
+        hasPhone: false,
+        hasMesh: false,
+        isOnline: false,
+        lastSeenAt: null,
+      };
+      byKey.set(key, created);
+      return created;
+    }
 
     for (const session of (debugStatus?.active_sessions ?? [])) {
-      byPilot.set(session.pilot_id, {
-        key: `pilot-${session.pilot_id}`,
-        pilot_id: session.pilot_id,
-        pilot_name: session.pilot_name,
-        profile_type: null,
-        session,
-        meshNode: null,
-        deviceLabel: null,
-        devicePurpose: null,
-        registeredOwnerName: null,
-        hasPhone: true,
-        hasMesh: false,
-        isOnline: session.is_online,
-        lastSeenAt: session.last_seen_at,
-      });
+      const row = ensureRow(`pilot-${session.pilot_id}`, session.pilot_id, session.pilot_name, null);
+      row.session = session;
+      row.hasPhone = true;
+      row.isOnline = row.isOnline || session.is_online;
+      row.lastSeenAt = latestTimestamp(row.lastSeenAt, session.last_seen_at);
+    }
+
+    const registeredDeviceIds = new Set((debugStatus?.registered_mesh_devices ?? []).map((device) => device.device_id));
+    for (const device of (debugStatus?.registered_mesh_devices ?? [])) {
+      const entry = meshDeviceFromDebug(device);
+      const key = device.owner_pilot_id != null ? `pilot-${device.owner_pilot_id}` : `user-${device.owner_user_id}`;
+      const row = ensureRow(key, device.owner_pilot_id, device.owner_name ?? device.label ?? device.device_id, null);
+      row.meshDevices.push(entry);
+      row.hasMesh = true;
+      row.isOnline = row.isOnline || entry.isConnected;
+      row.lastSeenAt = latestTimestamp(row.lastSeenAt, entry.lastSeenAt);
     }
 
     for (const node of meshNodes) {
-      if (node.pilot_id != null && byPilot.has(node.pilot_id)) {
-        const existing = byPilot.get(node.pilot_id)!;
-        const nodeTs = node.timestamp;
-        const sessionTs = existing.lastSeenAt;
-        const nodeIsNewer = !sessionTs || new Date(nodeTs).getTime() > new Date(sessionTs).getTime();
-        byPilot.set(node.pilot_id, {
-          ...existing,
-          meshNode: node,
-          deviceLabel: node.device_label,
-          devicePurpose: node.device_purpose,
-          registeredOwnerName: node.registered_owner_name,
-          hasMesh: true,
-          profile_type: node.profile_type,
-          lastSeenAt: nodeIsNewer ? nodeTs : sessionTs,
-        });
-      } else if (node.pilot_id != null) {
-        byPilot.set(node.pilot_id, {
-          key: `pilot-${node.pilot_id}`,
-          pilot_id: node.pilot_id,
-          pilot_name: node.pilot_name ?? node.device_id,
-          profile_type: node.profile_type,
-          session: null,
-          meshNode: node,
-          deviceLabel: node.device_label,
-          devicePurpose: node.device_purpose,
-          registeredOwnerName: node.registered_owner_name,
-          hasPhone: false,
-          hasMesh: true,
-          isOnline: false,
-          lastSeenAt: node.timestamp,
-        });
-      } else {
-        const deviceKey = `device-${node.device_id}`;
-        byPilot.set(-(Math.random() * 1e9) | 0, {
-          key: deviceKey,
-          pilot_id: null,
-          pilot_name: node.pilot_name ?? node.device_id,
-          profile_type: node.profile_type,
-          session: null,
-          meshNode: node,
-          deviceLabel: node.device_label,
-          devicePurpose: node.device_purpose,
-          registeredOwnerName: node.registered_owner_name,
-          hasPhone: false,
-          hasMesh: true,
-          isOnline: false,
-          lastSeenAt: node.timestamp,
-        });
-      }
+      if (registeredDeviceIds.has(node.device_id)) continue;
+      const entry = meshDeviceFromNode(node);
+      const key = node.pilot_id != null
+        ? `pilot-${node.pilot_id}`
+        : node.registered_owner_user_id != null
+          ? `user-${node.registered_owner_user_id}`
+          : `device-${node.device_id}`;
+      const row = ensureRow(key, node.pilot_id, node.registered_owner_name ?? node.pilot_name ?? node.device_id, node.profile_type);
+      row.meshDevices.push(entry);
+      row.hasMesh = true;
+      row.isOnline = row.isOnline || entry.isConnected;
+      row.lastSeenAt = latestTimestamp(row.lastSeenAt, entry.lastSeenAt);
     }
 
-    const list = Array.from(byPilot.values());
+    const list = Array.from(byKey.values());
+    for (const row of list) {
+      row.meshDevices.sort((a, b) => {
+        if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
+        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
+        return (a.label ?? a.deviceId).localeCompare(b.label ?? b.deviceId);
+      });
+    }
     list.sort((a, b) => {
       if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
       const ta = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
@@ -1753,24 +1833,24 @@ function LiveTrackingTab({
           });
         }
       }
-      // Mesh position
-      if (d.hasMesh && d.meshNode) {
-        if (d.meshNode.lat !== 0 || d.meshNode.lon !== 0) {
-          const meshLabel = d.deviceLabel
-            ? `${d.deviceLabel}${d.registeredOwnerName ? ` - ${d.registeredOwnerName}` : ""}`
-            : d.hasMesh && d.hasPhone ? `${d.pilot_name} (Mesh)` : d.pilot_name;
+      for (const meshDevice of d.meshDevices) {
+        const pos = meshDevice.lastPosition;
+        if (pos && (pos.lat !== 0 || pos.lon !== 0)) {
+          const meshLabel = meshDevice.label
+            ? `${meshDevice.label}${meshDevice.registeredOwnerName ? ` - ${meshDevice.registeredOwnerName}` : ""}`
+            : d.hasPhone ? `${d.pilot_name} (Mesh)` : d.pilot_name;
           positions.push({
-            id: `${d.key}-mesh`,
+            id: `${d.key}-${meshDevice.deviceId}-mesh`,
             pilotId: d.pilot_id,
             pilotName: meshLabel,
-            latitude: d.meshNode.lat,
-            longitude: d.meshNode.lon,
-            altitudeM: d.meshNode.alt,
-            speedKmh: d.meshNode.speed,
-            heading: d.meshNode.heading ?? null,
-            timestamp: d.meshNode.timestamp,
-            batteryLevel: d.meshNode.battery_level ?? null,
-            source: d.meshNode.source ?? "mqtt_gateway",
+            latitude: pos.lat,
+            longitude: pos.lon,
+            altitudeM: pos.alt,
+            speedKmh: pos.speed,
+            heading: pos.heading ?? null,
+            timestamp: meshDevice.lastSeenAt ?? new Date().toISOString(),
+            batteryLevel: meshDevice.batteryLevel ?? null,
+            source: meshDevice.source ?? "mqtt_gateway",
             color: "#22c55e",  // green for mesh
             aircraftType: "hang_glider",
             profileType: (d.profile_type ?? "pilot") as "pilot" | "driver" | "stationary_node",
@@ -1778,14 +1858,9 @@ function LiveTrackingTab({
           });
         }
       }
-      // If only one source and it wasn't caught above (e.g., mesh-only device with no session)
-      // it's already handled by the mesh block above
     }
     return positions;
   }, [unified]);
-
-  const active_sessions = debugStatus?.active_sessions ?? [];
-  const sse_subscriber_count = debugStatus?.sse_subscriber_count ?? 0;
 
   function toggleExpand(key: string) {
     setExpandedKeys((prev) => {
@@ -1802,25 +1877,8 @@ function LiveTrackingTab({
   }
 
   return (
-    <SectionCard title="Live Tracking" description="Unified view of all active tracking sessions and mesh nodes.">
+    <SectionCard title="Live Tracking Debugging" description="Unified view of all active tracking sessions and registered mesh devices.">
       <div className="stack form-block">
-        {/* A) Status cards */}
-        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "140px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>Live Viewers</div>
-            <strong style={{ fontSize: "1.25rem" }}>{sse_subscriber_count}</strong>
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "140px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>Connected Sessions</div>
-            <strong style={{ fontSize: "1.25rem" }}>{active_sessions.length}</strong>
-          </div>
-          <div className="section-card" style={{ flex: "1 1 0", minWidth: "140px", padding: "12px 16px" }}>
-            <div className="hint" style={{ marginBottom: "4px" }}>Mesh Nodes</div>
-            <strong style={{ fontSize: "1.25rem" }}>{meshNodesLoading && meshNodes.length === 0 ? "…" : meshNodes.length}</strong>
-          </div>
-        </div>
-
-        {/* B) Unified tracking table */}
         <div className="participant-table-wrap">
           <table className="participant-table" style={{ fontSize: "0.82rem" }}>
             <thead>
@@ -1847,24 +1905,23 @@ function LiveTrackingTab({
                   const isExpanded = expandedKeys.has(d.key);
                   const canExpand = true; // Always expandable for position detail
 
-                  // Summary values: prefer session for task/positions/interval; fallback to mesh
-                  const interval = d.session && d.session.positions_last_60s > 0
-                    ? Math.round(60 / d.session.positions_last_60s)
-                    : null;
-
-                  // Battery: pick whichever source is most recent
-                  let battery: number | null = null;
-                  if (d.hasPhone && d.hasMesh) {
-                    const sessionTs = d.session?.last_seen_at ? new Date(d.session.last_seen_at).getTime() : 0;
-                    const meshTs = d.meshNode?.timestamp ? new Date(d.meshNode.timestamp).getTime() : 0;
-                    battery = sessionTs >= meshTs ? (d.session?.battery_level ?? null) : (d.meshNode?.battery_level ?? null);
-                  } else if (d.hasPhone) {
-                    battery = d.session?.battery_level ?? null;
-                  } else {
-                    battery = d.meshNode?.battery_level ?? null;
-                  }
-
-                  const deviceIdHint = d.session?.device_id ?? d.meshNode?.device_id ?? null;
+                  const newestMeshDevice = d.meshDevices.reduce<MeshDeviceStatus | null>((latest, device) => {
+                    if (!latest) return device;
+                    const latestTs = latest.lastSeenAt ? new Date(latest.lastSeenAt).getTime() : 0;
+                    const deviceTs = device.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0;
+                    return deviceTs > latestTs ? device : latest;
+                  }, null);
+                  const sessionTs = d.session?.last_seen_at ? new Date(d.session.last_seen_at).getTime() : 0;
+                  const meshTs = newestMeshDevice?.lastSeenAt ? new Date(newestMeshDevice.lastSeenAt).getTime() : 0;
+                  const battery = sessionTs >= meshTs
+                    ? (d.session?.battery_level ?? newestMeshDevice?.batteryLevel ?? null)
+                    : (newestMeshDevice?.batteryLevel ?? d.session?.battery_level ?? null);
+                  const deviceIdHint = d.session?.device_id ?? (d.meshDevices.length === 1 ? d.meshDevices[0].deviceId : null);
+                  const purposeSummary = d.meshDevices.length === 0
+                    ? "Unregistered"
+                    : d.meshDevices.length === 1
+                      ? meshPurposeLabel(d.meshDevices[0].purpose)
+                      : `${d.meshDevices.length} mesh devices`;
 
                   return (
                     <Fragment key={d.key}>
@@ -1886,11 +1943,11 @@ function LiveTrackingTab({
                           }} title={d.isOnline ? "Online" : "Offline"} />
                         </td>
                         <td>
-                          <strong>{d.deviceLabel ?? d.pilot_name}</strong>
-                          {d.deviceLabel && <div className="hint">{d.pilot_name}</div>}
+                          <strong>{d.pilot_name}</strong>
+                          {d.meshDevices.length ? <div className="hint">{d.meshDevices.length} mesh device{d.meshDevices.length !== 1 ? "s" : ""}</div> : null}
                         </td>
-                        <td>{meshPurposeLabel(d.devicePurpose)}</td>
-                        <td>{d.registeredOwnerName ?? (d.pilot_id != null ? d.pilot_name : "\u2014")}</td>
+                        <td>{purposeSummary}</td>
+                        <td>{newestMeshDevice?.registeredOwnerName ?? (d.pilot_id != null ? d.pilot_name : "\u2014")}</td>
                         <td>
                           {d.hasPhone && <span className="tracking-source-pill phone">Phone</span>}
                           {d.hasMesh && <span className="tracking-source-pill mesh">Mesh</span>}
@@ -1903,64 +1960,76 @@ function LiveTrackingTab({
                       </tr>
                       {isExpanded && (
                         <>
-                          {/* Phone sub-row */}
                           {d.hasPhone && (
-                            <tr className="tracking-sub-row" style={{ cursor: d.session?.last_position ? "pointer" : undefined }} onClick={() => {
-                              const pos = d.session?.last_position;
-                              if (pos && (pos.lat !== 0 || pos.lon !== 0)) {
-                                setFocusPos({ lat: pos.lat, lon: pos.lon, key: `${d.key}-phone-${Date.now()}` });
-                              }
-                            }}>
+                            <tr
+                              className="tracking-sub-row"
+                              style={{ cursor: d.session?.last_position ? "pointer" : undefined }}
+                              onClick={() => {
+                                const pos = d.session?.last_position;
+                                if (pos && (pos.lat !== 0 || pos.lon !== 0)) {
+                                  setFocusPos({ lat: pos.lat, lon: pos.lon, key: `${d.key}-phone-${Date.now()}` });
+                                }
+                              }}
+                            >
                               <td></td>
                               <td>
                                 <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
                               </td>
-                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>Phone</td>
-                              <td colSpan={3}>
-                                {d.session?.last_position
-                                  ? `${d.session.last_position.lat.toFixed(5)}, ${d.session.last_position.lon.toFixed(5)}`
-                                  : "\u2014"}
-                                {d.session?.last_position?.alt != null && ` · ${Math.round(d.session.last_position.alt)}m`}
-                                {d.session?.last_position?.speed != null && ` · ${d.session.last_position.speed.toFixed(1)} km/h`}
-                              </td>
-                              <td>{d.session?.battery_level != null ? `${d.session.battery_level}%` : "\u2014"}</td>
-                              <td></td>
-                              <td></td>
+                              <td>Phone</td>
+                              <td>Cellular</td>
+                              <td>{d.pilot_name}</td>
+                              <td><span className="tracking-source-pill phone">Phone</span></td>
+                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{d.session?.device_id ?? "\u2014"}</td>
+                              <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
+                              <td>{d.session?.battery_level != null ? `${d.session?.battery_level}%` : "\u2014"}</td>
+                              <td>{formatDebugPosition(d.session?.last_position)}</td>
                               <td style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
                                 {relativeTime(d.session?.last_seen_at)}
                               </td>
                             </tr>
                           )}
-                          {/* Mesh sub-row */}
-                          {d.hasMesh && (
-                            <tr className="tracking-sub-row" style={{ cursor: d.meshNode ? "pointer" : undefined }} onClick={() => {
-                              const node = d.meshNode;
-                              if (node && (node.lat !== 0 || node.lon !== 0)) {
-                                setFocusPos({ lat: node.lat, lon: node.lon, key: `${d.key}-mesh-${Date.now()}` });
-                              }
-                            }}>
-                              <td></td>
-                              <td>
-                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#22c55e", marginRight: "4px" }} />
-                              </td>
-                              <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>
-                                {d.meshNode?.source ?? "Mesh"}
-                              </td>
-                              <td colSpan={3}>
-                                {d.meshNode
-                                  ? `${d.meshNode.lat.toFixed(5)}, ${d.meshNode.lon.toFixed(5)}`
-                                  : "\u2014"}
-                                {d.meshNode?.alt != null && ` · ${Math.round(d.meshNode.alt)}m`}
-                                {d.meshNode?.speed != null && ` · ${d.meshNode.speed.toFixed(1)} km/h`}
-                              </td>
-                              <td>{d.meshNode?.battery_level != null ? `${d.meshNode.battery_level}%` : "\u2014"}</td>
-                              <td></td>
-                              <td></td>
-                              <td style={{ color: lastSeenColor(d.meshNode?.timestamp) === "green" ? "inherit" : lastSeenColor(d.meshNode?.timestamp) === "orange" ? "#f59e0b" : "#ef4444" }}>
-                                {relativeTime(d.meshNode?.timestamp)}
-                              </td>
-                            </tr>
-                          )}
+                          {d.meshDevices.map((meshDevice) => {
+                            const meshFixColor = lastSeenColor(meshDevice.lastSeenAt);
+                            const meshLastFixColor = meshFixColor === "green" ? "inherit" : meshFixColor === "orange" ? "#f59e0b" : "#ef4444";
+                            const meshDotColor = meshDevice.isConnected ? "#22c55e" : meshDevice.isActive ? "#6b7280" : "#9ca3af";
+                            return (
+                              <tr
+                                key={`${d.key}-${meshDevice.deviceId}`}
+                                className="tracking-sub-row"
+                                style={{ cursor: meshDevice.lastPosition ? "pointer" : undefined }}
+                                onClick={() => {
+                                  const pos = meshDevice.lastPosition;
+                                  if (pos && (pos.lat !== 0 || pos.lon !== 0)) {
+                                    setFocusPos({ lat: pos.lat, lon: pos.lon, key: `${d.key}-${meshDevice.deviceId}-${Date.now()}` });
+                                  }
+                                }}
+                              >
+                                <td></td>
+                                <td>
+                                  <span
+                                    style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: meshDotColor, marginRight: "4px" }}
+                                    title={meshDevice.isConnected ? "Connected" : "Offline"}
+                                  />
+                                </td>
+                                <td>
+                                  <strong>{meshDevice.label ?? meshDevice.deviceId}</strong>
+                                  <div className="hint">{meshDevice.source ?? "Mesh"}</div>
+                                </td>
+                                <td>{meshPurposeLabel(meshDevice.purpose)}</td>
+                                <td>{meshDevice.registeredOwnerName ?? d.pilot_name}</td>
+                                <td>
+                                  <span className="tracking-source-pill mesh" style={{ opacity: meshDevice.isConnected ? 1 : 0.65 }}>
+                                    {meshDevice.isConnected ? "Connected" : "Offline"}
+                                  </span>
+                                </td>
+                                <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{meshDevice.deviceId}</td>
+                                <td>{meshDevice.isActive ? "Active" : "Inactive"}</td>
+                                <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
+                                <td>{formatDebugPosition(meshDevice.lastPosition)}</td>
+                                <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
+                              </tr>
+                            );
+                          })}
                         </>
                       )}
                     </Fragment>
@@ -1968,7 +2037,7 @@ function LiveTrackingTab({
                 })
               ) : (
                 <tr>
-                  <td colSpan={10} className="participant-table-empty">No active tracking sessions or mesh nodes.</td>
+                  <td colSpan={11} className="participant-table-empty">No active tracking sessions or mesh devices.</td>
                 </tr>
               )}
             </tbody>

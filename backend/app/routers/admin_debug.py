@@ -10,9 +10,22 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import require_admin
-from app.models import LivePosition, Pilot, SosAlert, Task, TrackingSession, User
+from app.models import LivePosition, MeshDevice, Pilot, SosAlert, Task, TrackingSession, User
 
 router = APIRouter(tags=["admin-debug"])
+
+
+def _age_seconds(now: datetime, value: datetime | None) -> float | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return (now - value).total_seconds()
+
+
+def _is_recent(now: datetime, value: datetime | None, *, seconds: int = 60) -> bool:
+    age = _age_seconds(now, value)
+    return age is not None and age < seconds
 
 
 @router.get("/api/admin/debug/status")
@@ -111,7 +124,7 @@ def admin_debug_status(
             battery_level = latest_pos.battery_level
 
         # Online = received a position in the last 60 seconds
-        is_online = ts.last_seen_at is not None and (now - ts.last_seen_at).total_seconds() < 60
+        is_online = _is_recent(now, ts.last_seen_at)
 
         active_sessions.append({
             "pilot_id": ts.pilot_id,
@@ -128,6 +141,62 @@ def admin_debug_status(
             "last_position": last_position,
             "is_online": is_online,
             "has_mesh": has_mesh > 0,
+        })
+
+    # ---- Registered Meshtastic devices --------------------------------------
+    registered_device_rows = session.execute(
+        select(
+            MeshDevice,
+            User.id.label("owner_user_id"),
+            User.full_name.label("owner_name"),
+            User.pilot_id.label("owner_pilot_id"),
+        )
+        .join(User, MeshDevice.owner_user_id == User.id)
+        .order_by(User.full_name.asc(), MeshDevice.purpose.asc(), MeshDevice.label.asc(), MeshDevice.device_id.asc())
+    ).all()
+
+    registered_device_ids = [device.device_id for device, *_ in registered_device_rows]
+    latest_by_device: dict[str, object] = {}
+    if registered_device_ids:
+        row_num = func.row_number().over(
+            partition_by=LivePosition.device_id,
+            order_by=LivePosition.timestamp.desc(),
+        ).label("rn")
+        latest_subq = (
+            select(LivePosition, row_num)
+            .where(LivePosition.device_id.in_(registered_device_ids))
+            .subquery()
+        )
+        latest_rows = session.execute(select(latest_subq).where(latest_subq.c.rn == 1)).all()
+        latest_by_device = {row.device_id: row for row in latest_rows if row.device_id}
+
+    registered_mesh_devices = []
+    for device, owner_user_id, owner_name, owner_pilot_id in registered_device_rows:
+        latest_pos = latest_by_device.get(device.device_id)
+        latest_ts = getattr(latest_pos, "timestamp", None)
+        registered_mesh_devices.append({
+            "owner_user_id": owner_user_id,
+            "owner_name": owner_name,
+            "owner_pilot_id": owner_pilot_id,
+            "device_id": device.device_id,
+            "label": device.label,
+            "purpose": device.purpose,
+            "is_active": device.is_active,
+            "is_connected": _is_recent(now, latest_ts),
+            "last_seen_at": latest_ts.isoformat() if latest_ts else None,
+            "battery_level": getattr(latest_pos, "battery_level", None) if latest_pos is not None else None,
+            "source": getattr(latest_pos, "source", None) if latest_pos is not None else None,
+            "last_position": (
+                {
+                    "lat": latest_pos.lat,
+                    "lon": latest_pos.lon,
+                    "alt": latest_pos.alt,
+                    "speed": latest_pos.speed,
+                    "heading": latest_pos.heading,
+                }
+                if latest_pos is not None
+                else None
+            ),
         })
 
     # ---- Recent SOS alerts --------------------------------------------------
@@ -180,6 +249,7 @@ def admin_debug_status(
         "sse_subscriber_count": sse_subscriber_count,
         "sse_subscribers_by_task": sse_subscribers_by_task,
         "active_sessions": active_sessions,
+        "registered_mesh_devices": registered_mesh_devices,
         "recent_sos_alerts": recent_sos_alerts,
         "position_stats": {
             "last_hour_total": last_hour_total,
