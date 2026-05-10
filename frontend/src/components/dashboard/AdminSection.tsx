@@ -716,17 +716,17 @@ export default function AdminSection(props: AdminSectionProps) {
         </button>
         <button
           type="button"
-          className={activeTab === "meshtastic" ? "tab-button active" : "tab-button"}
-          onClick={() => setActiveTab("meshtastic")}
-        >
-          Meshtastic
-        </button>
-        <button
-          type="button"
           className={activeTab === "faa_credentials" ? "tab-button active" : "tab-button"}
           onClick={() => setActiveTab("faa_credentials")}
         >
           FAA credentials
+        </button>
+        <button
+          type="button"
+          className={activeTab === "meshtastic" ? "tab-button active" : "tab-button"}
+          onClick={() => setActiveTab("meshtastic")}
+        >
+          Meshtastic
         </button>
         <button
           type="button"
