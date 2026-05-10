@@ -940,6 +940,10 @@ export default function HomePage() {
     () => results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null),
     [results],
   );
+  const resultByUploadId = useMemo(
+    () => new Map(trackableResults.map((result) => [result.upload_id, result])),
+    [trackableResults],
+  );
   const resultTrackColorsByUploadId = useMemo(() => {
     const colorMap = new Map<number, string>();
     trackableResults.forEach((result, index) => {
@@ -968,20 +972,28 @@ export default function HomePage() {
         return [];
       }
       const upload = uploadById.get(uploadId);
-      const pilotName = upload ? pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`;
+      const result = resultByUploadId.get(uploadId);
       const color = resultTrackColorsByUploadId.get(uploadId) ?? resultTrackPalette[0];
-      return collection.features.map((feature) => ({
-        ...feature,
-        properties: {
-          ...feature.properties,
-          color,
-          pilot_name: pilotName,
-          upload_id: uploadId,
-        },
-      }));
+      return collection.features.map((feature) => {
+        const featurePilotName = typeof feature.properties?.pilot_name === "string" ? feature.properties.pilot_name.trim() : "";
+        const uploadPilotName = upload ? (pilotNameById.get(upload.pilot_id) ?? "").trim() : "";
+        const pilotName = result?.pilot_name.trim()
+          || featurePilotName
+          || uploadPilotName
+          || (upload ? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`);
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            color,
+            pilot_name: pilotName,
+            upload_id: uploadId,
+          },
+        };
+      });
     });
     return { type: "FeatureCollection", features };
-  }, [pilotNameById, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
+  }, [pilotNameById, resultByUploadId, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
   const allResultTrackIds = useMemo(() => trackableResults.map((result) => result.upload_id), [trackableResults]);
   const allResultTracksChecked = useMemo(
     () => allResultTrackIds.length > 0 && allResultTrackIds.every((uploadId) => selectedResultUploadIds.includes(uploadId)),
