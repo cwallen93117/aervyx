@@ -142,9 +142,6 @@ export function LiveWatchClient() {
     [selectedEventId, sources.events],
   );
   const selectedMapTaskId = selectedEvent?.map_task?.id ?? null;
-  const taskOverlaysEnabled = overlayConfig
-    ? overlayConfig.turnpoints !== false || overlayConfig.task_route !== false || overlayConfig.task_cylinders !== false
-    : true;
   const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskPoints), [taskPoints]);
   const taskFitGeometryKey = useMemo(
     () => taskPoints.map((point) => `${point.position}:${point.latitude.toFixed(6)}:${point.longitude.toFixed(6)}:${point.radius_m}`).join("|"),
@@ -294,7 +291,7 @@ export function LiveWatchClient() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!selectedMapTaskId || !taskOverlaysEnabled) {
+    if (!selectedMapTaskId) {
       setTurnpoints([]);
       setTaskPoints([]);
       return () => {
@@ -339,7 +336,7 @@ export function LiveWatchClient() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, selectedMapTaskId, taskOverlaysEnabled]);
+  }, [apiBase, selectedMapTaskId]);
 
   useEffect(() => {
     let cancelled = false;

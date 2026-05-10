@@ -1258,6 +1258,7 @@ export const TaskMap = React.memo(function TaskMap({
   const [replayHasInteracted, setReplayHasInteracted] = useState(false);
   const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
   const [gpsFollowing, setGpsFollowing] = useState(false);
+  const [mapReadyNonce, setMapReadyNonce] = useState(0);
   const gpsWatchIdRef = useRef<number | null>(null);
 
   // Overlay config: filter data layers based on admin toggle matrix
@@ -1286,11 +1287,11 @@ export const TaskMap = React.memo(function TaskMap({
     setGpsFollowing(false);
   }, []);
 
-  const fitToCurrentTarget = useCallback((map: maplibregl.Map, duration = 600) => {
+  const fitToCurrentTarget = useCallback((map: maplibregl.Map, duration = 600, includeHiddenTaskGeometry = false) => {
     const target = resolveFitTarget(
-      effectiveTaskRoutePoints,
-      effectiveOptimizedRoute,
-      effectiveTurnpoints,
+      includeHiddenTaskGeometry ? taskPoints : effectiveTaskRoutePoints,
+      includeHiddenTaskGeometry ? optimizedRoute : effectiveOptimizedRoute,
+      includeHiddenTaskGeometry ? turnpoints : effectiveTurnpoints,
       effectiveTrack,
       fitTurnpoints,
       effectiveLivePositions,
@@ -1301,7 +1302,7 @@ export const TaskMap = React.memo(function TaskMap({
     programmaticCameraMoveRef.current = true;
     fitMapToCoordinates(map, target.coordinates, { padding: 60, maxZoom: fitMaxZoom, duration });
     return true;
-  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints]);
+  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints, optimizedRoute, taskPoints, turnpoints]);
 
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
@@ -2211,6 +2212,7 @@ export const TaskMap = React.memo(function TaskMap({
       document.addEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
       window.setTimeout(() => map.resize(), 0);
       mapRef.current = map;
+      setMapReadyNonce((value) => value + 1);
       return () => {
         resizeObserver.disconnect();
         if (compassButton && handleCompassClick) {
@@ -2429,15 +2431,11 @@ export const TaskMap = React.memo(function TaskMap({
       return;
     }
     manualViewChangedRef.current = false;
-    const doFit = () => {
-      fitToCurrentTarget(map);
-    };
-    if (map.isStyleLoaded()) {
-      doFit();
-    } else {
-      map.once("styledata", doFit);
+    const fitted = fitToCurrentTarget(map, 600, true);
+    if (!fitted) {
+      fitOnceKeyRef.current = "";
     }
-  }, [fitOnceKeyValue, fitToCurrentTarget, gpsFollowing]);
+  }, [fitOnceKeyValue, fitToCurrentTarget, gpsFollowing, mapReadyNonce]);
 
   // Sync track data to map
   useEffect(() => {
@@ -2586,14 +2584,7 @@ export const TaskMap = React.memo(function TaskMap({
         fitPendingForGeometryRef.current = false;
       }
       const doAnimate = shouldFitToTaskContext || shouldFitDeferredTaskGeometry;
-      const doFit = () => {
-        applyFitBounds(map, doAnimate);
-      };
-      if (map.isStyleLoaded()) {
-        doFit();
-      } else {
-        map.once("styledata", doFit);
-      }
+      applyFitBounds(map, doAnimate);
     } else if (manualViewChangedRef.current) {
       fitGeometrySignatureRef.current = nextFitGeometrySignature;
       fitKeyRef.current = nextFitKey;
@@ -2603,7 +2594,7 @@ export const TaskMap = React.memo(function TaskMap({
     fitGeometrySignatureRef.current = nextFitGeometrySignature;
     fitKeyRef.current = nextFitKey;
     fitTargetKindRef.current = nextFitTargetKind;
-  }, [applyFitBounds, effectiveHighlightedTrackUploadId, fitGeometrySignature, fitKeyValue, fitTargetKind, gpsFollowing]);
+  }, [applyFitBounds, effectiveHighlightedTrackUploadId, fitGeometrySignature, fitKeyValue, fitTargetKind, gpsFollowing, mapReadyNonce]);
 
   const replayVisible = !!effectiveTrack && replayTotal > 0 && oc?.replay_scrubber !== false;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
