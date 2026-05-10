@@ -1796,17 +1796,6 @@ function LiveTrackingTab({
     return list;
   }, [debugStatus, meshNodes]);
 
-  // Default-expand all rows to show position detail
-  useEffect(() => {
-    setExpandedKeys((prev) => {
-      const next = new Set(prev);
-      for (const d of unified) {
-        next.add(d.key);
-      }
-      return next;
-    });
-  }, [unified]);
-
   const livePositions = useMemo<MapLivePosition[]>(() => {
     const positions: MapLivePosition[] = [];
     for (const d of unified) {
@@ -1877,9 +1866,10 @@ function LiveTrackingTab({
   }
 
   return (
-    <div className="stack form-block">
-        <div className="participant-table-wrap">
-          <table className="participant-table" style={{ fontSize: "0.82rem" }}>
+    <SectionCard>
+      <div className="stack form-block live-tracking-debugging-body">
+        <div className="participant-table-wrap live-tracking-debugging-table-wrap">
+          <table className="participant-table live-tracking-debugging-table">
             <thead>
               <tr>
                 <th style={{ width: "24px" }}></th>
@@ -1903,6 +1893,7 @@ function LiveTrackingTab({
                   const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
                   const isExpanded = expandedKeys.has(d.key);
                   const canExpand = true; // Always expandable for position detail
+                  const hasConnectedMesh = d.meshDevices.some((device) => device.isConnected);
 
                   const newestMeshDevice = d.meshDevices.reduce<MeshDeviceStatus | null>((latest, device) => {
                     if (!latest) return device;
@@ -1927,7 +1918,10 @@ function LiveTrackingTab({
                       <tr style={{ borderLeft: `3px solid ${borderColor}`, cursor: "pointer" }} onClick={() => handleRowClick(d)}>
                         <td
                           className={canExpand ? `tracking-expand-toggle${isExpanded ? " expanded" : ""}` : ""}
-                          onClick={canExpand ? () => toggleExpand(d.key) : undefined}
+                          onClick={canExpand ? (event) => {
+                            event.stopPropagation();
+                            toggleExpand(d.key);
+                          } : undefined}
                         >
                           {canExpand ? (isExpanded ? "▾" : "▸") : ""}
                         </td>
@@ -1937,7 +1931,7 @@ function LiveTrackingTab({
                             width: 10,
                             height: 10,
                             borderRadius: "50%",
-                            backgroundColor: d.isOnline ? "#22c55e" : color === "orange" ? "#f59e0b" : "#6b7280",
+                            backgroundColor: d.isOnline ? "#22c55e" : "#ef4444",
                             boxShadow: d.isOnline ? "0 0 6px #22c55e80" : undefined,
                           }} title={d.isOnline ? "Online" : "Offline"} />
                         </td>
@@ -1949,7 +1943,7 @@ function LiveTrackingTab({
                         <td>{newestMeshDevice?.registeredOwnerName ?? (d.pilot_id != null ? d.pilot_name : "\u2014")}</td>
                         <td>
                           {d.hasPhone && <span className="tracking-source-pill phone">Phone</span>}
-                          {d.hasMesh && <span className="tracking-source-pill mesh">Mesh</span>}
+                          {d.hasMesh && <span className={`tracking-source-pill mesh${hasConnectedMesh ? "" : " offline"}`}>Mesh</span>}
                         </td>
                         <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{deviceIdHint ?? "\u2014"}</td>
                         <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
@@ -1990,7 +1984,7 @@ function LiveTrackingTab({
                           {d.meshDevices.map((meshDevice) => {
                             const meshFixColor = lastSeenColor(meshDevice.lastSeenAt);
                             const meshLastFixColor = meshFixColor === "green" ? "inherit" : meshFixColor === "orange" ? "#f59e0b" : "#ef4444";
-                            const meshDotColor = meshDevice.isConnected ? "#22c55e" : meshDevice.isActive ? "#6b7280" : "#9ca3af";
+                            const meshDotColor = meshDevice.isConnected ? "#22c55e" : "#ef4444";
                             return (
                               <tr
                                 key={`${d.key}-${meshDevice.deviceId}`}
@@ -2017,7 +2011,7 @@ function LiveTrackingTab({
                                 <td>{meshPurposeLabel(meshDevice.purpose)}</td>
                                 <td>{meshDevice.registeredOwnerName ?? d.pilot_name}</td>
                                 <td>
-                                  <span className="tracking-source-pill mesh" style={{ opacity: meshDevice.isConnected ? 1 : 0.65 }}>
+                                  <span className={`tracking-source-pill mesh${meshDevice.isConnected ? "" : " offline"}`}>
                                     {meshDevice.isConnected ? "Connected" : "Offline"}
                                   </span>
                                 </td>
@@ -2044,7 +2038,7 @@ function LiveTrackingTab({
         </div>
 
         {/* C) Map */}
-        <div style={{ height: 400, borderRadius: 8, overflow: "hidden" }}>
+        <div className="live-tracking-debugging-map">
           <TaskMap
             turnpoints={[]}
             taskPoints={[]}
@@ -2062,12 +2056,13 @@ function LiveTrackingTab({
         </div>
 
         {/* D) Refresh */}
-        <div className="button-row">
+        <div className="button-row live-tracking-debugging-actions">
           <button type="button" className="ghost-button" disabled={meshNodesLoading} onClick={refreshLiveTracking}>
             {meshNodesLoading ? "Refreshing..." : "Refresh now"}
           </button>
         </div>
-    </div>
+      </div>
+    </SectionCard>
   );
 }
 

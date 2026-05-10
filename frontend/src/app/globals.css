@@ -6877,6 +6877,37 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
 }
 
 /* Live Tracking sub-rows */
+.section-card > .stack.form-block.live-tracking-debugging-body,
+.section-stack > .section-card:first-of-type > .stack.form-block.live-tracking-debugging-body {
+  padding: 0 0 14px;
+  gap: 14px;
+}
+
+.live-tracking-debugging-table-wrap {
+  width: 100%;
+}
+
+.live-tracking-debugging-table {
+  font-size: 0.84rem;
+}
+
+.live-tracking-debugging-table thead th,
+.live-tracking-debugging-table tbody td {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+.live-tracking-debugging-map {
+  height: 430px;
+  margin: 0 12px;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.live-tracking-debugging-actions {
+  padding: 0 12px;
+}
+
 .tracking-sub-row td {
   background: var(--wash, rgba(255,255,255,0.03));
   font-size: 0.8rem;
@@ -6900,6 +6931,10 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
 .tracking-source-pill.mesh {
   background: rgba(34, 197, 94, 0.15);
   color: #22c55e;
+}
+.tracking-source-pill.offline {
+  background: rgba(239, 68, 68, 0.14);
+  color: #ef4444;
 }
 .tracking-expand-toggle {
   cursor: pointer;
