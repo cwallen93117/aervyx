@@ -1001,47 +1001,6 @@ export default function HomePage() {
     () => allResultTrackIds.length > 0 && allResultTrackIds.every((uploadId) => selectedResultUploadIds.includes(uploadId)),
     [allResultTrackIds, selectedResultUploadIds],
   );
-  const resultsTrackPilotList = (
-    <div className="results-task-map-pilot-list">
-      <div className="results-task-map-pilot-header">
-        <strong>Show pilot tracks</strong>
-        <label className="results-task-map-pilot-master-toggle">
-          <input
-            type="checkbox"
-            checked={allResultTracksChecked}
-            disabled={!allResultTrackIds.length}
-            onChange={() => void toggleAllResultTracks()}
-          />
-        </label>
-      </div>
-      <div className="results-task-map-pilot-items">
-        {trackableResults.map((result) => {
-          const isChecked = selectedResultUploadIds.includes(result.upload_id);
-          const isHighlighted = highlightedResultUploadId === result.upload_id;
-          const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
-          return (
-            <div key={result.id} className={`results-task-map-pilot-item${isHighlighted ? " is-highlighted" : ""}`}>
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
-              />
-              <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                <button
-                  type="button"
-                  className="results-task-map-pilot-button"
-                  onClick={() => setHighlightedResultUploadId((current) => (current === result.upload_id ? null : result.upload_id))}
-                >
-                  <span className="results-task-map-pilot-copy">
-                    <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-                  </span>
-                </button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
   const taskDefinitionRows = useMemo(() => {
     let cumulativeDistance = 0;
     return taskDraft.points.map((point, index) => {
@@ -2983,7 +2942,6 @@ export default function HomePage() {
               highlightedResultUploadId={highlightedResultUploadId}
               setHighlightedResultUploadId={setHighlightedResultUploadId}
               resultsTrackOverlay={resultsTrackOverlay}
-              resultsTrackPilotList={resultsTrackPilotList}
               resultsTaskMapTurnpoints={resultsTaskMapTurnpoints}
               allTurnpoints={turnpoints}
               siteSettings={siteSettings}

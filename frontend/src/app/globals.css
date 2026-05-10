@@ -3389,6 +3389,13 @@ button[type="submit"]:hover,
   color: var(--ink);
 }
 
+.results-task-map-pilot-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
 .results-task-map-pilot-master-toggle {
   display: inline-flex;
   align-items: center;
@@ -3407,6 +3414,10 @@ button[type="submit"]:hover,
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
+}
+
+.results-task-map-pilot-items[hidden] {
+  display: none;
 }
 
 .results-task-map-pilot-item {
@@ -3492,8 +3503,49 @@ button[type="submit"]:hover,
   max-width: min(300px, calc(100vw - 24px));
 }
 
+.scoring-fullscreen-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: min(720px, calc(100vw - 24px));
+}
+
+.scoring-fullscreen-turnpoints-card {
+  width: min(720px, calc(100vw - 24px));
+}
+
+.scoring-fullscreen-turnpoints-card.is-collapsed {
+  width: max-content;
+}
+
+.scoring-fullscreen-pilot-tracks-card {
+  width: max-content;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  min-height: 0;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-lg);
+}
+
+.scoring-fullscreen-pilot-tracks-card.is-collapsed {
+  min-height: 0;
+}
+
+.results-task-map-pilot-collapse-button {
+  width: 32px;
+  height: 32px;
+}
+
 .map-fullscreen-sidebar .results-task-map-pilot-items {
   max-height: calc(100vh - 272px);
+}
+
+.map-fullscreen-sidebar .scoring-fullscreen-pilot-tracks-card .results-task-map-pilot-items {
+  max-height: clamp(160px, calc(100vh - 520px), 460px);
 }
 
 .map-track-telemetry {

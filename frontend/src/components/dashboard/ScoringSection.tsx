@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
@@ -231,7 +231,6 @@ export interface ScoringSectionProps {
   highlightedResultUploadId: number | null;
   setHighlightedResultUploadId: (id: number | null) => void;
   resultsTrackOverlay: TrackCollection | null;
-  resultsTrackPilotList: ReactNode;
   resultsTaskMapTurnpoints: MapTurnpoint[];
   allTurnpoints: MapTurnpoint[];
   token: string;
@@ -290,7 +289,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
     highlightedResultUploadId,
     setHighlightedResultUploadId,
     resultsTrackOverlay,
-    resultsTrackPilotList,
     resultsTaskMapTurnpoints,
     allTurnpoints,
     token,
@@ -307,6 +305,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
     toggleAllResultTracks,
     overlayConfig,
   } = props;
+  const fullscreenPilotTracksContentId = useId();
+  const [isFullscreenPilotTracksCollapsed, setIsFullscreenPilotTracksCollapsed] = useState(false);
   const publishedTasks = tasks.filter((task) => task.status === "published");
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
@@ -345,21 +345,109 @@ export default function ScoringSection(props: ScoringSectionProps) {
   }));
   const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
   const taskResultsIncludePenalty = results.some((result) => Number(result.raw_score_points ?? result.score_points ?? 0) - Number(result.score_points ?? 0) > 0.05);
-  const scoringFullscreenOverlay = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
-    <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
-      <TaskTurnpointsTable
-        points={scoringTaskPoints}
-        taskPointAdvanced
-        turnpoints={allTurnpoints}
-        taskDistanceMetrics={scoringTaskMetrics}
-        distanceUnit={settingsForm.distance_unit}
-        collapsed={collapsed}
-        contentId={contentId}
-        titleAction={toggleButton}
-      />
-      <div className="map-task-editor-body" hidden={collapsed}>
-        {resultsTrackPilotList}
+  const fullscreenPilotTracksToggleLabel = isFullscreenPilotTracksCollapsed ? "Expand pilot tracks" : "Collapse pilot tracks";
+  const fullscreenPilotTracksToggleButton = (
+    <button
+      type="button"
+      className="map-task-editor-collapse-button results-task-map-pilot-collapse-button"
+      aria-label={fullscreenPilotTracksToggleLabel}
+      aria-controls={fullscreenPilotTracksContentId}
+      aria-expanded={!isFullscreenPilotTracksCollapsed}
+      title={fullscreenPilotTracksToggleLabel}
+      onClick={() => setIsFullscreenPilotTracksCollapsed((current) => !current)}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path
+          d={isFullscreenPilotTracksCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+  const renderResultsTrackPilotList = ({
+    collapsed = false,
+    contentId,
+    titleAction,
+    className = "",
+  }: {
+    collapsed?: boolean;
+    contentId?: string;
+    titleAction?: ReactNode;
+    className?: string;
+  } = {}) => (
+    <div className={`results-task-map-pilot-list${className ? ` ${className}` : ""}${collapsed ? " is-collapsed" : ""}`}>
+      <div className="results-task-map-pilot-header">
+        <strong>Show pilot tracks</strong>
+        <div className="results-task-map-pilot-header-actions">
+          {titleAction}
+          <label className="results-task-map-pilot-master-toggle">
+            <input
+              type="checkbox"
+              checked={allResultTracksChecked}
+              disabled={!scoredTrackResults.length}
+              onChange={() => void toggleAllResultTracks()}
+            />
+          </label>
+        </div>
       </div>
+      <div id={contentId} className="results-task-map-pilot-items" hidden={collapsed}>
+        {scoredTrackResults.map((result) => {
+          const isChecked = selectedResultUploadIds.includes(result.upload_id);
+          const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
+          return (
+            <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
+              />
+              <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
+              <button
+                type="button"
+                className="results-task-map-pilot-button"
+                onClick={() =>
+                  setHighlightedResultUploadId(
+                    highlightedResultUploadId === result.upload_id ? null : result.upload_id,
+                  )
+                }
+              >
+                <span className="results-task-map-pilot-copy">
+                  <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
+                  <small>{result.status.toUpperCase()} &middot; {result.score_points.toFixed(1)} pts</small>
+                </span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+  const scoringFullscreenOverlay = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+    <div className="scoring-fullscreen-overlay">
+      <div id={overlayId} className={`map-task-editor scoring-fullscreen-turnpoints-card${collapsed ? " is-collapsed" : ""}`}>
+        <TaskTurnpointsTable
+          points={scoringTaskPoints}
+          taskPointAdvanced
+          turnpoints={allTurnpoints}
+          taskDistanceMetrics={scoringTaskMetrics}
+          distanceUnit={settingsForm.distance_unit}
+          collapsed={collapsed}
+          contentId={contentId}
+          titleAction={toggleButton}
+        />
+      </div>
+      {renderResultsTrackPilotList({
+        collapsed: isFullscreenPilotTracksCollapsed,
+        contentId: fullscreenPilotTracksContentId,
+        titleAction: fullscreenPilotTracksToggleButton,
+        className: "scoring-fullscreen-pilot-tracks-card",
+      })}
     </div>
   );
 
@@ -546,49 +634,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                   {scoringTaskPoints.length ? (
                     <div className="results-task-map">
                       <div className="results-task-map-layout">
-                        <div className="results-task-map-pilot-list">
-                          <div className="results-task-map-pilot-header">
-                            <strong>Show pilot tracks</strong>
-                            <label className="results-task-map-pilot-master-toggle">
-                              <input
-                                type="checkbox"
-                                checked={allResultTracksChecked}
-                                disabled={!results.length}
-                                onChange={() => void toggleAllResultTracks()}
-                              />
-                            </label>
-                          </div>
-                          <div className="results-task-map-pilot-items">
-                            {scoredTrackResults.map((result) => {
-                              const isChecked = selectedResultUploadIds.includes(result.upload_id);
-                              const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
-                              return (
-                                <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
-                                  />
-                                  <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                                  <button
-                                    type="button"
-                                    className="results-task-map-pilot-button"
-                                    onClick={() =>
-                                      setHighlightedResultUploadId(
-                                        highlightedResultUploadId === result.upload_id ? null : result.upload_id,
-                                      )
-                                    }
-                                  >
-                                    <span className="results-task-map-pilot-copy">
-                                    <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-                                    <small>{result.status.toUpperCase()} &middot; {result.score_points.toFixed(1)} pts</small>
-                                    </span>
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
+                        {renderResultsTrackPilotList()}
                       <TaskMap
                         key={`scoring-map-${selectedTaskId ?? "none"}`}
                         turnpoints={scoringTaskMapTurnpoints}
