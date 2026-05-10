@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { MeshDevicePurpose, MeshDeviceRecord } from "./types";
 
+const TOKEN_KEY = "flightcomp-platform-token";
+const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
+let refreshPromise: Promise<string> | null = null;
+
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (configured?.startsWith("/")) return configured;
@@ -21,14 +25,76 @@ function resolveApiBase() {
   return configured ?? "/backend";
 }
 
+function currentAccessToken(fallback: string): string {
+  if (typeof window === "undefined") return fallback;
+  return window.localStorage.getItem(TOKEN_KEY) || fallback;
+}
+
+async function refreshAccessToken(): Promise<string> {
+  if (typeof window === "undefined") return "";
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return "";
+  try {
+    const response = await fetch(`${resolveApiBase()}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
+    if (!response.ok) return "";
+    const data = (await response.json()) as { access_token?: string; refresh_token?: string };
+    if (!data.access_token) return "";
+    window.localStorage.setItem(TOKEN_KEY, data.access_token);
+    if (data.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+    return data.access_token;
+  } catch {
+    return "";
+  }
+}
+
+async function responseError(response: Response): Promise<Error> {
+  const text = await response.text().catch(() => "");
+  if (response.status === 401) {
+    try {
+      const parsed = JSON.parse(text) as { detail?: string };
+      if (parsed.detail === "Invalid token") {
+        return new Error("Your session expired. Please sign in again, then retry.");
+      }
+      if (parsed.detail) return new Error(parsed.detail);
+    } catch {
+      // Fall through to the raw response body.
+    }
+  }
+  return new Error(text || `Request failed: ${response.status}`);
+}
+
 async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
-  const headers = new Headers(init.headers ?? {});
-  headers.set("Authorization", `Bearer ${token}`);
-  if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
-  const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
+  const buildInit = (activeToken: string): RequestInit => {
+    const headers = new Headers(init.headers ?? {});
+    headers.set("Authorization", `Bearer ${activeToken}`);
+    if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+    return { ...init, headers, cache: "no-store" };
+  };
+
+  const response = await fetch(`${resolveApiBase()}${path}`, buildInit(currentAccessToken(token)));
+  if (response.status === 401) {
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().then((newToken) => {
+        refreshPromise = null;
+        return newToken;
+      });
+    }
+    const refreshedToken = await refreshPromise;
+    if (refreshedToken) {
+      const retryResponse = await fetch(`${resolveApiBase()}${path}`, buildInit(refreshedToken));
+      if (!retryResponse.ok) throw await responseError(retryResponse);
+      if (retryResponse.status === 204) return undefined as T;
+      const text = await retryResponse.text();
+      return (text ? JSON.parse(text) : undefined) as T;
+    }
+  }
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new Error(text || `Request failed: ${response.status}`);
+    throw await responseError(response);
   }
   if (response.status === 204) return undefined as T;
   const text = await response.text();
