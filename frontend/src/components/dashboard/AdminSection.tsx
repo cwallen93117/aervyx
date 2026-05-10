@@ -1877,8 +1877,7 @@ function LiveTrackingTab({
   }
 
   return (
-    <SectionCard title="Live Tracking Debugging" description="Unified view of all active tracking sessions and registered mesh devices.">
-      <div className="stack form-block">
+    <div className="stack form-block">
         <div className="participant-table-wrap">
           <table className="participant-table" style={{ fontSize: "0.82rem" }}>
             <thead>
@@ -2068,8 +2067,7 @@ function LiveTrackingTab({
             {meshNodesLoading ? "Refreshing..." : "Refresh now"}
           </button>
         </div>
-      </div>
-    </SectionCard>
+    </div>
   );
 }
 
