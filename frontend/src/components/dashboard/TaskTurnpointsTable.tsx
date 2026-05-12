@@ -1,6 +1,6 @@
 "use client";
 
-import type { KeyboardEvent, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import type { MapLegMetric, MapTurnpoint } from "../TaskMap";
 import type { AccountSettingsRecord, TaskPointRecord } from "./types";
 
@@ -92,9 +92,19 @@ export function TaskTurnpointsTable(props: TaskTurnpointsTableProps) {
   const editable = props.editable === true;
   const gridClassName = `task-point-list-grid-header${editable ? " has-actions" : ""}`;
   const scrollClassName = `task-point-list-scroll${editable ? " has-actions" : ""}`;
+  const nameColumnCharacters = Math.max(
+    "Name".length,
+    ...points.flatMap((point) => {
+      const waypointCode = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code;
+      return [point.name.length, waypointCode?.length ?? 0];
+    }),
+  );
+  const panelStyle = {
+    "--task-name-column-width": `${Math.max(8, nameColumnCharacters + 1)}ch`,
+  } as CSSProperties;
 
   return (
-    <div className={`task-turnpoints-panel${collapsed ? " is-collapsed" : ""}`}>
+    <div className={`task-turnpoints-panel${collapsed ? " is-collapsed" : ""}`} style={panelStyle}>
       <div className="section-header task-turnpoints-panel-header">
         <div className="task-turnpoints-panel-title-row">
           <h3>Task turnpoints</h3>

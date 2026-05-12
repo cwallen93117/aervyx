@@ -3508,15 +3508,39 @@ button[type="submit"]:hover,
   flex-direction: column;
   align-items: flex-start;
   gap: 10px;
-  max-width: min(720px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
 }
 
 .scoring-fullscreen-turnpoints-card {
-  width: min(720px, calc(100vw - 24px));
+  width: max-content;
+  max-width: calc(100vw - 24px);
 }
 
 .scoring-fullscreen-turnpoints-card.is-collapsed {
   width: max-content;
+}
+
+.scoring-fullscreen-turnpoints-card .task-point-list-table-wrap {
+  width: max-content;
+  max-width: calc(100vw - 48px);
+}
+
+.scoring-fullscreen-turnpoints-card .task-point-list-grid-header,
+.scoring-fullscreen-turnpoints-card .task-point-list-grid-row {
+  grid-template-columns: 44px var(--task-name-column-width, 10ch) 128px 88px 72px 96px;
+  min-width: 0;
+  width: max-content;
+}
+
+.scoring-fullscreen-turnpoints-card .task-point-list-scroll {
+  min-width: 0;
+  width: max-content;
+}
+
+.scoring-fullscreen-turnpoints-card .task-point-row-name strong,
+.scoring-fullscreen-turnpoints-card .task-point-row-name span {
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .scoring-fullscreen-pilot-tracks-card {
