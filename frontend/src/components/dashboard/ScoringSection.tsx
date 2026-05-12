@@ -385,7 +385,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
       <div className="results-task-map-pilot-header">
         <strong>Show pilot tracks</strong>
         <div className="results-task-map-pilot-header-actions">
-          {titleAction}
           <label className="results-task-map-pilot-master-toggle">
             <input
               type="checkbox"
@@ -394,6 +393,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
               onChange={() => void toggleAllResultTracks()}
             />
           </label>
+          {titleAction}
         </div>
       </div>
       <div id={contentId} className="results-task-map-pilot-items" hidden={collapsed}>
