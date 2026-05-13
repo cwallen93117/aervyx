@@ -10,6 +10,7 @@ from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, LivePosi
 from app.routers.public import (
     get_public_live_sources,
     get_public_task_results,
+    list_public_events,
     list_public_tasks,
     public_event_positions,
     public_pilot_summary,
@@ -21,6 +22,51 @@ def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+
+
+def test_public_events_are_sorted_by_competition_date() -> None:
+    session = _session()
+    session.add_all(
+        [
+            Event(
+                name="Early Open",
+                location="Ridge",
+                starts_on=date(2026, 4, 1),
+                ends_on=date(2026, 4, 5),
+                timezone="UTC",
+                visibility="public",
+            ),
+            Event(
+                name="Zulu Classic",
+                location="Valley",
+                starts_on=date(2026, 5, 1),
+                ends_on=date(2026, 5, 3),
+                timezone="UTC",
+                visibility="public",
+            ),
+            Event(
+                name="Alpine Classic",
+                location="Mountain",
+                starts_on=date(2026, 5, 1),
+                ends_on=date(2026, 5, 3),
+                timezone="UTC",
+                visibility="public",
+            ),
+            Event(
+                name="Private Future",
+                location="Hidden",
+                starts_on=date(2026, 6, 1),
+                ends_on=date(2026, 6, 2),
+                timezone="UTC",
+                visibility="private",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = list_public_events(session=session)
+
+    assert [event.name for event in payload] == ["Alpine Classic", "Zulu Classic", "Early Open"]
 
 
 def test_public_live_sources_lists_competitions_and_public_groups() -> None:

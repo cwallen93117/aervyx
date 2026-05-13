@@ -122,7 +122,9 @@ class PublicTaskInfoResponse(BaseModel):
 @router.get("/events", response_model=list[EventResponse])
 def list_public_events(session: Session = Depends(get_session)) -> list[EventResponse]:
     events = session.scalars(
-        select(Event).where(Event.visibility == "public").order_by(Event.updated_at.desc(), Event.name.asc())
+        select(Event)
+        .where(Event.visibility == "public")
+        .order_by(Event.starts_on.desc(), Event.ends_on.desc(), Event.name.asc())
     ).all()
     return [_event_payload(session, event) for event in events]
 
