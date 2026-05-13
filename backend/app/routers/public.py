@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 from datetime import UTC, date, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -24,7 +25,7 @@ from app.models import (
 )
 from app.routers.events import _event_payload
 from app.routers.tasks import _task_response
-from app.schemas import EventResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse
+from app.schemas import EventResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
 from app.services.scoring import build_result_payload
 from app.services.tracking import (
     get_all_recent_positions,
@@ -160,10 +161,56 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
         raise HTTPException(status_code=404, detail="Published task not found")
     results = session.scalars(
         select(ScoreResult)
-        .where(ScoreResult.task_id == task_id)
+        .where(ScoreResult.task_id == task_id, ScoreResult.result_state == "official")
         .order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
+
+
+def _gap_day_quality(details_json: dict | None) -> float | None:
+    if not isinstance(details_json, dict):
+        return None
+    gap = details_json.get("gap")
+    if not isinstance(gap, dict):
+        return None
+    validity = gap.get("validity")
+    if not isinstance(validity, dict):
+        return None
+    try:
+        value = float(validity.get("overall"))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+@router.get("/events/{event_id}/task-result-summary", response_model=list[TaskResultSummaryResponse])
+def public_task_result_summary(event_id: int, session: Session = Depends(get_session)) -> list[TaskResultSummaryResponse]:
+    event = session.get(Event, event_id)
+    if event is None or event.visibility != "public":
+        raise HTTPException(status_code=404, detail="Event not found")
+    rows = session.execute(
+        select(ScoreResult.task_id, ScoreResult.details_json)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .where(
+            Task.event_id == event_id,
+            Task.status == "published",
+            ScoreResult.result_state == "official",
+        )
+        .order_by(ScoreResult.task_id.asc(), ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
+    ).all()
+
+    summaries_by_task: dict[int, float | None] = {}
+    for task_id, details_json in rows:
+        task_id_int = int(task_id)
+        summaries_by_task.setdefault(task_id_int, None)
+        day_quality = _gap_day_quality(details_json)
+        if summaries_by_task[task_id_int] is None and day_quality is not None:
+            summaries_by_task[task_id_int] = day_quality
+
+    return [
+        TaskResultSummaryResponse(task_id=task_id, day_quality=day_quality)
+        for task_id, day_quality in sorted(summaries_by_task.items())
+    ]
 
 
 @router.get("/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])
@@ -180,7 +227,11 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
             int(task_id): float(score_points or 0)
             for task_id, score_points in session.execute(
                 select(ScoreResult.task_id, ScoreResult.score_points)
-                .where(ScoreResult.task_id.in_(published_task_ids), ScoreResult.pilot_id == pilot_id)
+                .where(
+                    ScoreResult.task_id.in_(published_task_ids),
+                    ScoreResult.pilot_id == pilot_id,
+                    ScoreResult.result_state == "official",
+                )
                 .order_by(ScoreResult.task_id.asc())
             ).all()
         }
@@ -191,7 +242,11 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
                 func.coalesce(func.max(ScoreResult.distance_flown_km), 0),
             )
             .select_from(ScoreResult)
-            .where(ScoreResult.task_id.in_(published_task_ids), ScoreResult.pilot_id == pilot_id)
+            .where(
+                ScoreResult.task_id.in_(published_task_ids),
+                ScoreResult.pilot_id == pilot_id,
+                ScoreResult.result_state == "official",
+            )
         ).one()
         summaries.append(
             PilotSummaryResponse(
@@ -202,6 +257,7 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
                 tasks_scored=int(aggregates[1] or 0),
                 best_distance_km=float(aggregates[2] or 0),
                 task_scores=task_scores,
+                task_result_states={task_id: "official" for task_id in task_scores},
             )
         )
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

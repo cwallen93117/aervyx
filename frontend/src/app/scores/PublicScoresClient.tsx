@@ -1,0 +1,685 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+
+import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences } from "../../components/TaskMap";
+import { resolveApiBase } from "../../lib/live-tracking-utils";
+import { computeTaskOptimization } from "../../lib/taskOptimization";
+
+type PublicEvent = {
+  id: number;
+  name: string;
+  location: string;
+  starts_on: string;
+  ends_on: string;
+  timezone: string;
+  use_distance_points?: boolean;
+  use_time_points?: boolean;
+  use_leading_points?: boolean;
+  use_arrival_position_points?: boolean;
+  use_arrival_time_points?: boolean;
+  use_departure_points?: boolean;
+};
+
+type PublicTaskPoint = MapTaskPoint & {
+  id: number;
+  turnpoint_id: number | null;
+  direction: "enter" | "exit";
+};
+
+type PublicTask = {
+  id: number;
+  event_id: number;
+  name: string;
+  task_date: string | null;
+  status: string;
+  task_type: string;
+  task_start_time: string | null;
+  task_finish_time: string | null;
+  start_open_time: string | null;
+  start_close_time: string | null;
+  start_gate_count: number;
+  start_gate_interval_seconds: number | null;
+  published_at: string | null;
+  points: PublicTaskPoint[];
+};
+
+type ResultRecord = {
+  id: number;
+  upload_id: number | null;
+  pilot_id: number;
+  pilot_name: string;
+  competition_number?: string | null;
+  status: string;
+  distance_flown_km: number;
+  elapsed_seconds?: number | null;
+  started_at?: string | null;
+  ess_at?: string | null;
+  goal_at?: string | null;
+  raw_score_points?: number;
+  score_points: number;
+  rank: number | null;
+  details_json: Record<string, unknown>;
+  result_state?: string;
+};
+
+type PilotSummaryRecord = {
+  pilot_id: number;
+  pilot_name: string;
+  competition_number?: string | null;
+  total_score_points: number;
+  tasks_scored: number;
+  best_distance_km: number;
+  task_scores: Record<string, number>;
+  task_result_states: Record<string, string>;
+};
+
+type TaskResultSummaryRecord = { task_id: number; day_quality: number | null };
+type TaskSubTab = "results" | "map";
+
+const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
+
+async function fetchJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  return (await response.json()) as T;
+}
+
+function formatDateLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function formatClockTime(value: string | null | undefined, includeSeconds = false, timeZone?: string): string {
+  if (!value) return "-";
+  const normalizedValue = /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}Z` : value;
+  const parsed = new Date(normalizedValue);
+  if (Number.isNaN(parsed.getTime())) return value;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: includeSeconds ? "2-digit" : undefined,
+      hour12: false,
+      timeZone: timeZone || undefined,
+    }).format(parsed);
+  } catch {
+    return parsed.toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+      second: includeSeconds ? "2-digit" : undefined,
+      hour12: false,
+    });
+  }
+}
+
+function formatElapsedSeconds(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const totalSeconds = Math.max(0, Math.round(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${hours}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatPoints(value: number | null | undefined): string {
+  const safe = Number(value ?? 0);
+  return safe.toFixed(1);
+}
+
+function formatPointsWithComma(value: number): string {
+  const fixed = value.toFixed(1);
+  const [int, dec] = fixed.split(".");
+  return `${Number(int).toLocaleString("en-US")}.${dec}`;
+}
+
+function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | undefined): string {
+  if (!elapsedSeconds || elapsedSeconds <= 0) return "-";
+  return (distanceKm / (elapsedSeconds / 3600)).toFixed(1);
+}
+
+function formatDayQualityPercent(value: number | null | undefined): string {
+  const dayQuality = Number(value ?? NaN);
+  if (!Number.isFinite(dayQuality)) return "-";
+  const percent = dayQuality * 100;
+  return `${percent.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}%`;
+}
+
+function taskTypeLabel(value: string): string {
+  switch (value) {
+    case "race":
+    case "race_to_goal":
+    case "race_to_goal_with_gates":
+      return "Race to Goal";
+    case "speedrun":
+    case "elapsed_time":
+      return "Elapsed Time";
+    case "open_distance":
+      return "Open Distance";
+    default:
+      return value;
+  }
+}
+
+function taskTypeLabelWithGateCount(task: PublicTask): string {
+  const label = taskTypeLabel(task.task_type);
+  if (task.task_type === "race_to_goal_with_gates" && task.start_gate_count > 1) {
+    return `${label} with ${task.start_gate_count} start gates`;
+  }
+  return label;
+}
+
+function statusAbbreviation(status: string): string | null {
+  switch (status) {
+    case "absent":
+      return "ABS";
+    case "did_not_fly":
+      return "DNF";
+    case "minimum_distance":
+      return "MinD";
+    default:
+      return null;
+  }
+}
+
+function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure" | "leading") {
+  const gap = result.details_json?.gap as { awarded_points?: Record<string, number> } | undefined;
+  return Number(gap?.awarded_points?.[key] ?? 0);
+}
+
+function formatPenaltyPoints(result: ResultRecord): string {
+  const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
+  const finalScore = Number(result.score_points ?? 0);
+  const penalty = rawScore - finalScore;
+  return penalty > 0.05 ? `-${penalty.toFixed(1)}` : "-";
+}
+
+function resultScoringTimezone(result: ResultRecord, fallback?: string): string | undefined {
+  const timezone = result.details_json?.scoring_timezone;
+  return typeof timezone === "string" && timezone.trim() ? timezone : fallback;
+}
+
+function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
+  switch (key) {
+    case "distance":
+      return <span className="results-header-stack"><span>Dist.</span><span>Points</span></span>;
+    case "speed":
+      return <span className="results-header-stack"><span>Time</span><span>Points</span></span>;
+    case "arrival":
+      return <span className="results-header-stack"><span>Arrival</span><span>Points</span></span>;
+    case "departure":
+      return <span className="results-header-stack"><span>Departure</span><span>Points</span></span>;
+    case "leading":
+      return <span className="results-header-stack"><span>Leading</span><span>Points</span></span>;
+    default:
+      return key;
+  }
+}
+
+function taskMapTurnpoints(task: PublicTask): MapTurnpoint[] {
+  return task.points.map((point, index) => ({
+    id: point.turnpoint_id ?? -(index + 1),
+    name: point.name,
+    code: null,
+    latitude: point.latitude,
+    longitude: point.longitude,
+  }));
+}
+
+export function PublicScoresClient() {
+  const apiBase = useMemo(() => resolveApiBase(), []);
+  const [events, setEvents] = useState<PublicEvent[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const [tasks, setTasks] = useState<PublicTask[]>([]);
+  const [pilotSummary, setPilotSummary] = useState<PilotSummaryRecord[]>([]);
+  const [taskResultSummary, setTaskResultSummary] = useState<TaskResultSummaryRecord[]>([]);
+  const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
+  const [taskTab, setTaskTab] = useState<TaskSubTab>("results");
+  const [taskResults, setTaskResults] = useState<ResultRecord[]>([]);
+  const [taskResultsTaskId, setTaskResultsTaskId] = useState<number | null>(null);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+  const [loadingEvent, setLoadingEvent] = useState(false);
+  const [loadingResults, setLoadingResults] = useState(false);
+  const [error, setError] = useState("");
+  const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
+
+  const selectedEvent = useMemo(
+    () => events.find((event) => event.id === selectedEventId) ?? null,
+    [events, selectedEventId],
+  );
+  const selectedTask = useMemo(
+    () => tasks.find((task) => task.id === activeTaskId) ?? null,
+    [activeTaskId, tasks],
+  );
+  const taskResultSummaryById = useMemo(
+    () => new Map(taskResultSummary.map((summary) => [summary.task_id, summary])),
+    [taskResultSummary],
+  );
+  const taskMetricsById = useMemo(
+    () => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])),
+    [tasks],
+  );
+  const scoredTasks = useMemo(
+    () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)),
+    [tasks, pilotSummary],
+  );
+  const visiblePilotSummary = useMemo(
+    () => pilotSummary.filter((summary) => summary.tasks_scored > 0),
+    [pilotSummary],
+  );
+  const taskResultsColumns = useMemo(() => {
+    const columns: Array<"distance" | "speed" | "arrival" | "departure" | "leading"> = [];
+    if (selectedEvent?.use_distance_points ?? true) columns.push("distance");
+    if (selectedEvent?.use_leading_points ?? true) columns.push("leading");
+    if (selectedEvent?.use_time_points ?? true) columns.push("speed");
+    if (selectedEvent?.use_arrival_position_points || selectedEvent?.use_arrival_time_points) columns.push("arrival");
+    if (selectedEvent?.use_departure_points) columns.push("departure");
+    return columns;
+  }, [selectedEvent]);
+  const taskResultsIncludePenalty = useMemo(
+    () => taskResults.some((result) => formatPenaltyPoints(result) !== "-"),
+    [taskResults],
+  );
+  const selectedTaskMetrics = useMemo(
+    () => (selectedTask ? computeTaskOptimization(selectedTask.points) : null),
+    [selectedTask],
+  );
+  const routeOnlyOverlayConfig = useMemo<Record<string, boolean>>(() => ({
+    turnpoints: true,
+    task_route: true,
+    task_cylinders: true,
+    optimized_route: true,
+    leg_labels: true,
+    distance_summary: true,
+    flight_track: false,
+    live_positions: false,
+    live_labels: false,
+    gps_button: false,
+    fullscreen_toggle: overlayConfig?.fullscreen_toggle ?? true,
+    "2d_3d_toggle": overlayConfig?.["2d_3d_toggle"] ?? true,
+    basemap_selector: overlayConfig?.basemap_selector ?? true,
+    altitude_slider: overlayConfig?.altitude_slider ?? true,
+  }), [overlayConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingEvents(true);
+    setError("");
+    (async () => {
+      try {
+        const loadedEvents = await fetchJson<PublicEvent[]>(`${apiBase}/api/public/events`);
+        if (cancelled) return;
+        setEvents(loadedEvents);
+        setSelectedEventId((current) => current ?? loadedEvents[0]?.id ?? null);
+      } catch {
+        if (!cancelled) {
+          setError("Unable to load public competitions.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingEvents(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (selectedEventId == null) {
+      setTasks([]);
+      setPilotSummary([]);
+      setTaskResultSummary([]);
+      setActiveTaskId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLoadingEvent(true);
+    setError("");
+    setActiveTaskId(null);
+    setTaskTab("results");
+    setTaskResults([]);
+    setTaskResultsTaskId(null);
+    (async () => {
+      try {
+        const [loadedTasks, loadedPilotSummary, loadedTaskResultSummary] = await Promise.all([
+          fetchJson<PublicTask[]>(`${apiBase}/api/public/events/${selectedEventId}/tasks`),
+          fetchJson<PilotSummaryRecord[]>(`${apiBase}/api/public/events/${selectedEventId}/pilot-summary`),
+          fetchJson<TaskResultSummaryRecord[]>(`${apiBase}/api/public/events/${selectedEventId}/task-result-summary`),
+        ]);
+        if (cancelled) return;
+        setTasks(loadedTasks);
+        setPilotSummary(loadedPilotSummary);
+        setTaskResultSummary(loadedTaskResultSummary);
+      } catch {
+        if (!cancelled) {
+          setTasks([]);
+          setPilotSummary([]);
+          setTaskResultSummary([]);
+          setError("Unable to load scores for this competition.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingEvent(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, selectedEventId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (activeTaskId == null) {
+      setTaskResults([]);
+      setTaskResultsTaskId(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    setLoadingResults(true);
+    setError("");
+    (async () => {
+      try {
+        const loadedResults = await fetchJson<ResultRecord[]>(`${apiBase}/api/public/tasks/${activeTaskId}/results`);
+        if (cancelled) return;
+        setTaskResults(loadedResults);
+        setTaskResultsTaskId(activeTaskId);
+      } catch {
+        if (!cancelled) {
+          setTaskResults([]);
+          setTaskResultsTaskId(null);
+          setError("Unable to load task results.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingResults(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, activeTaskId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchJson<{ config?: { public_live?: Record<string, boolean> } }>(`${apiBase}/api/map-overlay-config/public`);
+        if (!cancelled && data.config?.public_live) {
+          setOverlayConfig(data.config.public_live);
+        }
+      } catch {
+        // Map defaults keep the public route map usable without this optional config.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
+
+  const selectOverall = useCallback(() => {
+    setActiveTaskId(null);
+    setTaskTab("results");
+  }, []);
+
+  const selectTask = useCallback((taskId: number) => {
+    setActiveTaskId(taskId);
+    setTaskTab("results");
+  }, []);
+
+  const renderOverall = () => (
+    <div className="scores-panel">
+      <div className="scores-panel-header">
+        <div>
+          <h1>Overall</h1>
+          <p>{selectedEvent?.name ?? "Competition"} {selectedEvent?.location ? `- ${selectedEvent.location}` : ""}</p>
+        </div>
+      </div>
+      {scoredTasks.length ? (
+        <div className="results-table-wrap scores-summary-table-wrap">
+          <table className="results-table results-table-compact">
+            <thead>
+              <tr>
+                <th>Task</th>
+                <th>Date</th>
+                <th>Distance</th>
+                <th>Day Quality</th>
+                <th>Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              {scoredTasks.map((task) => (
+                <tr key={task.id}>
+                  <td><strong>{task.name}</strong></td>
+                  <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
+                  <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)} km</td>
+                  <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
+                  <td>{taskTypeLabelWithGateCount(task)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {visiblePilotSummary.length ? (
+        <div className="results-table-wrap">
+          <table className="results-table results-table-task scores-results-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Name</th>
+                {scoredTasks.map((task) => <th key={task.id}>{task.name}</th>)}
+                <th>Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visiblePilotSummary.map((summary, index) => (
+                <tr key={summary.pilot_id}>
+                  <td><span className="scoring-ops-rank-badge">{index + 1}</span></td>
+                  <td>
+                    <strong>{summary.pilot_name}</strong>
+                    {summary.competition_number ? <span className="scores-name-meta">#{summary.competition_number}</span> : null}
+                  </td>
+                  {scoredTasks.map((task) => (
+                    <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatPoints(summary.task_scores[String(task.id)]) : "-"}</td>
+                  ))}
+                  <td className="results-table-total">{formatPointsWithComma(summary.total_score_points)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="scores-empty">No official overall results are available yet.</div>
+      )}
+    </div>
+  );
+
+  const renderTaskResults = () => {
+    if (!selectedTask) return null;
+    return (
+      <div className="scores-panel">
+        <div className="scores-panel-header">
+          <div>
+            <h1>{selectedTask.name}</h1>
+            <p>{formatDateLabel(selectedTask.task_date)} - {taskTypeLabelWithGateCount(selectedTask)}</p>
+          </div>
+        </div>
+        {loadingResults || taskResultsTaskId !== selectedTask.id ? (
+          <div className="scores-empty">Loading task results...</div>
+        ) : taskResults.length ? (
+          <div className="results-table-wrap">
+            <table className="results-table results-table-task scores-results-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Name</th>
+                  <th>SS</th>
+                  <th>ES</th>
+                  <th><span className="results-header-stack"><span>Time</span><span>[h:m:s]</span></span></th>
+                  <th><span className="results-header-stack"><span>Speed</span><span>[km/h]</span></span></th>
+                  <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
+                  {taskResultsColumns.map((column) => <th key={column}>{taskResultsHeaderLabel(column)}</th>)}
+                  {taskResultsIncludePenalty ? <th>Penalty</th> : null}
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {taskResults.map((result) => {
+                  const statusLabel = statusAbbreviation(result.status);
+                  return (
+                    <tr key={result.id}>
+                      <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
+                      <td>
+                        <strong>{result.pilot_name}</strong>
+                        {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
+                        {result.competition_number ? <span className="scores-name-meta">#{result.competition_number}</span> : null}
+                      </td>
+                      <td>{formatClockTime(result.started_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
+                      <td>{formatClockTime(result.goal_at ?? result.ess_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
+                      <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
+                      <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
+                      <td>{result.distance_flown_km.toFixed(1)}</td>
+                      {taskResultsColumns.map((column) => <td key={column}>{formatPoints(gapAwardedPoints(result, column))}</td>)}
+                      {taskResultsIncludePenalty ? (
+                        <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>{formatPenaltyPoints(result)}</td>
+                      ) : null}
+                      <td className="results-table-total">{formatPointsWithComma(result.score_points)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="scores-empty">No official results are available yet for this task.</div>
+        )}
+      </div>
+    );
+  };
+
+  const renderTaskMap = () => {
+    if (!selectedTask || !selectedTaskMetrics) return null;
+    if (!selectedTask.points.length) {
+      return <div className="scores-empty">This task does not have public route geometry yet.</div>;
+    }
+    const turnpoints = taskMapTurnpoints(selectedTask);
+    return (
+      <div className="scores-map-panel">
+        <TaskMap
+          key={`public-scores-map-${selectedTask.id}`}
+          turnpoints={turnpoints}
+          taskPoints={selectedTask.points}
+          optimizedRoute={selectedTaskMetrics.routeCoordinates}
+          legMetrics={selectedTaskMetrics.legMetrics}
+          track={null}
+          editable={false}
+          fitKey={selectedTask.id}
+          fitTurnpoints={turnpoints}
+          units={defaultUnits}
+          overlayConfig={routeOnlyOverlayConfig}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <div className="live-page scores-page">
+      <header className="live-header scores-header">
+        <a href="/" className="live-brand" title="Back to Aervyx">
+          <svg viewBox="0 0 30 30" width="24" height="24" fill="none" aria-hidden="true">
+            <path d="M15 3L27 25L15 19L3 25Z" stroke="#00e5ff" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
+            <circle cx="15" cy="15" r="2.2" fill="#00e5ff" opacity=".85"/>
+          </svg>
+        </a>
+        <span className="live-title scores-title">Comp Scores</span>
+        <div className="live-source-picker">
+          <select
+            aria-label="Competition scores event"
+            value={selectedEventId ?? ""}
+            onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
+            disabled={loadingEvents || !events.length}
+          >
+            {events.length ? events.map((event) => (
+              <option key={event.id} value={event.id}>{event.name}</option>
+            )) : <option value="">No public competitions</option>}
+          </select>
+        </div>
+        <a href="/live" className="scores-header-link">Watch Live</a>
+        {error ? <span className="live-status live-status-error">{error}</span> : null}
+      </header>
+
+      <div className="scores-body">
+        <aside className="scores-sidebar" aria-label="Score views">
+          <button
+            type="button"
+            className={activeTaskId == null ? "scores-nav-item active" : "scores-nav-item"}
+            onClick={selectOverall}
+          >
+            <span>Overall</span>
+            <small>{visiblePilotSummary.length} pilot{visiblePilotSummary.length === 1 ? "" : "s"}</small>
+          </button>
+          <div className="scores-nav-divider">Tasks</div>
+          {tasks.map((task) => (
+            <button
+              key={task.id}
+              type="button"
+              className={activeTaskId === task.id ? "scores-nav-item active" : "scores-nav-item"}
+              onClick={() => selectTask(task.id)}
+            >
+              <span>{task.name}</span>
+              <small>{formatDateLabel(task.task_date)}</small>
+            </button>
+          ))}
+          {!loadingEvent && !tasks.length ? <div className="scores-sidebar-empty">No published tasks</div> : null}
+        </aside>
+
+        <main className="scores-main">
+          {loadingEvents || loadingEvent ? (
+            <div className="scores-empty">Loading public scores...</div>
+          ) : !selectedEvent ? (
+            <div className="scores-empty">No public competitions are available yet.</div>
+          ) : activeTaskId == null ? (
+            renderOverall()
+          ) : selectedTask ? (
+            <>
+              <div className="scores-sub-tabs" role="tablist" aria-label={`${selectedTask.name} views`}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskTab === "results"}
+                  className={taskTab === "results" ? "scores-sub-tab active" : "scores-sub-tab"}
+                  onClick={() => setTaskTab("results")}
+                >
+                  Results
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={taskTab === "map"}
+                  className={taskTab === "map" ? "scores-sub-tab active" : "scores-sub-tab"}
+                  onClick={() => setTaskTab("map")}
+                >
+                  Map
+                </button>
+              </div>
+              {taskTab === "results" ? renderTaskResults() : renderTaskMap()}
+            </>
+          ) : (
+            <div className="scores-empty">Select a published task.</div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
