@@ -79,6 +79,18 @@ type TaskSubTab = "results" | "map";
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
 
+function readNumericSearchParam(name: string): number | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const value = new URLSearchParams(window.location.search).get(name);
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
@@ -250,6 +262,9 @@ export function PublicScoresClient() {
   const [loadingResults, setLoadingResults] = useState(false);
   const [error, setError] = useState("");
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
+  const [hasRequestedEventParam, setHasRequestedEventParam] = useState(false);
+  const [requestedEventId, setRequestedEventId] = useState<number | null>(null);
+  const [hasAppliedRequestedEvent, setHasAppliedRequestedEvent] = useState(false);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -353,6 +368,20 @@ export function PublicScoresClient() {
     basemap_selector: overlayConfig?.basemap_selector ?? true,
     altitude_slider: overlayConfig?.altitude_slider ?? true,
   }), [overlayConfig]);
+  const watchLiveHref = useMemo(() => (
+    selectedEventId != null
+      ? `/live?event_id=${encodeURIComponent(String(selectedEventId))}&scores_event_id=${encodeURIComponent(String(selectedEventId))}`
+      : "/live"
+  ), [selectedEventId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    setHasRequestedEventParam(params.has("event_id"));
+    setRequestedEventId(readNumericSearchParam("event_id"));
+  }, []);
 
   const loadResultTrack = useCallback(async (uploadId: number) => {
     if (resultTracksByUploadId[uploadId]) {
@@ -428,6 +457,18 @@ export function PublicScoresClient() {
       cancelled = true;
     };
   }, [apiBase]);
+
+  useEffect(() => {
+    if (loadingEvents || hasAppliedRequestedEvent || !hasRequestedEventParam) {
+      return;
+    }
+    if (requestedEventId != null && events.some((event) => event.id === requestedEventId)) {
+      setSelectedEventId(requestedEventId);
+    } else {
+      setSelectedEventId(null);
+    }
+    setHasAppliedRequestedEvent(true);
+  }, [events, hasAppliedRequestedEvent, hasRequestedEventParam, loadingEvents, requestedEventId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -792,12 +833,13 @@ export function PublicScoresClient() {
             onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
             disabled={loadingEvents || !events.length}
           >
+            {selectedEventId == null ? <option value="">Select a competition</option> : null}
             {events.length ? events.map((event) => (
               <option key={event.id} value={event.id}>{event.name}</option>
             )) : <option value="">No public competitions</option>}
           </select>
         </div>
-        <a href="/live" className="scores-header-link">Watch Live</a>
+        <a href={watchLiveHref} className="public-header-link public-header-link-live">Watch Live</a>
         {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 
@@ -830,7 +872,7 @@ export function PublicScoresClient() {
           {loadingEvents || loadingEvent ? (
             <div className="scores-empty">Loading public scores...</div>
           ) : !selectedEvent ? (
-            <div className="scores-empty">No public competitions are available yet.</div>
+            <div className="scores-empty">{events.length ? "Select a public competition." : "No public competitions are available yet."}</div>
           ) : activeTaskId == null ? (
             renderOverall()
           ) : selectedTask ? (

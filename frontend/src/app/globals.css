@@ -4270,6 +4270,41 @@ button[type="submit"]:hover,
   border-color: #00e5ff;
 }
 
+.public-header-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background 0.14s, border-color 0.14s;
+}
+
+.public-header-link-live {
+  border: 1px solid rgba(0, 230, 118, 0.26);
+  color: #00e676;
+  background: rgba(0, 230, 118, 0.08);
+}
+
+.public-header-link-live:hover {
+  background: rgba(0, 230, 118, 0.13);
+  border-color: rgba(0, 230, 118, 0.42);
+}
+
+.public-header-link-scores {
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.09);
+}
+
+.public-header-link-scores:hover {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: rgba(251, 191, 36, 0.48);
+}
+
 .live-status {
   font-size: 0.75rem;
   color: rgba(255, 255, 255, 0.5);
@@ -4460,27 +4495,6 @@ button[type="submit"]:hover,
 
 .scores-title {
   color: #fbbf24;
-}
-
-.scores-header-link {
-  display: inline-flex;
-  align-items: center;
-  min-height: 36px;
-  padding: 0 12px;
-  border-radius: 6px;
-  border: 1px solid rgba(0, 230, 118, 0.26);
-  color: #00e676;
-  background: rgba(0, 230, 118, 0.08);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: background 0.14s, border-color 0.14s;
-}
-
-.scores-header-link:hover {
-  background: rgba(0, 230, 118, 0.13);
-  border-color: rgba(0, 230, 118, 0.42);
 }
 
 .scores-body {

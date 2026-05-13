@@ -47,6 +47,7 @@ type PublicSources = {
 };
 
 type SelectedSource =
+  | { type: "none" }
   | { type: "all_users" }
   | { type: "event"; eventId: number; eventName: string }
   | { type: "buddies"; groupId: number; groupName: string };
@@ -61,7 +62,20 @@ type TaskInfoResponse = {
 };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
+const noSource: SelectedSource = { type: "none" };
 const allUsersSource: SelectedSource = { type: "all_users" };
+
+function readNumericSearchParam(name: string): number | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const value = new URLSearchParams(window.location.search).get(name);
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
 
 function collectPilotNames(positions: LivePositionWithName[]) {
   const names = new Map<number, string>();
@@ -83,12 +97,27 @@ export function LiveWatchClient() {
   const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [error, setError] = useState("");
   const [eventFitRequestId, setEventFitRequestId] = useState(0);
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
+  const [hasInitialEventParam, setHasInitialEventParam] = useState(false);
+  const [initialEventId, setInitialEventId] = useState<number | null>(null);
+  const [returnScoresEventId, setReturnScoresEventId] = useState<number | null>(null);
+  const [hasAppliedInitialEvent, setHasAppliedInitialEvent] = useState(false);
   const sseControllerRef = useRef<AbortController | null>(null);
 
   const apiBase = useMemo(() => resolveApiBase(), []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const params = new URLSearchParams(window.location.search);
+    setHasInitialEventParam(params.has("event_id"));
+    setInitialEventId(readNumericSearchParam("event_id"));
+    setReturnScoresEventId(readNumericSearchParam("scores_event_id") ?? readNumericSearchParam("event_id"));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -103,6 +132,10 @@ export function LiveWatchClient() {
       } catch {
         if (!cancelled) {
           setError("Unable to load live sources.");
+        }
+      } finally {
+        if (!cancelled) {
+          setSourcesLoaded(true);
         }
       }
     })();
@@ -165,6 +198,9 @@ export function LiveWatchClient() {
     if (selected.type === "buddies") {
       return selected.groupName;
     }
+    if (selected.type === "none") {
+      return "Select a live source";
+    }
     return "All users";
   }, [selected]);
 
@@ -174,6 +210,9 @@ export function LiveWatchClient() {
     }
     if (selected.type === "buddies") {
       return `buddies:${selected.groupId}`;
+    }
+    if (selected.type === "none") {
+      return "";
     }
     return "all_users";
   }, [selected]);
@@ -187,6 +226,11 @@ export function LiveWatchClient() {
     setLivePositionsByPilot(new Map());
     setPilotNameById(new Map());
     setError("");
+
+    if (source.type === "none") {
+      setLoading(false);
+      return () => {};
+    }
 
     const controller = new AbortController();
     sseControllerRef.current = controller;
@@ -285,6 +329,24 @@ export function LiveWatchClient() {
   }, [apiBase]);
 
   useEffect(() => {
+    if (!sourcesLoaded || hasAppliedInitialEvent || !hasInitialEventParam) {
+      return;
+    }
+    if (initialEventId != null) {
+      const event = sources.events.find((item) => item.id === initialEventId);
+      if (event) {
+        setSelected({ type: "event", eventId: event.id, eventName: event.name });
+        setEventFitRequestId((current) => current + 1);
+      } else {
+        setSelected(noSource);
+      }
+    } else {
+      setSelected(noSource);
+    }
+    setHasAppliedInitialEvent(true);
+  }, [hasAppliedInitialEvent, hasInitialEventParam, initialEventId, sources.events, sourcesLoaded]);
+
+  useEffect(() => {
     const cleanup = connectSSE(selected);
     return cleanup;
   }, [connectSSE, selected]);
@@ -359,6 +421,10 @@ export function LiveWatchClient() {
   }, [apiBase]);
 
   const handleSourceChange = useCallback((value: string) => {
+    if (value === "") {
+      setSelected(noSource);
+      return;
+    }
     if (value === "all_users") {
       setSelected(allUsersSource);
       return;
@@ -386,6 +452,11 @@ export function LiveWatchClient() {
       setEventFitRequestId((current) => current + 1);
     }
   }, [selected]);
+
+  const compScoresHref = useMemo(() => {
+    const eventId = returnScoresEventId ?? selectedEventId;
+    return eventId != null ? `/scores?event_id=${encodeURIComponent(String(eventId))}` : "/scores";
+  }, [returnScoresEventId, selectedEventId]);
 
   const renderPilotSidebar = (className = "live-sidebar") => (
     <div className={className}>
@@ -424,7 +495,9 @@ export function LiveWatchClient() {
           <div className="live-pilot-empty">
             {loading
               ? "Connecting..."
-              : selected.type === "event"
+              : selected.type === "none"
+                ? "Choose a live source."
+                : selected.type === "event"
                 ? "Waiting for competition pilots..."
                 : selected.type === "buddies"
                   ? "Waiting for group pilots..."
@@ -479,6 +552,7 @@ export function LiveWatchClient() {
             onChange={(event) => handleSourceChange(event.target.value)}
             onClick={requestSelectedEventFit}
           >
+            {selected.type === "none" ? <option value="">Select live source</option> : null}
             <option value="all_users">All users</option>
             {sources.events.length > 0 ? (
               <optgroup label="Competitions">
@@ -500,6 +574,8 @@ export function LiveWatchClient() {
             ) : null}
           </select>
         </div>
+        <a href={compScoresHref} className="public-header-link public-header-link-scores">Comp Scores</a>
+        {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 
       <div className="live-body">
