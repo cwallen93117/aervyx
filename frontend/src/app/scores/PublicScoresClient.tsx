@@ -729,13 +729,17 @@ export function PublicScoresClient() {
   };
 
   const renderResultsTrackPilotList = ({
+    collapsed = false,
     className = "",
     contentId,
+    titleAction,
   }: {
+    collapsed?: boolean;
     className?: string;
     contentId?: string;
+    titleAction?: ReactNode;
   } = {}) => (
-    <div className={`results-task-map-pilot-list${className ? ` ${className}` : ""}`}>
+    <div className={`results-task-map-pilot-list${className ? ` ${className}` : ""}${collapsed ? " is-collapsed" : ""}`}>
       <div className="results-task-map-pilot-header">
         <strong>Show pilot tracks</strong>
         <div className="results-task-map-pilot-header-actions">
@@ -747,9 +751,10 @@ export function PublicScoresClient() {
               onChange={() => void toggleAllResultTracks()}
             />
           </label>
+          {titleAction}
         </div>
       </div>
-      <div id={contentId} className="results-task-map-pilot-items">
+      <div id={contentId} className="results-task-map-pilot-items" hidden={collapsed}>
         {trackableResults.length ? trackableResults.map((result) => {
           const isChecked = selectedResultUploadIds.includes(result.upload_id);
           const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? TRACK_COLORS[0];
@@ -803,7 +808,13 @@ export function PublicScoresClient() {
             legMetrics={selectedTaskMetrics.legMetrics}
             track={resultsTrackOverlay}
             editable={false}
-            fullscreenSidebar={renderResultsTrackPilotList({ className: "scores-fullscreen-pilot-tracks-card" })}
+            fullscreenSidebar={({ contentId, toggleButton }) =>
+              renderResultsTrackPilotList({
+                className: "scores-fullscreen-pilot-tracks-card",
+                contentId,
+                titleAction: toggleButton,
+              })
+            }
             fullscreenSidebarLabel="pilot tracks"
             highlightedTrackUploadId={highlightedResultUploadId}
             fitKey={selectedTask.id}

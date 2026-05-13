@@ -3559,6 +3559,37 @@ button[type="submit"]:hover,
   min-height: 0;
 }
 
+.map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) .scores-fullscreen-pilot-tracks-card {
+  width: max-content;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 24px));
+  min-height: 0;
+  height: 100%;
+  max-height: none;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-lg);
+}
+
+.map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) .scores-fullscreen-pilot-tracks-card .results-task-map-pilot-items {
+  max-height: none;
+}
+
+.scores-fullscreen-pilot-tracks-card .map-fullscreen-live-sidebar-toggle {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+.scores-fullscreen-pilot-tracks-card .map-fullscreen-live-sidebar-toggle:hover {
+  background: #f8fafc;
+}
+
 .results-task-map-pilot-collapse-button {
   width: 32px;
   height: 32px;
@@ -4003,6 +4034,11 @@ button[type="submit"]:hover,
   max-width: calc(100vw - 328px);
 }
 
+.map-shell.has-inline-fullscreen-sidebar.has-fullscreen-live-sidebar .map-overlay-column {
+  left: 252px;
+  max-width: calc(100vw - 276px);
+}
+
 .map-shell.has-fullscreen-live-sidebar.is-fullscreen-live-sidebar-collapsed .map-overlay-column {
   left: 68px;
   max-width: calc(100vw - 92px);
@@ -4029,6 +4065,16 @@ button[type="submit"]:hover,
   width: 44px;
   height: 44px;
   bottom: auto;
+}
+
+.map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) {
+  width: max-content;
+  min-width: 0;
+  max-width: min(300px, calc(100vw - 24px));
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .map-fullscreen-live-sidebar-toolbar {
@@ -4072,6 +4118,13 @@ button[type="submit"]:hover,
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
+}
+
+.map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) .map-fullscreen-live-sidebar-content {
+  width: max-content;
+  min-width: 0;
+  max-width: min(300px, calc(100vw - 24px));
+  height: 100%;
 }
 
 .map-fullscreen-live-sidebar-content[hidden] {
