@@ -4712,6 +4712,20 @@ button[type="submit"]:hover,
   min-height: 480px;
 }
 
+.scores-map-panel.results-task-map {
+  border-color: rgba(255, 255, 255, 0.12);
+  background: #f8fafc;
+}
+
+.scores-map-panel .results-task-map-layout {
+  height: 100%;
+  min-height: 0;
+}
+
+.scores-map-panel .results-task-map-pilot-list {
+  min-height: 0;
+}
+
 .scores-map-panel .map-shell,
 .scores-map-panel .map-card {
   height: 100%;
@@ -4755,6 +4769,14 @@ button[type="submit"]:hover,
   .scores-map-panel {
     height: 62vh;
     min-height: 360px;
+  }
+  .scores-map-panel .results-task-map-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(150px, 26vh) minmax(0, 1fr);
+  }
+  .scores-map-panel .results-task-map-pilot-list {
+    border-right: none;
+    border-bottom: 1px solid var(--line);
   }
   .map-fullscreen-live-sidebar {
     top: auto;

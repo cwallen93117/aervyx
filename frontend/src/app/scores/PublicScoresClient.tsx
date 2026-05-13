@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
-import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences } from "../../components/TaskMap";
-import { resolveApiBase } from "../../lib/live-tracking-utils";
+import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
+import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 type PublicEvent = {
@@ -232,6 +232,7 @@ function taskMapTurnpoints(task: PublicTask): MapTurnpoint[] {
 
 export function PublicScoresClient() {
   const apiBase = useMemo(() => resolveApiBase(), []);
+  const pilotTracksContentId = useId();
   const [events, setEvents] = useState<PublicEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [tasks, setTasks] = useState<PublicTask[]>([]);
@@ -241,6 +242,9 @@ export function PublicScoresClient() {
   const [taskTab, setTaskTab] = useState<TaskSubTab>("results");
   const [taskResults, setTaskResults] = useState<ResultRecord[]>([]);
   const [taskResultsTaskId, setTaskResultsTaskId] = useState<number | null>(null);
+  const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
+  const [resultTracksByUploadId, setResultTracksByUploadId] = useState<Record<number, TrackCollection>>({});
+  const [highlightedResultUploadId, setHighlightedResultUploadId] = useState<number | null>(null);
   const [loadingEvents, setLoadingEvents] = useState(true);
   const [loadingEvent, setLoadingEvent] = useState(false);
   const [loadingResults, setLoadingResults] = useState(false);
@@ -284,18 +288,63 @@ export function PublicScoresClient() {
     () => taskResults.some((result) => formatPenaltyPoints(result) !== "-"),
     [taskResults],
   );
+  const trackableResults = useMemo(
+    () => taskResults.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null),
+    [taskResults],
+  );
+  const resultByUploadId = useMemo(
+    () => new Map(trackableResults.map((result) => [result.upload_id, result])),
+    [trackableResults],
+  );
+  const resultTrackColorsByUploadId = useMemo(() => {
+    const colorMap = new Map<number, string>();
+    trackableResults.forEach((result, index) => {
+      colorMap.set(result.upload_id, TRACK_COLORS[index % TRACK_COLORS.length]);
+    });
+    return colorMap;
+  }, [trackableResults]);
+  const allResultTrackIds = useMemo(() => trackableResults.map((result) => result.upload_id), [trackableResults]);
+  const allResultTracksChecked = useMemo(
+    () => allResultTrackIds.length > 0 && allResultTrackIds.every((uploadId) => selectedResultUploadIds.includes(uploadId)),
+    [allResultTrackIds, selectedResultUploadIds],
+  );
+  const resultsTrackOverlay = useMemo<TrackCollection | null>(() => {
+    if (!selectedResultUploadIds.length) {
+      return null;
+    }
+    const features = selectedResultUploadIds.flatMap((uploadId) => {
+      const collection = resultTracksByUploadId[uploadId];
+      if (!collection) {
+        return [];
+      }
+      const result = resultByUploadId.get(uploadId);
+      const color = resultTrackColorsByUploadId.get(uploadId) ?? TRACK_COLORS[0];
+      return collection.features.map((feature) => ({
+        ...feature,
+        properties: {
+          ...feature.properties,
+          color,
+          pilot_name: result?.pilot_name.trim() || feature.properties?.pilot_name || `Pilot ${uploadId}`,
+          upload_id: uploadId,
+        },
+      }));
+    });
+    return { type: "FeatureCollection", features };
+  }, [resultByUploadId, resultTrackColorsByUploadId, resultTracksByUploadId, selectedResultUploadIds]);
   const selectedTaskMetrics = useMemo(
     () => (selectedTask ? computeTaskOptimization(selectedTask.points) : null),
     [selectedTask],
   );
-  const routeOnlyOverlayConfig = useMemo<Record<string, boolean>>(() => ({
+  const scoresMapOverlayConfig = useMemo<Record<string, boolean>>(() => ({
     turnpoints: true,
     task_route: true,
     task_cylinders: true,
     optimized_route: true,
     leg_labels: true,
     distance_summary: true,
-    flight_track: false,
+    flight_track: overlayConfig?.flight_track ?? true,
+    track_highlight: overlayConfig?.track_highlight ?? true,
+    replay_scrubber: overlayConfig?.replay_scrubber ?? true,
     live_positions: false,
     live_labels: false,
     gps_button: false,
@@ -304,6 +353,56 @@ export function PublicScoresClient() {
     basemap_selector: overlayConfig?.basemap_selector ?? true,
     altitude_slider: overlayConfig?.altitude_slider ?? true,
   }), [overlayConfig]);
+
+  const loadResultTrack = useCallback(async (uploadId: number) => {
+    if (resultTracksByUploadId[uploadId]) {
+      return;
+    }
+    const collection = await fetchJson<TrackCollection>(`${apiBase}/api/public/uploads/${uploadId}/track`);
+    setResultTracksByUploadId((current) => (
+      current[uploadId] ? current : { ...current, [uploadId]: collection }
+    ));
+  }, [apiBase, resultTracksByUploadId]);
+
+  const toggleResultTrack = useCallback(async (uploadId: number, checked: boolean) => {
+    if (!checked) {
+      setSelectedResultUploadIds((current) => current.filter((id) => id !== uploadId));
+      setHighlightedResultUploadId((current) => (current === uploadId ? null : current));
+      return;
+    }
+    setSelectedResultUploadIds((current) => (current.includes(uploadId) ? current : [...current, uploadId]));
+    setHighlightedResultUploadId(uploadId);
+    try {
+      await loadResultTrack(uploadId);
+    } catch {
+      setSelectedResultUploadIds((current) => current.filter((id) => id !== uploadId));
+      setHighlightedResultUploadId((current) => (current === uploadId ? null : current));
+      setError("Unable to load the selected pilot track.");
+    }
+  }, [loadResultTrack]);
+
+  const toggleAllResultTracks = useCallback(async () => {
+    if (!allResultTrackIds.length) {
+      return;
+    }
+    if (allResultTracksChecked) {
+      setSelectedResultUploadIds([]);
+      setHighlightedResultUploadId(null);
+      return;
+    }
+    setSelectedResultUploadIds(allResultTrackIds);
+    const missingUploadIds = allResultTrackIds.filter((uploadId) => !resultTracksByUploadId[uploadId]);
+    if (!missingUploadIds.length) {
+      return;
+    }
+    try {
+      await Promise.all(missingUploadIds.map((uploadId) => loadResultTrack(uploadId)));
+    } catch {
+      setSelectedResultUploadIds([]);
+      setHighlightedResultUploadId(null);
+      setError("Unable to load all pilot tracks.");
+    }
+  }, [allResultTrackIds, allResultTracksChecked, loadResultTrack, resultTracksByUploadId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -337,6 +436,9 @@ export function PublicScoresClient() {
       setPilotSummary([]);
       setTaskResultSummary([]);
       setActiveTaskId(null);
+      setSelectedResultUploadIds([]);
+      setResultTracksByUploadId({});
+      setHighlightedResultUploadId(null);
       return () => {
         cancelled = true;
       };
@@ -347,6 +449,9 @@ export function PublicScoresClient() {
     setTaskTab("results");
     setTaskResults([]);
     setTaskResultsTaskId(null);
+    setSelectedResultUploadIds([]);
+    setResultTracksByUploadId({});
+    setHighlightedResultUploadId(null);
     (async () => {
       try {
         const [loadedTasks, loadedPilotSummary, loadedTaskResultSummary] = await Promise.all([
@@ -381,12 +486,18 @@ export function PublicScoresClient() {
     if (activeTaskId == null) {
       setTaskResults([]);
       setTaskResultsTaskId(null);
+      setSelectedResultUploadIds([]);
+      setResultTracksByUploadId({});
+      setHighlightedResultUploadId(null);
       return () => {
         cancelled = true;
       };
     }
     setLoadingResults(true);
     setError("");
+    setSelectedResultUploadIds([]);
+    setResultTracksByUploadId({});
+    setHighlightedResultUploadId(null);
     (async () => {
       try {
         const loadedResults = await fetchJson<ResultRecord[]>(`${apiBase}/api/public/tasks/${activeTaskId}/results`);
@@ -429,12 +540,20 @@ export function PublicScoresClient() {
 
   const selectOverall = useCallback(() => {
     setActiveTaskId(null);
-    setTaskTab("results");
+    setTaskResults([]);
+    setTaskResultsTaskId(null);
+    setSelectedResultUploadIds([]);
+    setResultTracksByUploadId({});
+    setHighlightedResultUploadId(null);
   }, []);
 
   const selectTask = useCallback((taskId: number) => {
     setActiveTaskId(taskId);
-    setTaskTab("results");
+    setTaskResults([]);
+    setTaskResultsTaskId(null);
+    setSelectedResultUploadIds([]);
+    setResultTracksByUploadId({});
+    setHighlightedResultUploadId(null);
   }, []);
 
   const renderOverall = () => (
@@ -568,6 +687,63 @@ export function PublicScoresClient() {
     );
   };
 
+  const renderResultsTrackPilotList = ({
+    className = "",
+    contentId,
+  }: {
+    className?: string;
+    contentId?: string;
+  } = {}) => (
+    <div className={`results-task-map-pilot-list${className ? ` ${className}` : ""}`}>
+      <div className="results-task-map-pilot-header">
+        <strong>Show pilot tracks</strong>
+        <div className="results-task-map-pilot-header-actions">
+          <label className="results-task-map-pilot-master-toggle" aria-label="Show all pilot tracks">
+            <input
+              type="checkbox"
+              checked={allResultTracksChecked}
+              disabled={!trackableResults.length}
+              onChange={() => void toggleAllResultTracks()}
+            />
+          </label>
+        </div>
+      </div>
+      <div id={contentId} className="results-task-map-pilot-items">
+        {trackableResults.length ? trackableResults.map((result) => {
+          const isChecked = selectedResultUploadIds.includes(result.upload_id);
+          const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? TRACK_COLORS[0];
+          return (
+            <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
+              <input
+                type="checkbox"
+                checked={isChecked}
+                aria-label={`Show ${result.pilot_name} track`}
+                onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
+              />
+              <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
+              <button
+                type="button"
+                className="results-task-map-pilot-button"
+                onClick={() =>
+                  setHighlightedResultUploadId(
+                    highlightedResultUploadId === result.upload_id ? null : result.upload_id,
+                  )
+                }
+              >
+                <span className="results-task-map-pilot-copy">
+                  <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
+                  <small>{result.status.toUpperCase()} &middot; {result.score_points.toFixed(1)} pts</small>
+                </span>
+              </button>
+            </div>
+          );
+        }) : (
+          <div className="results-task-map-empty">No public pilot tracks are available.</div>
+        )}
+      </div>
+    </div>
+  );
+
   const renderTaskMap = () => {
     if (!selectedTask || !selectedTaskMetrics) return null;
     if (!selectedTask.points.length) {
@@ -575,20 +751,26 @@ export function PublicScoresClient() {
     }
     const turnpoints = taskMapTurnpoints(selectedTask);
     return (
-      <div className="scores-map-panel">
-        <TaskMap
-          key={`public-scores-map-${selectedTask.id}`}
-          turnpoints={turnpoints}
-          taskPoints={selectedTask.points}
-          optimizedRoute={selectedTaskMetrics.routeCoordinates}
-          legMetrics={selectedTaskMetrics.legMetrics}
-          track={null}
-          editable={false}
-          fitKey={selectedTask.id}
-          fitTurnpoints={turnpoints}
-          units={defaultUnits}
-          overlayConfig={routeOnlyOverlayConfig}
-        />
+      <div className="scores-map-panel results-task-map">
+        <div className="results-task-map-layout scores-task-map-layout">
+          {renderResultsTrackPilotList({ contentId: pilotTracksContentId })}
+          <TaskMap
+            key={`public-scores-map-${selectedTask.id}`}
+            turnpoints={turnpoints}
+            taskPoints={selectedTask.points}
+            optimizedRoute={selectedTaskMetrics.routeCoordinates}
+            legMetrics={selectedTaskMetrics.legMetrics}
+            track={resultsTrackOverlay}
+            editable={false}
+            fullscreenSidebar={renderResultsTrackPilotList({ className: "scores-fullscreen-pilot-tracks-card" })}
+            fullscreenSidebarLabel="pilot tracks"
+            highlightedTrackUploadId={highlightedResultUploadId}
+            fitKey={selectedTask.id}
+            fitTurnpoints={turnpoints}
+            units={defaultUnits}
+            overlayConfig={scoresMapOverlayConfig}
+          />
+        </div>
       </div>
     );
   };

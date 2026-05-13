@@ -18,10 +18,13 @@ from app.models import (
     BuddyGroupMember,
     Event,
     EventPilot,
+    IGCUpload,
     Pilot,
     ScoreResult,
     Task,
     TaskPoint,
+    TrackPoint,
+    User,
 )
 from app.routers.events import _event_payload
 from app.routers.tasks import _task_response
@@ -167,6 +170,63 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
         .order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
+
+
+@router.get("/uploads/{upload_id}/track")
+def get_public_upload_track(upload_id: int, session: Session = Depends(get_session)) -> dict:
+    upload = session.get(IGCUpload, upload_id)
+    if upload is None:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    public_result_id = session.scalar(
+        select(ScoreResult.id)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .join(Event, Event.id == Task.event_id)
+        .where(
+            ScoreResult.upload_id == upload.id,
+            ScoreResult.task_id == upload.task_id,
+            ScoreResult.pilot_id == upload.pilot_id,
+            ScoreResult.result_state == "official",
+            Task.status == "published",
+            Event.visibility == "public",
+        )
+        .limit(1)
+    )
+    if public_result_id is None:
+        raise HTTPException(status_code=404, detail="Upload not found")
+
+    pilot = session.get(Pilot, upload.pilot_id)
+    pilot_user = session.scalar(select(User).where(User.pilot_id == upload.pilot_id).order_by(User.id.asc()))
+    aircraft_icon = (pilot_user.aircraft_icon or "hang_glider").strip().lower() if pilot_user is not None else "hang_glider"
+    if aircraft_icon not in {"hang_glider", "paraglider", "sailplane"}:
+        aircraft_icon = "hang_glider"
+    points = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload_id).order_by(TrackPoint.sequence)).all()
+    coordinates = [
+        [
+            point.longitude,
+            point.latitude,
+            float(point.gps_altitude_m if point.gps_altitude_m is not None else point.pressure_altitude_m if point.pressure_altitude_m is not None else 0),
+        ]
+        for point in points
+    ]
+    timestamps = []
+    for point in points:
+        recorded_at = point.recorded_at if point.recorded_at.tzinfo else point.recorded_at.replace(tzinfo=UTC)
+        timestamps.append(recorded_at.astimezone(UTC).isoformat().replace("+00:00", "Z"))
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "properties": {
+                    "upload_id": upload.id,
+                    "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
+                    "aircraft_icon": aircraft_icon,
+                    "timestamps": timestamps,
+                },
+                "geometry": {"type": "LineString", "coordinates": coordinates},
+            }
+        ],
+    }
 
 
 def _gap_day_quality(details_json: dict | None) -> float | None:
