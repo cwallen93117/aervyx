@@ -3564,8 +3564,11 @@ button[type="submit"]:hover,
   min-width: 220px;
   max-width: min(300px, calc(100vw - 24px));
   min-height: 0;
-  height: 100%;
-  max-height: none;
+  height: auto;
+  max-height: calc(100vh - 148px);
+  max-height: calc(100svh - 148px);
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
@@ -3574,7 +3577,10 @@ button[type="submit"]:hover,
 }
 
 .map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) .scores-fullscreen-pilot-tracks-card .results-task-map-pilot-items {
-  max-height: none;
+  flex: 0 1 auto;
+  max-height: calc(100vh - 198px);
+  max-height: calc(100svh - 198px);
+  overflow-y: auto;
 }
 
 .scores-fullscreen-pilot-tracks-card .map-fullscreen-live-sidebar-toggle {
@@ -4071,6 +4077,9 @@ button[type="submit"]:hover,
   width: max-content;
   min-width: 0;
   max-width: min(300px, calc(100vw - 24px));
+  bottom: auto;
+  max-height: calc(100vh - 148px);
+  max-height: calc(100svh - 148px);
   border: none;
   border-radius: 0;
   background: transparent;
@@ -4124,7 +4133,8 @@ button[type="submit"]:hover,
   width: max-content;
   min-width: 0;
   max-width: min(300px, calc(100vw - 24px));
-  height: 100%;
+  height: auto;
+  max-height: inherit;
 }
 
 .map-fullscreen-live-sidebar-content[hidden] {
@@ -4850,6 +4860,21 @@ button[type="submit"]:hover,
     right: 12px;
     width: auto;
     max-height: min(46vh, 360px);
+  }
+  .map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) {
+    top: 12px;
+    right: auto;
+    left: 12px;
+    max-height: calc(100vh - 164px);
+    max-height: calc(100svh - 164px);
+  }
+  .map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) .scores-fullscreen-pilot-tracks-card {
+    max-height: calc(100vh - 164px);
+    max-height: calc(100svh - 164px);
+  }
+  .map-fullscreen-live-sidebar.has-inline-toggle:not(.is-collapsed) .scores-fullscreen-pilot-tracks-card .results-task-map-pilot-items {
+    max-height: calc(100vh - 214px);
+    max-height: calc(100svh - 214px);
   }
   .map-fullscreen-live-sidebar.is-collapsed {
     right: auto;
