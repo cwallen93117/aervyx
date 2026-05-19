@@ -1,16 +1,19 @@
 /// Central API configuration for the Aervyx mobile app.
 ///
-/// The default points at the public staging API so distributed APKs work
-/// out of the box. Developers can override for local work:
+/// The default points at the public production API so distributed APKs work
+/// from the public download page. Developers can override for local or
+/// staging work:
 ///   flutter build apk --dart-define=API_BASE_URL=http://10.0.2.2:8000
-///   (Android emulator → host localhost)
+///   (Android emulator -> host localhost)
 ///   flutter build apk --dart-define=API_BASE_URL=http://192.168.87.56:8000
 ///   (physical phone on the LAN)
+///   flutter build apk --dart-define=API_BASE_URL=https://api-staging.aervyx.net
+///   (staging API)
 class ApiConfig {
   /// Base URL of the Aervyx backend (no trailing slash).
   static const String baseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'https://api-staging.aervyx.net',
+    defaultValue: 'https://api.aervyx.net',
   );
 
   // Auth

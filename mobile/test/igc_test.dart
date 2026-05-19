@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'package:aervyx_mobile/services/igc_service.dart';
 
@@ -12,6 +13,15 @@ import 'package:aervyx_mobile/services/igc_service.dart';
 /// Since _formatLat/_formatLon and _bRecord are private, we test them
 /// indirectly by verifying the IGC coordinate format contract.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  PackageInfo.setMockInitialValues(
+    appName: 'Aervyx',
+    packageName: 'com.aervyx.aervyx_mobile',
+    version: '0.4.20',
+    buildNumber: '37',
+    buildSignature: '',
+  );
+
   // ═══════════════════════════════════════════════════════════════════════════
   // TrackPoint model
   // ═══════════════════════════════════════════════════════════════════════════

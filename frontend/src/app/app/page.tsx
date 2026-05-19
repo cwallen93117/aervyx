@@ -58,7 +58,7 @@ export default function AppDownloadPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const downloadHref = info ? `${resolveApiBase()}/api/app/download` : "#";
+  const downloadHref = info?.download_url || (info ? `${resolveApiBase()}/api/app/download` : "#");
 
   return (
     <main style={styles.shell}>
@@ -88,7 +88,7 @@ export default function AppDownloadPage() {
           {info && (
             <div style={styles.versionRow}>
               <span style={styles.versionBadge}>v{info.version}+{info.version_code}</span>
-              <a href="/changelog" style={styles.changelogLink}>View changelog →</a>
+              <a href="/changelog" style={styles.changelogLink}>View changelog -&gt;</a>
             </div>
           )}
         </div>
