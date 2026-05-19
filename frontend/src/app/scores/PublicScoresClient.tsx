@@ -106,6 +106,14 @@ function formatDateLabel(value: string | null | undefined): string {
   return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
+function sortPublicEventsByDate(events: PublicEvent[]): PublicEvent[] {
+  return [...events].sort((a, b) => (
+    b.starts_on.localeCompare(a.starts_on)
+    || b.ends_on.localeCompare(a.ends_on)
+    || a.name.localeCompare(b.name)
+  ));
+}
+
 function formatClockTime(value: string | null | undefined, includeSeconds = false, timeZone?: string): string {
   if (!value) return "-";
   const normalizedValue = /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}Z` : value;
@@ -441,8 +449,7 @@ export function PublicScoresClient() {
       try {
         const loadedEvents = await fetchJson<PublicEvent[]>(`${apiBase}/api/public/events`);
         if (cancelled) return;
-        setEvents(loadedEvents);
-        setSelectedEventId((current) => current ?? loadedEvents[0]?.id ?? null);
+        setEvents(sortPublicEventsByDate(loadedEvents));
       } catch {
         if (!cancelled) {
           setError("Unable to load public competitions.");
@@ -477,6 +484,7 @@ export function PublicScoresClient() {
       setPilotSummary([]);
       setTaskResultSummary([]);
       setActiveTaskId(null);
+      setLoadingEvent(false);
       setSelectedResultUploadIds([]);
       setResultTracksByUploadId({});
       setHighlightedResultUploadId(null);
@@ -844,7 +852,7 @@ export function PublicScoresClient() {
             onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
             disabled={loadingEvents || !events.length}
           >
-            {selectedEventId == null ? <option value="">Select a competition</option> : null}
+            <option value="">Select a competition</option>
             {events.length ? events.map((event) => (
               <option key={event.id} value={event.id}>{event.name}</option>
             )) : <option value="">No public competitions</option>}
@@ -856,27 +864,31 @@ export function PublicScoresClient() {
 
       <div className="scores-body">
         <aside className="scores-sidebar" aria-label="Score views">
-          <button
-            type="button"
-            className={activeTaskId == null ? "scores-nav-item active" : "scores-nav-item"}
-            onClick={selectOverall}
-          >
-            <span>Overall</span>
-            <small>{visiblePilotSummary.length} pilot{visiblePilotSummary.length === 1 ? "" : "s"}</small>
-          </button>
-          <div className="scores-nav-divider">Tasks</div>
-          {tasks.map((task) => (
-            <button
-              key={task.id}
-              type="button"
-              className={activeTaskId === task.id ? "scores-nav-item active" : "scores-nav-item"}
-              onClick={() => selectTask(task.id)}
-            >
-              <span>{task.name}</span>
-              <small>{formatDateLabel(task.task_date)}</small>
-            </button>
-          ))}
-          {!loadingEvent && !tasks.length ? <div className="scores-sidebar-empty">No published tasks</div> : null}
+          {selectedEvent ? (
+            <>
+              <button
+                type="button"
+                className={activeTaskId == null ? "scores-nav-item active" : "scores-nav-item"}
+                onClick={selectOverall}
+              >
+                <span>Overall</span>
+                <small>{visiblePilotSummary.length} pilot{visiblePilotSummary.length === 1 ? "" : "s"}</small>
+              </button>
+              <div className="scores-nav-divider">Tasks</div>
+              {tasks.map((task) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  className={activeTaskId === task.id ? "scores-nav-item active" : "scores-nav-item"}
+                  onClick={() => selectTask(task.id)}
+                >
+                  <span>{task.name}</span>
+                  <small>{formatDateLabel(task.task_date)}</small>
+                </button>
+              ))}
+              {!loadingEvent && !tasks.length ? <div className="scores-sidebar-empty">No published tasks</div> : null}
+            </>
+          ) : null}
         </aside>
 
         <main className="scores-main">
