@@ -24,6 +24,13 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_glide_ratio_smoothing_seconds INTEGER NOT NULL DEFAULT 5,
                       max_map_pitch_degrees INTEGER NOT NULL DEFAULT 75,
                       site_match_radius_m INTEGER NOT NULL DEFAULT 1000,
+                      mqtt_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                      mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'public',
+                      mqtt_host VARCHAR(255),
+                      mqtt_port INTEGER NOT NULL DEFAULT 1883,
+                      mqtt_topic_prefix VARCHAR(80) NOT NULL DEFAULT 'msh',
+                      mqtt_channel_psk VARCHAR(255),
+                      mesh_profiles JSON,
                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     """
@@ -39,8 +46,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_speed_smoothing_seconds,
                       telemetry_glide_ratio_smoothing_seconds,
                       max_map_pitch_degrees,
-                      site_match_radius_m
-                    ) VALUES (1, 5, 3, 3, 5, 75, 1000)
+                      site_match_radius_m,
+                      mqtt_enabled,
+                      mqtt_broker_mode,
+                      mqtt_port,
+                      mqtt_topic_prefix
+                    ) VALUES (1, 5, 3, 3, 5, 75, 1000, TRUE, 'public', 1883, 'msh')
                     """
                 )
             )
@@ -58,6 +69,20 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN max_map_pitch_degrees INTEGER DEFAULT 75"))
             if "site_match_radius_m" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN site_match_radius_m INTEGER DEFAULT 1000"))
+            if "mqtt_enabled" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
+            if "mqtt_broker_mode" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'public'"))
+            if "mqtt_host" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_host VARCHAR(255)"))
+            if "mqtt_port" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_port INTEGER NOT NULL DEFAULT 1883"))
+            if "mqtt_topic_prefix" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_topic_prefix VARCHAR(80) NOT NULL DEFAULT 'msh'"))
+            if "mqtt_channel_psk" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_channel_psk VARCHAR(255)"))
+            if "mesh_profiles" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mesh_profiles JSON"))
             if "updated_at" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
             connection.execute(
@@ -70,9 +95,13 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_speed_smoothing_seconds,
                       telemetry_glide_ratio_smoothing_seconds,
                       max_map_pitch_degrees,
-                      site_match_radius_m
+                      site_match_radius_m,
+                      mqtt_enabled,
+                      mqtt_broker_mode,
+                      mqtt_port,
+                      mqtt_topic_prefix
                     )
-                    SELECT 1, 5, 3, 3, 5, 75, 1000
+                    SELECT 1, 5, 3, 3, 5, 75, 1000, TRUE, 'public', 1883, 'msh'
                     WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE id = 1)
                     """
                 )
@@ -88,6 +117,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       telemetry_glide_ratio_smoothing_seconds = COALESCE(telemetry_glide_ratio_smoothing_seconds, 5),
                       max_map_pitch_degrees = COALESCE(max_map_pitch_degrees, 75),
                       site_match_radius_m = COALESCE(site_match_radius_m, 1000),
+                      mqtt_enabled = COALESCE(mqtt_enabled, TRUE),
+                      mqtt_broker_mode = COALESCE(mqtt_broker_mode, 'public'),
+                      mqtt_port = COALESCE(mqtt_port, 1883),
+                      mqtt_topic_prefix = COALESCE(mqtt_topic_prefix, 'msh'),
                       updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
                     WHERE id = 1
                     """
