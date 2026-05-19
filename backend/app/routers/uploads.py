@@ -5,6 +5,7 @@ import hashlib
 import io
 import re
 import zipfile
+from dataclasses import dataclass
 from datetime import datetime as dt, time as dt_time, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -27,6 +28,19 @@ from app.services.tracking import _publish
 router = APIRouter(tags=["uploads"])
 
 
+@dataclass
+class StoredUpload:
+    upload: IGCUpload
+    created: bool
+
+
+@dataclass(frozen=True)
+class PilotUploadMatch:
+    pilot: Pilot | None
+    confidence: str
+    message: str
+
+
 def _normalized_upload_source(value: str | None) -> str:
     normalized = str(value or "manual").strip().lower()
     if normalized == "auto":
@@ -44,22 +58,6 @@ def _normalize_text(value: str | None) -> str:
     return lowered
 
 
-def _pilot_search_terms(pilot: Pilot) -> set[str]:
-    terms = {
-        _normalize_text(f"{pilot.first_name} {pilot.last_name}"),
-        _normalize_text(f"{pilot.last_name} {pilot.first_name}"),
-        _normalize_text(pilot.first_name),
-        _normalize_text(pilot.last_name),
-    }
-    if pilot.email:
-        email_local = pilot.email.split("@", 1)[0]
-        terms.add(_normalize_text(pilot.email))
-        terms.add(_normalize_text(email_local))
-    if pilot.competition_number:
-        terms.add(_normalize_text(pilot.competition_number))
-    return {term for term in terms if term}
-
-
 def _filename_token_hints(filename: str) -> set[str]:
     normalized = _normalize_text(filename)
     tokens = {normalized}
@@ -67,67 +65,99 @@ def _filename_token_hints(filename: str) -> set[str]:
     return tokens
 
 
-def _score_pilot_match(pilot: Pilot, filename: str, metadata: dict) -> int:
-    score = 0
-    header_name = _normalize_text(str(metadata.get("pilot_name", "")))
-    filename_tokens = _filename_token_hints(filename)
-    search_terms = _pilot_search_terms(pilot)
-
-    full_name = _normalize_text(f"{pilot.first_name} {pilot.last_name}")
-    reverse_name = _normalize_text(f"{pilot.last_name} {pilot.first_name}")
-    if header_name:
-        if header_name == full_name or header_name == reverse_name:
-            score += 120
-        elif all(token in header_name.split(" ") for token in full_name.split(" ") if token):
-            score += 100
-        elif any(term and term in header_name for term in search_terms):
-            score += 70
-
-    if pilot.competition_number:
-        comp = _normalize_text(pilot.competition_number)
-        if comp and comp in filename_tokens:
-            score += 90
-
-    if full_name and full_name in filename_tokens:
-        score += 100
-    elif reverse_name and reverse_name in filename_tokens:
-        score += 90
-    else:
-        first = _normalize_text(pilot.first_name)
-        last = _normalize_text(pilot.last_name)
-        if first and any(first in token for token in filename_tokens):
-            score += 25
-        if last and any(last in token for token in filename_tokens):
-            score += 40
-
-    email = _normalize_text(pilot.email)
-    if email and any(email in token for token in filename_tokens):
-        score += 50
-
-    return score
+def _ordered_subsequence(tokens: list[str], expected: list[str]) -> bool:
+    if not tokens or not expected:
+        return False
+    cursor = 0
+    for token in tokens:
+        if token == expected[cursor]:
+            cursor += 1
+            if cursor == len(expected):
+                return True
+    return False
 
 
-def _match_pilot_for_upload(session: Session, event_id: int, filename: str, metadata: dict) -> Pilot | None:
+def _name_tokens(value: str | None) -> list[str]:
+    return [token for token in _normalize_text(value).split(" ") if token and not token.isdigit()]
+
+
+def _pilot_name_sequences(pilot: Pilot) -> list[list[str]]:
+    first = _name_tokens(pilot.first_name)
+    last = _name_tokens(pilot.last_name)
+    sequences: list[list[str]] = []
+    if first and last:
+        sequences.append(first + last)
+        sequences.append(last + first)
+    return sequences
+
+
+def _tokens_match_pilot_full_name(tokens: list[str], pilot: Pilot) -> bool:
+    return any(_ordered_subsequence(tokens, sequence) for sequence in _pilot_name_sequences(pilot))
+
+
+def _filename_matches_pilot_full_name(filename: str, pilot: Pilot) -> bool:
+    return _tokens_match_pilot_full_name(_name_tokens(filename), pilot)
+
+
+def _metadata_matches_pilot_full_name(metadata: dict, pilot: Pilot) -> bool:
+    pilot_name = str(metadata.get("pilot_name") or "")
+    return _tokens_match_pilot_full_name(_name_tokens(pilot_name), pilot)
+
+
+def _filename_matches_comp_number(filename: str, pilot: Pilot) -> bool:
+    comp = _normalize_text(pilot.competition_number)
+    return bool(comp and comp in _filename_token_hints(filename))
+
+
+def _single_candidate(candidates: list[Pilot]) -> Pilot | None:
+    unique: dict[int, Pilot] = {pilot.id: pilot for pilot in candidates}
+    return next(iter(unique.values())) if len(unique) == 1 else None
+
+
+def _match_pilot_candidate_for_upload(session: Session, event_id: int, filename: str, metadata: dict) -> PilotUploadMatch:
+    """Return an exact auto-match or a single review candidate for a bulk IGC.
+
+    Bulk upload selection must be conservative: a partial first/last token score
+    is enough to offer a file for review, but never enough to select it for scoring.
+    """
     event_pilots = session.scalars(
         select(Pilot)
         .join(EventPilot, EventPilot.pilot_id == Pilot.id)
         .where(EventPilot.event_id == event_id)
     ).all()
     if not event_pilots:
-        return None
+        return PilotUploadMatch(None, "none", "No pilots are registered for this event.")
 
-    ranked: list[tuple[int, Pilot]] = []
-    for pilot in event_pilots:
-        score = _score_pilot_match(pilot, filename, metadata)
-        if score > 0:
-            ranked.append((score, pilot))
-    ranked.sort(key=lambda item: item[0], reverse=True)
-    if not ranked:
-        return None
-    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
-        return None
-    best_score, best_pilot = ranked[0]
-    return best_pilot if best_score >= 60 else None
+    header_name = str(metadata.get("pilot_name") or "").strip()
+    filename_candidates = [pilot for pilot in event_pilots if _filename_matches_pilot_full_name(filename, pilot)]
+    header_candidates = [pilot for pilot in event_pilots if _metadata_matches_pilot_full_name(metadata, pilot)] if header_name else []
+    comp_candidates = [pilot for pilot in event_pilots if _filename_matches_comp_number(filename, pilot)]
+
+    filename_candidate = _single_candidate(filename_candidates)
+    header_candidate = _single_candidate(header_candidates)
+    comp_candidate = _single_candidate(comp_candidates)
+
+    if header_name:
+        if filename_candidate is not None and header_candidate is not None and filename_candidate.id == header_candidate.id:
+            return PilotUploadMatch(filename_candidate, "auto", "Filename and IGC pilot header both match the same pilot.")
+        if comp_candidate is not None and header_candidate is not None and comp_candidate.id == header_candidate.id:
+            return PilotUploadMatch(header_candidate, "auto", "Competition number and IGC pilot header both match the same pilot.")
+        if filename_candidate is not None:
+            return PilotUploadMatch(filename_candidate, "review", "Filename points to one pilot, but the IGC pilot header does not confirm the same full name.")
+        if header_candidate is not None:
+            return PilotUploadMatch(header_candidate, "review", "IGC pilot header points to one pilot, but the filename does not confirm the same full name.")
+        return PilotUploadMatch(None, "none", "Filename and IGC pilot header did not exactly match one event pilot.")
+
+    if filename_candidate is not None:
+        return PilotUploadMatch(filename_candidate, "auto", "Filename contains the pilot first and last name.")
+    if comp_candidate is not None:
+        return PilotUploadMatch(comp_candidate, "review", "Filename contains a unique competition number but no full pilot name.")
+    return PilotUploadMatch(None, "none", "Could not confidently match this file to a pilot in the event roster.")
+
+
+def _match_pilot_for_upload(session: Session, event_id: int, filename: str, metadata: dict) -> Pilot | None:
+    match = _match_pilot_candidate_for_upload(session, event_id, filename, metadata)
+    return match.pilot if match.confidence == "auto" else None
 
 
 def _manual_filename_with_suffix(session: Session, task_id: int, pilot_id: int, filename: str) -> str:
@@ -195,6 +225,38 @@ def _is_late_start_upload(session: Session, task: Task, upload: IGCUpload) -> bo
     return local_fix > close_time
 
 
+def _select_upload_for_scoring(
+    session: Session,
+    task: Task,
+    pilot_id: int,
+    upload: IGCUpload,
+    updated_by_user_id: int,
+) -> bool:
+    existing_input = session.scalar(
+        select(TaskScoringInput).where(
+            TaskScoringInput.task_id == task.id,
+            TaskScoringInput.pilot_id == pilot_id,
+        )
+    )
+    if existing_input is None:
+        session.add(TaskScoringInput(
+            task_id=task.id,
+            pilot_id=pilot_id,
+            selected_upload_id=upload.id,
+            updated_by_user_id=updated_by_user_id,
+        ))
+        session.flush()
+        return True
+
+    changed = existing_input.selected_upload_id != upload.id or existing_input.status_override is not None
+    if changed:
+        existing_input.selected_upload_id = upload.id
+        existing_input.status_override = None
+        existing_input.updated_by_user_id = updated_by_user_id
+        session.flush()
+    return changed
+
+
 def _auto_select_and_rescore(
     session: Session, task: Task, pilot_id: int, upload: IGCUpload, uploaded_by_user_id: int,
 ) -> None:
@@ -204,12 +266,6 @@ def _auto_select_and_rescore(
     if _is_late_start_upload(session, task, upload):
         return
 
-    existing_input = session.scalar(
-        select(TaskScoringInput).where(
-            TaskScoringInput.task_id == task.id,
-            TaskScoringInput.pilot_id == pilot_id,
-        )
-    )
     has_scored = (
         session.scalar(
             select(func.count()).select_from(ScoreResult).where(ScoreResult.task_id == task.id)
@@ -217,22 +273,17 @@ def _auto_select_and_rescore(
         or 0
     ) > 0
 
-    if existing_input is not None:
-        existing_input.selected_upload_id = upload.id
-        existing_input.updated_by_user_id = uploaded_by_user_id
-    elif has_scored:
-        session.add(TaskScoringInput(
-            task_id=task.id,
-            pilot_id=pilot_id,
-            selected_upload_id=upload.id,
-            updated_by_user_id=uploaded_by_user_id,
-        ))
-    else:
+    existing_input = session.scalar(
+        select(TaskScoringInput).where(
+            TaskScoringInput.task_id == task.id,
+            TaskScoringInput.pilot_id == pilot_id,
+        )
+    )
+    if existing_input is None and not has_scored:
         return
 
-    session.flush()
-
-    if has_scored:
+    changed = _select_upload_for_scoring(session, task, pilot_id, upload, uploaded_by_user_id)
+    if changed and has_scored:
         rescore_task(session, task.id)
         log_action(
             session,
@@ -252,7 +303,8 @@ async def _store_upload(
     pilot_id: int,
     uploaded_by_user_id: int,
     upload_source: str = "manual",
-) -> UploadResponse:
+    auto_select_and_rescore: bool = True,
+) -> StoredUpload:
     sha256 = hashlib.sha256(content).hexdigest()
     # Dedup: if the same file was already uploaded for this pilot/task, return existing
     existing = session.scalar(
@@ -263,7 +315,7 @@ async def _store_upload(
         )
     )
     if existing is not None:
-        return _serialize_upload(existing)
+        return StoredUpload(upload=existing, created=False)
     parsed = parse_igc(content)
     filename = file.filename or "track.igc"
     if upload_source == "manual":
@@ -316,8 +368,9 @@ async def _store_upload(
         "upload_id": upload.id,
     })
     # Auto-select newest upload and rescore if task has been scored
-    _auto_select_and_rescore(session, task, pilot_id, upload, uploaded_by_user_id)
-    return _serialize_upload(upload)
+    if auto_select_and_rescore:
+        _auto_select_and_rescore(session, task, pilot_id, upload, uploaded_by_user_id)
+    return StoredUpload(upload=upload, created=True)
 
 
 @router.post("/api/tasks/{task_id}/uploads", response_model=UploadResponse)
@@ -344,9 +397,9 @@ async def upload_igc(
     if len(content) > max_bytes:
         raise HTTPException(status_code=413, detail=f"File too large. Maximum size is {get_settings().max_upload_size_mb} MB.")
     source = _normalized_upload_source(upload_source)
-    response = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source=source)
+    stored = await _store_upload(session, task, file, content, effective_pilot_id, user.id, upload_source=source)
     session.commit()
-    return response
+    return _serialize_upload(stored.upload)
 
 
 @router.post("/api/tasks/{task_id}/uploads/bulk", response_model=list[BulkUploadItemResponse])
@@ -359,6 +412,8 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
 
     max_bytes = get_settings().max_upload_size_mb * 1024 * 1024
     results: list[BulkUploadItemResponse] = []
+    selection_change_count = 0
+    matched_count = 0
     for file in files:
         filename = file.filename or "track.igc"
         try:
@@ -373,25 +428,49 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
                 )
                 continue
             parsed = parse_igc(content)
-            matched_pilot = _match_pilot_for_upload(session, task.event_id, filename, parsed.metadata)
+            match = _match_pilot_candidate_for_upload(session, task.event_id, filename, parsed.metadata)
+            matched_pilot = match.pilot
             if matched_pilot is None:
                 results.append(
                     BulkUploadItemResponse(
                         filename=filename,
                         matched=False,
-                        message="Could not confidently match this file to a pilot in the event roster.",
+                        match_confidence=match.confidence,
+                        message=match.message,
                     )
                 )
                 continue
-            upload_response = await _store_upload(session, task, file, content, matched_pilot.id, user.id, upload_source="bulk")
+            upload_source = "bulk" if match.confidence == "auto" else "bulk_review"
+            stored = await _store_upload(
+                session,
+                task,
+                file,
+                content,
+                matched_pilot.id,
+                user.id,
+                upload_source=upload_source,
+                auto_select_and_rescore=False,
+            )
+            matched_count += 1
+            late_start = _is_late_start_upload(session, task, stored.upload)
+            auto_selected = match.confidence == "auto" and not late_start
+            if auto_selected and _select_upload_for_scoring(session, task, matched_pilot.id, stored.upload, user.id):
+                selection_change_count += 1
+            if match.confidence == "auto":
+                message = "Matched and uploaded successfully." if stored.created else "Already uploaded; matched existing file."
+            else:
+                message = "Uploaded for review; not auto-selected for scoring." if stored.created else "Already uploaded for review; not auto-selected for scoring."
+            if late_start:
+                message = f"{message} Not auto-selected because the first fix is after start close."
             results.append(
                 BulkUploadItemResponse(
                     filename=filename,
-                    matched=True,
-                    upload_id=upload_response.id,
+                    matched=match.confidence == "auto",
+                    upload_id=stored.upload.id,
                     pilot_id=matched_pilot.id,
                     pilot_name=f"{matched_pilot.first_name} {matched_pilot.last_name}".strip(),
-                    message="Matched and uploaded successfully.",
+                    match_confidence=match.confidence,
+                    message=message,
                 )
             )
         except Exception as exc:
@@ -402,6 +481,16 @@ async def bulk_upload_igc(task_id: int, files: list[UploadFile] = File(...), use
                     message=str(exc),
                 )
             )
+    if selection_change_count > 0:
+        rescore_task(session, task.id)
+        log_action(
+            session,
+            actor_user_id=user.id,
+            action="task.bulk_rescore",
+            entity_type="task",
+            entity_id=str(task.id),
+            details={"matched_count": matched_count, "selected_count": selection_change_count},
+        )
     session.commit()
     return results
 

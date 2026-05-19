@@ -2,46 +2,24 @@
 
 import type { KeyboardEvent } from "react";
 import { SectionCard } from "../SectionCard";
-import { type MapAirspaceRegion, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
+import { type MapAirspaceRegion, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import { TaskBuilderMap } from "../TaskBuilderMap";
+import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type { AccountSettingsRecord, TaskDraftState, TaskPointRecord, TaskRecord } from "./types";
 
-const pointTypeLabels: Record<string, string> = {
-  launch: "Launch",
-  start: "Start",
-  turnpoint: "Turnpoint",
-  ESS: "ESS",
-  goal: "Goal",
-};
 const taskTypeOptions = [
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
-  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
 ] as const;
 
-function toSimplePointType(pointType: string): string {
-  if (pointType === "launch") return "start";
-  if (pointType === "ESS") return "goal";
-  return pointType;
+function taskTypeLabel(value: string | null | undefined): string {
+  return taskTypeOptions.find((option) => option.value === value)?.label ?? "Not set";
 }
 
-function formatMeters(value: number): string {
-  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.max(0, Math.round(value || 0)));
-}
-
-function formatDistance(valueKm: number, unit: AccountSettingsRecord["distance_unit"]): string {
-  const normalizedValue = Number.isFinite(valueKm) ? valueKm : 0;
-  const displayValue = unit === "mi" ? normalizedValue * 0.621371 : normalizedValue;
-  return `${displayValue.toFixed(1)} ${unit}`;
-}
-
-function sanitizeMeterInput(rawValue: string): string {
-  return rawValue.replace(/[^\d]/g, "").replace(/^0+(?=\d)/, "");
-}
-
-function taskPointInputKey(point: TaskPointRecord, index: number): string {
-  return `${point.id ?? point.turnpoint_id ?? point.name}-${index}`;
+function displayTaskValue(value: string | number | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "Not set";
+  return String(value);
 }
 
 export interface TasksSectionProps {
@@ -92,6 +70,7 @@ export interface TasksSectionProps {
   handleRadiusInputBlur: (index: number, point: TaskPointRecord) => void;
   handleRadiusInputKeyDown: (event: KeyboardEvent<HTMLInputElement>, index: number, point: TaskPointRecord) => void;
   radiusInputValue: (index: number, point: TaskPointRecord) => string;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export default function TasksSection(props: TasksSectionProps) {
@@ -136,123 +115,95 @@ export default function TasksSection(props: TasksSectionProps) {
     handleRadiusInputBlur,
     handleRadiusInputKeyDown,
     radiusInputValue,
+    overlayConfig,
   } = props;
-  if (!selectedEventId) return <SectionCard title="Tasks" description="Create or select an event first."><p className="hint">Tasks need an event context before they can be built.</p></SectionCard>;
-  const usesGatedStart = taskDraft.task_type === "race_to_goal_with_gates" && currentTaskTypeBehavior.usesMultipleGates;
+  if (!selectedEventId) {
+    return canManagePlatform ? (
+      <SectionCard title="Tasks" description="Create or select an event first.">
+        <p className="hint">Tasks need an event context before they can be built.</p>
+      </SectionCard>
+    ) : (
+      <SectionCard title="Tasks" description="No competition selected.">
+        <p className="hint">Choose an available competition from the Tasks header. If none are listed, no competitions are visible to this account yet.</p>
+      </SectionCard>
+    );
+  }
+  const usesGatedStart = currentTaskTypeBehavior.usesMultipleGates;
   const taskIsPublished = selectedTask?.status === "published";
-  const fullscreenTaskEditor = canManagePlatform ? (
-    <div className="map-task-editor">
-      <div className="map-task-editor-header">
-        <strong>Task turnpoints</strong>
-        <span>{taskDraft.points.length ? `${taskDraft.points.length} in task` : "No turnpoints yet"}</span>
-      </div>
-      <div className="map-task-editor-table-wrap">
-        <table className="map-task-editor-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Name</th>
-              <th>Type</th>
-              <th>Radius (m)</th>
-              <th className="map-task-editor-distance-heading">
-                <strong>Distance</strong>
-                <em>(optimized)</em>
-              </th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {taskDraft.points.length ? (
-              taskDraft.points.map((point, index) => {
-                const legMetric = index > 0 ? taskDistanceMetrics.legMetrics[index - 1] ?? null : null;
-                const legDistanceKm = legMetric?.centerDistanceKm ?? null;
-                const optimizedLegDistanceKm = legMetric?.optimizedDistanceKm ?? null;
-                return (
-                  <tr
-                    key={`fullscreen-${point.turnpoint_id ?? point.name}-${index}`}
-                    draggable
-                    onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                    onDragOver={(event) => event.preventDefault()}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                    }}
-                  >
-                    <td className="map-task-editor-drag">{point.position}. &#x22EE;&#x22EE;</td>
-                    <td className="map-task-editor-name">
-                      <strong>{point.name}</strong>
-                    </td>
-                    <td className="map-task-editor-type">
-                      <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                        {taskPointTypeOptions.map((option) => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="map-task-editor-radius">
-                      <input
-                        value={radiusInputValue(index, point)}
-                        onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                        onFocus={(event) => event.currentTarget.select()}
-                        onBlur={() => handleRadiusInputBlur(index, point)}
-                        onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                        inputMode="numeric"
-                      />
-                    </td>
-                    <td className="map-task-editor-distance">
-                      <strong>{legDistanceKm === null ? <span className="task-point-distance-empty">-</span> : formatDistance(legDistanceKm, settingsForm.distance_unit)}</strong>
-                      <span className="map-task-editor-distance-secondary">
-                        ({optimizedLegDistanceKm === null ? "-" : formatDistance(optimizedLegDistanceKm, settingsForm.distance_unit)})
-                      </span>
-                    </td>
-                    <td className="map-task-editor-actions">
-                      <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                    </td>
-                  </tr>
-                );
-              })
-            ) : (
-              <tr>
-                <td colSpan={6} className="map-task-editor-empty">Click turnpoints on the map or add them from search.</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <div className="map-task-editor-footer">
-        <div className="map-task-editor-footer-row">
-          <div className="map-task-editor-summary" aria-label="Fullscreen task distance summary">
-            <div className="map-task-editor-summary-row">
-              <strong>Total:</strong>
-              <span>{formatDistance(taskDistanceMetrics.totalDistanceKm, settingsForm.distance_unit)}</span>
+  const canEditStartWindow = canManagePlatform && currentTaskTypeBehavior.usesStartWindow;
+  const canEditTaskFinish = canManagePlatform;
+  const canEditStartGates = canManagePlatform && currentTaskTypeBehavior.usesMultipleGates;
+  const startGateTimesLabel = `Start gate times (${startGateLabels.length})`;
+  const pilotTaskSetupRows = [
+    { label: "Task name", value: displayTaskValue(taskDraft.name) },
+    { label: "Task date", value: displayTaskValue(taskDraft.task_date) },
+    { label: "Task type", value: taskTypeLabel(taskDraft.task_type) },
+  ];
+  const showTimingAndGates = canManagePlatform || usesGatedStart;
+  const fullscreenTaskEditor = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+    <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
+      {canManagePlatform ? (
+        <TaskTurnpointsTable
+          points={taskDraft.points}
+          taskPointAdvanced={taskPointAdvanced}
+          onTaskPointAdvancedChange={toggleTaskPointAdvanced}
+          taskPointTypeOptions={taskPointTypeOptions}
+          turnpoints={turnpoints}
+          taskDistanceMetrics={taskDistanceMetrics}
+          distanceUnit={settingsForm.distance_unit}
+          editable
+          collapsed={collapsed}
+          contentId={contentId}
+          titleAction={toggleButton}
+          updatePoint={updatePoint}
+          removePoint={removePoint}
+          movePoint={movePoint}
+          handleRadiusInputChange={handleRadiusInputChange}
+          handleRadiusInputBlur={handleRadiusInputBlur}
+          handleRadiusInputKeyDown={handleRadiusInputKeyDown}
+          radiusInputValue={radiusInputValue}
+          emptyMessage="No turnpoints selected yet. Click waypoint markers on the map to add them to this task."
+        />
+      ) : (
+        <TaskTurnpointsTable
+          points={taskDraft.points}
+          taskPointAdvanced={taskPointAdvanced}
+          turnpoints={turnpoints}
+          taskDistanceMetrics={taskDistanceMetrics}
+          distanceUnit={settingsForm.distance_unit}
+          collapsed={collapsed}
+          contentId={contentId}
+          titleAction={toggleButton}
+        />
+      )}
+      {canManagePlatform ? (
+        <div className="map-task-editor-body" hidden={collapsed}>
+          <div className="map-task-editor-footer">
+            <div className="map-task-editor-footer-row">
+              <button type="button" className="map-task-editor-save" onClick={saveTask}>
+                Save task
+              </button>
             </div>
-            <div className="map-task-editor-summary-row">
-              <strong>Optimized:</strong>
-              <span>{formatDistance(taskDistanceMetrics.optimizedDistanceKm, settingsForm.distance_unit)}</span>
-            </div>
+            {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
           </div>
-          <button type="button" className="map-task-editor-save" onClick={saveTask}>
-            Save task
-          </button>
         </div>
-        {taskFeedback ? <div className={`status-chip ${taskFeedback.type} map-task-editor-feedback`}>{taskFeedback.text}</div> : null}
-      </div>
+      ) : null}
     </div>
-  ) : undefined;
+  );
   return (
     <div className="section-stack">
     <SectionCard>
       <div className="stack form-block compact-clusters">
         <div className="task-toolbar">
-          <label className="stack compact task-toolbar-picker">
-            <span>Selected task</span>
-            <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
-              <option value="">Select a task</option>
-              {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
-            </select>
-          </label>
           {canManagePlatform ? (
             <>
+              <label className="stack compact task-toolbar-picker">
+                <span>Selected task</span>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
+                  <option value="">Select a task</option>
+                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                </select>
+              </label>
               <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
               <button type="button" className="ghost-button" onClick={duplicateTask} disabled={!taskDraft.id}>Duplicate</button>
               <button type="button" className="primary-button" onClick={saveTask}>Save task</button>
@@ -266,193 +217,164 @@ export default function TasksSection(props: TasksSectionProps) {
               </button>
               <button type="button" className="ghost-button danger-button task-delete-button task-toolbar-delete" onClick={deleteTask} disabled={!taskDraft.id}>Delete task</button>
             </>
-          ) : null}
+          ) : (
+            <div className="scoring-nav pilot-task-nav" aria-label="Select task">
+              {tasks.length ? tasks.map((task, index) => (
+                <button
+                  key={task.id}
+                  type="button"
+                  className={selectedTaskId === task.id ? "scoring-nav-btn active" : "scoring-nav-btn"}
+                  onClick={() => void loadTask(token, task.id, task, activeSection === "scoring")}
+                >
+                  {task.name || `Task ${index + 1}`}
+                </button>
+              )) : <span className="pilot-task-nav-empty">No tasks available</span>}
+            </div>
+          )}
         </div>
         {canManagePlatform && taskFeedback ? <div className={`status-chip ${taskFeedback.type} task-toolbar-feedback`}>{taskFeedback.text}</div> : null}
         <div className="fieldset-grid two-up">
           <fieldset className="fieldset-cluster">
             <legend>Task setup</legend>
-            <div className="cluster-stack">
-              <label className="stack compact">
-                <span>Task name</span>
-                <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
-              </label>
-              <label className="stack compact">
-                <span>Task date</span>
-                <input type="date" value={taskDraft.task_date} onChange={(event) => setTaskDraft({ ...taskDraft, task_date: event.target.value })} disabled={!canManagePlatform} />
-              </label>
-              <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                <span>Task type</span>
-                <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
-                  {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-              </label>
-            </div>
+            {canManagePlatform ? (
+              <div className="cluster-stack">
+                <label className="stack compact">
+                  <span>Task name</span>
+                  <input value={taskDraft.name} onChange={(event) => setTaskDraft({ ...taskDraft, name: event.target.value })} placeholder="Task name" disabled={!canManagePlatform} />
+                </label>
+                <label className="stack compact">
+                  <span>Task date</span>
+                  <input type="date" value={taskDraft.task_date} onChange={(event) => setTaskDraft({ ...taskDraft, task_date: event.target.value })} disabled={!canManagePlatform} />
+                </label>
+                <label className="stack compact">
+                  <span>Task type</span>
+                  <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
+                    {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                  </select>
+                </label>
+              </div>
+            ) : (
+              <div className="task-readonly-list">
+                {pilotTaskSetupRows.map((row) => (
+                  <div key={row.label} className="task-readonly-row">
+                    <span>{row.label}</span>
+                    <strong>{row.value}</strong>
+                  </div>
+                ))}
+              </div>
+            )}
           </fieldset>
 
-          <fieldset className="fieldset-cluster">
-            <legend>Timing and gates</legend>
-            <div className="fieldset-grid two-up task-timing-layout">
-              {usesGatedStart ? (
-                <>
-                  <div className="cluster-stack">
-                    <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start open</span>
-                      <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
-                    </label>
-                    <label className={currentTaskTypeBehavior.usesStartWindow ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start close</span>
-                      <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!currentTaskTypeBehavior.usesStartWindow} />
-                    </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Task finish</span>
-                      <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
-                  </div>
-                  <div className="cluster-stack">
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Gate interval (min)</span>
-                      <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                    <label className={currentTaskTypeBehavior.usesMultipleGates ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start gates</span>
-                      <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!currentTaskTypeBehavior.usesMultipleGates} />
-                    </label>
-                  </div>
-                  {startGateLabels.length ? (
-                    <div className="task-gate-times" aria-label="Start gate times">
-                      <strong>Start gate times</strong>
-                      <div className="task-gate-time-list">
-                        {startGateLabels.map((label) => (
-                          <span key={label} className="task-gate-time-chip">{label}</span>
-                        ))}
+          {showTimingAndGates ? (
+            <fieldset className="fieldset-cluster">
+              <legend>Timing and gates</legend>
+              {canManagePlatform ? (
+                <div className="fieldset-grid two-up task-timing-layout">
+                  {usesGatedStart ? (
+                    <>
+                      <div className="cluster-stack">
+                        <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
+                          <span>Start open</span>
+                          <input type="time" step={60} value={taskDraft.start_open_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_open_time: event.target.value })} disabled={!canEditStartWindow} />
+                        </label>
+                        <label className={canEditStartWindow ? "stack compact" : "stack compact field-disabled"}>
+                          <span>Start close</span>
+                          <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canEditStartWindow} />
+                        </label>
+                        <label className={canEditTaskFinish ? "stack compact" : "stack compact field-disabled"}>
+                          <span>Task finish</span>
+                          <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canEditTaskFinish} />
+                        </label>
                       </div>
-                    </div>
-                  ) : null}
-                </>
+                      {canManagePlatform || startGateLabels.length ? (
+                        <div className="cluster-stack task-gate-settings">
+                          <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
+                            <span>Start gates</span>
+                            <input type="number" min={1} value={taskDraft.start_gate_count} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_count: Math.max(1, Number(event.target.value) || 1) })} disabled={!canEditStartGates} />
+                          </label>
+                          <label className={canEditStartGates ? "stack compact" : "stack compact field-disabled"}>
+                            <span>Gate interval (min)</span>
+                            <input type="number" min={0} value={taskDraft.start_gate_interval_minutes} onChange={(event) => setTaskDraft({ ...taskDraft, start_gate_interval_minutes: event.target.value === "" ? "" : Math.max(0, Number(event.target.value) || 0) })} disabled={!canEditStartGates} />
+                          </label>
+                        </div>
+                      ) : null}
+                      {startGateLabels.length ? (
+                        <div className="task-gate-times" aria-label="Start gate times">
+                          <strong>{startGateTimesLabel}</strong>
+                          <div className="task-gate-time-list">
+                            {startGateLabels.map((label) => (
+                              <span key={label} className="task-gate-time-chip">{label}</span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <div className="cluster-stack">
+                        <label className="stack compact">
+                          <span>Task start</span>
+                          <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
+                        </label>
+                        <label className="stack compact">
+                          <span>Start close</span>
+                          <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canManagePlatform} />
+                        </label>
+                      </div>
+                      <div className="cluster-stack">
+                        <label className="stack compact">
+                          <span>Task finish</span>
+                          <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
+                        </label>
+                      </div>
+                    </>
+                  )}
+                </div>
               ) : (
-                <>
-                  <div className="cluster-stack">
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Task start</span>
-                      <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Start close</span>
-                      <input type="time" step={60} value={taskDraft.start_close_time} onChange={(event) => setTaskDraft({ ...taskDraft, start_close_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
+                <div className="task-readonly-list task-readonly-list-gates-only">
+                  <div className="task-gate-times task-readonly-gates" aria-label="Start gate times">
+                    <strong>{startGateTimesLabel}</strong>
+                    <div className="task-gate-time-list">
+                      {startGateLabels.length ? startGateLabels.map((label) => (
+                        <span key={label} className="task-gate-time-chip">{label}</span>
+                      )) : <span className="task-readonly-empty">Not set</span>}
+                    </div>
                   </div>
-                  <div className="cluster-stack">
-                    <label className={canManagePlatform ? "stack compact" : "stack compact field-disabled"}>
-                      <span>Task finish</span>
-                      <input type="time" step={60} value={taskDraft.task_finish_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_finish_time: event.target.value })} disabled={!canManagePlatform} />
-                    </label>
-                  </div>
-                </>
+                </div>
               )}
-            </div>
-          </fieldset>
+            </fieldset>
+          ) : null}
         </div>
         <div className="task-builder-layout">
             <div className="task-turnpoint-rail">
-              <div className="section-header">
-                <h3>Task turnpoints</h3>
-                <div className="task-turnpoint-toolbar">
-                  {canManagePlatform ? (
-                  <label className="task-advanced-toggle">
-                      <input type="checkbox" checked={taskPointAdvanced} onChange={(event) => toggleTaskPointAdvanced(event.target.checked)} />
-                      <span>Advanced</span>
-                    </label>
-                  ) : null}
-                </div>
-              </div>
-              <div className="task-point-list-table-wrap">
-                {taskDraft.points.length ? (
-                  <>
-                    <div className={`task-point-list-grid-header${canManagePlatform ? " has-actions" : ""}`}>
-                      <span></span>
-                      <span>Name</span>
-                      <span>Type</span>
-                      <span>Radius (m)</span>
-                      <span className="task-point-distance-heading">
-                        <strong>Distance</strong>
-                        <em>(optimized)</em>
-                      </span>
-                      {canManagePlatform ? <span></span> : null}
-                    </div>
-                    <div className="task-point-list-scroll">
-                      {taskDraft.points.map((point, index) => {
-                        const waypointCode = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code;
-                        const legMetric = index > 0 ? taskDistanceMetrics.legMetrics[index - 1] ?? null : null;
-                        const legDistanceKm = legMetric?.centerDistanceKm ?? null;
-                        const optimizedLegDistanceKm = legMetric?.optimizedDistanceKm ?? null;
-                        return (
-                          <div
-                            key={`compact-${point.turnpoint_id ?? point.name}-${index}`}
-                            className={`task-point-list-grid-row point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}${canManagePlatform ? " has-actions" : ""}`}
-                            draggable={canManagePlatform}
-                            onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                            onDragOver={(event) => event.preventDefault()}
-                            onDrop={(event) => {
-                              event.preventDefault();
-                              movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                            }}
-                          >
-                            <div className="task-point-row-order">
-                              <span className="drag-handle" title="Drag to reorder">{point.position}. :::</span>
-                            </div>
-                            <div className="task-point-row-name">
-                              <strong>{point.name}</strong>
-                              {waypointCode ? <span>{waypointCode}</span> : null}
-                            </div>
-                            <div className="task-point-row-type">
-                              {canManagePlatform ? (
-                                <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                                  {taskPointTypeOptions.map((option) => (
-                                    <option key={option.value} value={option.value}>{option.label}</option>
-                                  ))}
-                                </select>
-                              ) : (
-                                <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                              )}
-                            </div>
-                            <div className="task-point-row-radius">
-                              {canManagePlatform ? (
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  value={radiusInputValue(index, point)}
-                                  onFocus={(event) => event.currentTarget.select()}
-                                  onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                                  onBlur={() => handleRadiusInputBlur(index, point)}
-                                  onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                                  placeholder="400"
-                                  aria-label={`Radius in meters for ${point.name}`}
-                                />
-                              ) : (
-                                <span>{formatMeters(point.radius_m)}</span>
-                              )}
-                            </div>
-                            <div className="task-point-row-distance">
-                              <div className="task-point-distance-stack">
-                                <strong>{legDistanceKm === null ? <span className="task-point-distance-empty">-</span> : formatDistance(legDistanceKm, settingsForm.distance_unit)}</strong>
-                                <span className="task-point-distance-secondary">
-                                  ({optimizedLegDistanceKm === null ? "-" : formatDistance(optimizedLegDistanceKm, settingsForm.distance_unit)})
-                                </span>
-                              </div>
-                            </div>
-                            {canManagePlatform ? (
-                              <div className="task-point-row-actions">
-                                <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </>
-                ) : null}
-              </div>
+              {canManagePlatform ? (
+                <TaskTurnpointsTable
+                  points={taskDraft.points}
+                  taskPointAdvanced={taskPointAdvanced}
+                  onTaskPointAdvancedChange={toggleTaskPointAdvanced}
+                  taskPointTypeOptions={taskPointTypeOptions}
+                  turnpoints={turnpoints}
+                  taskDistanceMetrics={taskDistanceMetrics}
+                  distanceUnit={settingsForm.distance_unit}
+                  editable
+                  updatePoint={updatePoint}
+                  removePoint={removePoint}
+                  movePoint={movePoint}
+                  handleRadiusInputChange={handleRadiusInputChange}
+                  handleRadiusInputBlur={handleRadiusInputBlur}
+                  handleRadiusInputKeyDown={handleRadiusInputKeyDown}
+                  radiusInputValue={radiusInputValue}
+                  emptyMessage="No turnpoints selected yet. Click waypoint markers on the map to add them to this task."
+                />
+              ) : (
+                <TaskTurnpointsTable
+                  points={taskDraft.points}
+                  taskPointAdvanced={taskPointAdvanced}
+                  turnpoints={turnpoints}
+                  taskDistanceMetrics={taskDistanceMetrics}
+                  distanceUnit={settingsForm.distance_unit}
+                />
+              )}
               <p className="hint">{canManagePlatform ? "Click waypoint markers on the map to add them. Drag cards to reorder the task." : "Published task turnpoints are shown here in route order."}</p>
               {canManagePlatform ? (
                 <div className="task-search-panel">
@@ -484,73 +406,6 @@ export default function TasksSection(props: TasksSectionProps) {
                   ) : null}
                 </div>
               ) : null}
-              <div className="task-point-list task-point-list-legacy" aria-hidden="true">
-                {taskDraft.points.map((point, index) => (
-                  <div
-                    key={`${point.turnpoint_id ?? point.name}-${index}`}
-                    className={`task-point-card point-type-${(taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)).toLowerCase()}`}
-                    draggable={canManagePlatform}
-                    onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))}
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) => {
-                    event.preventDefault();
-                    movePoint(Number(event.dataTransfer.getData("text/plain")), index);
-                  }}
-                >
-                    <div className="task-point-card-top">
-                      <span className="drag-handle" title="Drag to reorder">{point.position}. &#x22EE;&#x22EE;</span>
-                      <strong>{point.name}</strong>
-                      <span className="task-point-description">{turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id)?.code ?? ""}</span>
-                      <span className="task-point-type-badge">{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                    </div>
-                    <div className="task-point-card-grid">
-                      {canManagePlatform ? (
-                        <>
-                          <label className="stack compact">
-                            <span>Type</span>
-                            <select value={taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)} onChange={(event) => updatePoint(index, { point_type: event.target.value })}>
-                              {taskPointTypeOptions.map((option) => (
-                                <option key={option.value} value={option.value}>{option.label}</option>
-                              ))}
-                            </select>
-                          </label>
-                        <label className="stack compact">
-                          <span>Radius (m)</span>
-                          <input
-                            type="text"
-                            inputMode="numeric"
-                            value={radiusInputValue(index, point)}
-                            onFocus={(event) => event.currentTarget.select()}
-                            onChange={(event) => handleRadiusInputChange(index, point, event.target.value)}
-                            onBlur={() => handleRadiusInputBlur(index, point)}
-                            onKeyDown={(event) => handleRadiusInputKeyDown(event, index, point)}
-                            placeholder="400"
-                            aria-label={`Radius in meters for ${point.name}`}
-                          />
-                        </label>
-                      </>
-                    ) : (
-                      <>
-                        <div className="record-card">
-                          <strong>Type</strong>
-                          <span>{pointTypeLabels[taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type)] ?? (taskPointAdvanced ? point.point_type : toSimplePointType(point.point_type))}</span>
-                        </div>
-                        <div className="record-card">
-                          <strong>Radius</strong>
-                          <span>{point.radius_m.toFixed(0)} m</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {canManagePlatform ? (
-                    <div className="task-point-card-actions">
-                      <button type="button" className="ghost-button danger-button" onClick={() => removePoint(index)}>Remove</button>
-                    </div>
-                  ) : null}
-                </div>
-              ))}
-              {taskDraft.points.length === 0 ? <p className="hint">No turnpoints selected yet. Click waypoint markers on the map to add them to this task.</p> : null}
-            </div>
             <p className="hint">{taskPointAdvanced ? "Advanced mode keeps Launch, Start, ESS, and Goal separate for scoring." : "Simple mode uses Start, Turnpoint, and Goal only. Launch scores as Start, and ESS scores as Goal."}</p>
           </div>
           <div className="task-map-panel">
@@ -562,19 +417,17 @@ export default function TasksSection(props: TasksSectionProps) {
                 taskPoints={taskDraft.points}
                 optimizedRoute={taskDistanceMetrics.routeCoordinates}
                 legMetrics={taskDistanceMetrics.legMetrics}
-                totalDistanceKm={taskDistanceMetrics.totalDistanceKm}
-                optimizedDistanceKm={taskDistanceMetrics.optimizedDistanceKm}
                 track={track}
                 editable={canManagePlatform}
                 onSelectTurnpoint={canManagePlatform ? addTurnpoint : undefined}
                 taskEditorOverlay={fullscreenTaskEditor}
-                hideFullscreenDistanceOverlay={canManagePlatform}
                 units={{
                   altitude: settingsForm.altitude_unit,
                   speed: settingsForm.speed_unit,
                   distance: settingsForm.distance_unit,
                   vario: settingsForm.vario_unit,
                 }}
+                overlayConfig={overlayConfig}
               />
             </div>
           </div>

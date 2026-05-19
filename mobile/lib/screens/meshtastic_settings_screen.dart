@@ -1,21 +1,18 @@
+import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 
 import '../models/meshtastic_protobufs.dart';
 import '../services/ble_service.dart';
+import '../services/mesh_transport.dart';
 
-/// Dedicated Meshtastic device configuration screen.
+/// Meshtastic device configuration screen — simplified for pilots and drivers.
 ///
 /// Sections:
 /// 1. BLE Scan / Connect
-/// 2. Profile Quick Setup (Pilot / Driver / Driver Wi-Fi / Repeater)
-/// 3. Device Info (long name, short name)
-/// 4. Wi-Fi
-/// 5. Position & GPS
-/// 6. LoRa Radio
-/// 7. Channels & MQTT
-/// 8. Advanced (power, telemetry, display, reboot)
+/// 2. Settings (user-editable: profile, region, name, wi-fi for Driver roles)
+/// 3. Device Settings (collapsible read-only profile values)
 class MeshtasticSettingsScreen extends StatelessWidget {
   const MeshtasticSettingsScreen({super.key});
 
@@ -28,8 +25,8 @@ class MeshtasticSettingsScreen extends StatelessWidget {
         title: const Text('Meshtastic Settings'),
         actions: [
           if (ble.isConnected)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12),
               child: Icon(Icons.circle, size: 12, color: Colors.green),
             ),
         ],
@@ -39,62 +36,25 @@ class MeshtasticSettingsScreen extends StatelessWidget {
           padding: EdgeInsets.fromLTRB(
               16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
           children: [
-          // ── BLE Connection ──
-          _BleConnectionSection(),
+            // ── Connection (Bluetooth / Network / Serial) ──
+            _ConnectionSection(),
 
-          if (ble.isConnected) ...[
-            const SizedBox(height: 24),
+            if (ble.isConnected) ...[
+              const SizedBox(height: 24),
 
-            // ── Profile Quick Setup ──
-            _SectionHeader(title: 'Profile Quick Setup'),
-            const SizedBox(height: 8),
-            _ProfileSelector(),
+              // ── Settings ──
+              const _SectionHeader(title: 'Settings'),
+              const SizedBox(height: 8),
+              _SettingsCard(),
 
-            const SizedBox(height: 24),
+              const SizedBox(height: 24),
 
-            // ── Device Info ──
-            _SectionHeader(title: 'Device Info'),
-            const SizedBox(height: 8),
-            _DeviceInfoSection(),
+              // ── Device Settings (collapsible) ──
+              _DeviceSettingsCard(),
 
-            const SizedBox(height: 24),
-
-            // ── Wi-Fi ──
-            _SectionHeader(title: 'Wi-Fi'),
-            const SizedBox(height: 8),
-            _WifiSection(),
-
-            const SizedBox(height: 24),
-
-            // ── Position & GPS ──
-            _SectionHeader(title: 'Position & GPS'),
-            const SizedBox(height: 8),
-            _PositionSection(),
-
-            const SizedBox(height: 24),
-
-            // ── LoRa Radio ──
-            _SectionHeader(title: 'LoRa Radio'),
-            const SizedBox(height: 8),
-            _LoraSection(),
-
-            const SizedBox(height: 24),
-
-            // ── MQTT ──
-            _SectionHeader(title: 'MQTT'),
-            const SizedBox(height: 8),
-            _MqttSection(),
-
-            const SizedBox(height: 24),
-
-            // ── Advanced ──
-            _SectionHeader(title: 'Advanced'),
-            const SizedBox(height: 8),
-            _AdvancedSection(),
-
-            const SizedBox(height: 32),
+              const SizedBox(height: 32),
+            ],
           ],
-        ],
         ),
       ),
     );
@@ -121,17 +81,191 @@ class _SectionHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// BLE Connection — scan, pair, disconnect
+// Connection — Bluetooth / Network / Serial tabs
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _BleConnectionSection extends StatelessWidget {
+class _ConnectionSection extends StatefulWidget {
+  @override
+  State<_ConnectionSection> createState() => _ConnectionSectionState();
+}
+
+class _ConnectionSectionState extends State<_ConnectionSection> {
+  // Force BLE as default — there was a mystery bug where this defaulted to tcp.
+  late ConnectionType _selectedTab;
+  final _ipController = TextEditingController();
+  final _portController = TextEditingController(text: '4403');
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedTab = ConnectionType.ble;
+  }
+
+  @override
+  void dispose() {
+    _ipController.dispose();
+    _portController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+
+    // Determine which tabs to show (Serial only on Android)
+    final showSerial = Platform.isAndroid;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Tab selector ──
+        if (!ble.isConnected) ...[
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<ConnectionType>(
+              segments: [
+                ButtonSegment<ConnectionType>(
+                  value: ConnectionType.ble,
+                  icon: const Icon(Icons.bluetooth, size: 18),
+                  label: Text('Bluetooth', style: theme.textTheme.labelSmall),
+                ),
+                ButtonSegment<ConnectionType>(
+                  value: ConnectionType.tcp,
+                  icon: const Icon(Icons.wifi, size: 18),
+                  label: Text('Network', style: theme.textTheme.labelSmall),
+                ),
+                if (showSerial)
+                  ButtonSegment<ConnectionType>(
+                    value: ConnectionType.serial,
+                    icon: const Icon(Icons.usb, size: 18),
+                    label: Text('Serial', style: theme.textTheme.labelSmall),
+                  ),
+              ],
+              selected: {_selectedTab},
+              onSelectionChanged: (s) => setState(() => _selectedTab = s.first),
+              showSelectedIcon: false,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
+        // ── Error / status messages ──
+        if (ble.error != null) ...[
+          Text(
+            ble.error!,
+            style: TextStyle(color: theme.colorScheme.error),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 3,
+          ),
+          const SizedBox(height: 8),
+        ],
+        if (ble.statusMessage != null) ...[
+          Text(
+            ble.statusMessage!,
+            style: const TextStyle(color: Colors.green),
+            overflow: TextOverflow.ellipsis,
+            maxLines: 3,
+          ),
+          const SizedBox(height: 8),
+        ],
+
+        // ── Connected device card (transport-aware) ──
+        if (ble.isConnected) ...[
+          _ConnectedDeviceCard(),
+        ] else ...[
+          // ── Per-tab content ──
+          if (_selectedTab == ConnectionType.ble) _BluetoothTab(),
+          if (_selectedTab == ConnectionType.tcp)
+            _NetworkTab(
+              ipController: _ipController,
+              portController: _portController,
+            ),
+          if (_selectedTab == ConnectionType.serial && showSerial)
+            _SerialTab(),
+        ],
+      ],
+    );
+  }
+}
+
+/// Connected device card — shown for any transport type.
+class _ConnectedDeviceCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+
+    IconData icon;
+    switch (ble.connectionType) {
+      case ConnectionType.tcp:
+        icon = Icons.wifi;
+        break;
+      case ConnectionType.serial:
+        icon = Icons.usb;
+        break;
+      default:
+        icon = Icons.bluetooth_connected;
+    }
+
+    return Card(
+      color: theme.colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(icon, color: theme.colorScheme.onPrimaryContainer),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ble.deviceDisplayName,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
+                  if (ble.connectionLabel.isNotEmpty)
+                    Text(
+                      '${ble.connectionType?.name.toUpperCase() ?? "BLE"}: ${ble.connectionLabel}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer
+                            .withAlpha(150),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  if (ble.deviceState.firmwareVersion != null)
+                    Text(
+                      'FW: ${ble.deviceState.firmwareVersion}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onPrimaryContainer
+                            .withAlpha(150),
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                ],
+              ),
+            ),
+            OutlinedButton(
+              onPressed: () => ble.disconnect(),
+              child: const Text('Disconnect'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Bluetooth scan + pair tab.
+class _BluetoothTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
     final theme = Theme.of(context);
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Scan button
         Row(
@@ -154,396 +288,465 @@ class _BleConnectionSection extends StatelessWidget {
             ],
           ],
         ),
-
-        if (ble.error != null) ...[
-          const SizedBox(height: 12),
-          Text(ble.error!, style: TextStyle(color: theme.colorScheme.error)),
-        ],
-        if (ble.statusMessage != null) ...[
-          const SizedBox(height: 12),
-          Text(ble.statusMessage!, style: const TextStyle(color: Colors.green)),
-        ],
-
         const SizedBox(height: 12),
 
-        // Connected device
-        if (ble.isConnected) ...[
-          Card(
-            color: theme.colorScheme.primaryContainer,
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Icon(Icons.bluetooth_connected,
-                      color: theme.colorScheme.onPrimaryContainer),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          ble.deviceDisplayName,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                        ),
-                        if (ble.deviceState.firmwareVersion != null)
-                          Text(
-                            'FW: ${ble.deviceState.firmwareVersion}',
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.onPrimaryContainer
-                                  .withAlpha(180),
-                            ),
-                          ),
-                      ],
-                    ),
-                  ),
-                  OutlinedButton(
-                    onPressed: () => ble.disconnect(),
-                    child: const Text('Disconnect'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-
         // Discovered devices
-        if (!ble.isConnected && ble.discoveredDevices.isNotEmpty) ...[
+        if (ble.discoveredDevices.isNotEmpty)
           ...ble.discoveredDevices.map((device) {
+            final deviceId = device.device.remoteId.toString();
+            final isThisConnecting =
+                ble.isConnecting && ble.connectingDeviceId == deviceId;
             return ListTile(
               leading: const Icon(Icons.bluetooth),
               title: Text(device.name),
               subtitle: Text('RSSI: ${device.rssi} dBm'),
-              trailing: OutlinedButton(
-                onPressed:
-                    ble.isConnecting ? null : () => ble.connectToDevice(device),
-                child: Text(ble.isConnecting ? 'Connecting...' : 'Pair'),
-              ),
+              trailing: isThisConnecting
+                  ? const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : OutlinedButton(
+                      onPressed: ble.isConnecting
+                          ? null
+                          : () => ble.connectToDevice(device),
+                      child: const Text('Pair'),
+                    ),
             );
-          }),
-        ] else if (!ble.isConnected) ...[
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                'No Meshtastic devices found.\nTap Scan to search.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+          })
+        else
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No Meshtastic devices found.\nTap Scan to search.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                ),
               ),
             ),
           ),
-        ],
       ],
     );
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Profile Quick Setup
-// ═══════════════════════════════════════════════════════════════════════════════
+/// Network (TCP/WiFi) connection tab — mDNS scan + manual fallback.
+class _NetworkTab extends StatelessWidget {
+  final TextEditingController ipController;
+  final TextEditingController portController;
 
-/// Custom hang glider icon — delta wing with pilot.
-class _HangGliderIcon extends StatelessWidget {
-  final double size;
-  final Color? color;
-  const _HangGliderIcon({this.size = 20, this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      size: Size(size, size),
-      painter: _HangGliderPainter(
-        color: color ?? Theme.of(context).colorScheme.onSurface,
-      ),
-    );
-  }
-}
-
-class _HangGliderPainter extends CustomPainter {
-  final Color color;
-  _HangGliderPainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..style = PaintingStyle.fill;
-
-    final w = size.width;
-    final h = size.height;
-
-    // Delta wing (triangle)
-    final wing = Path()
-      ..moveTo(w * 0.5, h * 0.15) // nose
-      ..lineTo(w * 0.02, h * 0.55) // left wingtip
-      ..lineTo(w * 0.98, h * 0.55) // right wingtip
-      ..close();
-    canvas.drawPath(wing, paint);
-
-    // Control bar (A-frame) lines
-    final linePaint = Paint()
-      ..color = color
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.5;
-
-    // Left bar
-    canvas.drawLine(
-      Offset(w * 0.5, h * 0.35),
-      Offset(w * 0.35, h * 0.75),
-      linePaint,
-    );
-    // Right bar
-    canvas.drawLine(
-      Offset(w * 0.5, h * 0.35),
-      Offset(w * 0.65, h * 0.75),
-      linePaint,
-    );
-    // Base bar
-    canvas.drawLine(
-      Offset(w * 0.35, h * 0.75),
-      Offset(w * 0.65, h * 0.75),
-      linePaint,
-    );
-
-    // Pilot (small circle)
-    canvas.drawCircle(
-      Offset(w * 0.5, h * 0.85),
-      w * 0.06,
-      paint,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _ProfileSelector extends StatelessWidget {
-  static const _profileIcons = {
-    MeshtasticProfile.driver: Icons.directions_car,
-    MeshtasticProfile.driverWifi: Icons.wifi,
-    MeshtasticProfile.repeater: Icons.cell_tower,
-  };
-
-  static const _profileDescriptions = {
-    MeshtasticProfile.pilot:
-        'TRACKER role, 30s position, BLE on, phone MQTT proxy',
-    MeshtasticProfile.driver:
-        'CLIENT role, 120s position, BLE on, phone MQTT proxy',
-    MeshtasticProfile.driverWifi:
-        'CLIENT role, 60s position, Wi-Fi + direct MQTT',
-    MeshtasticProfile.repeater:
-        'ROUTER role, 300s position, Wi-Fi + MQTT + Store & Forward server',
-  };
+  const _NetworkTab({
+    required this.ipController,
+    required this.portController,
+  });
 
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
     final theme = Theme.of(context);
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Scan controls ──
+        Row(
           children: [
-            Text(
-              'Apply a preset profile to configure all settings at once.',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 12),
-            ...MeshtasticProfile.values.map((profile) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: OutlinedButton(
-                  onPressed: ble.isPushingConfig
-                      ? null
-                      : () => _confirmApply(context, ble, profile),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                  ),
-                  child: Row(
-                    children: [
-                      profile == MeshtasticProfile.pilot
-                          ? const _HangGliderIcon(size: 20)
-                          : Icon(_profileIcons[profile], size: 20),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(profile.label,
-                                style: theme.textTheme.titleSmall),
-                            Text(
-                              _profileDescriptions[profile]!,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const Icon(Icons.arrow_forward_ios, size: 14),
-                    ],
-                  ),
+            Expanded(
+              child: FilledButton.tonal(
+                onPressed: ble.isNetworkScanning
+                    ? null
+                    : () => ble.startNetworkScan(),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.wifi_find, size: 18),
+                    const SizedBox(width: 8),
+                    Text(ble.isNetworkScanning
+                        ? 'Scanning...'
+                        : 'Scan for Devices'),
+                  ],
                 ),
-              );
-            }),
+              ),
+            ),
+            if (ble.isNetworkScanning) ...[
+              const SizedBox(width: 12),
+              IconButton(
+                onPressed: () => ble.stopNetworkScan(),
+                icon: const Icon(Icons.stop),
+                tooltip: 'Stop scan',
+              ),
+            ],
           ],
         ),
-      ),
-    );
-  }
 
-  void _confirmApply(
-      BuildContext context, BleService ble, MeshtasticProfile profile) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Apply ${profile.label} profile?'),
-        content: const Text(
-          'This will overwrite all device settings and reboot the device.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              ble.applyProfile(profile);
-            },
-            child: const Text('Apply'),
-          ),
+        // Scanning progress indicator
+        if (ble.isNetworkScanning) ...[
+          const SizedBox(height: 8),
+          const LinearProgressIndicator(),
         ],
-      ),
+
+        const SizedBox(height: 12),
+
+        // ── Discovered devices list ──
+        if (ble.discoveredNetworkDevices.isNotEmpty)
+          ...ble.discoveredNetworkDevices.map((device) {
+            return ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.router),
+              title: Text(device.name),
+              subtitle: Text('${device.host}:${device.port}'),
+              trailing: OutlinedButton(
+                onPressed: ble.isConnecting
+                    ? null
+                    : () => ble.connectViaTcp(device.host, port: device.port),
+                child: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+              ),
+            );
+          })
+        else if (!ble.isNetworkScanning)
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No devices found.\nTap Scan to search for Meshtastic\ndevices on your local network.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ),
+          ),
+
+        // ── Manual entry ──
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                'Or connect manually',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            Expanded(child: Divider(color: theme.colorScheme.outlineVariant)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              flex: 3,
+              child: TextField(
+                controller: ipController,
+                decoration: const InputDecoration(
+                  labelText: 'IP Address',
+                  hintText: '192.168.1.x',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 1,
+              child: TextField(
+                controller: portController,
+                decoration: const InputDecoration(
+                  labelText: 'Port',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: ble.isConnecting
+                ? null
+                : () {
+                    final ip = ipController.text.trim();
+                    if (ip.isEmpty) return;
+                    final port =
+                        int.tryParse(portController.text.trim()) ?? 4403;
+                    ble.connectViaTcp(ip, port: port);
+                  },
+            icon: const Icon(Icons.wifi),
+            label: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// USB Serial (OTG) connection tab — Android only.
+class _SerialTab extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final theme = Theme.of(context);
+
+    return Column(
+      children: [
+        // Scan USB button
+        SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: () => ble.scanUsbDevices(),
+            icon: const Icon(Icons.usb),
+            label: const Text('Scan USB Devices'),
+          ),
+        ),
+        const SizedBox(height: 12),
+
+        if (ble.discoveredUsbDevices.isNotEmpty)
+          ...ble.discoveredUsbDevices.map((usbDevice) {
+            final label =
+                usbDevice.productName ?? 'USB #${usbDevice.deviceId}';
+            return ListTile(
+              leading: const Icon(Icons.usb),
+              title: Text(label),
+              subtitle: Text(
+                  'VID: ${usbDevice.vid}  PID: ${usbDevice.pid}'),
+              trailing: OutlinedButton(
+                onPressed: ble.isConnecting
+                    ? null
+                    : () => ble.connectViaSerial(usbDevice),
+                child: Text(ble.isConnecting ? 'Connecting...' : 'Connect'),
+              ),
+            );
+          })
+        else
+          SizedBox(
+            width: double.infinity,
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'No USB devices found.\nConnect a Meshtastic device via USB OTG.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Device Info — long name, short name
+// Settings card — profile, region, name, wi-fi
+//
+// Nothing is written to the device until the user taps Save.
 // ═══════════════════════════════════════════════════════════════════════════════
 
-class _DeviceInfoSection extends StatefulWidget {
-  @override
-  State<_DeviceInfoSection> createState() => _DeviceInfoSectionState();
+/// Map the 4 admin profiles to the closest DeviceRole for initial selection.
+MeshtasticProfile _profileFromDeviceRole(DeviceRole role) {
+  switch (role) {
+    case DeviceRole.tracker:
+      return MeshtasticProfile.pilot;
+    case DeviceRole.router:
+    case DeviceRole.routerClient:
+      return MeshtasticProfile.repeater;
+    default:
+      return MeshtasticProfile.driver;
+  }
 }
 
-class _DeviceInfoSectionState extends State<_DeviceInfoSection> {
+class _SettingsCard extends StatefulWidget {
+  @override
+  State<_SettingsCard> createState() => _SettingsCardState();
+}
+
+class _SettingsCardState extends State<_SettingsCard> {
+  late MeshtasticProfile _selectedProfile;
+  late RegionCode _region;
   late TextEditingController _longNameCtl;
   late TextEditingController _shortNameCtl;
+
+  // Wi-Fi (Driver roles only)
+  late TextEditingController _ssidCtl;
+  late TextEditingController _pskCtl;
+  bool _obscurePassword = true;
+  bool _wifiScanning = false;
+  List<WiFiAccessPoint> _networks = [];
+  String? _wifiScanError;
+
+  // Track what the device currently has so we know what changed.
+  late MeshtasticProfile _deviceProfile;
+  late RegionCode _deviceRegion;
+
+  // Tracks whether we've already synced local fields from a completed
+  // config load — prevents re-overwriting user edits on every rebuild
+  // while still catching the first configLoaded transition.
+  bool _configWasLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    final state = context.read<BleService>().deviceState;
-    _longNameCtl = TextEditingController(text: state.longName);
-    _shortNameCtl = TextEditingController(text: state.shortName);
+    final ds = context.read<BleService>().deviceState;
+    _selectedProfile = _profileFromDeviceRole(ds.role);
+    _deviceProfile = _selectedProfile;
+    _region = ds.region;
+    _deviceRegion = ds.region;
+    _longNameCtl = TextEditingController(text: ds.longName);
+    _shortNameCtl = TextEditingController(text: ds.shortName);
+    _ssidCtl = TextEditingController(text: ds.wifiSsid);
+    _pskCtl = TextEditingController(text: ds.wifiPsk);
+
+    // If config is already loaded (e.g. navigated here after connect),
+    // mark it so didChangeDependencies doesn't overwrite on first call.
+    _configWasLoaded = context.read<BleService>().configLoaded;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ble = context.read<BleService>();
+    // Re-sync local fields when config finishes loading for the first time
+    if (ble.configLoaded && !_configWasLoaded) {
+      _configWasLoaded = true;
+      final ds = ble.deviceState;
+      setState(() {
+        _selectedProfile = _profileFromDeviceRole(ds.role);
+        _deviceProfile = _selectedProfile;
+        _region = ds.region;
+        _deviceRegion = ds.region;
+        _longNameCtl.text = ds.longName;
+        _shortNameCtl.text = ds.shortName;
+        _ssidCtl.text = ds.wifiSsid;
+        _pskCtl.text = ds.wifiPsk;
+      });
+    }
+    // Reset when device disconnects so next connect re-syncs
+    if (!ble.configLoaded) {
+      _configWasLoaded = false;
+    }
   }
 
   @override
   void dispose() {
     _longNameCtl.dispose();
     _shortNameCtl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ble = context.watch<BleService>();
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            TextField(
-              controller: _longNameCtl,
-              decoration: const InputDecoration(
-                labelText: 'Long Name',
-                border: OutlineInputBorder(),
-                hintText: 'e.g. Pilot-Jones',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _shortNameCtl,
-              maxLength: 4,
-              decoration: const InputDecoration(
-                labelText: 'Short Name (2-4 chars)',
-                border: OutlineInputBorder(),
-                hintText: 'e.g. PJ',
-              ),
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: ble.isPushingConfig
-                    ? null
-                    : () => ble.setDeviceName(
-                          longName: _longNameCtl.text.trim(),
-                          shortName: _shortNameCtl.text.trim(),
-                        ),
-                child: const Text('Save Name'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Wi-Fi
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _WifiSection extends StatefulWidget {
-  @override
-  State<_WifiSection> createState() => _WifiSectionState();
-}
-
-class _WifiSectionState extends State<_WifiSection> {
-  late TextEditingController _ssidCtl;
-  late TextEditingController _pskCtl;
-  bool _obscurePassword = true;
-  bool _isScanning = false;
-  bool _manualEntry = false;
-  List<WiFiAccessPoint> _networks = [];
-  String? _scanError;
-
-  @override
-  void initState() {
-    super.initState();
-    final state = context.read<BleService>().deviceState;
-    _ssidCtl = TextEditingController(text: state.wifiSsid);
-    _pskCtl = TextEditingController(text: state.wifiPsk);
-  }
-
-  @override
-  void dispose() {
     _ssidCtl.dispose();
     _pskCtl.dispose();
     super.dispose();
   }
 
+  /// Wi-Fi section is shown only when the admin has enabled Wi-Fi for
+  /// the currently selected profile on the backend.
+  bool get _profileHasWifi =>
+      ProfileConfig.presets[_selectedProfile]?.wifiEnabled ?? false;
+
+  /// Save all pending changes to the device.
+  ///
+  /// Always pushes the full admin profile to the device so every
+  /// setting (bluetooth, power, display, etc.) stays in sync with
+  /// what the admin configured on the website. The device reboots
+  /// after a commit.
+  Future<void> _save() async {
+    final ble = context.read<BleService>();
+
+    debugPrint('_save: selectedProfile=${_selectedProfile.label}');
+
+    // Refresh admin profiles from the server so we push the latest settings
+    // (e.g. position_flags changes made on the admin website).
+    await ble.syncPlatformConfig();
+
+    // Region must be set before anything else.
+    if (_region == RegionCode.unset) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          backgroundColor: Colors.red,
+          content: Text(
+            'Set the LoRa Region first — your radio will not transmit '
+            'on the right frequency until it is set.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final profileChanged = _selectedProfile != _deviceProfile;
+
+    // Confirm before applying — the device will reboot.
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(profileChanged
+            ? 'Apply ${_selectedProfile.label} profile?'
+            : 'Save settings?'),
+        content: Text(profileChanged
+            ? 'This will overwrite all device settings with the '
+              '${_selectedProfile.label} profile and reboot the device.'
+            : 'This will sync all admin profile settings to the device '
+              'and reboot it.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(profileChanged ? 'Apply & Reboot' : 'Save & Reboot'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    // Everything is batched into a single applyProfile call so there is
+    // only one beginEditSettings → writes → commitEditSettings sequence.
+    // Standalone writes before the batch destabilised BLE on Android.
+    final longName = _longNameCtl.text.trim();
+    final shortName = _shortNameCtl.text.trim();
+    final regionChanged = _region != _deviceRegion;
+    final ssid = (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty)
+        ? _ssidCtl.text.trim()
+        : null;
+    final psk = (_profileHasWifi && _ssidCtl.text.trim().isNotEmpty)
+        ? _pskCtl.text
+        : null;
+    await ble.applyProfile(
+      _selectedProfile,
+      wifiSsid: ssid,
+      wifiPsk: psk,
+      longName: longName.isNotEmpty ? longName : null,
+      shortName: shortName.isNotEmpty ? shortName : null,
+      region: regionChanged ? _region : null,
+    );
+    _deviceProfile = _selectedProfile;
+    if (regionChanged) _deviceRegion = _region;
+
+    if (mounted) setState(() {});
+  }
+
   Future<void> _scanNetworks() async {
     setState(() {
-      _isScanning = true;
-      _scanError = null;
+      _wifiScanning = true;
+      _wifiScanError = null;
     });
 
     try {
       final canScan = await WiFiScan.instance.canStartScan();
       if (canScan != CanStartScan.yes) {
         setState(() {
-          _scanError = 'Cannot scan: $canScan. Check location permissions.';
-          _isScanning = false;
+          _wifiScanError = 'Cannot scan: $canScan. Check location permissions.';
+          _wifiScanning = false;
         });
         return;
       }
@@ -552,14 +755,13 @@ class _WifiSectionState extends State<_WifiSection> {
       final canGet = await WiFiScan.instance.canGetScannedResults();
       if (canGet != CanGetScannedResults.yes) {
         setState(() {
-          _scanError = 'Cannot get results: $canGet';
-          _isScanning = false;
+          _wifiScanError = 'Cannot get results: $canGet';
+          _wifiScanning = false;
         });
         return;
       }
 
       final results = await WiFiScan.instance.getScannedResults();
-      // Sort by signal strength, remove duplicates
       final seen = <String>{};
       final unique = <WiFiAccessPoint>[];
       results.sort((a, b) => b.level.compareTo(a.level));
@@ -571,21 +773,14 @@ class _WifiSectionState extends State<_WifiSection> {
 
       setState(() {
         _networks = unique;
-        _isScanning = false;
+        _wifiScanning = false;
       });
     } catch (e) {
       setState(() {
-        _scanError = 'Scan failed: $e';
-        _isScanning = false;
+        _wifiScanError = 'Scan failed: $e';
+        _wifiScanning = false;
       });
     }
-  }
-
-  void _selectNetwork(String ssid) {
-    setState(() {
-      _ssidCtl.text = ssid;
-      _networks = []; // Collapse the list
-    });
   }
 
   IconData _signalIcon(int level) {
@@ -599,8 +794,33 @@ class _WifiSectionState extends State<_WifiSection> {
   @override
   Widget build(BuildContext context) {
     final ble = context.watch<BleService>();
-    final ds = ble.deviceState;
     final theme = Theme.of(context);
+
+    // While the BLE config dump is still in progress, show a loading
+    // indicator instead of the form — prevents the false "Region not
+    // set" banner that fires when device defaults are still unset.
+    if (!ble.configLoaded) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 12),
+              Text('Reading device settings…',
+                  style: theme.textTheme.bodySmall),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final disabled = ble.isPushingConfig;
+    final regionUnset = _region == RegionCode.unset;
 
     return Card(
       child: Padding(
@@ -608,55 +828,180 @@ class _WifiSectionState extends State<_WifiSection> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(Icons.wifi, size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text('Wi-Fi', style: theme.textTheme.bodyMedium),
+            if (regionUnset) ...[
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.red.withValues(alpha: 0.12),
+                  border: Border.all(color: Colors.red, width: 1.5),
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                Switch(
-                  value: ds.wifiEnabled,
-                  onChanged: ble.isPushingConfig
+                child: Row(
+                  children: [
+                    const Icon(Icons.warning_amber_rounded, color: Colors.red),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'LoRa Region is not set. The radio will NOT '
+                        'transmit on the right frequency until you pick '
+                        'a region below.',
+                        style: TextStyle(
+                          color: Colors.red[900],
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // ── Profile ──
+            Text('Profile', style: theme.textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            )),
+            const SizedBox(height: 8),
+            InputDecorator(
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<MeshtasticProfile>(
+                  value: _selectedProfile,
+                  isExpanded: true,
+                  onChanged: disabled
                       ? null
-                      : (v) => ble.setWifi(enabled: v),
+                      : (v) {
+                          if (v != null) setState(() => _selectedProfile = v);
+                        },
+                  items: MeshtasticProfile.values
+                      .map((p) => DropdownMenuItem(
+                            value: p,
+                            child: Text(p.label),
+                          ))
+                      .toList(),
                 ),
-              ],
+              ),
             ),
-            if (ds.wifiEnabled) ...[
+            const SizedBox(height: 4),
+            Text(
+              _profileDescription(_selectedProfile),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+
+            const Divider(height: 32),
+
+            // ── Region ──
+            // Region is REQUIRED. Placed early so it's set before anything else.
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: regionUnset
+                      ? Colors.red
+                      : theme.colorScheme.outlineVariant,
+                  width: regionUnset ? 1.5 : 1,
+                ),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Region *',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: regionUnset ? Colors.red : null,
+                        fontWeight: regionUnset ? FontWeight.w600 : null,
+                      ),
+                    ),
+                  ),
+                  DropdownButtonHideUnderline(
+                    child: DropdownButton<RegionCode>(
+                      value: _region,
+                      iconEnabledColor: regionUnset ? Colors.red : null,
+                      onChanged: disabled
+                          ? null
+                          : (v) {
+                              if (v != null) setState(() => _region = v);
+                            },
+                      items: RegionCode.values
+                          .map((r) => DropdownMenuItem(
+                                value: r,
+                                child: Text(
+                                  r.label,
+                                  style: TextStyle(
+                                    color: r == RegionCode.unset
+                                        ? Colors.red
+                                        : null,
+                                  ),
+                                ),
+                              ))
+                          .toList(),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (regionUnset) ...[
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: Text(
+                  'Required. Pick the regulatory zone for where the '
+                  'device will operate.',
+                  style: TextStyle(color: Colors.red[800], fontSize: 12),
+                ),
+              ),
+            ],
+
+            const Divider(height: 32),
+
+            // ── Long name ──
+            TextField(
+              controller: _longNameCtl,
+              enabled: !disabled,
+              decoration: const InputDecoration(
+                labelText: 'Long Name',
+                border: OutlineInputBorder(),
+                hintText: 'e.g. Pilot-Jones',
+              ),
+            ),
+            const SizedBox(height: 12),
+
+            // ── Short name ──
+            TextField(
+              controller: _shortNameCtl,
+              enabled: !disabled,
+              maxLength: 4,
+              decoration: const InputDecoration(
+                labelText: 'Short Name (2–4 chars)',
+                border: OutlineInputBorder(),
+                hintText: 'e.g. PJ',
+              ),
+            ),
+
+            // ── Wi-Fi (only when admin has wifi_enabled for this profile) ──
+            if (_profileHasWifi) ...[
+              const Divider(height: 32),
+              Text('Wi-Fi', style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              )),
               const SizedBox(height: 12),
 
-              // Current network display
-              if (ds.wifiSsid.isNotEmpty) ...[
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer.withAlpha(80),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(Icons.wifi, size: 16,
-                          color: theme.colorScheme.primary),
-                      const SizedBox(width: 8),
-                      Text('Current: ${ds.wifiSsid}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          )),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 12),
-              ],
-
-              // Scan / Manual toggle
+              // Scan button
               Row(
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: _isScanning ? null : _scanNetworks,
-                      icon: _isScanning
+                      onPressed: disabled || _wifiScanning
+                          ? null
+                          : _scanNetworks,
+                      icon: _wifiScanning
                           ? const SizedBox(
                               width: 16,
                               height: 16,
@@ -665,21 +1010,15 @@ class _WifiSectionState extends State<_WifiSection> {
                             )
                           : const Icon(Icons.wifi_find, size: 18),
                       label: Text(
-                          _isScanning ? 'Scanning...' : 'Scan Networks'),
+                          _wifiScanning ? 'Scanning...' : 'Scan Networks'),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  OutlinedButton(
-                    onPressed: () =>
-                        setState(() => _manualEntry = !_manualEntry),
-                    child: Text(_manualEntry ? 'Hide' : 'Manual'),
                   ),
                 ],
               ),
 
-              if (_scanError != null) ...[
+              if (_wifiScanError != null) ...[
                 const SizedBox(height: 8),
-                Text(_scanError!,
+                Text(_wifiScanError!,
                     style: TextStyle(
                         color: theme.colorScheme.error, fontSize: 12)),
               ],
@@ -695,15 +1034,14 @@ class _WifiSectionState extends State<_WifiSection> {
                 Container(
                   constraints: const BoxConstraints(maxHeight: 200),
                   decoration: BoxDecoration(
-                    border: Border.all(
-                        color: theme.colorScheme.outlineVariant),
+                    border:
+                        Border.all(color: theme.colorScheme.outlineVariant),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: ListView.separated(
                     shrinkWrap: true,
                     itemCount: _networks.length,
-                    separatorBuilder: (_, __) =>
-                        const Divider(height: 1),
+                    separatorBuilder: (_, __) => const Divider(height: 1),
                     itemBuilder: (context, index) {
                       final ap = _networks[index];
                       final isSelected = _ssidCtl.text == ap.ssid;
@@ -724,39 +1062,40 @@ class _WifiSectionState extends State<_WifiSection> {
                                 : FontWeight.normal,
                           ),
                         ),
-                        subtitle: Text(
-                          '${ap.level} dBm',
-                          style: theme.textTheme.bodySmall,
-                        ),
+                        subtitle: Text('${ap.level} dBm',
+                            style: theme.textTheme.bodySmall),
                         trailing: isSelected
                             ? Icon(Icons.check_circle,
-                                color: theme.colorScheme.primary,
-                                size: 20)
+                                color: theme.colorScheme.primary, size: 20)
                             : null,
-                        onTap: () => _selectNetwork(ap.ssid),
+                        onTap: () => setState(() {
+                          _ssidCtl.text = ap.ssid;
+                          _networks = []; // close the list
+                        }),
                       );
                     },
                   ),
                 ),
               ],
 
-              // Manual SSID entry
-              if (_manualEntry || _networks.isEmpty) ...[
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _ssidCtl,
-                  decoration: const InputDecoration(
-                    labelText: 'SSID',
-                    border: OutlineInputBorder(),
-                    hintText: 'Wi-Fi network name',
-                  ),
-                ),
-              ],
-
-              // Password + Save (always visible when Wi-Fi enabled)
               const SizedBox(height: 12),
+
+              // SSID field
+              TextField(
+                controller: _ssidCtl,
+                enabled: !disabled,
+                decoration: const InputDecoration(
+                  labelText: 'SSID',
+                  border: OutlineInputBorder(),
+                  hintText: 'Wi-Fi network name',
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Password field
               TextField(
                 controller: _pskCtl,
+                enabled: !disabled,
                 obscureText: _obscurePassword,
                 decoration: InputDecoration(
                   labelText: 'Password',
@@ -765,341 +1104,236 @@ class _WifiSectionState extends State<_WifiSection> {
                     icon: Icon(_obscurePassword
                         ? Icons.visibility_off
                         : Icons.visibility),
-                    onPressed: () =>
-                        setState(() => _obscurePassword = !_obscurePassword),
+                    onPressed: () => setState(
+                        () => _obscurePassword = !_obscurePassword),
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed: ble.isPushingConfig || _ssidCtl.text.trim().isEmpty
-                      ? null
-                      : () => ble.setWifi(
-                            enabled: true,
-                            ssid: _ssidCtl.text.trim(),
-                            password: _pskCtl.text,
-                          ),
-                  icon: const Icon(Icons.save, size: 18),
-                  label: Text(_ssidCtl.text.trim().isEmpty
-                      ? 'Select a network'
-                      : 'Save Wi-Fi: ${_ssidCtl.text.trim()}'),
-                ),
-              ),
             ],
-          ],
-        ),
-      ),
-    );
-  }
-}
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Position & GPS (read-only display of current config)
-// ═══════════════════════════════════════════════════════════════════════════════
+            const Divider(height: 32),
 
-class _PositionSection extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final ds = context.watch<BleService>().deviceState;
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _ConfigRow(
-                label: 'GPS Mode', value: ds.gpsMode.label, theme: theme),
-            _ConfigRow(
-                label: 'Broadcast Interval',
-                value: '${ds.positionBroadcastSecs}s',
-                theme: theme),
-            _ConfigRow(
-                label: 'Smart Position',
-                value: ds.smartPositionEnabled ? 'ON' : 'OFF',
-                theme: theme),
-            if (ds.smartPositionEnabled) ...[
-              _ConfigRow(
-                  label: '  Min Distance',
-                  value: '${ds.smartMinDistance} m',
-                  theme: theme),
-              _ConfigRow(
-                  label: '  Min Interval',
-                  value: '${ds.smartMinInterval}s',
-                  theme: theme),
-            ],
-            _ConfigRow(
-                label: 'Position Flags',
-                value: _describeFlags(ds.positionFlags),
-                theme: theme),
-          ],
-        ),
-      ),
-    );
-  }
-
-  String _describeFlags(int flags) {
-    final parts = <String>[];
-    if (flags & PositionFlags.altitude != 0) parts.add('Alt');
-    if (flags & PositionFlags.altitudeMsl != 0) parts.add('MSL');
-    if (flags & PositionFlags.heading != 0) parts.add('Heading');
-    if (flags & PositionFlags.speed != 0) parts.add('Speed');
-    if (flags & PositionFlags.dop != 0) parts.add('DOP');
-    if (flags & PositionFlags.satInView != 0) parts.add('Sats');
-    return parts.isEmpty ? 'None' : parts.join(', ');
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// LoRa Radio
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _LoraSection extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final ble = context.watch<BleService>();
-    final ds = ble.deviceState;
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            // Region selector
-            Row(
-              children: [
-                Expanded(
-                    child: Text('Region', style: theme.textTheme.bodyMedium)),
-                DropdownButton<RegionCode>(
-                  value: ds.region,
-                  onChanged: ble.isPushingConfig
-                      ? null
-                      : (v) {
-                          if (v != null) ble.setLoraRegion(v);
-                        },
-                  items: RegionCode.values
-                      .map((r) => DropdownMenuItem(
-                            value: r,
-                            child: Text(r.label),
-                          ))
-                      .toList(),
-                ),
-              ],
-            ),
-            const Divider(height: 16),
-            _ConfigRow(
-                label: 'Modem Preset',
-                value: ds.modemPreset.label,
-                theme: theme),
-            _ConfigRow(
-                label: 'Hop Limit',
-                value: '${ds.hopLimit}',
-                theme: theme),
-            _ConfigRow(
-                label: 'TX Enabled',
-                value: ds.txEnabled ? 'Yes' : 'No',
-                theme: theme),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MQTT
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _MqttSection extends StatefulWidget {
-  @override
-  State<_MqttSection> createState() => _MqttSectionState();
-}
-
-class _MqttSectionState extends State<_MqttSection> {
-  late TextEditingController _addressCtl;
-  late TextEditingController _usernameCtl;
-  late TextEditingController _passwordCtl;
-  late TextEditingController _topicCtl;
-
-  @override
-  void initState() {
-    super.initState();
-    final ds = context.read<BleService>().deviceState;
-    _addressCtl = TextEditingController(text: ds.mqttAddress);
-    _usernameCtl = TextEditingController(text: ds.mqttUsername);
-    _passwordCtl = TextEditingController(text: ds.mqttPassword);
-    _topicCtl = TextEditingController(text: ds.mqttRootTopic);
-  }
-
-  @override
-  void dispose() {
-    _addressCtl.dispose();
-    _usernameCtl.dispose();
-    _passwordCtl.dispose();
-    _topicCtl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final ble = context.watch<BleService>();
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.cloud_upload,
-                    size: 20, color: theme.colorScheme.primary),
-                const SizedBox(width: 8),
-                Text('MQTT is always enabled',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    )),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _addressCtl,
-              decoration: const InputDecoration(
-                labelText: 'MQTT Server',
-                border: OutlineInputBorder(),
-                hintText: 'mqtt.meshtastic.org',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _topicCtl,
-              decoration: const InputDecoration(
-                labelText: 'Root Topic',
-                border: OutlineInputBorder(),
-                hintText: 'msh',
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _usernameCtl,
-              decoration: const InputDecoration(
-                labelText: 'Username (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _passwordCtl,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'Password (optional)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Align(
-              alignment: Alignment.centerRight,
-              child: FilledButton(
-                onPressed: ble.isPushingConfig
-                    ? null
-                    : () => ble.setMqttConfig(
-                          address: _addressCtl.text.trim(),
-                          rootTopic: _topicCtl.text.trim(),
-                          username: _usernameCtl.text.trim().isEmpty
-                              ? null
-                              : _usernameCtl.text.trim(),
-                          password: _passwordCtl.text.isEmpty
-                              ? null
-                              : _passwordCtl.text,
-                        ),
-                child: const Text('Save MQTT'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Advanced — power, telemetry, display, reboot
-// ═══════════════════════════════════════════════════════════════════════════════
-
-class _AdvancedSection extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    final ble = context.watch<BleService>();
-    final ds = ble.deviceState;
-    final theme = Theme.of(context);
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            _ConfigRow(
-                label: 'Device Role', value: ds.role.label, theme: theme),
-            _ConfigRow(
-                label: 'Rebroadcast',
-                value: ds.rebroadcastMode.label,
-                theme: theme),
-            _ConfigRow(
-                label: 'Power Saving',
-                value: ds.isPowerSaving ? 'ON' : 'OFF',
-                theme: theme),
-            _ConfigRow(
-                label: 'Bluetooth',
-                value: ds.bluetoothEnabled ? 'ON' : 'OFF',
-                theme: theme),
-            _ConfigRow(
-                label: 'BLE Pairing',
-                value: ds.blePairingMode.label,
-                theme: theme),
-            _ConfigRow(
-                label: 'Display Timeout',
-                value: ds.screenOnSecs == 0
-                    ? 'Off'
-                    : '${ds.screenOnSecs}s',
-                theme: theme),
-            _ConfigRow(
-                label: 'Telemetry Interval',
-                value: '${ds.telemetryDeviceInterval}s',
-                theme: theme),
-            _ConfigRow(
-                label: 'Store & Forward',
-                value: ds.storeForwardEnabled
-                    ? (ds.storeForwardIsServer ? 'Server' : 'Client')
-                    : 'OFF',
-                theme: theme),
-            _ConfigRow(
-                label: 'Neighbor Info',
-                value: ds.neighborInfoEnabled ? 'ON' : 'OFF',
-                theme: theme),
-            _ConfigRow(
-                label: 'Channel Uplink',
-                value: ds.channelUplinkEnabled ? 'ON' : 'OFF',
-                theme: theme),
-            const Divider(height: 24),
+            // ── Save button ──
             SizedBox(
               width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: ble.isPushingConfig
-                    ? null
-                    : () => _confirmReboot(context, ble),
-                icon: const Icon(Icons.restart_alt, size: 18),
-                label: const Text('Reboot Device'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: theme.colorScheme.error,
-                ),
+              child: FilledButton.icon(
+                onPressed: disabled ? null : _save,
+                icon: const Icon(Icons.save, size: 18),
+                label: const Text('Save'),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  static String _profileDescription(MeshtasticProfile p) {
+    switch (p) {
+      case MeshtasticProfile.pilot:
+        return 'Optimised for position tracking (pilots in the air)';
+      case MeshtasticProfile.driver:
+        return 'Ground support relay via Bluetooth mesh';
+      case MeshtasticProfile.driverWifi:
+        return 'Ground support relay via Bluetooth + Wi-Fi uplink';
+      case MeshtasticProfile.repeater:
+        return 'Always-on relay / base station for mesh coverage';
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Device Settings card — collapsible, read-only profile values
+//
+// Shows all fields that match the admin web page, organised by category.
+// Collapsed by default to keep the screen clean.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+class _DeviceSettingsCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final ble = context.watch<BleService>();
+    final ds = ble.deviceState;
+    final theme = Theme.of(context);
+
+    final broker =
+        ds.mqttAddress.isNotEmpty ? ds.mqttAddress : 'mqtt.meshtastic.org';
+
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        title: Text(
+          'Device Settings',
+          style: theme.textTheme.titleSmall?.copyWith(
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        subtitle: Text(
+          'Current device configuration (read-only)',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        leading: Icon(Icons.settings, color: theme.colorScheme.primary),
+        initiallyExpanded: false,
+        childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        children: [
+          // ── Device ──
+          _GroupHeader(label: 'Device', theme: theme),
+          _ConfigRow(label: 'Role', value: ds.role.label, theme: theme),
+          _ConfigRow(
+              label: 'Rebroadcast',
+              value: ds.rebroadcastMode.label,
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Position ──
+          _GroupHeader(label: 'Position', theme: theme),
+          _ConfigRow(
+              label: 'GPS mode', value: ds.gpsMode.label, theme: theme),
+          _ConfigRow(
+              label: 'Broadcast interval',
+              value: '${ds.positionBroadcastSecs}s',
+              theme: theme),
+          _ConfigRow(
+              label: 'Smart position',
+              value: ds.smartPositionEnabled ? 'Yes' : 'No',
+              theme: theme),
+          if (ds.smartPositionEnabled) ...[
+            _ConfigRow(
+                label: '  Min distance',
+                value: '${ds.smartMinDistance} m',
+                theme: theme),
+            _ConfigRow(
+                label: '  Min interval',
+                value: '${ds.smartMinInterval}s',
+                theme: theme),
+          ],
+          _ConfigRow(
+              label: 'Position flags',
+              value: _positionFlagsLabel(ds.positionFlags),
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── LoRa ──
+          _GroupHeader(label: 'LoRa', theme: theme),
+          _ConfigRow(
+              label: 'Region', value: ds.region.label, theme: theme),
+          _ConfigRow(
+              label: 'Modem preset',
+              value: ds.modemPreset.label,
+              theme: theme),
+          _ConfigRow(
+              label: 'Hop limit', value: '${ds.hopLimit}', theme: theme),
+          _ConfigRow(
+              label: 'TX enabled',
+              value: ds.txEnabled ? 'Yes' : 'No',
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Power ──
+          _GroupHeader(label: 'Power', theme: theme),
+          _ConfigRow(
+              label: 'Power saving',
+              value: ds.isPowerSaving ? 'Yes' : 'No',
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Bluetooth ──
+          _GroupHeader(label: 'Bluetooth', theme: theme),
+          _ConfigRow(
+              label: 'Bluetooth',
+              value: ds.bluetoothEnabled ? 'On' : 'Off',
+              theme: theme),
+          _ConfigRow(
+              label: 'Pairing mode',
+              value: ds.blePairingMode.label,
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Network ──
+          _GroupHeader(label: 'Network', theme: theme),
+          _ConfigRow(
+              label: 'Wi-Fi',
+              value: ds.wifiEnabled ? 'On' : 'Off',
+              theme: theme),
+          if (ds.wifiEnabled && ds.wifiSsid.isNotEmpty)
+            _ConfigRow(
+                label: '  SSID', value: ds.wifiSsid, theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Display ──
+          _GroupHeader(label: 'Display', theme: theme),
+          _ConfigRow(
+              label: 'Display timeout',
+              value: ds.screenOnSecs == 0
+                  ? 'Always on'
+                  : '${ds.screenOnSecs}s',
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── MQTT ──
+          _GroupHeader(label: 'MQTT', theme: theme),
+          _ConfigRow(
+              label: 'MQTT enabled',
+              value: ds.mqttEnabled ? 'Yes' : 'No',
+              theme: theme),
+          if (ds.mqttEnabled) ...[
+            _ConfigRow(label: 'Broker', value: broker, theme: theme),
+            _ConfigRow(
+                label: 'Topic prefix',
+                value:
+                    ds.mqttRootTopic.isNotEmpty ? ds.mqttRootTopic : 'msh',
+                theme: theme),
+          ],
+
+          const Divider(height: 24),
+
+          // ── Modules ──
+          _GroupHeader(label: 'Modules', theme: theme),
+          _ConfigRow(
+              label: 'Telemetry interval',
+              value: _formatHours(ds.telemetryDeviceInterval),
+              theme: theme),
+          _ConfigRow(
+              label: 'Store & Forward',
+              value: ds.storeForwardEnabled
+                  ? (ds.storeForwardIsServer ? 'Server' : 'Client')
+                  : 'Off',
+              theme: theme),
+          _ConfigRow(
+              label: 'Neighbor info',
+              value: ds.neighborInfoEnabled ? 'On' : 'Off',
+              theme: theme),
+          _ConfigRow(
+              label: 'Channel uplink',
+              value: ds.channelUplinkEnabled ? 'On' : 'Off',
+              theme: theme),
+
+          const Divider(height: 24),
+
+          // ── Reboot ──
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: ble.isPushingConfig
+                  ? null
+                  : () => _confirmReboot(context, ble),
+              icon: const Icon(Icons.restart_alt, size: 18),
+              label: const Text('Reboot Device'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1126,11 +1360,58 @@ class _AdvancedSection extends StatelessWidget {
       ),
     );
   }
+
+  static String _formatHours(int seconds) {
+    if (seconds <= 0) return '0';
+    final hours = seconds / 3600;
+    if (hours == hours.truncateToDouble()) {
+      return '${hours.toInt()}h';
+    }
+    return '${hours.toStringAsFixed(1)}h';
+  }
+
+  static String _positionFlagsLabel(int flags) {
+    if (flags == 0) return 'None';
+    final parts = <String>[];
+    if (flags & PositionFlags.altitude != 0) parts.add('Alt');
+    if (flags & PositionFlags.altitudeMsl != 0) parts.add('MSL');
+    if (flags & PositionFlags.geoidalSeparation != 0) parts.add('Geoid');
+    if (flags & PositionFlags.dop != 0) parts.add('DOP');
+    if (flags & PositionFlags.hvdop != 0) parts.add('HVDOP');
+    if (flags & PositionFlags.satInView != 0) parts.add('Sats');
+    if (flags & PositionFlags.seqNo != 0) parts.add('Seq');
+    if (flags & PositionFlags.timestamp != 0) parts.add('Time');
+    if (flags & PositionFlags.heading != 0) parts.add('Hdg');
+    if (flags & PositionFlags.speed != 0) parts.add('Spd');
+    return parts.join(', ');
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// Config row helper
+// Helpers
 // ═══════════════════════════════════════════════════════════════════════════════
+
+class _GroupHeader extends StatelessWidget {
+  final String label;
+  final ThemeData theme;
+
+  const _GroupHeader({required this.label, required this.theme});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text(
+        label.toUpperCase(),
+        style: theme.textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.8,
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
+  }
+}
 
 class _ConfigRow extends StatelessWidget {
   final String label;
@@ -1150,7 +1431,10 @@ class _ConfigRow extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: theme.textTheme.bodyMedium),
+          Flexible(
+            child: Text(label, style: theme.textTheme.bodyMedium),
+          ),
+          const SizedBox(width: 16),
           Text(value,
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,

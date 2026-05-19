@@ -2,7 +2,7 @@
 
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import styles from "./AirspaceExplorerMap.module.css";
 import {
   type AirspaceCategory,
@@ -11,6 +11,7 @@ import {
   fetchAllAirspace,
   fetchTFRs,
   downloadOpenAir,
+  type AirspaceProperties,
 } from "../../lib/faaAirspace";
 
 // ---------------------------------------------------------------------------
@@ -46,11 +47,59 @@ const LYR_TFR_EXTRUSION = "faa-tfr-extrusion";
 const LYR_TFR_LINE = "faa-tfr-line";
 const LYR_TFR_LABEL = "faa-tfr-label";
 
+function emptyFeatureCollection(): GeoJSON.FeatureCollection {
+  return { type: "FeatureCollection", features: [] };
+}
+
+function filterTfrsByTime(data: GeoJSON.FeatureCollection, selectedTime?: string): GeoJSON.FeatureCollection {
+  if (!selectedTime) return data;
+  const selectedMs = Date.parse(selectedTime);
+  if (Number.isNaN(selectedMs)) return data;
+
+  return {
+    type: "FeatureCollection",
+    features: data.features.filter((feature) => {
+      const properties = feature.properties as Partial<AirspaceProperties> | null;
+      const startMs = properties?.effectiveStart ? Date.parse(properties.effectiveStart) : Number.NaN;
+      const endMs = properties?.effectiveEnd ? Date.parse(properties.effectiveEnd) : Number.NaN;
+
+      if (Number.isNaN(startMs) && Number.isNaN(endMs)) return true;
+      if (!Number.isNaN(startMs) && selectedMs < startMs) return false;
+      if (!Number.isNaN(endMs) && selectedMs > endMs) return false;
+      return true;
+    }),
+  };
+}
+
+function formatPopupTime(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString();
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
-export default function AirspaceExplorerMap() {
+export default function AirspaceExplorerMap({
+  overlayConfig,
+  refreshToken,
+  tfrRefreshToken,
+  selectedTfrTime,
+}: {
+  overlayConfig?: Record<string, boolean>;
+  refreshToken?: number;
+  tfrRefreshToken?: number;
+  selectedTfrTime?: string;
+}) {
+  const oc = overlayConfig;
+  const showAirspaceRegions = oc?.airspace_regions !== false;
+  const showAirspaceLabels = showAirspaceRegions && oc?.airspace_labels !== false;
+  const showTfrs = oc?.tfrs !== false;
+  const showTfrLabels = showTfrs && oc?.tfr_labels !== false;
+  const showAirspaceRegionsRef = useRef(showAirspaceRegions);
+  const showTfrsRef = useRef(showTfrs);
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const popupRef = useRef<maplibregl.Popup | null>(null);
@@ -73,17 +122,39 @@ export default function AirspaceExplorerMap() {
   const [tfrLoading, setTfrLoading] = useState(false);
   const [featureCount, setFeatureCount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const visibleTfrData = useMemo(
+    () => showTfrs && tfrData ? filterTfrsByTime(tfrData, selectedTfrTime) : emptyFeatureCollection(),
+    [selectedTfrTime, showTfrs, tfrData],
+  );
 
   // Track which bounds have already been loaded so we don't re-fetch
   const loadedBoundsRef = useRef<{ west: number; south: number; east: number; north: number } | null>(null);
   // Accumulated feature map keyed by a stable ID to deduplicate
   const featureMapRef = useRef<Map<string, GeoJSON.Feature>>(new Map());
 
+  useEffect(() => {
+    showAirspaceRegionsRef.current = showAirspaceRegions;
+    showTfrsRef.current = showTfrs;
+  }, [showAirspaceRegions, showTfrs]);
+
   // -------------------------------------------------------------------
   // Fetch airspace for current viewport (accumulates, never replaces)
   // -------------------------------------------------------------------
 
   const fetchViewportAirspace = useCallback(async (map: maplibregl.Map) => {
+    if (!showAirspaceRegionsRef.current) {
+      abortRef.current?.abort();
+      loadedBoundsRef.current = null;
+      featureMapRef.current.clear();
+      const empty = emptyFeatureCollection();
+      setAirspaceData(empty);
+      setFeatureCount(0);
+      setLoading(false);
+      const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
+      if (src) src.setData(empty);
+      return;
+    }
+
     const b = map.getBounds();
     const viewBounds = {
       west: b.getWest(),
@@ -155,22 +226,78 @@ export default function AirspaceExplorerMap() {
   // -------------------------------------------------------------------
 
   const fetchTfrData = useCallback(async () => {
+    if (!showTfrsRef.current) {
+      setTfrData(emptyFeatureCollection());
+      setTfrLoading(false);
+      return;
+    }
+
     setTfrLoading(true);
     try {
       const data = await fetchTFRs();
       setTfrData(data);
-
-      const map = mapRef.current;
-      if (map) {
-        const src = map.getSource(SRC_TFR) as maplibregl.GeoJSONSource | undefined;
-        if (src) src.setData(data);
-      }
     } catch {
       // TFR fetch failure is non-critical
     } finally {
       setTfrLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.isStyleLoaded()) return;
+    const src = map.getSource(SRC_TFR) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(visibleTfrData);
+  }, [visibleTfrData]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map?.isStyleLoaded()) return;
+    if (showAirspaceRegions) {
+      if (!airspaceData?.features.length) void fetchViewportAirspace(map);
+      return;
+    }
+    abortRef.current?.abort();
+    loadedBoundsRef.current = null;
+    featureMapRef.current.clear();
+    const empty = emptyFeatureCollection();
+    setAirspaceData(empty);
+    setFeatureCount(0);
+    const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(empty);
+  }, [airspaceData?.features.length, fetchViewportAirspace, showAirspaceRegions]);
+
+  useEffect(() => {
+    if (showTfrs) {
+      if (!tfrData?.features.length) void fetchTfrData();
+      return;
+    }
+    setTfrData(emptyFeatureCollection());
+  }, [fetchTfrData, showTfrs, tfrData?.features.length]);
+
+  useEffect(() => {
+    if (!refreshToken) return;
+
+    loadedBoundsRef.current = null;
+    featureMapRef.current.clear();
+    const empty = emptyFeatureCollection();
+    setAirspaceData(empty);
+    setFeatureCount(0);
+
+    const map = mapRef.current;
+    if (map?.isStyleLoaded()) {
+      const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
+      if (src) src.setData(empty);
+      void fetchViewportAirspace(map);
+    }
+
+    void fetchTfrData();
+  }, [fetchTfrData, fetchViewportAirspace, refreshToken]);
+
+  useEffect(() => {
+    if (!tfrRefreshToken) return;
+    void fetchTfrData();
+  }, [fetchTfrData, tfrRefreshToken]);
 
   // -------------------------------------------------------------------
   // Initialize map
@@ -375,24 +502,31 @@ export default function AirspaceExplorerMap() {
     const map = mapRef.current;
     if (!map || !map.isStyleLoaded()) return;
 
+    const airspaceVisible = showAirspaceRegions && [...CLASS_CATEGORIES, ...SUA_CATEGORIES].some((c) => visibleCategories.has(c));
+    const tfrVisible = showTfrs && visibleCategories.has("TFR");
+
     if (is3D) {
       // Hide flat fills, show extrusions
       map.setLayoutProperty(LYR_AIRSPACE_FILL, "visibility", "none");
-      map.setLayoutProperty(LYR_AIRSPACE_EXTRUSION, "visibility", "visible");
+      map.setLayoutProperty(LYR_AIRSPACE_EXTRUSION, "visibility", airspaceVisible ? "visible" : "none");
       map.setLayoutProperty(LYR_TFR_FILL, "visibility", "none");
-      map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", "visible");
+      map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", tfrVisible ? "visible" : "none");
       // Tilt into 3D perspective
       map.easeTo({ pitch: 55, duration: 600 });
     } else {
       // Show flat fills, hide extrusions
-      map.setLayoutProperty(LYR_AIRSPACE_FILL, "visibility", "visible");
+      map.setLayoutProperty(LYR_AIRSPACE_FILL, "visibility", airspaceVisible ? "visible" : "none");
       map.setLayoutProperty(LYR_AIRSPACE_EXTRUSION, "visibility", "none");
-      map.setLayoutProperty(LYR_TFR_FILL, "visibility", "visible");
+      map.setLayoutProperty(LYR_TFR_FILL, "visibility", tfrVisible ? "visible" : "none");
       map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", "none");
       // Flatten back to 2D
       map.easeTo({ pitch: 0, duration: 600 });
     }
-  }, [is3D]);
+    map.setLayoutProperty(LYR_AIRSPACE_LINE, "visibility", airspaceVisible ? "visible" : "none");
+    map.setLayoutProperty(LYR_AIRSPACE_LABEL, "visibility", airspaceVisible && showAirspaceLabels ? "visible" : "none");
+    map.setLayoutProperty(LYR_TFR_LINE, "visibility", tfrVisible ? "visible" : "none");
+    map.setLayoutProperty(LYR_TFR_LABEL, "visibility", tfrVisible && showTfrLabels ? "visible" : "none");
+  }, [is3D, showAirspaceLabels, showAirspaceRegions, showTfrLabels, showTfrs, visibleCategories]);
 
   // -------------------------------------------------------------------
   // Sync layer visibility with category toggles
@@ -417,8 +551,14 @@ export default function AirspaceExplorerMap() {
     map.setFilter(LYR_AIRSPACE_LINE, airspaceFilter);
     map.setFilter(LYR_AIRSPACE_LABEL, airspaceFilter);
 
+    const airspaceVisible = showAirspaceRegions && allVisible.length > 0;
+    map.setLayoutProperty(LYR_AIRSPACE_FILL, "visibility", airspaceVisible && !is3D ? "visible" : "none");
+    map.setLayoutProperty(LYR_AIRSPACE_EXTRUSION, "visibility", airspaceVisible && is3D ? "visible" : "none");
+    map.setLayoutProperty(LYR_AIRSPACE_LINE, "visibility", airspaceVisible ? "visible" : "none");
+    map.setLayoutProperty(LYR_AIRSPACE_LABEL, "visibility", airspaceVisible && showAirspaceLabels ? "visible" : "none");
+
     // TFR visibility
-    const tfrVisible = visibleCategories.has("TFR");
+    const tfrVisible = showTfrs && visibleCategories.has("TFR");
     if (is3D) {
       map.setLayoutProperty(LYR_TFR_FILL, "visibility", "none");
       map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", tfrVisible ? "visible" : "none");
@@ -427,8 +567,8 @@ export default function AirspaceExplorerMap() {
       map.setLayoutProperty(LYR_TFR_EXTRUSION, "visibility", "none");
     }
     map.setLayoutProperty(LYR_TFR_LINE, "visibility", tfrVisible ? "visible" : "none");
-    map.setLayoutProperty(LYR_TFR_LABEL, "visibility", tfrVisible ? "visible" : "none");
-  }, [visibleCategories, is3D]);
+    map.setLayoutProperty(LYR_TFR_LABEL, "visibility", tfrVisible && showTfrLabels ? "visible" : "none");
+  }, [visibleCategories, is3D, showAirspaceLabels, showAirspaceRegions, showTfrLabels, showTfrs]);
 
   // -------------------------------------------------------------------
   // Popup helper
@@ -444,6 +584,10 @@ export default function AirspaceExplorerMap() {
     const upper = p.upperVal != null && Number(p.upperVal) > 0 ? `${p.upperVal} ${p.upperUom}` : "Unlimited";
     const lower = p.lowerVal != null && Number(p.lowerVal) > 0 ? `${p.lowerVal} ${p.lowerUom}` : "SFC";
     const loc = [p.city, p.state].filter(Boolean).join(", ");
+    const noticeTime = formatPopupTime(p.noticeTime);
+    const effectiveStart = formatPopupTime(p.effectiveStart);
+    const effectiveEnd = formatPopupTime(p.effectiveEnd);
+    const tfrTiming = cat === "TFR" && (noticeTime || effectiveStart || effectiveEnd || p.notamId);
 
     const html = `
       <div style="font-family:var(--ff-body,system-ui);font-size:13px;max-width:260px">
@@ -456,6 +600,13 @@ export default function AirspaceExplorerMap() {
         <div style="font-size:12px;color:#cbd5e1">
           <span>Floor: ${lower}</span> · <span>Ceiling: ${upper}</span>
         </div>
+        ${tfrTiming ? `
+          <div style="font-size:12px;color:#cbd5e1;margin-top:6px">
+            ${p.notamId ? `<div>NOTAM: ${p.notamId}</div>` : ""}
+            ${noticeTime ? `<div>Notice: ${noticeTime}</div>` : ""}
+            ${effectiveStart || effectiveEnd ? `<div>Effective: ${effectiveStart ?? "unknown"} to ${effectiveEnd ?? "unknown"}</div>` : ""}
+          </div>
+        ` : ""}
       </div>
     `;
 
@@ -498,8 +649,8 @@ export default function AirspaceExplorerMap() {
     const bounds = map?.getBounds();
 
     const allFeatures = [
-      ...(airspaceData?.features ?? []),
-      ...(visibleCategories.has("TFR") ? tfrData?.features ?? [] : []),
+      ...(showAirspaceRegions ? airspaceData?.features ?? [] : []),
+      ...(showTfrs && visibleCategories.has("TFR") ? visibleTfrData.features : []),
     ].filter((f) => {
       const cat = (f.properties as { category: AirspaceCategory }).category;
       if (!visibleCategories.has(cat)) return false;
@@ -519,6 +670,10 @@ export default function AirspaceExplorerMap() {
     downloadOpenAir(allFeatures as any, "airspace-export.txt");
   }
 
+  const legendCategories = ALL_CATEGORIES.filter((cat) => (
+    visibleCategories.has(cat) && (cat === "TFR" ? showTfrs : showAirspaceRegions)
+  ));
+
   // -------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------
@@ -527,76 +682,89 @@ export default function AirspaceExplorerMap() {
     <div className={styles.shell}>
       {/* Left sidebar controls */}
       <div className={styles.leftPanel}>
-        {/* Controlled airspace */}
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Controlled Airspace</div>
-          <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
-            <input type="checkbox" checked={allClassVisible} onChange={() => toggleGroup(CLASS_CATEGORIES, allClassVisible)} />
-            Show All
-          </label>
-          {CLASS_CATEGORIES.map((cat) => (
-            <label key={cat} className={styles.categoryRow}>
-              <input
-                type="checkbox"
-                checked={visibleCategories.has(cat)}
-                onChange={() => toggleCategory(cat)}
-              />
-              <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
-              {CATEGORY_LABELS[cat]}
-            </label>
-          ))}
-        </div>
+        {/* Controlled airspace + Special Use Airspace + TFRs */}
+        {oc?.category_toggles !== false && (
+          <>
+            {showAirspaceRegions ? (
+              <>
+                {/* Controlled airspace */}
+                <div className={styles.section}>
+                  <div className={styles.sectionLabel}>Controlled Airspace</div>
+                  <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
+                    <input type="checkbox" checked={allClassVisible} onChange={() => toggleGroup(CLASS_CATEGORIES, allClassVisible)} />
+                    Show All
+                  </label>
+                  {CLASS_CATEGORIES.map((cat) => (
+                    <label key={cat} className={styles.categoryRow}>
+                      <input
+                        type="checkbox"
+                        checked={visibleCategories.has(cat)}
+                        onChange={() => toggleCategory(cat)}
+                      />
+                      <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
+                      {CATEGORY_LABELS[cat]}
+                    </label>
+                  ))}
+                </div>
 
-        {/* Special Use Airspace */}
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Special Use Airspace</div>
-          <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
-            <input type="checkbox" checked={allSUAVisible} onChange={() => toggleGroup(SUA_CATEGORIES, allSUAVisible)} />
-            Show All
-          </label>
-          {SUA_CATEGORIES.map((cat) => (
-            <label key={cat} className={styles.categoryRow}>
-              <input
-                type="checkbox"
-                checked={visibleCategories.has(cat)}
-                onChange={() => toggleCategory(cat)}
-              />
-              <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
-              {CATEGORY_LABELS[cat]}
-            </label>
-          ))}
-        </div>
+                {/* Special Use Airspace */}
+                <div className={styles.section}>
+                  <div className={styles.sectionLabel}>Special Use Airspace</div>
+                  <label className={styles.categoryRow} style={{ marginBottom: 6, fontWeight: 600 }}>
+                    <input type="checkbox" checked={allSUAVisible} onChange={() => toggleGroup(SUA_CATEGORIES, allSUAVisible)} />
+                    Show All
+                  </label>
+                  {SUA_CATEGORIES.map((cat) => (
+                    <label key={cat} className={styles.categoryRow}>
+                      <input
+                        type="checkbox"
+                        checked={visibleCategories.has(cat)}
+                        onChange={() => toggleCategory(cat)}
+                      />
+                      <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
+                      {CATEGORY_LABELS[cat]}
+                    </label>
+                  ))}
+                </div>
+              </>
+            ) : null}
 
-        {/* TFRs */}
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Temporary Flight Restrictions</div>
-          <label className={styles.categoryRow}>
-            <input type="checkbox" checked={anyTFRVisible} onChange={() => toggleCategory("TFR")} />
-            <span className={styles.swatch} style={{ background: CATEGORY_COLORS.TFR }} />
-            Active TFRs
-          </label>
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 4 }}>
-            Defense airspace TFRs &middot; refreshes every 5 min
-          </div>
-        </div>
+            {/* TFRs */}
+            {showTfrs ? (
+              <div className={styles.section}>
+                <div className={styles.sectionLabel}>Temporary Flight Restrictions</div>
+                <label className={styles.categoryRow}>
+                  <input type="checkbox" checked={anyTFRVisible} onChange={() => toggleCategory("TFR")} />
+                  <span className={styles.swatch} style={{ background: CATEGORY_COLORS.TFR }} />
+                  Active TFRs
+                </label>
+                <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 4 }}>
+                  Defense airspace TFRs &middot; refreshes every 5 min
+                </div>
+              </div>
+            ) : null}
+          </>
+        )}
 
         {/* Export */}
-        <div className={styles.section}>
-          <button
-            type="button"
-            className={styles.exportBtn}
-            onClick={handleExport}
-            disabled={featureCount === 0 && !tfrData?.features.length}
-          >
-            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Export OpenAir (.txt)
-          </button>
-          <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 6 }}>
-            Exports visible airspace in OpenAir format for XC Tracer, Flymaster, Syride, etc.
+        {oc?.export_openair !== false && (
+          <div className={styles.section}>
+            <button
+              type="button"
+              className={styles.exportBtn}
+              onClick={handleExport}
+              disabled={(showAirspaceRegions ? featureCount : 0) === 0 && !(showTfrs && visibleTfrData.features.length)}
+            >
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <path d="M8 2v8M5 7l3 3 3-3M3 12h10" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              Export OpenAir (.txt)
+            </button>
+            <div style={{ fontSize: "0.72rem", color: "var(--muted)", marginTop: 6 }}>
+              Exports visible airspace in OpenAir format for XC Tracer, Flymaster, Syride, etc.
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
 
@@ -605,15 +773,17 @@ export default function AirspaceExplorerMap() {
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
 
         {/* Legend — floating overlay on map, bottom-right */}
-        <div className={styles.legend}>
-          <div className={styles.legendTitle}>Legend</div>
-          {ALL_CATEGORIES.filter((c) => visibleCategories.has(c)).map((cat) => (
-            <div key={cat} className={styles.legendItem}>
-              <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
-              {CATEGORY_LABELS[cat]}
-            </div>
-          ))}
-        </div>
+        {oc?.legend !== false && (
+          <div className={styles.legend}>
+            <div className={styles.legendTitle}>Legend</div>
+            {legendCategories.map((cat) => (
+              <div key={cat} className={styles.legendItem}>
+                <span className={styles.swatch} style={{ background: CATEGORY_COLORS[cat] }} />
+                {CATEGORY_LABELS[cat]}
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Loading indicator — matches weather map pattern */}
         {(loading || tfrLoading) && (
@@ -623,24 +793,26 @@ export default function AirspaceExplorerMap() {
         )}
 
         {/* 3D toggle button — bottom-left of map */}
-        <button
-          type="button"
-          className={`${styles.mapBtn} ${is3D ? styles.mapBtnActive : ""}`}
-          onClick={() => setIs3D((v) => !v)}
-          title={is3D ? "Switch to 2D" : "Switch to 3D"}
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            {is3D ? (
-              <>
-                <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">2D</text>
-              </>
-            ) : (
-              <>
-                <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">3D</text>
-              </>
-            )}
-          </svg>
-        </button>
+        {oc?.["2d_3d_toggle"] !== false && (
+          <button
+            type="button"
+            className={`${styles.mapBtn} ${is3D ? styles.mapBtnActive : ""}`}
+            onClick={() => setIs3D((v) => !v)}
+            title={is3D ? "Switch to 2D" : "Switch to 3D"}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              {is3D ? (
+                <>
+                  <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">2D</text>
+                </>
+              ) : (
+                <>
+                  <text x="4" y="17" fontSize="14" fontWeight="700" fill="currentColor" stroke="none" fontFamily="system-ui">3D</text>
+                </>
+              )}
+            </svg>
+          </button>
+        )}
       </div>
     </div>
   );

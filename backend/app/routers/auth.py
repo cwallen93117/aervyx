@@ -12,7 +12,7 @@ from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Pilot, User, UserEmail
+from app.models import LivePosition, MeshDevice, Pilot, TrackingSession, User, UserEmail
 from app.schemas import (
     AdminUserCredentialsUpdate,
     AdminUserResponse,
@@ -22,6 +22,10 @@ from app.schemas import (
     AccountSettingsUpdateResponse,
     GoogleAuthRequest,
     LoginRequest,
+    MeshDeviceCreate,
+    MeshDeviceRegister,
+    MeshDeviceResponse,
+    MeshDeviceUpdate,
     PasswordChangeRequest,
     PilotClaimRequest,
     PilotClaimResponse,
@@ -33,6 +37,7 @@ from app.schemas import (
     UserEmailResponse,
     UserSummary,
 )
+from app.services.pilot_identity import repair_user_email_identity
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +52,8 @@ VALID_SPEED_UNITS = {"kph", "mph"}
 VALID_DISTANCE_UNITS = {"km", "mi"}
 VALID_VARIO_UNITS = {"fpm", "ms"}
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
+VALID_MESH_DEVICE_PURPOSES = {"tracking", "base_station", "driver_wifi", "driver_mesh", "relay"}
+TRACKING_MESH_PURPOSE = "tracking"
 
 
 def _is_valid_email(value: str) -> bool:
@@ -121,6 +128,178 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
     )
 
 
+def _normalize_mesh_device_id(value: str | None) -> str | None:
+    candidate = (value or "").strip().lower()
+    return candidate or None
+
+
+def _normalize_mesh_purpose(value: str | None) -> str:
+    candidate = (value or "").strip().lower() or TRACKING_MESH_PURPOSE
+    if candidate not in VALID_MESH_DEVICE_PURPOSES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Device purpose must be tracking, base_station, driver_wifi, driver_mesh, or relay",
+        )
+    return candidate
+
+
+def _default_mesh_device_label(user: User, device_id: str) -> str:
+    return (user.full_name or user.username or device_id).strip()[:160] or device_id
+
+
+def _mesh_device_response(device: MeshDevice, owner: User | None = None) -> MeshDeviceResponse:
+    return MeshDeviceResponse(
+        id=device.id,
+        owner_user_id=device.owner_user_id,
+        owner_name=owner.full_name if owner else None,
+        device_id=device.device_id,
+        label=device.label,
+        purpose=device.purpose,
+        is_active=device.is_active,
+        created_at=device.created_at,
+        updated_at=device.updated_at,
+    )
+
+
+def _request_mqtt_refresh() -> None:
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+
+    request_mqtt_reconnect()
+
+
+def _clear_user_tracking_device(user: User, session: Session) -> None:
+    old_device_id = user.mesh_device_id
+    user.mesh_device_id = None
+    session.add(user)
+    if old_device_id:
+        device = session.scalar(
+            select(MeshDevice).where(
+                MeshDevice.owner_user_id == user.id,
+                MeshDevice.device_id == old_device_id,
+                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
+            )
+        )
+        if device is not None:
+            device.is_active = False
+            session.add(device)
+
+
+def _set_user_tracking_device(
+    user: User,
+    device_id: str | None,
+    session: Session,
+    *,
+    label: str | None = None,
+    allow_transfer: bool = True,
+) -> MeshDevice | None:
+    normalized = _normalize_mesh_device_id(device_id)
+    if normalized is None:
+        _clear_user_tracking_device(user, session)
+        return None
+
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == normalized))
+    if device is not None and device.owner_user_id != user.id and not allow_transfer:
+        owner = session.get(User, device.owner_user_id)
+        owner_name = owner.full_name if owner else "another user"
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+
+    previous_owner = session.scalar(select(User).where(User.mesh_device_id == normalized, User.id != user.id))
+    if previous_owner is not None:
+        previous_owner.mesh_device_id = None
+        session.add(previous_owner)
+
+    if device is None:
+        device = MeshDevice(
+            owner_user_id=user.id,
+            device_id=normalized,
+            label=(label or _default_mesh_device_label(user, normalized)).strip()[:160],
+            purpose=TRACKING_MESH_PURPOSE,
+            is_active=True,
+        )
+    else:
+        device.owner_user_id = user.id
+        device.label = (label or device.label or _default_mesh_device_label(user, normalized)).strip()[:160]
+        device.purpose = TRACKING_MESH_PURPOSE
+        device.is_active = True
+
+    other_tracking_devices = session.scalars(
+        select(MeshDevice).where(
+            MeshDevice.owner_user_id == user.id,
+            MeshDevice.purpose == TRACKING_MESH_PURPOSE,
+            MeshDevice.device_id != normalized,
+        )
+    ).all()
+    for other in other_tracking_devices:
+        other.is_active = False
+        session.add(other)
+
+    user.mesh_device_id = normalized
+    session.add_all([user, device])
+    return device
+
+
+def _upsert_owned_mesh_device(
+    user: User,
+    payload: MeshDeviceCreate,
+    session: Session,
+    *,
+    allow_transfer: bool = False,
+) -> MeshDevice:
+    device_id = _normalize_mesh_device_id(payload.device_id)
+    if device_id is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+    purpose = _normalize_mesh_purpose(payload.purpose)
+    label = (payload.label or "").strip()[:160] or _default_mesh_device_label(user, device_id)
+
+    if purpose == TRACKING_MESH_PURPOSE:
+        device = _set_user_tracking_device(
+            user,
+            device_id,
+            session,
+            label=label,
+            allow_transfer=allow_transfer,
+        )
+        assert device is not None
+        device.is_active = payload.is_active
+        if not payload.is_active and user.mesh_device_id == device_id:
+            user.mesh_device_id = None
+        session.add_all([user, device])
+        return device
+
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == device_id))
+    if device is not None and device.owner_user_id != user.id and not allow_transfer:
+        owner = session.get(User, device.owner_user_id)
+        owner_name = owner.full_name if owner else "another user"
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+
+    legacy_owner = session.scalar(select(User).where(User.mesh_device_id == device_id, User.id != user.id))
+    if legacy_owner is not None and not allow_transfer:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {legacy_owner.full_name}")
+    if legacy_owner is not None:
+        legacy_owner.mesh_device_id = None
+        session.add(legacy_owner)
+
+    if user.mesh_device_id == device_id:
+        user.mesh_device_id = None
+        session.add(user)
+
+    if device is None:
+        device = MeshDevice(
+            owner_user_id=user.id,
+            device_id=device_id,
+            label=label,
+            purpose=purpose,
+            is_active=payload.is_active,
+        )
+    else:
+        device.owner_user_id = user.id
+        device.label = label
+        device.purpose = purpose
+        device.is_active = payload.is_active
+    session.add(device)
+    return device
+
+
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
@@ -130,6 +309,9 @@ def login(request: Request, payload: LoginRequest, session: Session = Depends(ge
         user = session.scalar(select(User).where(User.username == payload.username.strip(), User.is_active.is_(True)))
     if user is None or not user.password_hash or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if repair_user_email_identity(session, user) is not None:
+        session.commit()
+        session.refresh(user)
     return TokenResponse(
         access_token=create_access_token(user.username),
         refresh_token=create_refresh_token(user.username),
@@ -228,6 +410,10 @@ def google_auth(request: Request, payload: GoogleAuthRequest, session: Session =
         session.commit()
         session.refresh(user)
         logger.info("User %s authenticated via Google sign-in", user.username)
+
+    if repair_user_email_identity(session, user) is not None:
+        session.commit()
+        session.refresh(user)
 
     return TokenResponse(
         access_token=create_access_token(user.username),
@@ -428,6 +614,160 @@ def change_password(
     session.add(user)
     session.commit()
     return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
+# Meshtastic device self-registration
+# ---------------------------------------------------------------------------
+
+@router.put("/mesh-device")
+def register_mesh_device(
+    payload: MeshDeviceRegister,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Allow a logged-in user to register (or clear) their own Meshtastic device ID.
+
+    If another user already holds the same device ID that device association is
+    transferred to the caller — the latest BLE pairing wins.
+    Sending null / empty string clears the current user's association.
+    """
+    device = _set_user_tracking_device(user, payload.mesh_device_id, session, allow_transfer=True)
+    session.commit()
+    _request_mqtt_refresh()
+    mesh_device_id = device.device_id if device else None
+    logger.info("User %s set mesh_device_id=%s", user.username, mesh_device_id)
+    return {"ok": True, "mesh_device_id": mesh_device_id}
+
+
+@router.get("/mesh-devices", response_model=list[MeshDeviceResponse])
+def list_mesh_devices(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[MeshDeviceResponse]:
+    devices = session.scalars(
+        select(MeshDevice)
+        .where(MeshDevice.owner_user_id == user.id)
+        .order_by(MeshDevice.purpose.asc(), MeshDevice.label.asc(), MeshDevice.device_id.asc())
+    ).all()
+    return [_mesh_device_response(device, user) for device in devices]
+
+
+@router.post("/mesh-devices", response_model=MeshDeviceResponse, status_code=status.HTTP_201_CREATED)
+def create_mesh_device(
+    payload: MeshDeviceCreate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshDeviceResponse:
+    device = _upsert_owned_mesh_device(user, payload, session, allow_transfer=False)
+    session.commit()
+    _request_mqtt_refresh()
+    session.refresh(device)
+    return _mesh_device_response(device, user)
+
+
+@router.put("/mesh-devices/tracking")
+def set_tracking_mesh_device(
+    payload: MeshDeviceRegister,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
+    device = _set_user_tracking_device(user, payload.mesh_device_id, session, allow_transfer=False)
+    session.commit()
+    _request_mqtt_refresh()
+    return {"ok": True, "mesh_device_id": device.device_id if device else None}
+
+
+@router.patch("/mesh-devices/{device_id}", response_model=MeshDeviceResponse)
+def update_mesh_device(
+    device_id: str,
+    payload: MeshDeviceUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshDeviceResponse:
+    normalized = _normalize_mesh_device_id(device_id)
+    if normalized is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+    device = session.scalar(
+        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == user.id)
+    )
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
+
+    next_device_id = normalized
+    if payload.device_id is not None:
+        next_device_id = _normalize_mesh_device_id(payload.device_id)
+        if next_device_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+        if next_device_id != normalized:
+            existing_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == next_device_id))
+            if existing_device is not None and existing_device.id != device.id:
+                owner = session.get(User, existing_device.owner_user_id)
+                owner_name = owner.full_name if owner else "another user"
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+            legacy_owner = session.scalar(select(User).where(User.mesh_device_id == next_device_id, User.id != user.id))
+            if legacy_owner is not None:
+                owner_name = legacy_owner.full_name or legacy_owner.username or "another user"
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+            device.device_id = next_device_id
+
+    next_purpose = _normalize_mesh_purpose(payload.purpose) if payload.purpose is not None else device.purpose
+    if payload.label is not None:
+        device.label = payload.label.strip()[:160] or _default_mesh_device_label(user, next_device_id)
+    if payload.is_active is not None:
+        device.is_active = payload.is_active
+    if next_purpose == TRACKING_MESH_PURPOSE:
+        device.purpose = TRACKING_MESH_PURPOSE
+        if payload.is_active is None:
+            device.is_active = True
+        other_tracking_devices = session.scalars(
+            select(MeshDevice).where(
+                MeshDevice.owner_user_id == user.id,
+                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
+                MeshDevice.id != device.id,
+            )
+        ).all()
+        for other in other_tracking_devices:
+            other.is_active = False
+            session.add(other)
+        if device.is_active:
+            user.mesh_device_id = next_device_id
+            session.add(user)
+        elif user.mesh_device_id in {normalized, next_device_id}:
+            user.mesh_device_id = None
+            session.add(user)
+    else:
+        device.purpose = next_purpose
+        if user.mesh_device_id in {normalized, next_device_id}:
+            user.mesh_device_id = None
+            session.add(user)
+    session.add(device)
+    session.commit()
+    _request_mqtt_refresh()
+    session.refresh(device)
+    return _mesh_device_response(device, user)
+
+
+@router.delete("/mesh-devices/{device_id}", status_code=204)
+def delete_mesh_device(
+    device_id: str,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    normalized = _normalize_mesh_device_id(device_id)
+    if normalized is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+    device = session.scalar(
+        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == user.id)
+    )
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
+    if user.mesh_device_id == normalized:
+        user.mesh_device_id = None
+        session.add(user)
+    session.delete(device)
+    session.commit()
+    _request_mqtt_refresh()
 
 
 # ---------------------------------------------------------------------------
@@ -645,6 +985,7 @@ def list_users(admin: User = Depends(require_admin), session: Session = Depends(
                 else None
             ),
             competition_number=pilots[user.pilot_id].competition_number if user.pilot_id and user.pilot_id in pilots else None,
+            mesh_device_id=user.mesh_device_id,
             is_active=user.is_active,
             created_at=user.created_at,
         )
@@ -693,6 +1034,104 @@ def update_user_account(
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=target.mesh_device_id,
+        is_active=target.is_active,
+        created_at=target.created_at,
+    )
+
+
+@router.delete("/users/{user_id}/mesh-device", status_code=204)
+def clear_user_mesh_device(
+    user_id: int,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> None:
+    """Admin-only: clear a user's mesh device pairing (e.g. lost or stolen device).
+    Device assignment happens automatically when the user pairs via BLE — this
+    endpoint only exists to remove an association, never to create one.
+    """
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    _clear_user_tracking_device(target, session)
+    session.commit()
+    _request_mqtt_refresh()
+    logger.info("Admin %s cleared mesh_device_id for user %s", admin.username, target.username)
+
+
+@router.get("/admin/mesh-device-lookup")
+def admin_mesh_device_lookup(
+    device_id: str,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict:
+    """Admin-only: check whether a mesh device ID is currently assigned to any user.
+
+    Returns the current owner (if any) so the admin UI can warn about reclaiming
+    the device from another user before saving the change.
+    """
+    normalized = _normalize_mesh_device_id(device_id)
+    if not normalized:
+        return {"device_id": None, "assigned_to": None}
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == normalized))
+    owner = session.get(User, device.owner_user_id) if device is not None else None
+    if owner is None:
+        owner = session.scalar(select(User).where(User.mesh_device_id == normalized))
+    if owner is None:
+        return {"device_id": normalized, "assigned_to": None}
+    return {
+        "device_id": normalized,
+        "device": {
+            "label": device.label if device else None,
+            "purpose": device.purpose if device else "tracking",
+        },
+        "assigned_to": {
+            "user_id": owner.id,
+            "username": owner.username,
+            "full_name": owner.full_name,
+        },
+    }
+
+
+@router.patch("/users/{user_id}/mesh-device", response_model=AdminUserResponse)
+def admin_set_user_mesh_device(
+    user_id: int,
+    payload: MeshDeviceRegister,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    """Admin-only: set or change a user's mesh device ID.
+
+    - ``mesh_device_id = null`` or empty string: clears the pairing.
+    - Non-null value already held by another user: reclaims it from the previous
+      owner (same semantics as BLE pairing) so positions start routing to the
+      new owner. Past LivePosition rows keep their original pilot_id attribution.
+    """
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    device = _set_user_tracking_device(target, payload.mesh_device_id, session, allow_transfer=True)
+    session.commit()
+    _request_mqtt_refresh()
+    session.refresh(target)
+    mesh_device_id = device.device_id if device else None
+    logger.info("Admin %s set mesh_device_id=%s for user %s", admin.username, mesh_device_id, target.username)
+
+    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
+    return AdminUserResponse(
+        id=target.id,
+        username=target.username,
+        full_name=target.full_name,
+        first_name=pilot.first_name if pilot else None,
+        last_name=pilot.last_name if pilot else None,
+        role=target.role,
+        profile_type=target.profile_type,
+        pilot_id=target.pilot_id,
+        email=pilot.email if pilot else None,
+        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
+        competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=target.mesh_device_id,
         is_active=target.is_active,
         created_at=target.created_at,
     )
@@ -732,6 +1171,7 @@ def update_user_credentials(
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
         competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=target.mesh_device_id,
         is_active=target.is_active,
         created_at=target.created_at,
     )
@@ -748,5 +1188,17 @@ def delete_user_account(user_id: int, admin: User = Depends(require_admin), sess
         admin_count = session.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True))) or 0
         if admin_count <= 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one active admin account must remain")
+    # Clean up tracking data so deleted users don't appear as ghosts
+    # in Live Tracking.  TrackingSession / LivePosition FKs are SET NULL
+    # on pilot deletion, but the Pilot row itself survives user deletion,
+    # so we must explicitly deactivate sessions and purge positions.
+    if target.pilot_id:
+        session.query(TrackingSession).filter(
+            TrackingSession.pilot_id == target.pilot_id,
+        ).update({"is_active": False})
+        session.query(LivePosition).filter(
+            LivePosition.pilot_id == target.pilot_id,
+        ).delete()
+
     session.delete(target)
     session.commit()

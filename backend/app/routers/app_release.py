@@ -76,6 +76,29 @@ def get_version() -> AppVersionResponse:
     )
 
 
+@router.get("/releases")
+def list_releases() -> list[AppVersionResponse]:
+    """Return metadata for all releases, newest first.  Public — no auth."""
+    releases = _read_releases()
+    if not releases:
+        return []
+
+    settings = get_settings()
+    # releases.json stores oldest first (append order) — reverse so newest is first
+    return [
+        AppVersionResponse(
+            version=release["version"],
+            version_code=release["version_code"],
+            download_url=f"{settings.api_public_url}/api/app/download",
+            release_notes=release.get("release_notes", ""),
+            release_date=release["release_date"],
+            min_supported_version=release.get("min_supported_version", release["version"]),
+            file_size_bytes=release.get("file_size_bytes"),
+        )
+        for release in reversed(releases)
+    ]
+
+
 @router.get("/download")
 def download_apk():
     """Serve the latest APK.  Public — no auth."""
@@ -88,10 +111,14 @@ def download_apk():
     if not apk_path.exists():
         raise HTTPException(status_code=404, detail="APK file not found")
 
+    # Always serve with version+build in the filename so users can verify what
+    # they downloaded matches the displayed version on /app.
+    served_name = f"aervyx-{release['version']}+{release['version_code']}.apk"
+
     return FileResponse(
         path=str(apk_path),
         media_type="application/vnd.android.package-archive",
-        filename=release["apk_filename"],
+        filename=served_name,
     )
 
 
@@ -112,7 +139,7 @@ def upload_apk(
     version_dir = Path(settings.apk_root) / version
     version_dir.mkdir(parents=True, exist_ok=True)
 
-    apk_filename = f"aervyx-{version}.apk"
+    apk_filename = f"aervyx-{version}+{version_code}.apk"
     apk_path = version_dir / apk_filename
 
     content = file.file.read()

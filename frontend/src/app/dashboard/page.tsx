@@ -14,6 +14,7 @@ import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection"
 import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
+import SosSection from "../../components/dashboard/SosSection";
 import { WeatherSection } from "../../components/dashboard/WeatherSection";
 import { AirspaceSection } from "../../components/dashboard/AirspaceSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
@@ -29,6 +30,7 @@ import {
   type AdminSiteScanIgcResultRecord,
   type AdminUserRecord,
   type SiteSettingsRecord,
+  type MapOverlayConfigRecord,
   type LogbookFlightSummaryRecord,
   type LogbookFlightDetailRecord,
   type LogbookFolderImportResultRecord,
@@ -43,6 +45,7 @@ import {
   type TaskRecord,
   type ResultRecord,
   type PilotSummaryRecord,
+  type TaskResultSummaryRecord,
   type UploadRecord,
   type TurnpointUploadResponse,
   type BulkUploadItemRecord,
@@ -82,30 +85,292 @@ function resolveApiBase() {
 // Airspace freshness indicator (shown in hero bar)
 // ---------------------------------------------------------------------------
 
-function AirspaceFreshnessStatus() {
-  const [status, setStatus] = useState<{ airspace?: string; tfr?: string } | null>(null);
+type AirspaceSourceStatus = {
+  last_fetched_at?: string | null;
+  last_checked_at?: string | null;
+};
+
+type AirspaceRefreshResult = {
+  status?: string;
+  error?: string;
+};
+
+type AirspaceStatusResponse = {
+  sources?: {
+    class?: AirspaceSourceStatus;
+    sua?: AirspaceSourceStatus;
+    tfr?: AirspaceSourceStatus;
+  };
+  manual_refresh?: {
+    in_progress?: boolean;
+    sources?: string[];
+    results?: Record<string, AirspaceRefreshResult>;
+  };
+  refreshed?: Record<string, AirspaceRefreshResult>;
+};
+
+const AIRSPACE_REFRESH_POLL_MS = 3000;
+const AIRSPACE_REFRESH_MAX_POLLS = 60;
+const TFR_TIME_STEP_HOURS = 1;
+const TFR_TIME_WINDOW_HOURS = 24;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function failedAirspaceSources(payload: AirspaceStatusResponse) {
+  const results = payload.manual_refresh?.results ?? payload.refreshed ?? {};
+  return Object.entries(results)
+    .filter(([, result]) => result.status === "error")
+    .map(([source]) => source);
+}
+
+function latestIso(...values: Array<string | null | undefined>) {
+  let latest: string | null = null;
+  let latestTime = 0;
+  for (const value of values) {
+    if (!value) continue;
+    const time = Date.parse(value);
+    if (Number.isNaN(time)) continue;
+    if (time > latestTime) {
+      latest = value;
+      latestTime = time;
+    }
+  }
+  return latest;
+}
+
+function buildTfrTimeSteps() {
+  const start = new Date();
+  start.setMinutes(0, 0, 0);
+  const steps: string[] = [];
+  for (let hour = 0; hour <= TFR_TIME_WINDOW_HOURS; hour += TFR_TIME_STEP_HOURS) {
+    steps.push(new Date(start.getTime() + hour * 60 * 60 * 1000).toISOString());
+  }
+  return steps;
+}
+
+function formatAirspaceTimestamp(iso: string | null | undefined) {
+  if (!iso) return "--";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "--";
+  return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function formatTfrSliderLabel(iso: string | null | undefined) {
+  if (!iso) return "";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return "";
+  return dt.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric" });
+}
+
+function getLocalHour(iso: string) {
+  return new Date(iso).getHours();
+}
+
+function getLocalMinute(iso: string) {
+  return new Date(iso).getMinutes();
+}
+
+function AirspaceTfrTimeSlider({ selectedTime, onTimeChange }: { selectedTime: string; onTimeChange: (time: string) => void }) {
+  const validTimes = useMemo(() => buildTfrTimeSteps(), []);
+  const selectedIdx = Math.max(0, validTimes.findIndex((time) => time === selectedTime));
+  const safeIdx = selectedIdx === -1 ? 0 : selectedIdx;
+  const scrubberPct = validTimes.length > 1 ? (safeIdx / (validTimes.length - 1)) * 100 : 0;
+  const dayGroups = useMemo(() => {
+    const groups: Array<{ label: string; startPct: number; widthPct: number }> = [];
+    let currentLabel = "";
+    let startIndex = 0;
+    validTimes.forEach((iso, index) => {
+      const label = new Date(iso).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+      if (index === 0) {
+        currentLabel = label;
+        startIndex = 0;
+        return;
+      }
+      if (label !== currentLabel) {
+        groups.push({
+          label: currentLabel,
+          startPct: (startIndex / (validTimes.length - 1)) * 100,
+          widthPct: ((index - startIndex) / (validTimes.length - 1)) * 100,
+        });
+        currentLabel = label;
+        startIndex = index;
+      }
+    });
+    if (validTimes.length > 0) {
+      groups.push({
+        label: currentLabel,
+        startPct: (startIndex / (validTimes.length - 1)) * 100,
+        widthPct: ((validTimes.length - startIndex - 1) / (validTimes.length - 1)) * 100,
+      });
+    }
+    return groups;
+  }, [validTimes]);
+
+  return (
+    <div className="airspace-tfr-timeline" title="TFR display time">
+      <div className="airspace-tfr-timeline-track-area">
+        <div className="airspace-tfr-timeline-days">
+          {dayGroups.map((group) => (
+            <div key={group.label} className="airspace-tfr-timeline-day" style={{ left: `${group.startPct}%`, width: `${group.widthPct}%` }}>
+              {group.label}
+            </div>
+          ))}
+        </div>
+        <div className="airspace-tfr-timeline-hours">
+          <input
+            type="range"
+            className="airspace-tfr-timeline-input"
+            min={0}
+            max={validTimes.length - 1}
+            step={1}
+            value={safeIdx}
+            aria-label="TFR display time"
+            onChange={(event) => onTimeChange(validTimes[Number(event.target.value)])}
+          />
+          {validTimes.map((iso, index) => {
+            const hour = getLocalHour(iso);
+            const minute = getLocalMinute(iso);
+            if (minute !== 0 || hour % 3 !== 0) return null;
+            const pct = validTimes.length > 1 ? (index / (validTimes.length - 1)) * 100 : 0;
+            const hour12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+            const label = `${hour12}${hour < 12 ? "a" : "p"}`;
+            return (
+              <div key={iso} className="airspace-tfr-timeline-tick" style={{ left: `${pct}%` }}>
+                <div className={hour === 0 ? "airspace-tfr-timeline-tick-mark midnight" : "airspace-tfr-timeline-tick-mark"} />
+                <span>{label}</span>
+              </div>
+            );
+          })}
+          <div className="airspace-tfr-timeline-scrubber" style={{ left: `${scrubberPct}%` }} />
+        </div>
+        <div className="airspace-tfr-timeline-current">{formatTfrSliderLabel(validTimes[safeIdx])}</div>
+      </div>
+    </div>
+  );
+}
+
+function AirspaceFreshnessStatus({
+  selectedTfrTime,
+  onTfrTimeChange,
+  onAirspaceRefreshComplete,
+  onTfrRefreshComplete,
+}: {
+  selectedTfrTime: string;
+  onTfrTimeChange: (time: string) => void;
+  onAirspaceRefreshComplete?: () => void;
+  onTfrRefreshComplete?: () => void;
+}) {
+  const [status, setStatus] = useState<{ airspace?: string; airspaceChecked?: string; tfr?: string } | null>(null);
+  const [refreshing, setRefreshing] = useState<"airspace" | "tfr" | null>(null);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  const applyStatus = useCallback((d: AirspaceStatusResponse) => {
+    const airspaceTs = latestIso(d.sources?.class?.last_fetched_at, d.sources?.sua?.last_fetched_at);
+    const airspaceCheckedTs = latestIso(d.sources?.class?.last_checked_at, d.sources?.sua?.last_checked_at);
+    const tfrTs = d.sources?.tfr?.last_fetched_at;
+    setStatus({
+      airspace: formatAirspaceTimestamp(airspaceTs),
+      airspaceChecked: formatAirspaceTimestamp(airspaceCheckedTs),
+      tfr: formatAirspaceTimestamp(tfrTs),
+    });
+  }, []);
+
+  const loadStatus = useCallback(async () => {
+    const api = resolveApiBase();
+    const response = await fetch(`${api}/api/faa-airspace/status`);
+    if (!response.ok) throw new Error(`Airspace status failed: ${response.status}`);
+    const payload = await response.json() as AirspaceStatusResponse;
+    applyStatus(payload);
+    return payload;
+  }, [applyStatus]);
 
   useEffect(() => {
+    void loadStatus().catch(() => {});
+  }, [loadStatus]);
+
+  async function handleRefresh(target: "airspace" | "tfr", sources: string, force: boolean) {
     const api = resolveApiBase();
-    fetch(`${api}/api/faa-airspace/status`)
-      .then((r) => r.json())
-      .then((d) => {
-        const fmt = (iso: string | null) => {
-          if (!iso) return "—";
-          const dt = new Date(iso);
-          return dt.toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-        };
-        const airspaceTs = d.sources?.class?.last_fetched_at ?? d.sources?.sua?.last_fetched_at;
-        const tfrTs = d.sources?.tfr?.last_fetched_at;
-        setStatus({ airspace: fmt(airspaceTs), tfr: fmt(tfrTs) });
-      })
-      .catch(() => {});
-  }, []);
+    setRefreshing(target);
+    setRefreshError(null);
+    try {
+      const params = new URLSearchParams({ sources, force: String(force) });
+      const response = await fetch(`${api}/api/faa-airspace/refresh?${params}`, { method: "POST" });
+      if (!response.ok) {
+        throw new Error(`Airspace refresh failed: ${response.status}`);
+      }
+      let payload = await response.json() as AirspaceStatusResponse;
+
+      applyStatus(payload);
+
+      for (let attempt = 0; payload.manual_refresh?.in_progress && attempt < AIRSPACE_REFRESH_MAX_POLLS; attempt += 1) {
+        await sleep(AIRSPACE_REFRESH_POLL_MS);
+        payload = await loadStatus();
+      }
+
+      if (payload.manual_refresh?.in_progress) {
+        setRefreshError("Refresh is still running. Check again shortly.");
+        return;
+      }
+
+      const failedSources = failedAirspaceSources(payload);
+      if (target === "airspace") {
+        onAirspaceRefreshComplete?.();
+      } else {
+        onTfrRefreshComplete?.();
+      }
+
+      if (failedSources.length > 0) {
+        setRefreshError(`Refresh failed for ${failedSources.join(", ")}`);
+      }
+    } catch (caught) {
+      setRefreshError(caught instanceof Error ? caught.message : "Refresh failed");
+      void loadStatus().catch(() => {});
+    } finally {
+      setRefreshing(null);
+    }
+  }
 
   if (!status) return null;
   return (
-    <span style={{ fontSize: "0.75rem", color: "var(--muted)", marginLeft: 12, whiteSpace: "nowrap" }}>
-      Airspace: {status.airspace} &nbsp;·&nbsp; TFRs: {status.tfr}
+    <span className="airspace-freshness">
+      <span className="airspace-status-stack">
+        <span>Airspace: {status.airspace}</span>
+        <span className="airspace-checked-label">Last checked: {status.airspaceChecked}</span>
+      </span>
+      <button
+        type="button"
+        className="airspace-refresh-button"
+        onClick={() => void handleRefresh("airspace", "class,sua,tfr", false)}
+        disabled={refreshing !== null}
+        title="Check FAA airspace and TFR data, then update stale sources"
+        aria-label="Check FAA airspace and TFR data"
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M13 3v4H9" />
+          <path d="M12.1 7A4.7 4.7 0 1 0 10 12.4" />
+        </svg>
+        {refreshing === "airspace" ? "Checking" : "Check"}
+      </button>
+      <span className="airspace-status-separator" aria-hidden="true">|</span>
+      <span>TFRs: {status.tfr}</span>
+      <button
+        type="button"
+        className="airspace-refresh-button"
+        onClick={() => void handleRefresh("tfr", "tfr", true)}
+        disabled={refreshing !== null}
+        title="Refresh TFR data"
+        aria-label="Refresh TFR data"
+      >
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M13 3v4H9" />
+          <path d="M12.1 7A4.7 4.7 0 1 0 10 12.4" />
+        </svg>
+        {refreshing === "tfr" ? "Refreshing" : "Refresh"}
+      </button>
+      <AirspaceTfrTimeSlider selectedTime={selectedTfrTime} onTimeChange={onTfrTimeChange} />
+      {refreshError ? <span className="airspace-refresh-error">{refreshError}</span> : null}
     </span>
   );
 }
@@ -117,6 +382,8 @@ const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
 const SESSION_COOKIE = "flightcomp_session";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
+type SidebarItem = { id: SidebarSection; label: string; description?: string };
+
 const adminSidebarItems = [
   { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
@@ -126,57 +393,62 @@ const adminSidebarItems = [
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
   { id: "airspace", label: "Airspace" },
+  { id: "sos", label: "SOS Alerts" },
   { id: "settings", label: "Settings" },
   { id: "admin", label: "Admin" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
 const organizerSidebarItems = [
   { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
-  { id: "weather", label: "Weather" },
-  { id: "airspace", label: "Airspace" },
+  { id: "sos", label: "SOS Alerts" },
   { id: "settings", label: "Settings" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
 const pilotSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
-  { id: "weather", label: "Weather" },
-  { id: "airspace", label: "Airspace" },
   { id: "settings", label: "Settings" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
 const guestSidebarItems = [
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-] satisfies Array<{ id: SidebarSection; label: string; description?: string }>;
+] satisfies SidebarItem[];
+
+const adminSidebarItemIds = new Set<SidebarSection>(adminSidebarItems.map((item) => item.id));
+const organizerSidebarItemIds = new Set<SidebarSection>(organizerSidebarItems.map((item) => item.id));
+const pilotSidebarItemIds = new Set<SidebarSection>(pilotSidebarItems.map((item) => item.id));
+const guestSidebarItemIds = new Set<SidebarSection>(guestSidebarItems.map((item) => item.id));
+
+function sidebarItemsForRole(role: User["role"] | null): SidebarItem[] {
+  if (role === "admin") return adminSidebarItems;
+  if (role === "organizer") return organizerSidebarItems;
+  if (role === "pilot") return pilotSidebarItems;
+  return guestSidebarItems;
+}
 
 function normalizeSectionForRole(section: string | null, role: User["role"] | null): SidebarSection {
-  if (role === "pilot") {
-    if (section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
-      return section;
-    }
-    return "tasks";
+  const allowedSections =
+    role === "admin"
+      ? adminSidebarItemIds
+      : role === "organizer"
+        ? organizerSidebarItemIds
+        : role === "pilot"
+          ? pilotSidebarItemIds
+          : guestSidebarItemIds;
+  if (section && allowedSections.has(section as SidebarSection)) {
+    return section as SidebarSection;
   }
-  if (role === "organizer") {
-    if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings") {
-      return section;
-    }
-    return "events";
-  }
-  if (section === "events" || section === "tasks" || section === "scoring" || section === "live_tracking" || section === "drivers" || section === "logbook" || section === "weather" || section === "airspace" || section === "settings" || section === "admin") {
-    return section;
-  }
+  if (role === "pilot") return "tasks";
+  if (role === null) return "scoring";
   return "events";
 }
 
 const taskTypeOptions = [
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
-  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
 ] as const;
@@ -199,13 +471,13 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
     id: null,
     name: "New Task",
     task_date: "",
-    task_type: "race_to_goal",
+    task_type: "race_to_goal_with_gates",
     task_start_time: "",
     task_finish_time: "",
     start_open_time: "",
     start_close_time: "",
-    start_gate_count: 1,
-    start_gate_interval_minutes: "",
+    start_gate_count: 5,
+    start_gate_interval_minutes: 15,
     nominal_distance_km: 60,
     nominal_time_hours: 1.5,
     nominal_launch: 0.95,
@@ -246,6 +518,13 @@ function blankSiteSettingsForm(): SiteSettingsRecord {
     telemetry_glide_ratio_smoothing_seconds: 5,
     max_map_pitch_degrees: 75,
     site_match_radius_m: 1000,
+    mqtt_enabled: false,
+    mqtt_broker_mode: "public",
+    mqtt_host: null,
+    mqtt_port: 1883,
+    mqtt_topic_prefix: "msh",
+    mqtt_channel_psk: null,
+    mesh_profiles: null,
     updated_at: null,
   };
 }
@@ -256,19 +535,35 @@ function normalizeIdentityEmail(value: string): string {
 
 function normalizeTaskType(value: string | null | undefined): string {
   switch (value) {
+    case undefined:
+    case null:
     case "race":
-      return "race_to_goal";
+    case "race_to_goal":
+      return "race_to_goal_with_gates";
     case "speedrun":
       return "elapsed_time";
     case "speedrun_interval":
       return "race_to_goal_with_gates";
     default:
-      return value ?? "race_to_goal";
+      return value;
   }
+}
+
+function defaultTaskPointDirection(pointType: string): "enter" | "exit" {
+  return pointType.toLowerCase() === "start" ? "exit" : "enter";
+}
+
+function normalizeTaskPoint(point: TaskPointRecord): TaskPointRecord {
+  return {
+    ...point,
+    direction: point.direction === "exit" || point.direction === "enter" ? point.direction : defaultTaskPointDirection(point.point_type),
+  };
 }
 
 function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftState {
   return blankTaskDraft({
+    start_gate_count: event?.default_start_gate_count ?? 5,
+    start_gate_interval_minutes: event?.default_start_gate_interval_seconds == null ? 15 : event.default_start_gate_interval_seconds / 60,
     nominal_distance_km: event?.nominal_distance_km ?? 60,
     nominal_time_hours: event?.nominal_time_hours ?? 1.5,
     nominal_launch: event?.nominal_launch ?? 0.95,
@@ -342,10 +637,10 @@ function timeOrNull(value: string): string | null {
 
 function taskTypeBehavior(taskType: string) {
   switch (taskType) {
+    case "race":
+    case "race_to_goal":
     case "race_to_goal_with_gates":
       return { usesStartWindow: true, usesMultipleGates: true };
-    case "race_to_goal":
-      return { usesStartWindow: true, usesMultipleGates: false };
     case "elapsed_time":
     case "open_distance":
     default:
@@ -373,6 +668,8 @@ function eventToForm(event: EventRecord | null | undefined) {
         time_points_if_not_in_goal: event.time_points_if_not_in_goal,
         jump_the_gun_factor: event.jump_the_gun_factor,
         jump_the_gun_max_seconds: event.jump_the_gun_max_seconds,
+        default_start_gate_count: event.default_start_gate_count ?? 5,
+        default_start_gate_interval_seconds: event.default_start_gate_interval_seconds ?? 900,
         stopped_glide_bonus: event.stopped_glide_bonus,
         use_1000_points_for_max_day_quality: event.use_1000_points_for_max_day_quality,
         normalize_1000_before_day_quality: event.normalize_1000_before_day_quality,
@@ -517,6 +814,9 @@ export default function HomePage() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
   const [activeSection, setActiveSection] = useState<SidebarSection>("events");
+  const [airspaceRefreshToken, setAirspaceRefreshToken] = useState(0);
+  const [tfrRefreshToken, setTfrRefreshToken] = useState(0);
+  const [selectedTfrTime, setSelectedTfrTime] = useState(() => buildTfrTimeSteps()[0]);
   const [events, setEvents] = useState<EventRecord[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
   const [eventEditorId, setEventEditorId] = useState<number | null>(null);
@@ -545,6 +845,7 @@ export default function HomePage() {
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [results, setResults] = useState<ResultRecord[]>([]);
   const [pilotSummary, setPilotSummary] = useState<PilotSummaryRecord[]>([]);
+  const [taskResultSummary, setTaskResultSummary] = useState<TaskResultSummaryRecord[]>([]);
   const [uploads, setUploads] = useState<UploadRecord[]>([]);
   const [track, setTrack] = useState<TrackCollection | null>(null);
   const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
@@ -610,6 +911,8 @@ export default function HomePage() {
   const [adminSitesFeedback, setAdminSitesFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [siteSettings, setSiteSettings] = useState<SiteSettingsRecord>(blankSiteSettingsForm());
   const [siteSettingsFeedback, setSiteSettingsFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [mapOverlayConfig, setMapOverlayConfig] = useState<MapOverlayConfigRecord>({ config: {} });
+  const [mapOverlayConfigFeedback, setMapOverlayConfigFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [debugStatus, setDebugStatus] = useState<DebugStatusResponse | null>(null);
   const [logbookFlights, setLogbookFlights] = useState<LogbookFlightSummaryRecord[]>([]);
   const [logbookLoading, setLogbookLoading] = useState(false);
@@ -639,6 +942,10 @@ export default function HomePage() {
     () => results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null),
     [results],
   );
+  const resultByUploadId = useMemo(
+    () => new Map(trackableResults.map((result) => [result.upload_id, result])),
+    [trackableResults],
+  );
   const resultTrackColorsByUploadId = useMemo(() => {
     const colorMap = new Map<number, string>();
     trackableResults.forEach((result, index) => {
@@ -667,65 +974,32 @@ export default function HomePage() {
         return [];
       }
       const upload = uploadById.get(uploadId);
-      const pilotName = upload ? pilotNameById.get(upload.pilot_id) ?? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`;
+      const result = resultByUploadId.get(uploadId);
       const color = resultTrackColorsByUploadId.get(uploadId) ?? resultTrackPalette[0];
-      return collection.features.map((feature) => ({
-        ...feature,
-        properties: {
-          ...feature.properties,
-          color,
-          pilot_name: pilotName,
-          upload_id: uploadId,
-        },
-      }));
+      return collection.features.map((feature) => {
+        const featurePilotName = typeof feature.properties?.pilot_name === "string" ? feature.properties.pilot_name.trim() : "";
+        const uploadPilotName = upload ? (pilotNameById.get(upload.pilot_id) ?? "").trim() : "";
+        const pilotName = result?.pilot_name.trim()
+          || featurePilotName
+          || uploadPilotName
+          || (upload ? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`);
+        return {
+          ...feature,
+          properties: {
+            ...feature.properties,
+            color,
+            pilot_name: pilotName,
+            upload_id: uploadId,
+          },
+        };
+      });
     });
     return { type: "FeatureCollection", features };
-  }, [pilotNameById, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
+  }, [pilotNameById, resultByUploadId, resultTrackColorsByUploadId, resultTrackPalette, resultTracksByUploadId, selectedResultUploadIds, uploadById]);
   const allResultTrackIds = useMemo(() => trackableResults.map((result) => result.upload_id), [trackableResults]);
   const allResultTracksChecked = useMemo(
     () => allResultTrackIds.length > 0 && allResultTrackIds.every((uploadId) => selectedResultUploadIds.includes(uploadId)),
     [allResultTrackIds, selectedResultUploadIds],
-  );
-  const resultsTrackPilotList = (
-    <div className="results-task-map-pilot-list">
-      <div className="results-task-map-pilot-header">
-        <strong>Show pilot tracks</strong>
-        <label className="results-task-map-pilot-master-toggle">
-          <input
-            type="checkbox"
-            checked={allResultTracksChecked}
-            disabled={!allResultTrackIds.length}
-            onChange={() => void toggleAllResultTracks()}
-          />
-        </label>
-      </div>
-      <div className="results-task-map-pilot-items">
-        {trackableResults.map((result) => {
-          const isChecked = selectedResultUploadIds.includes(result.upload_id);
-          const isHighlighted = highlightedResultUploadId === result.upload_id;
-          const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
-          return (
-            <div key={result.id} className={`results-task-map-pilot-item${isHighlighted ? " is-highlighted" : ""}`}>
-              <input
-                type="checkbox"
-                checked={isChecked}
-                onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
-              />
-              <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                <button
-                  type="button"
-                  className="results-task-map-pilot-button"
-                  onClick={() => setHighlightedResultUploadId((current) => (current === result.upload_id ? null : result.upload_id))}
-                >
-                  <span className="results-task-map-pilot-copy">
-                    <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-                  </span>
-                </button>
-            </div>
-          );
-        })}
-      </div>
-    </div>
   );
   const taskDefinitionRows = useMemo(() => {
     let cumulativeDistance = 0;
@@ -778,10 +1052,10 @@ export default function HomePage() {
   const taskResultsColumns = useMemo(() => {
     const columns: Array<{ key: "distance" | "speed" | "arrival" | "departure" | "leading"; label: string }> = [];
     if (eventForm.use_distance_points) columns.push({ key: "distance", label: "Dist. Points" });
+    if (eventForm.use_leading_points) columns.push({ key: "leading", label: "Leading Points" });
     if (eventForm.use_time_points) columns.push({ key: "speed", label: "Time Points" });
     if (eventForm.use_arrival_position_points || eventForm.use_arrival_time_points) columns.push({ key: "arrival", label: "Arrival Points" });
     if (eventForm.use_departure_points) columns.push({ key: "departure", label: "Departure Points" });
-    if (eventForm.use_leading_points) columns.push({ key: "leading", label: "Leading Points" });
     return columns;
   }, [
     eventForm.use_arrival_position_points,
@@ -842,7 +1116,7 @@ export default function HomePage() {
     ),
     [canManagePlatform, taskDraft.points, turnpoints],
   );
-  const sidebarItems = user?.role === "admin" ? adminSidebarItems : user?.role === "organizer" ? organizerSidebarItems : pilotSidebarItems;
+  const sidebarItems = sidebarItemsForRole(user?.role ?? null);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -885,8 +1159,10 @@ export default function HomePage() {
   }, [activeSection, user]);
 
   useEffect(() => {
-    if (user?.role === "pilot" && activeSection === "events") {
-      setActiveSection("tasks");
+    if (!user) return;
+    const normalizedSection = normalizeSectionForRole(activeSection, user.role);
+    if (normalizedSection !== activeSection) {
+      setActiveSection(normalizedSection);
     }
   }, [activeSection, user]);
 
@@ -937,12 +1213,13 @@ export default function HomePage() {
     document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
     setToken(activeToken);
     setError("");
-    const [me, rawEvents, settings, loadedSiteSettings, loadedLogbookFlights] = await Promise.all([
+    const [me, rawEvents, settings, loadedSiteSettings, loadedLogbookFlights, loadedMapOverlayConfig] = await Promise.all([
       apiFetch<User>("/api/auth/me", activeToken),
       apiFetch<EventRecord[]>("/api/events", activeToken),
       apiFetch<AccountSettingsRecord>("/api/auth/settings", activeToken),
       apiFetch<SiteSettingsRecord>("/api/site-settings", activeToken),
       apiFetch<LogbookFlightSummaryRecord[]>("/api/logbook/flights", activeToken),
+      apiFetch<MapOverlayConfigRecord>("/api/map-overlay-config", activeToken).catch(() => ({ config: {} }) as MapOverlayConfigRecord),
     ]);
     const loadedEvents = sortEventsByUpdatedAt(rawEvents);
     const storedEventId = Number(window.localStorage.getItem(LAST_EVENT_KEY) ?? "");
@@ -952,6 +1229,7 @@ export default function HomePage() {
     setUser(me);
     setSettingsForm(settings);
     setSiteSettings(loadedSiteSettings);
+    setMapOverlayConfig(loadedMapOverlayConfig);
     setLogbookFlights(loadedLogbookFlights);
     setActiveSection(normalizedSection);
     setEvents(loadedEvents);
@@ -977,6 +1255,7 @@ export default function HomePage() {
       setAirspaceSources([]);
       setTasks([]);
       setPilotSummary([]);
+      setTaskResultSummary([]);
       setResults([]);
       setUploads([]);
       setTrack(null);
@@ -994,8 +1273,12 @@ export default function HomePage() {
   }
 
   async function refreshPilotSummary(activeToken: string, eventId: number) {
-    const loadedSummary = await apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken);
+    const [loadedSummary, loadedTaskSummary] = await Promise.all([
+      apiFetch<PilotSummaryRecord[]>(`/api/events/${eventId}/pilot-summary`, activeToken),
+      apiFetch<TaskResultSummaryRecord[]>(`/api/events/${eventId}/task-result-summary`, activeToken),
+    ]);
     setPilotSummary(loadedSummary);
+    setTaskResultSummary(loadedTaskSummary);
     setPilotSummaryEventId(eventId);
     return loadedSummary;
   }
@@ -1379,6 +1662,7 @@ export default function HomePage() {
       setAirspaceSources(loadedAirspaceSources);
       setTasks(visibleTasks);
       setPilotSummary([]);
+      setTaskResultSummary([]);
       setPilotSummaryEventId(null);
       setTrack(null);
       setSelectedResultUploadIds([]);
@@ -1441,7 +1725,7 @@ export default function HomePage() {
       nominal_launch: task.nominal_launch,
       minimum_distance_km: task.minimum_distance_km,
       penalties_text: JSON.stringify(task.penalties_json, null, 2),
-      points: task.points,
+      points: task.points.map(normalizeTaskPoint),
     });
     if (!includeScoringData) {
       setResults([]);
@@ -1581,6 +1865,20 @@ export default function HomePage() {
     }
   }
 
+  async function clearAdminUserDevice(userId: number) {
+    if (!token) return;
+    setAdminFeedback(null);
+    try {
+      await apiFetch(`/api/auth/users/${userId}/mesh-device`, token, { method: "DELETE" });
+      setAdminUsers((current) =>
+        current.map((u) => (u.id === userId ? { ...u, mesh_device_id: null } : u))
+      );
+      setAdminFeedback({ type: "success", text: "Device pairing cleared." });
+    } catch (caught) {
+      setAdminFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not clear device." });
+    }
+  }
+
   async function updateUserCredentials(userId: number, payload: { username?: string; password?: string }) {
     if (!token) return;
     const updated = await apiFetch<AdminUserRecord>(`/api/auth/users/${userId}/credentials`, token, {
@@ -1604,12 +1902,34 @@ export default function HomePage() {
           telemetry_glide_ratio_smoothing_seconds: siteSettings.telemetry_glide_ratio_smoothing_seconds,
           max_map_pitch_degrees: siteSettings.max_map_pitch_degrees,
           site_match_radius_m: siteSettings.site_match_radius_m,
+          mqtt_enabled: siteSettings.mqtt_enabled,
+          mqtt_broker_mode: siteSettings.mqtt_broker_mode,
+          mqtt_host: siteSettings.mqtt_host,
+          mqtt_port: siteSettings.mqtt_port,
+          mqtt_topic_prefix: siteSettings.mqtt_topic_prefix,
+          mqtt_channel_psk: siteSettings.mqtt_channel_psk,
+          mesh_profiles: siteSettings.mesh_profiles,
         }),
       });
       setSiteSettings(payload);
       setSiteSettingsFeedback({ type: "success", text: "Site settings saved." });
     } catch (caught) {
       setSiteSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save site settings." });
+    }
+  }
+
+  async function saveMapOverlayConfig() {
+    if (!token) return;
+    setMapOverlayConfigFeedback(null);
+    try {
+      const payload = await apiFetch<MapOverlayConfigRecord>("/api/map-overlay-config", token, {
+        method: "PATCH",
+        body: JSON.stringify({ config: mapOverlayConfig.config }),
+      });
+      setMapOverlayConfig(payload);
+      setMapOverlayConfigFeedback({ type: "success", text: "Map overlay config saved." });
+    } catch (caught) {
+      setMapOverlayConfigFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save map overlay config." });
     }
   }
 
@@ -1744,6 +2064,8 @@ export default function HomePage() {
       time_points_if_not_in_goal: nextForm.time_points_if_not_in_goal,
       jump_the_gun_factor: nextForm.jump_the_gun_factor,
       jump_the_gun_max_seconds: nextForm.jump_the_gun_max_seconds,
+      default_start_gate_count: nextForm.default_start_gate_count,
+      default_start_gate_interval_seconds: nextForm.default_start_gate_interval_seconds,
       stopped_glide_bonus: nextForm.stopped_glide_bonus,
       use_1000_points_for_max_day_quality: nextForm.use_1000_points_for_max_day_quality,
       normalize_1000_before_day_quality: nextForm.normalize_1000_before_day_quality,
@@ -1774,6 +2096,7 @@ export default function HomePage() {
       visible_airspace_classes_json: nextForm.visible_airspace_classes_json,
       show_restricted_fields: nextForm.show_restricted_fields,
       penalties_json: penaltiesJson,
+      is_public_tracking: nextForm.is_public_tracking,
       visibility: nextForm.visibility,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
@@ -1858,6 +2181,7 @@ export default function HomePage() {
       setTasks([]);
       setResults([]);
       setPilotSummary([]);
+      setTaskResultSummary([]);
       setUploads([]);
       setTrack(null);
       setTaskPointAdvanced(false);
@@ -2034,6 +2358,7 @@ export default function HomePage() {
             {
               position: current.points.length + 1,
               point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint",
+              direction: current.points.length === 0 && !taskPointAdvanced ? "exit" : "enter",
               radius_m: current.points.length === 0 ? 300 : 400,
               turnpoint_id: turnpoint.id,
               name: turnpoint.name,
@@ -2046,7 +2371,19 @@ export default function HomePage() {
   }
 
   function updatePoint(index: number, patch: Partial<TaskPointRecord>) {
-    setTaskDraft((current) => ({ ...current, points: current.points.map((point, pointIndex) => (pointIndex === index ? { ...point, ...patch } : point)).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
+    setTaskDraft((current) => ({
+      ...current,
+      points: current.points
+        .map((point, pointIndex) => {
+          if (pointIndex !== index) return point;
+          const nextPoint = { ...point, ...patch };
+          if (patch.point_type && patch.point_type !== point.point_type) {
+            nextPoint.direction = defaultTaskPointDirection(patch.point_type);
+          }
+          return normalizeTaskPoint(nextPoint);
+        })
+        .map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })),
+    }));
   }
 
   function handleRadiusInputChange(index: number, point: TaskPointRecord, rawValue: string) {
@@ -2130,7 +2467,7 @@ export default function HomePage() {
         nominal_launch: taskDraft.nominal_launch,
         minimum_distance_km: taskDraft.minimum_distance_km,
         penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
-        points: taskDraft.points.map((point, index) => ({ ...point, position: index + 1 })),
+        points: taskDraft.points.map((point, index) => ({ ...normalizeTaskPoint(point), position: index + 1 })),
       };
       let savedTask: TaskRecord;
       if (taskDraft.id) {
@@ -2340,7 +2677,10 @@ export default function HomePage() {
     if (!checked) {
       setTaskDraft((current) => ({
         ...current,
-        points: current.points.map((point) => ({ ...point, point_type: toSimplePointType(point.point_type) })),
+        points: current.points.map((point) => {
+          const pointType = toSimplePointType(point.point_type);
+          return normalizeTaskPoint({ ...point, point_type: pointType, direction: defaultTaskPointDirection(pointType) });
+        }),
       }));
     }
   }
@@ -2468,6 +2808,7 @@ export default function HomePage() {
             handleRadiusInputBlur={handleRadiusInputBlur}
             handleRadiusInputKeyDown={handleRadiusInputKeyDown}
             radiusInputValue={radiusInputValue}
+            overlayConfig={mapOverlayConfig.config?.task_builder}
           />
         );
       }
@@ -2557,6 +2898,7 @@ export default function HomePage() {
               handleRadiusInputBlur={handleRadiusInputBlur}
               handleRadiusInputKeyDown={handleRadiusInputKeyDown}
               radiusInputValue={radiusInputValue}
+              overlayConfig={mapOverlayConfig.config?.task_builder}
             />
           );
         case "scoring":
@@ -2573,6 +2915,7 @@ export default function HomePage() {
               pilotNameById={pilotNameById}
               uploadById={uploadById}
               pilotSummary={pilotSummary}
+              taskResultSummary={taskResultSummary}
               scoredTasks={scoredTasks}
               taskMetricsById={taskMetricsById}
               taskDraft={taskDraft}
@@ -2599,7 +2942,6 @@ export default function HomePage() {
               highlightedResultUploadId={highlightedResultUploadId}
               setHighlightedResultUploadId={setHighlightedResultUploadId}
               resultsTrackOverlay={resultsTrackOverlay}
-              resultsTrackPilotList={resultsTrackPilotList}
               resultsTaskMapTurnpoints={resultsTaskMapTurnpoints}
               allTurnpoints={turnpoints}
               siteSettings={siteSettings}
@@ -2615,6 +2957,7 @@ export default function HomePage() {
                   downloadAllIgcFiles={downloadAllIgcFiles}
                 toggleResultTrack={toggleResultTrack}
                 toggleAllResultTracks={toggleAllResultTracks}
+                overlayConfig={mapOverlayConfig.config?.scoring}
               />
             );
         case "live_tracking":
@@ -2636,6 +2979,7 @@ export default function HomePage() {
                 vario: settingsForm.vario_unit,
               }}
               loadTask={loadTask}
+              overlayConfig={mapOverlayConfig.config?.dashboard_live}
             />
           );
         case "drivers":
@@ -2650,6 +2994,8 @@ export default function HomePage() {
               canManagePlatform={canManagePlatform ?? false}
             />
           );
+        case "sos":
+          return <SosSection apiBase={resolveApiBase()} token={token} />;
         case "logbook":
           return (
             <LogbookSection
@@ -2683,12 +3029,20 @@ export default function HomePage() {
               saveFlightNotes={saveLogbookFlightNotes}
               updateFlightSite={updateLogbookFlightSite}
               setFlightStar={setLogbookFlightStar}
+              overlayConfig={mapOverlayConfig.config?.logbook_replay}
             />
           );
         case "weather":
-          return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} />;
+          return <WeatherSection units={{ altitude: settingsForm.altitude_unit, vario: settingsForm.vario_unit }} overlayConfig={mapOverlayConfig.config?.soaring_forecast} />;
         case "airspace":
-          return <AirspaceSection />;
+          return (
+            <AirspaceSection
+              overlayConfig={mapOverlayConfig.config?.airspace_explorer}
+              refreshToken={airspaceRefreshToken}
+              tfrRefreshToken={tfrRefreshToken}
+              selectedTfrTime={selectedTfrTime}
+            />
+          );
         case "settings":
           return (
             <SettingsSection
@@ -2715,6 +3069,7 @@ export default function HomePage() {
               adminFeedback={adminFeedback}
               saveAdminUser={saveAdminUser}
               deleteAdminUser={deleteAdminUser}
+              clearAdminUserDevice={clearAdminUserDevice}
               updateUserCredentials={updateUserCredentials}
               adminSites={adminSites}
               setAdminSites={setAdminSites}
@@ -2729,6 +3084,12 @@ export default function HomePage() {
               saveSiteSettings={saveSiteSettings}
               debugStatus={debugStatus}
               refreshDebugStatus={refreshDebugStatus}
+              mapOverlayConfig={mapOverlayConfig}
+              setMapOverlayConfig={setMapOverlayConfig}
+              mapOverlayConfigFeedback={mapOverlayConfigFeedback}
+              saveMapOverlayConfig={saveMapOverlayConfig}
+              token={token}
+              apiBase={resolveApiBase()}
             />
           ) : (
             <SettingsSection
@@ -2762,7 +3123,6 @@ export default function HomePage() {
             items={sidebarItems}
             activeItem={activeSection}
             onSelect={(id) => { setActiveSection(id as SidebarSection); setMessage(""); setError(""); }}
-            eventName={selectedEvent?.name ?? null}
             compact={sidebarCompact}
             onToggleCompact={() => setSidebarCompact((current) => !current)}
           />
@@ -2770,8 +3130,36 @@ export default function HomePage() {
             <section className="panel hero content-hero">
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
-                {activeSection === "airspace" && <AirspaceFreshnessStatus />}
-                {activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" ? (
+                {user.role === "pilot" && activeSection === "tasks" ? (
+                  <label className="hero-event-select" aria-label="Current competition">
+                    <select
+                      value={selectedEventId ?? ""}
+                      onChange={(event) => {
+                        const nextEventId = Number(event.target.value);
+                        const nextEvent = events.find((candidate) => candidate.id === nextEventId);
+                        if (nextEvent) void loadEvent(token, nextEvent.id, nextEvent, user, undefined, "tasks");
+                      }}
+                      disabled={!events.length || workspaceLoading}
+                    >
+                      {!events.length ? <option value="">No available comps</option> : null}
+                      {events.length && selectedEventId === null ? <option value="">Select comp</option> : null}
+                      {events.map((event) => (
+                        <option key={event.id} value={event.id}>
+                          {event.name}{event.location ? ` - ${event.location}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {activeSection === "airspace" && (
+                  <AirspaceFreshnessStatus
+                    selectedTfrTime={selectedTfrTime}
+                    onTfrTimeChange={setSelectedTfrTime}
+                    onAirspaceRefreshComplete={() => setAirspaceRefreshToken((current) => current + 1)}
+                    onTfrRefreshComplete={() => setTfrRefreshToken((current) => current + 1)}
+                  />
+                )}
+                {!(user.role === "pilot" && activeSection === "tasks") && activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
                   </span>

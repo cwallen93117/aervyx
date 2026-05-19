@@ -1,4 +1,5 @@
 import json
+import math
 from datetime import datetime, time as dt_time
 from zoneinfo import ZoneInfo
 
@@ -19,10 +20,11 @@ from app.schemas import (
     ScoringOperationsResultSummary,
     ScoringOperationsRow,
     ScoringUploadOption,
+    TaskResultSummaryResponse,
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
-from app.services.scoring import build_result_payload, rescore_task
+from app.services.scoring import build_result_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
 
 router = APIRouter(tags=["results"])
 
@@ -50,7 +52,20 @@ def _upload_source(upload: IGCUpload) -> str:
     normalized = str(upload.metadata_json.get("upload_source") or "manual").strip().lower()
     if normalized == "auto":
         return "bulk"
+    if normalized == "bulk_review":
+        return "review"
     return normalized or "manual"
+
+
+def _upload_option_label(upload: IGCUpload) -> str:
+    source = _upload_source(upload)
+    label = f"{upload.filename} — {source.title()}"
+    pilot_name = str(upload.metadata_json.get("pilot_name") or "").strip()
+    if source == "review":
+        label = f"{upload.filename} — Needs review"
+        if pilot_name:
+            label = f"{label} (IGC: {pilot_name})"
+    return label
 
 
 def _penalty_summary(penalties: list[ScorePenalty]) -> str | None:
@@ -113,6 +128,22 @@ def _effective_selected_upload_id(entry: TaskScoringInput | None) -> int | None:
     if entry is not None and entry.selected_upload_id is not None:
         return entry.selected_upload_id
     return None
+
+
+def _gap_day_quality(details_json: dict | None) -> float | None:
+    if not isinstance(details_json, dict):
+        return None
+    gap = details_json.get("gap")
+    if not isinstance(gap, dict):
+        return None
+    validity = gap.get("validity")
+    if not isinstance(validity, dict):
+        return None
+    try:
+        value = float(validity.get("overall"))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 @router.get("/api/tasks/{task_id}/results", response_model=list[ScoreResultResponse])
@@ -180,6 +211,23 @@ def rescore(task_id: int, admin: User = Depends(require_staff), session: Session
         select(ScoreResult).where(ScoreResult.task_id == task_id).order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in persisted_results]
+
+
+@router.get("/api/tasks/{task_id}/scoring-audit")
+def scoring_audit(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict:
+    if session.get(Task, task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return build_task_scoring_audit(session, task_id)
+
+
+@router.post("/api/tasks/{task_id}/repair-fl2026-task1")
+def repair_fl2026_task1(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict:
+    if session.get(Task, task_id) is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    payload = repair_fl2026_task1_settings(session, task_id)
+    log_action(session, actor_user_id=admin.id, action="task.repair_fl2026_task1", entity_type="task", entity_id=str(task_id), details={"status": payload.get("status")})
+    session.commit()
+    return payload
 
 
 @router.delete("/api/tasks/{task_id}/results")
@@ -272,7 +320,7 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
                         id=upload.id,
                         filename=upload.filename,
                         upload_source=_upload_source(upload),
-                        label=f"{upload.filename} — {_upload_source(upload).title()}",
+                        label=_upload_option_label(upload),
                         uploaded_at=upload.uploaded_at,
                         late_start=_is_late_start(task, event_tz, first_fix_times.get(upload.id)),
                     )
@@ -479,6 +527,31 @@ def unpublish_task_results(task_id: int, admin: User = Depends(require_staff), s
     )
     session.commit()
     return {"status": "ok", "unpublished_count": unpublished_count}
+
+
+@router.get("/api/events/{event_id}/task-result-summary", response_model=list[TaskResultSummaryResponse])
+def task_result_summary(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TaskResultSummaryResponse]:
+    rows_query = (
+        select(ScoreResult.task_id, ScoreResult.details_json)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .where(Task.event_id == event_id)
+        .order_by(ScoreResult.task_id.asc(), ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
+    )
+    if user.role not in {"admin", "organizer"}:
+        rows_query = rows_query.where(ScoreResult.result_state == "official")
+
+    summaries_by_task: dict[int, float | None] = {}
+    for task_id, details_json in session.execute(rows_query).all():
+        task_id_int = int(task_id)
+        summaries_by_task.setdefault(task_id_int, None)
+        day_quality = _gap_day_quality(details_json)
+        if summaries_by_task[task_id_int] is None and day_quality is not None:
+            summaries_by_task[task_id_int] = day_quality
+
+    return [
+        TaskResultSummaryResponse(task_id=task_id, day_quality=day_quality)
+        for task_id, day_quality in sorted(summaries_by_task.items())
+    ]
 
 
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])

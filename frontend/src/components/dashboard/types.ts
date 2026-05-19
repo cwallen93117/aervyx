@@ -1,6 +1,6 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 
-export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "weather" | "airspace" | "settings" | "admin";
+export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
@@ -36,8 +36,21 @@ export type AdminUserRecord = {
   email: string | null;
   pilot_name: string | null;
   competition_number: string | null;
+  mesh_device_id: string | null;
   is_active: boolean;
   created_at: string;
+};
+export type MeshDevicePurpose = "tracking" | "base_station" | "driver_wifi" | "driver_mesh" | "relay";
+export type MeshDeviceRecord = {
+  id: number;
+  owner_user_id: number;
+  owner_name: string | null;
+  device_id: string;
+  label: string;
+  purpose: MeshDevicePurpose;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string | null;
 };
 export type AdminSiteRecord = {
   id: number;
@@ -61,6 +74,23 @@ export type AdminSiteScanIgcResultRecord = {
   total_igc_scanned: number;
   sites: AdminSiteRecord[];
 };
+export type MapOverlayContextConfig = Record<string, boolean>;
+export type MapOverlayConfigShape = {
+  schema_version?: number;
+  groups?: Record<string, MapOverlayContextConfig>;
+  task_builder?: MapOverlayContextConfig;
+  scoring?: MapOverlayContextConfig;
+  logbook_replay?: MapOverlayContextConfig;
+  dashboard_live?: MapOverlayContextConfig;
+  public_live?: MapOverlayContextConfig;
+  airspace_explorer?: MapOverlayContextConfig;
+  soaring_forecast?: MapOverlayContextConfig;
+  admin_site_preview?: MapOverlayContextConfig;
+};
+export type MapOverlayConfigRecord = {
+  config: MapOverlayConfigShape;
+  updated_at?: string | null;
+};
 export type SiteSettingsRecord = {
   telemetry_vario_smoothing_seconds: number;
   telemetry_altitude_smoothing_seconds: number;
@@ -68,6 +98,13 @@ export type SiteSettingsRecord = {
   telemetry_glide_ratio_smoothing_seconds: number;
   max_map_pitch_degrees: number;
   site_match_radius_m: number;
+  mqtt_enabled: boolean;
+  mqtt_broker_mode: string;
+  mqtt_host: string | null;
+  mqtt_port: number;
+  mqtt_topic_prefix: string;
+  mqtt_channel_psk: string | null;
+  mesh_profiles: Record<string, Record<string, unknown>> | null;
   updated_at?: string | null;
 };
 export type LogbookFlightStatsRecord = {
@@ -150,6 +187,8 @@ export type EventRecord = {
   time_points_if_not_in_goal: number;
   jump_the_gun_factor: number;
   jump_the_gun_max_seconds: number;
+  default_start_gate_count: number;
+  default_start_gate_interval_seconds: number;
   stopped_glide_bonus: number;
   use_1000_points_for_max_day_quality: boolean;
   normalize_1000_before_day_quality: boolean;
@@ -192,7 +231,8 @@ export type EventRecord = {
 export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null };
 export type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null };
 export type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
-export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null };
+export type TaskPointDirection = "enter" | "exit";
+export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null; direction: TaskPointDirection };
 export type TaskRecord = {
   id: number;
   event_id: number;
@@ -217,6 +257,7 @@ export type TaskRecord = {
 };
 export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string };
 export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number>; task_result_states: Record<string, string> };
+export type TaskResultSummaryRecord = { task_id: number; day_quality: number | null };
 export type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; upload_source?: "manual" | "bulk" | "tracker" | string; metadata_json: Record<string, unknown> };
 export type ScoringUploadOptionRecord = { id: number; filename: string; upload_source: "manual" | "bulk" | "tracker" | "app" | string; label: string; uploaded_at: string; late_start?: boolean };
 export type ScorePenaltyRecord = { id?: number | null; penalty_type: "percentage" | "fixed"; value: number; reason: string; position: number; applied_by?: string | null; applied_at?: string | null };
@@ -239,7 +280,7 @@ export type ScoringOperationsRowRecord = {
 export type ScoringOperationsResponseRecord = { rows: ScoringOperationsRowRecord[] };
 export type ScoringInputSelectionRecord = { selected_upload_id: number | null; status_override: "minimum_distance" | "did_not_fly" | "absent" | null };
 export type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
-export type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; message: string };
+export type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; match_confidence?: string | null; message: string };
 export type AirspaceSourceKind = "" | "airspace" | "restricted_field";
 export type AirspaceSourceRecord = {
   id: number;
@@ -297,6 +338,8 @@ export function blankEventForm() {
     time_points_if_not_in_goal: 1,
     jump_the_gun_factor: 0,
     jump_the_gun_max_seconds: 0,
+    default_start_gate_count: 5,
+    default_start_gate_interval_seconds: 900,
     stopped_glide_bonus: 0,
     use_1000_points_for_max_day_quality: false,
     normalize_1000_before_day_quality: false,
@@ -349,6 +392,21 @@ export type DebugActiveSession = {
   has_mesh: boolean;
 };
 
+export type DebugMeshDevice = {
+  owner_user_id: number;
+  owner_name: string | null;
+  owner_pilot_id: number | null;
+  device_id: string;
+  label: string;
+  purpose: MeshDevicePurpose | string;
+  is_active: boolean;
+  is_connected: boolean;
+  last_seen_at: string | null;
+  battery_level: number | null;
+  source: string | null;
+  last_position: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
+};
+
 export type DebugSosAlert = {
   pilot_id: number;
   pilot_name: string;
@@ -365,6 +423,7 @@ export type DebugStatusResponse = {
   sse_subscriber_count: number;
   sse_subscribers_by_task: Record<string, number>;
   active_sessions: DebugActiveSession[];
+  registered_mesh_devices: DebugMeshDevice[];
   recent_sos_alerts: DebugSosAlert[];
   position_stats: {
     last_hour_total: number;

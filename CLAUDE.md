@@ -1,5 +1,9 @@
 # Claude Handoff
 
+## Persistent User Rule
+
+Charles expects completed changes to be committed and pushed to `origin/staging` automatically so they appear on the live staging site. After verification, stage only the files/hunks intentionally changed, commit them, and push to `origin/staging` before saying the task is done unless Charles explicitly asks to keep work local or target another branch.
+
 This repo's source of truth is the tracked code on `main`.
 
 ## What This Repo Is

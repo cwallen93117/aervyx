@@ -114,7 +114,7 @@ def precompute_waypoint_dist(
 
     Returns: (spt, ept, gpt, ssdist, startssdist, endssdist, totdist)
     """
-    global _wptdistcache, _remainingdistcache, _total_distance, _goal_point
+    global _wptdistcache, _remainingdistcache, _total_distance, _goal_point, _last_wpt_update
 
     wcount = len(waypoints)
     spt = 0
@@ -122,6 +122,7 @@ def precompute_waypoint_dist(
     gpt = 0
 
     _goal_point = wcount - 1
+    _last_wpt_update = 0.0
 
     for i in range(_goal_point + 1):
         wpt = waypoints[i]

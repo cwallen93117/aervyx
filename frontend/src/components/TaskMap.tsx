@@ -1,10 +1,10 @@
 "use client";
 
 import { COORDINATE_SYSTEM } from "@deck.gl/core";
-import { IconLayer, PathLayer, PolygonLayer, TextLayer } from "@deck.gl/layers";
+import { IconLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from "@deck.gl/layers";
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
-import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
@@ -39,6 +39,7 @@ export type MapLivePosition = {
   aircraftType?: "hang_glider" | "paraglider" | "sailplane" | null;
   profileType?: MapLivePositionProfileType | null;
   positionSource?: MapLivePositionSource | null;
+  deviceId?: string | null;
 };
 type TrackPosition = [number, number] | [number, number, number];
 export type MapAirspaceRegion = {
@@ -65,7 +66,33 @@ export type TrackCollection = {
     geometry: { type: string; coordinates: TrackPosition[] };
   }>;
 };
+export type MapScoredTrackPoint = {
+  id: string;
+  uploadId: number | null;
+  pilotName: string;
+  pointName: string;
+  pointType: string;
+  direction?: string | null;
+  timestamp?: string | null;
+  scoredTimestamp?: string | null;
+  latitude: number;
+  longitude: number;
+  altitudeM?: number | null;
+  color?: string | null;
+};
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
+export type TaskEditorOverlayRenderProps = {
+  collapsed: boolean;
+  contentId: string;
+  overlayId: string;
+  toggleButton: ReactNode;
+};
+export type TaskEditorOverlayContent = ReactNode | ((props: TaskEditorOverlayRenderProps) => ReactNode);
+export type FullscreenSidebarRenderProps = {
+  contentId: string;
+  toggleButton: ReactNode;
+};
+export type FullscreenSidebarContent = ReactNode | ((props: FullscreenSidebarRenderProps) => ReactNode);
 type BasemapMode = "streets" | "satellite" | "terrain";
 type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
 const REPLAY_SPEEDS = [1, 2, 5, 10, 15, 30, 45, 60, 120, 300] as const;
@@ -85,15 +112,15 @@ type LiveMapIconKey = "hang_glider" | "paraglider" | "sailplane" | "driver" | "s
 
 const ROLE_ICON_SVGS: Record<LiveMapIconKey, string> = {
   hang_glider:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 4 L22 20 L12 16 L2 20 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M12 4 L22 20 L12 16 L2 20 Z"/></svg>',
   paraglider:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M2 12 Q12 4 22 12 L20 13 Q12 6 4 13 Z M11 15 L13 15 L13 20 L11 20 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M2 12 Q12 4 22 12 L20 13 Q12 6 4 13 Z M11 15 L13 15 L13 20 L11 20 Z"/></svg>',
   sailplane:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M2 11 L11 11 L11 3 L13 3 L13 11 L22 11 L22 13 L13 13 L13 18 L16 18 L16 20 L8 20 L8 18 L11 18 L11 13 L2 13 Z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M2 11 L11 11 L11 3 L13 3 L13 11 L22 11 L22 13 L13 13 L13 18 L16 18 L16 20 L8 20 L8 18 L11 18 L11 13 L2 13 Z"/></svg>',
   driver:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M5 11l1.5-4.5A2 2 0 018.4 5h7.2a2 2 0 011.9 1.5L19 11h1a1 1 0 011 1v4a1 1 0 01-1 1h-1v1a1 1 0 01-1 1h-1a1 1 0 01-1-1v-1H8v1a1 1 0 01-1 1H6a1 1 0 01-1-1v-1H4a1 1 0 01-1-1v-4a1 1 0 011-1h1zm2 4a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5zm10 0a1.25 1.25 0 100-2.5 1.25 1.25 0 000 2.5z"/></svg>',
   stationary_node:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#fff" d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path fill="#fff" d="M12 2l4 6-4 2-4-2 4-6zm-1 8h2v12h-2V10zM5.5 4.2l1.4 1.4a7 7 0 000 9.9l-1.4 1.4a9 9 0 010-12.7zm13 0a9 9 0 010 12.7l-1.4-1.4a7 7 0 000-9.9l1.4-1.4z"/></svg>',
 };
 
 const ROLE_ICON_DATA_URIS: Record<LiveMapIconKey, string> = {
@@ -116,11 +143,11 @@ function resolveLiveMapIconKey(
 // Solid ring (cellular fix) vs. dashed ring (mesh-relayed fix) vs. faint solid ring (other/unknown).
 const RING_ICON_SVGS: Record<"cellular" | "mesh" | "other", string> = {
   cellular:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
   mesh:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
   other:
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20" stroke-dasharray="2 3"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20" stroke-dasharray="2 3"/></svg>',
 };
 
 const RING_ICON_DATA_URIS: Record<"cellular" | "mesh" | "other", string> = {
@@ -310,6 +337,52 @@ function formatReplayTimeLabel(timestampMs: number | null | undefined, includeSe
   });
 }
 
+function formatScoredTrackTimeLabel(value: string | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) {
+    return value;
+  }
+  return formatReplayTimeLabel(timestampMs, true);
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+type ScoredTrackDeckPoint = MapScoredTrackPoint & {
+  position: [number, number, number];
+  deckColor: [number, number, number];
+  highlighted: boolean;
+  altitudeLabel: string;
+};
+
+function scoredTrackPointPopupHtml(point: ScoredTrackDeckPoint): string {
+  const coordinateLabel = `${point.latitude.toFixed(5)}, ${point.longitude.toFixed(5)}`;
+  const trackTime = formatScoredTrackTimeLabel(point.timestamp);
+  const scoredTime = point.scoredTimestamp && point.scoredTimestamp !== point.timestamp
+    ? formatScoredTrackTimeLabel(point.scoredTimestamp)
+    : "";
+  const pointLabel = [point.pointType, point.direction].filter(Boolean).join(" / ");
+  return `
+    <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
+      <div style="font-weight: 700; margin-bottom: 4px;">${escapeHtml(point.pointName)}</div>
+      <div style="color: #475569; margin-bottom: 6px;">${escapeHtml(point.pilotName)}${pointLabel ? ` - ${escapeHtml(pointLabel)}` : ""}</div>
+      <div><strong>Time:</strong> ${escapeHtml(trackTime)}</div>
+      ${scoredTime ? `<div><strong>Start Gate:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
+      <div><strong>Altitude:</strong> ${escapeHtml(point.altitudeLabel || "--")}</div>
+      <div><strong>GPS:</strong> ${escapeHtml(coordinateLabel)}</div>
+    </div>
+  `;
+}
+
 function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"]) {
   return unit === "mi" ? distanceKm * 0.621371 : distanceKm;
 }
@@ -381,7 +454,7 @@ function replayTelemetryThrottleMs(replaySpeed: number) {
 }
 
 type FitTarget = {
-  kind: "task" | "turnpoints" | "track" | "fitTurnpoints" | "fallback";
+  kind: "task" | "turnpoints" | "track" | "livePositions" | "fitTurnpoints" | "fallback";
   coordinates: [number, number][];
   signature: string;
 };
@@ -457,6 +530,7 @@ function resolveFitTarget(
   turnpoints: MapTurnpoint[],
   track: TrackCollection | null,
   fitTurnpoints?: MapTurnpoint[],
+  livePositions?: MapLivePosition[],
 ): FitTarget {
   if (taskPoints.length) {
     const coordinates: [number, number][] = taskPoints.map((point) => [point.longitude, point.latitude]);
@@ -493,6 +567,14 @@ function resolveFitTarget(
         signature: `track::${buildTrackGeometrySignature(track)}`,
       };
     }
+  }
+  if (livePositions?.length) {
+    const coordinates: [number, number][] = livePositions.map((p) => [p.longitude, p.latitude]);
+    return {
+      kind: "livePositions",
+      coordinates,
+      signature: `live::${livePositions.length}::${livePositions.map((p) => `${p.latitude.toFixed(4)},${p.longitude.toFixed(4)}`).join("|")}`,
+    };
   }
   const fallbackTurnpoints = fitTurnpoints ?? [];
   if (fallbackTurnpoints.length) {
@@ -546,6 +628,29 @@ function buildBoundsOptions(
       duration: 0,
     },
   } as const;
+}
+
+function fitMapToCoordinates(
+  map: maplibregl.Map,
+  coordinates: [number, number][],
+  { padding, maxZoom, duration }: { padding: number; maxZoom: number; duration: number },
+) {
+  if (coordinates.length === 0) {
+    return;
+  }
+  if (coordinates.length === 1) {
+    map.easeTo({
+      center: coordinates[0],
+      zoom: maxZoom,
+      duration,
+    });
+    return;
+  }
+  const lngLatBounds = new maplibregl.LngLatBounds();
+  for (const coordinate of coordinates) {
+    lngLatBounds.extend(coordinate);
+  }
+  map.fitBounds(lngLatBounds, { padding, maxZoom, duration });
 }
 
 function averageWithinWindow(values: Array<number | null>, timestamps: number[], windowMs: number): Array<number | null> {
@@ -990,6 +1095,25 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
   if (hasSource(map, "replay-marker") && !map.getLayer("replay-marker-layer")) {
     // Replay pilot labels are rendered with deck.gl so they can follow the pilot altitude in 3D.
   }
+  if (hasSource(map, "scored-track-points") && !map.getLayer("scored-track-points-layer")) {
+    safeAddLayer(map, {
+      id: "scored-track-points-layer",
+      type: "circle",
+      source: "scored-track-points",
+      paint: {
+        "circle-radius": [
+          "case",
+          ["boolean", ["get", "highlighted"], false],
+          8,
+          6,
+        ],
+        "circle-color": ["coalesce", ["get", "color"], "#111827"],
+        "circle-stroke-width": 2,
+        "circle-stroke-color": "#ffffff",
+        "circle-opacity": 0.96,
+      },
+    });
+  }
 }
 
 function fitToData(map: maplibregl.Map, turnpoints: MapTurnpoint[], taskPoints: MapTaskPoint[], optimizedRoute: [number, number][], track: TrackCollection | null) {
@@ -1034,17 +1158,18 @@ export const TaskMap = React.memo(function TaskMap({
   taskPoints,
   optimizedRoute = [],
   legMetrics = [],
-  totalDistanceKm = 0,
-  optimizedDistanceKm = 0,
   track,
+  scoredTrackPoints = [],
   livePositions = [],
+  liveMarkerScale = 1,
   editable,
   onSelectTurnpoint,
   taskEditorOverlay,
-  hideFullscreenDistanceOverlay = false,
-  hideDistanceSummary = false,
+  fullscreenSidebar,
+  fullscreenSidebarLabel = "Pilot list",
   highlightedTrackUploadId,
   fitKey,
+  fitOnceKey,
   fitTurnpoints,
   fitMaxZoom = 10,
   viewStateKey,
@@ -1058,23 +1183,26 @@ export const TaskMap = React.memo(function TaskMap({
     telemetry_glide_ratio_smoothing_seconds: 5,
   },
   showGpsButton = false,
+  overlayConfig,
+  focusPosition,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
   taskPoints: MapTaskPoint[];
   optimizedRoute?: [number, number][];
   legMetrics?: MapLegMetric[];
-  totalDistanceKm?: number;
-  optimizedDistanceKm?: number;
   track: TrackCollection | null;
+  scoredTrackPoints?: MapScoredTrackPoint[];
   livePositions?: MapLivePosition[];
+  liveMarkerScale?: number;
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
-  taskEditorOverlay?: ReactNode;
-  hideFullscreenDistanceOverlay?: boolean;
-  hideDistanceSummary?: boolean;
+  taskEditorOverlay?: TaskEditorOverlayContent;
+  fullscreenSidebar?: FullscreenSidebarContent;
+  fullscreenSidebarLabel?: string;
   highlightedTrackUploadId?: number | null;
   fitKey?: string | number | null;
+  fitOnceKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
   fitMaxZoom?: number;
   viewStateKey?: string | number | null;
@@ -1083,12 +1211,17 @@ export const TaskMap = React.memo(function TaskMap({
   units?: MapUnitPreferences;
   telemetrySmoothing?: MapTelemetrySmoothing;
   showGpsButton?: boolean;
+  overlayConfig?: Record<string, boolean>;
+  focusPosition?: { lat: number; lon: number; key: string | number } | null;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
+  const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
+  const fullscreenControlRef = useRef<maplibregl.FullscreenControl | null>(null);
   const scaleControlRef = useRef<maplibregl.ScaleControl | null>(null);
+  const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
   const taskPointsRef = useRef(taskPoints);
   const optimizedRouteRef = useRef(optimizedRoute);
@@ -1096,6 +1229,7 @@ export const TaskMap = React.memo(function TaskMap({
   const viewStateKeyRef = useRef(viewStateKey);
   const fitGeometrySignatureRef = useRef("");
   const fitKeyRef = useRef<string>("");
+  const fitOnceKeyRef = useRef<string>("");
   const fitPendingForGeometryRef = useRef(false);
   const fitTargetKindRef = useRef<FitTarget["kind"]>("fallback");
   const renderedTaskGeometrySignatureRef = useRef("");
@@ -1112,7 +1246,15 @@ export const TaskMap = React.memo(function TaskMap({
   const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isTaskEditorOverlayCollapsed, setIsTaskEditorOverlayCollapsed] = useState(false);
+  const [isFullscreenSidebarCollapsed, setIsFullscreenSidebarCollapsed] = useState(false);
   const [isPerspective3D, setIsPerspective3D] = useState(false);
+  const taskEditorOverlayId = useId();
+  const taskEditorOverlayContentId = useId();
+  const fullscreenSidebarContentId = useId();
+  const fullscreenSidebarPanelContentId = useId();
+  const oc = overlayConfig;
+  const hasTaskEditorOverlay = Boolean(taskEditorOverlay) && oc?.fullscreen_editor_panel !== false;
   // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
   // flat on the map plane; in 3D they scale by the user-selected multiplier.
   const effectiveAltitudeMultiplier = isPerspective3D ? altitudeMultiplier : 0;
@@ -1122,83 +1264,171 @@ export const TaskMap = React.memo(function TaskMap({
   const [replayHasInteracted, setReplayHasInteracted] = useState(false);
   const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
   const [gpsFollowing, setGpsFollowing] = useState(false);
+  const [mapReadyNonce, setMapReadyNonce] = useState(0);
   const gpsWatchIdRef = useRef<number | null>(null);
+  const gpsFollowingRef = useRef(false);
+  const gpsLocateRequestIdRef = useRef(0);
+  const gpsLastCameraCenterRef = useRef<[number, number] | null>(null);
+  const gpsHasLocationRef = useRef(false);
+  const gpsHighAccuracyReceivedRef = useRef(false);
+
+  // Overlay config: filter data layers based on admin toggle matrix
+  const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
+  const effectiveAirspaces = oc?.airspaces === false ? [] : (airspaces ?? []);
+  const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
+  const effectiveTrack = oc?.flight_track === false ? null : track;
+  const effectiveHighlightedTrackUploadId = oc?.track_highlight === false ? null : highlightedTrackUploadId;
+  const effectiveLivePositions = oc?.live_positions === false ? [] : livePositions;
+  const effectiveLiveLabelPositions = oc?.live_labels === false ? [] : effectiveLivePositions;
+  const effectiveOptimizedRoute = oc?.optimized_route === false ? [] : optimizedRoute;
+  const effectiveLegMetrics = oc?.leg_labels === false ? [] : legMetrics;
+  const effectiveTaskRoutePoints = oc?.task_route === false ? [] : taskPoints;
+  const effectiveTaskCylinderPoints = oc?.task_cylinders === false ? [] : taskPoints;
+  const effectiveScoredTrackPoints = oc?.flight_track === false ? [] : scoredTrackPoints;
+  const clickToAddTurnpointEnabledRef = useRef(oc?.click_to_add_turnpoint !== false);
+
+  const stopGpsFollowing = useCallback((map: maplibregl.Map) => {
+    gpsLocateRequestIdRef.current += 1;
+    gpsLastCameraCenterRef.current = null;
+    gpsHasLocationRef.current = false;
+    gpsHighAccuracyReceivedRef.current = false;
+    if (gpsWatchIdRef.current != null) {
+      navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+      gpsWatchIdRef.current = null;
+    }
+    try { map.removeLayer("user-location-pulse"); } catch {}
+    try { map.removeLayer("user-location-dot"); } catch {}
+    try { map.removeSource("user-location"); } catch {}
+    gpsFollowingRef.current = false;
+    setGpsFollowing(false);
+  }, []);
+
+  const fitToCurrentTarget = useCallback((map: maplibregl.Map, duration = 600, includeHiddenTaskGeometry = false) => {
+    const target = resolveFitTarget(
+      includeHiddenTaskGeometry ? taskPoints : effectiveTaskRoutePoints,
+      includeHiddenTaskGeometry ? optimizedRoute : effectiveOptimizedRoute,
+      includeHiddenTaskGeometry ? turnpoints : effectiveTurnpoints,
+      effectiveTrack,
+      fitTurnpoints,
+      effectiveLivePositions,
+    );
+    if (target.kind === "fallback") {
+      return false;
+    }
+    programmaticCameraMoveRef.current = true;
+    fitMapToCoordinates(map, target.coordinates, { padding: 60, maxZoom: fitMaxZoom, duration });
+    return true;
+  }, [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitMaxZoom, fitTurnpoints, optimizedRoute, taskPoints, turnpoints]);
 
   // GPS toggle handler
   const handleGpsToggle = useCallback(() => {
     const map = mapRef.current;
     if (!map) return;
-    if (gpsFollowing) {
+    if (gpsFollowingRef.current) {
       // Stop following — zoom back to task/turnpoints
-      if (gpsWatchIdRef.current != null) {
-        navigator.geolocation.clearWatch(gpsWatchIdRef.current);
-        gpsWatchIdRef.current = null;
-      }
-      try { map.removeLayer("user-location-pulse"); } catch {}
-      try { map.removeLayer("user-location-dot"); } catch {}
-      try { map.removeSource("user-location"); } catch {}
-      setGpsFollowing(false);
+      stopGpsFollowing(map);
       // Clear pan-lock so waypoint geometry updates can auto-fit again
       manualViewChangedRef.current = false;
       // Refit to task bounds
-      const target = resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints);
-      if (target.kind !== "fallback") {
-        const coords = target.coordinates as [number, number][];
-        if (coords.length >= 2) {
-          const bnds = new maplibregl.LngLatBounds();
-          for (const c of coords) bnds.extend(c);
-          programmaticCameraMoveRef.current = true;
-          map.fitBounds(bnds, { padding: 60, maxZoom: fitMaxZoom, duration: 600 });
-        } else if (coords.length === 1) {
-          programmaticCameraMoveRef.current = true;
-          map.easeTo({ center: coords[0], zoom: fitMaxZoom, duration: 600 });
-        }
-      }
+      fitToCurrentTarget(map);
     } else {
       // Start following — clear any pan-lock so the button always re-centers
       if (!("geolocation" in navigator)) return;
       manualViewChangedRef.current = false;
+      gpsFollowingRef.current = true;
       setGpsFollowing(true);
+      map.stop();
+      const locateRequestId = gpsLocateRequestIdRef.current + 1;
+      gpsLocateRequestIdRef.current = locateRequestId;
+      gpsLastCameraCenterRef.current = null;
+      gpsHasLocationRef.current = false;
+      gpsHighAccuracyReceivedRef.current = false;
+
+      const isCurrentLocateRequest = () => gpsLocateRequestIdRef.current === locateRequestId && mapRef.current === map;
+      const applyLocationFix = (pos: GeolocationPosition, accuracyMode: "quick" | "high") => {
+        if (!isCurrentLocateRequest()) {
+          return;
+        }
+        if (accuracyMode === "quick" && gpsHighAccuracyReceivedRef.current) {
+          return;
+        }
+        const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+        const src = map.getSource("user-location") as maplibregl.GeoJSONSource | undefined;
+        const geojson = { type: "FeatureCollection" as const, features: [{ type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: lngLat } }] };
+        if (src) {
+          src.setData(geojson);
+        } else {
+          map.addSource("user-location", { type: "geojson", data: geojson });
+          map.addLayer({ id: "user-location-pulse", type: "circle", source: "user-location", paint: { "circle-radius": 18, "circle-color": "#2563eb", "circle-opacity": 0.15 } });
+          map.addLayer({ id: "user-location-dot", type: "circle", source: "user-location", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
+        }
+        gpsHasLocationRef.current = true;
+        if (accuracyMode === "high") {
+          gpsHighAccuracyReceivedRef.current = true;
+        }
+
+        // Stop centering if user has panned away — they're exploring the map.
+        if (manualViewChangedRef.current) {
+          return;
+        }
+        const previousCenter = gpsLastCameraCenterRef.current;
+        const movedMeters = previousCenter
+          ? new maplibregl.LngLat(previousCenter[0], previousCenter[1]).distanceTo(new maplibregl.LngLat(lngLat[0], lngLat[1]))
+          : Number.POSITIVE_INFINITY;
+        if (movedMeters <= 30) {
+          return;
+        }
+        gpsLastCameraCenterRef.current = lngLat;
+        programmaticCameraMoveRef.current = true;
+        map.easeTo({
+          center: lngLat,
+          zoom: Math.max(map.getZoom(), 13),
+          duration: accuracyMode === "quick" ? 250 : 600,
+        });
+      };
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => applyLocationFix(pos, "quick"),
+        () => {},
+        { enableHighAccuracy: false, maximumAge: 60000, timeout: 1200 },
+      );
       const watchId = navigator.geolocation.watchPosition(
-        (pos) => {
-          const lngLat: [number, number] = [pos.coords.longitude, pos.coords.latitude];
-          const src = map.getSource("user-location") as maplibregl.GeoJSONSource | undefined;
-          const geojson = { type: "FeatureCollection" as const, features: [{ type: "Feature" as const, properties: {}, geometry: { type: "Point" as const, coordinates: lngLat } }] };
-          if (src) {
-            src.setData(geojson);
-          } else {
-            map.addSource("user-location", { type: "geojson", data: geojson });
-            map.addLayer({ id: "user-location-pulse", type: "circle", source: "user-location", paint: { "circle-radius": 18, "circle-color": "#2563eb", "circle-opacity": 0.15 } });
-            map.addLayer({ id: "user-location-dot", type: "circle", source: "user-location", paint: { "circle-radius": 7, "circle-color": "#2563eb", "circle-stroke-width": 2, "circle-stroke-color": "#ffffff" } });
-          }
-          // Stop centering if user has panned away — they're exploring the map
-          if (!manualViewChangedRef.current) {
-            programmaticCameraMoveRef.current = true;
-            map.easeTo({ center: lngLat, zoom: Math.max(map.getZoom(), 13), duration: 600 });
-          }
-        },
+        (pos) => applyLocationFix(pos, "high"),
         () => {
+          if (!isCurrentLocateRequest() || gpsHasLocationRef.current) {
+            return;
+          }
+          gpsLocateRequestIdRef.current += 1;
+          gpsLastCameraCenterRef.current = null;
+          gpsHighAccuracyReceivedRef.current = false;
+          if (gpsWatchIdRef.current != null) {
+            navigator.geolocation.clearWatch(gpsWatchIdRef.current);
+            gpsWatchIdRef.current = null;
+          }
+          gpsFollowingRef.current = false;
           setGpsFollowing(false);
         },
         { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 },
       );
       gpsWatchIdRef.current = watchId;
     }
-  }, [gpsFollowing, turnpoints, taskPoints, track, fitTurnpoints, fitMaxZoom]);
+  }, [fitToCurrentTarget, gpsFollowing, stopGpsFollowing]);
 
   // Cleanup GPS watch on unmount
   useEffect(() => {
     return () => {
+      gpsLocateRequestIdRef.current += 1;
       if (gpsWatchIdRef.current != null) {
         navigator.geolocation.clearWatch(gpsWatchIdRef.current);
       }
+      gpsFollowingRef.current = false;
     };
   }, []);
 
-  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: turnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [turnpoints]);
+  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTurnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [effectiveTurnpoints]);
   const livePositionData = useMemo(() => ({
     type: "FeatureCollection",
-    features: livePositions.map((position) => ({
+    features: effectiveLivePositions.map((position) => ({
       type: "Feature",
       properties: {
         id: position.id,
@@ -1214,10 +1444,10 @@ export const TaskMap = React.memo(function TaskMap({
         coordinates: [position.longitude, position.latitude],
       },
     })),
-  }), [livePositions]);
-  const livePilotLabelData = useMemo(
+  }), [effectiveLivePositions]);
+  const livePilotMarkerData = useMemo(
     () =>
-      livePositions.map((position) => ({
+      effectiveLivePositions.map((position) => ({
         nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
         altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
         position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
@@ -1226,11 +1456,24 @@ export const TaskMap = React.memo(function TaskMap({
         positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
         aircraftType: normalizeAircraftIcon(position.aircraftType),
       })),
-    [effectiveAltitudeMultiplier, livePositions, units.altitude],
+    [effectiveAltitudeMultiplier, effectiveLivePositions, units.altitude],
+  );
+  const livePilotLabelData = useMemo(
+    () =>
+      effectiveLiveLabelPositions.map((position) => ({
+        nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
+        altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
+        position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
+        color: hexToRgb(String(position.color ?? "#0ea5e9")),
+        profileType: (position.profileType ?? "pilot") as "pilot" | "driver" | "stationary_node",
+        positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
+        aircraftType: normalizeAircraftIcon(position.aircraftType),
+      })),
+    [effectiveAltitudeMultiplier, effectiveLiveLabelPositions, units.altitude],
   );
   const airspaceData = useMemo(() => ({
     type: "FeatureCollection",
-    features: airspaces.map((airspace) => ({
+    features: effectiveAirspaces.map((airspace) => ({
       type: "Feature",
       properties: {
         id: airspace.id,
@@ -1246,10 +1489,10 @@ export const TaskMap = React.memo(function TaskMap({
       },
       geometry: airspace.geometry_json,
     })),
-  }), [airspaces]);
+  }), [effectiveAirspaces]);
   const airspaceLabelData = useMemo(() => ({
     type: "FeatureCollection",
-    features: airspaces
+    features: effectiveAirspaceLabels
       .filter((airspace) => airspace.label_latitude !== null && airspace.label_longitude !== null)
       .map((airspace) => ({
         type: "Feature",
@@ -1261,46 +1504,80 @@ export const TaskMap = React.memo(function TaskMap({
           coordinates: [airspace.label_longitude as number, airspace.label_latitude as number],
         },
       })),
-  }), [airspaces]);
-  const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [taskPoints]);
-  const routeData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: taskPoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [taskPoints]);
-  const routeArrowData = useMemo(() => buildRouteArrowData(taskPoints.map((point) => [point.longitude, point.latitude])), [taskPoints]);
-  const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: optimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: optimizedRoute } }] : [] }), [optimizedRoute]);
+  }), [effectiveAirspaceLabels]);
+  const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskRoutePoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [effectiveTaskRoutePoints]);
+  const scoredTrackPointData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: effectiveScoredTrackPoints.map((point) => ({
+      type: "Feature",
+      properties: {
+        id: point.id,
+        upload_id: point.uploadId,
+        pilot_name: point.pilotName,
+        point_name: point.pointName,
+        point_type: point.pointType,
+        direction: point.direction ?? "",
+        timestamp: point.timestamp ?? "",
+        scored_timestamp: point.scoredTimestamp ?? "",
+        altitude_m: point.altitudeM ?? null,
+        altitude_label: point.altitudeM != null ? formatAltitudeLabel(point.altitudeM, units.altitude) : "",
+        latitude: point.latitude,
+        longitude: point.longitude,
+        color: point.color ?? "#111827",
+        highlighted: point.uploadId != null && point.uploadId === effectiveHighlightedTrackUploadId,
+      },
+      geometry: { type: "Point", coordinates: [point.longitude, point.latitude] },
+    })),
+  }), [effectiveHighlightedTrackUploadId, effectiveScoredTrackPoints, units.altitude]);
+  const scoredTrackDeckPointData = useMemo<ScoredTrackDeckPoint[]>(
+    () =>
+      effectiveScoredTrackPoints.map((point) => ({
+        ...point,
+        position: [point.longitude, point.latitude, (point.altitudeM ?? 0) * effectiveAltitudeMultiplier],
+        deckColor: hexToRgb(String(point.color ?? "#111827")),
+        highlighted: point.uploadId != null && point.uploadId === effectiveHighlightedTrackUploadId,
+        altitudeLabel: point.altitudeM != null ? formatAltitudeLabel(point.altitudeM, units.altitude) : "",
+      })),
+    [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveScoredTrackPoints, units.altitude],
+  );
+  const routeData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskRoutePoints.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: effectiveTaskRoutePoints.map((point) => [point.longitude, point.latitude]) } }] : [] }), [effectiveTaskRoutePoints]);
+  const routeArrowData = useMemo(() => buildRouteArrowData(effectiveTaskRoutePoints.map((point) => [point.longitude, point.latitude])), [effectiveTaskRoutePoints]);
+  const optimizedRouteData = useMemo(() => ({ type: "FeatureCollection", features: effectiveOptimizedRoute.length > 1 ? [{ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: effectiveOptimizedRoute } }] : [] }), [effectiveOptimizedRoute]);
   const optimizedRoutePointData = useMemo(() => ({
     type: "FeatureCollection",
-    features: optimizedRoute.map((coordinate, index) => ({
+    features: effectiveOptimizedRoute.map((coordinate, index) => ({
       type: "Feature",
       properties: { index: index + 1 },
       geometry: { type: "Point", coordinates: coordinate },
     })),
-  }), [optimizedRoute]);
+  }), [effectiveOptimizedRoute]);
   const legLabelData = useMemo(() => ({
     type: "FeatureCollection",
-    features: legMetrics.map((leg) => ({
+    features: effectiveLegMetrics.map((leg) => ({
       type: "Feature",
       properties: { label: formatDistanceLabel(leg.optimizedDistanceKm, units.distance) },
       geometry: { type: "Point", coordinates: leg.midpoint },
     })),
-  }), [legMetrics, units.distance]);
-  const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: taskPoints.map(buildCircle) }), [taskPoints]);
-  const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(taskPoints, optimizedRoute), [optimizedRoute, taskPoints]);
+  }), [effectiveLegMetrics, units.distance]);
+  const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskCylinderPoints.map(buildCircle) }), [effectiveTaskCylinderPoints]);
+  const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(effectiveTaskRoutePoints, effectiveOptimizedRoute), [effectiveOptimizedRoute, effectiveTaskRoutePoints]);
   const resolvedFitTarget = useMemo(
-    () => resolveFitTarget(taskPoints, optimizedRoute, turnpoints, track, fitTurnpoints),
-    [fitTurnpoints, optimizedRoute, taskPoints, track, turnpoints],
+    () => resolveFitTarget(effectiveTaskRoutePoints, effectiveOptimizedRoute, effectiveTurnpoints, effectiveTrack, fitTurnpoints, effectiveLivePositions),
+    [effectiveLivePositions, effectiveOptimizedRoute, effectiveTaskRoutePoints, effectiveTrack, effectiveTurnpoints, fitTurnpoints],
   );
   const cylinderVolumes = useMemo<TaskCylinderVolume[]>(
     () =>
-      taskPoints.map((point) => ({
+      effectiveTaskCylinderPoints.map((point) => ({
         polygon: (buildCircle(point).geometry.coordinates[0] as [number, number][]),
         pointType: point.point_type,
       })),
-    [taskPoints],
+    [effectiveTaskCylinderPoints],
   );
   const trackFeatureTimelines = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [] as Array<{ uploadId: number; timestamps: number[]; coordinateCount: number }>;
     }
-    return track.features.map((feature) => {
+    return effectiveTrack.features.map((feature) => {
       const raw = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
       const timestamps = raw
         .slice(0, feature.geometry.coordinates.length)
@@ -1312,16 +1589,16 @@ export const TaskMap = React.memo(function TaskMap({
         coordinateCount: feature.geometry.coordinates.length,
       };
     });
-  }, [track]);
+  }, [effectiveTrack]);
   const effectiveTelemetrySmoothing = useMemo(
     () => resolveAdaptiveTelemetrySmoothing(telemetrySmoothing, mode, isReplaying, replaySpeed),
     [isReplaying, mode, replaySpeed, telemetrySmoothing],
   );
   const smoothedTrackTelemetrySeries = useMemo<TrackTelemetrySeries[]>(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [];
     }
-    return track.features.map((feature, featureIndex) => {
+    return effectiveTrack.features.map((feature, featureIndex) => {
       const timestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
       const limitedCoordinates = feature.geometry.coordinates.slice(0, timestamps.length);
       const series = buildTrackTelemetrySeries(limitedCoordinates, timestamps, effectiveTelemetrySmoothing);
@@ -1334,7 +1611,7 @@ export const TaskMap = React.memo(function TaskMap({
         glideRatio: series.glideRatio,
       };
     });
-  }, [effectiveTelemetrySmoothing, track, trackFeatureTimelines]);
+  }, [effectiveTelemetrySmoothing, effectiveTrack, trackFeatureTimelines]);
   const replayTimeline = useMemo(() => {
     const unique = new Set<number>();
     trackFeatureTimelines.forEach((feature) => {
@@ -1345,13 +1622,13 @@ export const TaskMap = React.memo(function TaskMap({
   const replayTotal = replayTimeline.length;
   const maxMapPitch = Math.max(0, Math.min(85, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
   const visibleTrackLengths = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [] as number[];
     }
     const hasReplay = replayTotal > 0;
     const shouldSliceTrack = hasReplay && (isReplaying || replayHasInteracted);
     const currentReplayTime = hasReplay ? replayTimeline[Math.min(replayIndex, replayTotal - 1)] : null;
-    return track.features.map((feature, featureIndex) => {
+    return effectiveTrack.features.map((feature, featureIndex) => {
       if (!shouldSliceTrack || currentReplayTime == null) {
         return feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0;
       }
@@ -1365,9 +1642,9 @@ export const TaskMap = React.memo(function TaskMap({
       }
       return Math.min(replayCoordinateIndex + 1, feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0);
     });
-  }, [isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, track, trackFeatureTimelines]);
+  }, [effectiveTrack, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, trackFeatureTimelines]);
   const fullTrackPathData = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return [] as Array<{
         uploadId: number;
         path: [number, number, number][];
@@ -1375,22 +1652,22 @@ export const TaskMap = React.memo(function TaskMap({
         highlighted: boolean;
       }>;
     }
-    return track.features
+    return effectiveTrack.features
       .filter((feature) => feature.geometry.type === "LineString")
       .map((feature, featureIndex) => ({
         uploadId: Number(feature.properties?.upload_id ?? 0),
         path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
         color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
-        highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+        highlighted: Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId,
       }));
-  }, [effectiveAltitudeMultiplier, highlightedTrackUploadId, track]);
+  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack]);
   const displayTrack = useMemo<TrackCollection | null>(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return null;
     }
     return {
       type: "FeatureCollection",
-      features: track.features.map((feature, featureIndex) => ({
+      features: effectiveTrack.features.map((feature, featureIndex) => ({
         ...feature,
         geometry: {
           ...feature.geometry,
@@ -1401,14 +1678,14 @@ export const TaskMap = React.memo(function TaskMap({
         },
       })),
     };
-  }, [fullTrackPathData, track, visibleTrackLengths]);
+  }, [effectiveTrack, fullTrackPathData, visibleTrackLengths]);
   const replayMarkerData = useMemo(() => {
-    if (!track || !replayTotal) {
+    if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
     }
     const shouldUseReplayPosition = isReplaying || replayHasInteracted;
     const currentReplayTime = replayTimeline[Math.min(replayIndex, replayTotal - 1)];
-    const features = track.features.flatMap((feature, featureIndex) => {
+    const features = effectiveTrack.features.flatMap((feature, featureIndex) => {
       if (feature.geometry.type !== "LineString" || !feature.geometry.coordinates.length) {
         return [];
       }
@@ -1434,7 +1711,7 @@ export const TaskMap = React.memo(function TaskMap({
             upload_id: Number(feature.properties?.upload_id ?? 0),
             color: String(feature.properties?.color ?? "#2563eb"),
             aircraft_icon: normalizeAircraftIcon(feature.properties?.aircraft_icon),
-            highlighted: Number(feature.properties?.upload_id ?? 0) === highlightedTrackUploadId,
+            highlighted: Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId,
             label: aircraftPilotLabel(
               normalizeAircraftIcon(feature.properties?.aircraft_icon),
               String(feature.properties?.pilot_name ?? "Pilot"),
@@ -1458,7 +1735,7 @@ export const TaskMap = React.memo(function TaskMap({
       type: "FeatureCollection",
       features,
     };
-  }, [effectiveAltitudeMultiplier, highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, track, trackFeatureTimelines, units.altitude]);
+  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, smoothedTrackTelemetrySeries, trackFeatureTimelines, units.altitude]);
   const replayPilotLabelData = useMemo(
     () =>
       (replayMarkerData.features as Array<{ geometry?: { coordinates?: [number, number, number] | [number, number] }; properties?: Record<string, unknown> }>)
@@ -1481,11 +1758,11 @@ export const TaskMap = React.memo(function TaskMap({
     [replayMarkerData],
   );
   const maxScoredTrackAltitudeM = useMemo(() => {
-    if (!track) {
+    if (!effectiveTrack) {
       return 15000;
     }
     let maxAltitude = 0;
-    for (const feature of track.features) {
+    for (const feature of effectiveTrack.features) {
       if (feature.geometry.type !== "LineString") {
         continue;
       }
@@ -1496,7 +1773,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
     }
     return maxAltitude > 0 ? maxAltitude : 15000;
-  }, [track]);
+  }, [effectiveTrack]);
   const deckTrackLayers = useMemo(() => {
     const layers = [];
     if (isPerspective3D && cylinderVolumes.length) {
@@ -1605,150 +1882,192 @@ export const TaskMap = React.memo(function TaskMap({
             },
           }),
         );
-        const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
-        if (labelData.length) {
-          // Live mode only: draw a role-source ring and a role-shape icon at the pilot's
-          // current position. We keep the existing name + altitude text labels and just
-          // push them up a few pixels so the ring + icon fit beneath them.
-          if (mode === "live") {
-            type LiveLabelItem = {
-              position: [number, number, number];
-              color: [number, number, number];
-              profileType?: "pilot" | "driver" | "stationary_node";
-              positionSource?: "cellular" | "mesh" | "other";
-              aircraftType?: "hang_glider" | "paraglider" | "sailplane";
-            };
-            layers.push(
-              new IconLayer({
-                id: `live-pilot-rings-${mode}`,
-                data: labelData as LiveLabelItem[],
-                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-                billboard: true,
-                getPosition: (item: LiveLabelItem) => item.position,
-                getIcon: (item: LiveLabelItem) => {
-                  const source = item.positionSource ?? "other";
-                  return {
-                    url: RING_ICON_DATA_URIS[source],
-                    width: 48,
-                    height: 48,
-                    mask: true,
-                  };
-                },
-                getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: 28,
-                sizeUnits: "pixels",
-                sizeMinPixels: 20,
-                pickable: false,
-                parameters: {
-                  depthTest: false,
-                },
-              }),
-            );
-            layers.push(
-              new IconLayer({
-                id: `live-pilot-role-icons-${mode}`,
-                data: labelData as LiveLabelItem[],
-                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-                billboard: true,
-                getPosition: (item: LiveLabelItem) => item.position,
-                getIcon: (item: LiveLabelItem) => {
-                  const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
-                  return {
-                    url: ROLE_ICON_DATA_URIS[iconKey],
-                    width: 48,
-                    height: 48,
-                    mask: true,
-                  };
-                },
-                getColor: (item: LiveLabelItem) => [...item.color, 255],
-                getSize: 18,
-                sizeUnits: "pixels",
-                sizeMinPixels: 12,
-                pickable: false,
-                parameters: {
-                  depthTest: false,
-                },
-              }),
-            );
-          }
-          layers.push(
-            new TextLayer({
-              id: `pilot-name-labels-${mode}`,
-              data: labelData,
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              billboard: true,
-              getPosition: (item: { position: [number, number, number] }) => item.position,
-              getText: (item: { nameLabel: string }) => item.nameLabel,
-              getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
-              getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
-              sizeUnits: "pixels",
-              sizeMinPixels: 12,
-              getPixelOffset: mode === "live" ? [0, -30] : [0, -16],
-              getTextAnchor: "middle",
-              getAlignmentBaseline: "bottom",
-              characterSet: "auto",
-              fontFamily: "Segoe UI, Arial, sans-serif",
-              fontWeight: 700,
-              outlineWidth: 2,
-              outlineColor: [255, 255, 255, 230],
-              pickable: false,
-              parameters: {
-                depthTest: false,
-              },
-            }),
-          );
-          layers.push(
-            new TextLayer({
-              id: `pilot-altitude-labels-${mode}`,
-              data: labelData.filter((item: { altitudeLabel?: string }) => Boolean(item.altitudeLabel)),
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              billboard: true,
-              getPosition: (item: { position: [number, number, number] }) => item.position,
-              getText: (item: { altitudeLabel: string }) => item.altitudeLabel,
-              getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
-              getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
-              sizeUnits: "pixels",
-              sizeMinPixels: 10,
-              getPixelOffset: mode === "live" ? [0, -16] : [0, -3],
-              getTextAnchor: "middle",
-              getAlignmentBaseline: "bottom",
-              characterSet: "auto",
-              fontFamily: "Segoe UI, Arial, sans-serif",
-              fontWeight: 400,
-              outlineWidth: 2,
-              outlineColor: [255, 255, 255, 230],
-              pickable: false,
-              parameters: {
-                depthTest: false,
-              },
-            }),
-          );
-        }
         // }
       }
     }
+    if (scoredTrackDeckPointData.length) {
+      layers.push(
+        new ScatterplotLayer<ScoredTrackDeckPoint>({
+          id: "scored-track-point-markers",
+          data: scoredTrackDeckPointData,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          getPosition: (item: ScoredTrackDeckPoint) => item.position,
+          getFillColor: (item: ScoredTrackDeckPoint) => [...item.deckColor, 255] as [number, number, number, number],
+          getLineColor: [255, 255, 255, 255],
+          getRadius: (item: ScoredTrackDeckPoint) => (item.highlighted ? 8 : 6),
+          radiusUnits: "pixels",
+          radiusMinPixels: 6,
+          radiusMaxPixels: 10,
+          stroked: true,
+          lineWidthUnits: "pixels",
+          lineWidthMinPixels: 2,
+          pickable: true,
+          onHover: (info: { object?: ScoredTrackDeckPoint; coordinate?: number[] | null }) => {
+            const map = mapRef.current;
+            if (!map) {
+              return;
+            }
+            if (!info.object || !info.coordinate) {
+              map.getCanvas().style.cursor = "";
+              scoredPointPopupRef.current?.remove();
+              return;
+            }
+            if (!scoredPointPopupRef.current) {
+              scoredPointPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+            }
+            map.getCanvas().style.cursor = "pointer";
+            scoredPointPopupRef.current
+              .setLngLat([info.object.longitude, info.object.latitude])
+              .setHTML(scoredTrackPointPopupHtml(info.object))
+              .addTo(map);
+          },
+        }),
+      );
+    }
+    const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
+    const liveMarkerData = mode === "live" ? livePilotMarkerData : [];
+    if (liveMarkerData.length) {
+      type LiveMarkerItem = {
+        position: [number, number, number];
+        color: [number, number, number];
+        profileType?: "pilot" | "driver" | "stationary_node";
+        positionSource?: "cellular" | "mesh" | "other";
+        aircraftType?: "hang_glider" | "paraglider" | "sailplane";
+      };
+      layers.push(
+        new IconLayer({
+          id: `live-pilot-rings-${mode}`,
+          data: liveMarkerData as LiveMarkerItem[],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: LiveMarkerItem) => item.position,
+          getIcon: (item: LiveMarkerItem) => {
+            const source = item.positionSource ?? "other";
+            return {
+              url: RING_ICON_DATA_URIS[source],
+              width: 48,
+              height: 48,
+              mask: true,
+            };
+          },
+          getColor: (item: LiveMarkerItem) => [...item.color, 255],
+          getSize: Math.round(28 * liveMarkerScale),
+          sizeUnits: "pixels",
+          sizeMinPixels: Math.round(20 * liveMarkerScale),
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+      layers.push(
+        new IconLayer({
+          id: `live-pilot-role-icons-${mode}`,
+          data: liveMarkerData as LiveMarkerItem[],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: LiveMarkerItem) => item.position,
+          getIcon: (item: LiveMarkerItem) => {
+            const iconKey = resolveLiveMapIconKey(item.profileType, item.aircraftType);
+            return {
+              url: ROLE_ICON_DATA_URIS[iconKey],
+              width: 48,
+              height: 48,
+              mask: true,
+            };
+          },
+          getColor: (item: LiveMarkerItem) => [...item.color, 255],
+          getSize: Math.round(18 * liveMarkerScale),
+          sizeUnits: "pixels",
+          sizeMinPixels: Math.round(12 * liveMarkerScale),
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+    }
+    if (labelData.length) {
+      layers.push(
+        new TextLayer({
+          id: `pilot-name-labels-${mode}`,
+          data: labelData,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: { position: [number, number, number] }) => item.position,
+          getText: (item: { nameLabel: string }) => item.nameLabel,
+          getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
+          getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
+          sizeUnits: "pixels",
+          sizeMinPixels: 12,
+          getPixelOffset: mode === "live" ? [0, -30] : [0, -16],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          characterSet: "auto",
+          fontFamily: "Segoe UI, Arial, sans-serif",
+          fontWeight: 700,
+          outlineWidth: 2,
+          outlineColor: [255, 255, 255, 230],
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+      layers.push(
+        new TextLayer({
+          id: `pilot-altitude-labels-${mode}`,
+          data: labelData.filter((item: { altitudeLabel?: string }) => Boolean(item.altitudeLabel)),
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: { position: [number, number, number] }) => item.position,
+          getText: (item: { altitudeLabel: string }) => item.altitudeLabel,
+          getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
+          getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
+          sizeUnits: "pixels",
+          sizeMinPixels: 10,
+          getPixelOffset: mode === "live" ? [0, -16] : [0, -3],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "bottom",
+          characterSet: "auto",
+          fontFamily: "Segoe UI, Arial, sans-serif",
+          fontWeight: 400,
+          outlineWidth: 2,
+          outlineColor: [255, 255, 255, 230],
+          pickable: false,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
+    }
     return layers;
-  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
   const fitKeyValue = String(fitKey ?? "");
+  const fitOnceKeyValue = String(fitOnceKey ?? "");
 
   useEffect(() => {
-    turnpointsRef.current = turnpoints;
-  }, [turnpoints]);
+    turnpointsRef.current = effectiveTurnpoints;
+  }, [effectiveTurnpoints]);
 
   useEffect(() => {
-    taskPointsRef.current = taskPoints;
-  }, [taskPoints]);
+    taskPointsRef.current = effectiveTaskRoutePoints;
+  }, [effectiveTaskRoutePoints]);
 
   useEffect(() => {
-    optimizedRouteRef.current = optimizedRoute;
-  }, [optimizedRoute]);
+    optimizedRouteRef.current = effectiveOptimizedRoute;
+  }, [effectiveOptimizedRoute]);
 
   useEffect(() => {
-    trackRef.current = track;
-  }, [track]);
+    trackRef.current = effectiveTrack;
+  }, [effectiveTrack]);
+
+  useEffect(() => {
+    clickToAddTurnpointEnabledRef.current = oc?.click_to_add_turnpoint !== false;
+  }, [oc?.click_to_add_turnpoint]);
 
   useEffect(() => {
     replayIndexRef.current = replayIndex;
@@ -1764,6 +2083,18 @@ export const TaskMap = React.memo(function TaskMap({
   }, [viewStateKey]);
 
   useEffect(() => {
+    if (!isFullscreen || !hasTaskEditorOverlay) {
+      setIsTaskEditorOverlayCollapsed(false);
+    }
+  }, [isFullscreen, hasTaskEditorOverlay]);
+
+  useEffect(() => {
+    if (!isFullscreen || !fullscreenSidebar) {
+      setIsFullscreenSidebarCollapsed(false);
+    }
+  }, [isFullscreen, fullscreenSidebar]);
+
+  useEffect(() => {
     const nextReplayIndex = replayTotal > 0 ? replayTotal - 1 : 0;
     setIsReplaying(false);
     setReplayHasInteracted(false);
@@ -1775,7 +2106,7 @@ export const TaskMap = React.memo(function TaskMap({
       window.cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
-  }, [track, replayTimeline, replayTotal]);
+  }, [effectiveTrack, replayTimeline, replayTotal]);
 
   useEffect(() => {
     if (!isReplaying || replayTotal <= 1) {
@@ -1863,7 +2194,6 @@ export const TaskMap = React.memo(function TaskMap({
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
-      map.addControl(new maplibregl.FullscreenControl({ container: shell ?? undefined }), "top-right");
       const scaleControl = new maplibregl.ScaleControl({
         maxWidth: 96,
         unit: units.distance === "mi" ? "imperial" : "metric",
@@ -1908,7 +2238,7 @@ export const TaskMap = React.memo(function TaskMap({
       map.on("rotatestart", markManualInteraction);
       map.on("pitchstart", markManualInteraction);
       map.on("click", (event) => {
-        if (!editableRef.current || !onSelectTurnpointRef.current) {
+        if (!editableRef.current || !onSelectTurnpointRef.current || !clickToAddTurnpointEnabledRef.current) {
           return;
         }
         const features = map.queryRenderedFeatures(event.point, { layers: ["turnpoints-layer"] });
@@ -1951,6 +2281,7 @@ export const TaskMap = React.memo(function TaskMap({
       document.addEventListener("webkitfullscreenchange", handleFullscreenChange as EventListener);
       window.setTimeout(() => map.resize(), 0);
       mapRef.current = map;
+      setMapReadyNonce((value) => value + 1);
       return () => {
         resizeObserver.disconnect();
         if (compassButton && handleCompassClick) {
@@ -1967,6 +2298,12 @@ export const TaskMap = React.memo(function TaskMap({
           map.removeControl(deckOverlayRef.current);
           deckOverlayRef.current = null;
         }
+        if (fullscreenControlRef.current) {
+          map.removeControl(fullscreenControlRef.current);
+          fullscreenControlRef.current = null;
+        }
+        scoredPointPopupRef.current?.remove();
+        scoredPointPopupRef.current = null;
         scaleControlRef.current = null;
         map.remove();
         mapRef.current = null;
@@ -1977,6 +2314,22 @@ export const TaskMap = React.memo(function TaskMap({
     }
     // Keep the base map instance stable; geometry changes are handled by the source/layer sync effects below.
     }, []);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const enabled = oc?.fullscreen_toggle !== false;
+    if (enabled && !fullscreenControlRef.current) {
+      const control = new maplibregl.FullscreenControl({ container: shellRef.current ?? undefined });
+      map.addControl(control, "top-right");
+      fullscreenControlRef.current = control;
+    } else if (!enabled && fullscreenControlRef.current) {
+      map.removeControl(fullscreenControlRef.current);
+      fullscreenControlRef.current = null;
+    }
+  }, [oc?.fullscreen_toggle]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2052,21 +2405,8 @@ export const TaskMap = React.memo(function TaskMap({
       map.fitBounds(USA_FIT_BOUNDS, { padding: 32, maxZoom: 5, duration: 0 });
       return;
     }
-    if (fitBounds.length === 1) {
-      programmaticCameraMoveRef.current = true;
-      map.easeTo({
-        center: fitBounds[0],
-        zoom: fitMaxZoom,
-        duration: ms,
-      });
-      return;
-    }
-    const lngLatBounds = new maplibregl.LngLatBounds();
-    for (const coordinate of fitBounds) {
-      lngLatBounds.extend(coordinate);
-    }
     programmaticCameraMoveRef.current = true;
-    map.fitBounds(lngLatBounds, { padding: 72, maxZoom: fitMaxZoom, duration: ms });
+    fitMapToCoordinates(map, fitBounds, { padding: 72, maxZoom: fitMaxZoom, duration: ms });
   }, [fitBounds, fitMaxZoom]);
 
   // Sync turnpoint data to map
@@ -2150,6 +2490,22 @@ export const TaskMap = React.memo(function TaskMap({
     }
   }, [routeData, routeArrowData, cylinderData, taskPointData, optimizedRouteData, optimizedRoutePointData, legLabelData, styleGeneration, taskGeometrySignature]);
 
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !fitOnceKeyValue || fitOnceKeyValue === fitOnceKeyRef.current) {
+      return;
+    }
+    fitOnceKeyRef.current = fitOnceKeyValue;
+    if (gpsFollowingRef.current) {
+      return;
+    }
+    manualViewChangedRef.current = false;
+    const fitted = fitToCurrentTarget(map, 600, true);
+    if (!fitted) {
+      fitOnceKeyRef.current = "";
+    }
+  }, [fitOnceKeyValue, fitToCurrentTarget, gpsFollowing, mapReadyNonce]);
+
   // Sync track data to map
   useEffect(() => {
     const map = mapRef.current;
@@ -2159,6 +2515,7 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
       ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
+      ensureGeoJsonSource(map, "scored-track-points", scoredTrackPointData as never);
       ensureMapLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
@@ -2166,7 +2523,79 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [displayTrack, replayMarkerData, styleGeneration]);
+  }, [displayTrack, replayMarkerData, scoredTrackPointData, isPerspective3D, styleGeneration]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    const layerId = "scored-track-points-layer";
+    const showPopup = (event: maplibregl.MapLayerMouseEvent) => {
+      const feature = event.features?.[0];
+      if (!feature) {
+        return;
+      }
+      const properties = feature.properties ?? {};
+      const latitude = Number(properties.latitude);
+      const longitude = Number(properties.longitude);
+      const coordinateLabel = Number.isFinite(latitude) && Number.isFinite(longitude)
+        ? `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`
+        : "--";
+      const trackTime = formatScoredTrackTimeLabel(String(properties.timestamp ?? ""));
+      const scoredTimeRaw = String(properties.scored_timestamp ?? "");
+      const scoredTime = scoredTimeRaw && scoredTimeRaw !== properties.timestamp
+        ? formatScoredTrackTimeLabel(scoredTimeRaw)
+        : "";
+      const direction = String(properties.direction ?? "");
+      const pointType = String(properties.point_type ?? "");
+      const pointLabel = [pointType, direction].filter(Boolean).join(" / ");
+      const html = `
+        <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
+          <div style="font-weight: 700; margin-bottom: 4px;">${escapeHtml(properties.point_name)}</div>
+          <div style="color: #475569; margin-bottom: 6px;">${escapeHtml(properties.pilot_name)}${pointLabel ? ` - ${escapeHtml(pointLabel)}` : ""}</div>
+          <div><strong>Time:</strong> ${escapeHtml(trackTime)}</div>
+          ${scoredTime ? `<div><strong>Start Gate:</strong> ${escapeHtml(scoredTime)}</div>` : ""}
+          <div><strong>Altitude:</strong> ${escapeHtml(properties.altitude_label || "--")}</div>
+          <div><strong>GPS:</strong> ${escapeHtml(coordinateLabel)}</div>
+        </div>
+      `;
+      if (!scoredPointPopupRef.current) {
+        scoredPointPopupRef.current = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 12 });
+      }
+      map.getCanvas().style.cursor = "pointer";
+      scoredPointPopupRef.current
+        .setLngLat(event.lngLat)
+        .setHTML(html)
+        .addTo(map);
+    };
+    const hidePopup = () => {
+      map.getCanvas().style.cursor = "";
+      scoredPointPopupRef.current?.remove();
+    };
+    const attach = () => {
+      if (!map.getLayer(layerId)) {
+        return;
+      }
+      map.on("mousemove", layerId, showPopup);
+      map.on("mouseleave", layerId, hidePopup);
+    };
+    if (map.isStyleLoaded()) {
+      attach();
+    } else {
+      map.once("styledata", attach);
+    }
+    return () => {
+      try {
+        map.off("mousemove", layerId, showPopup);
+        map.off("mouseleave", layerId, hidePopup);
+      } catch {
+        // The layer can disappear while switching base maps.
+      }
+      map.off("styledata", attach);
+      hidePopup();
+    };
+  }, [scoredTrackPointData, styleGeneration]);
 
   // Fit map to data when signatures change
   useEffect(() => {
@@ -2178,8 +2607,8 @@ export const TaskMap = React.memo(function TaskMap({
     const nextFitKey = fitKeyValue;
     const nextFitTargetKind = fitTargetKind;
     const previousHighlightedTrackUploadId = previousHighlightedTrackUploadIdRef.current;
-    const highlightSelectionChanged = previousHighlightedTrackUploadId !== highlightedTrackUploadId;
-    previousHighlightedTrackUploadIdRef.current = highlightedTrackUploadId;
+    const highlightSelectionChanged = previousHighlightedTrackUploadId !== effectiveHighlightedTrackUploadId;
+    previousHighlightedTrackUploadIdRef.current = effectiveHighlightedTrackUploadId;
     const previousFitTargetKind = fitTargetKindRef.current;
     const fitKeyChanged = nextFitKey !== fitKeyRef.current;
     const geometryChanged = nextFitGeometrySignature !== fitGeometrySignatureRef.current;
@@ -2197,6 +2626,13 @@ export const TaskMap = React.memo(function TaskMap({
       geometryChanged;
     if (fitKeyChanged) {
       fitPendingForGeometryRef.current = true;
+    }
+    if (gpsFollowingRef.current) {
+      fitPendingForGeometryRef.current = false;
+      fitGeometrySignatureRef.current = nextFitGeometrySignature;
+      fitKeyRef.current = nextFitKey;
+      fitTargetKindRef.current = nextFitTargetKind;
+      return;
     }
     const highlightOnlySelectionChange =
       highlightSelectionChanged &&
@@ -2217,14 +2653,7 @@ export const TaskMap = React.memo(function TaskMap({
         fitPendingForGeometryRef.current = false;
       }
       const doAnimate = shouldFitToTaskContext || shouldFitDeferredTaskGeometry;
-      const doFit = () => {
-        applyFitBounds(map, doAnimate);
-      };
-      if (map.isStyleLoaded()) {
-        doFit();
-      } else {
-        map.once("styledata", doFit);
-      }
+      applyFitBounds(map, doAnimate);
     } else if (manualViewChangedRef.current) {
       fitGeometrySignatureRef.current = nextFitGeometrySignature;
       fitKeyRef.current = nextFitKey;
@@ -2234,21 +2663,21 @@ export const TaskMap = React.memo(function TaskMap({
     fitGeometrySignatureRef.current = nextFitGeometrySignature;
     fitKeyRef.current = nextFitKey;
     fitTargetKindRef.current = nextFitTargetKind;
-  }, [applyFitBounds, fitGeometrySignature, fitKeyValue, fitTargetKind]);
+  }, [applyFitBounds, effectiveHighlightedTrackUploadId, fitGeometrySignature, fitKeyValue, fitTargetKind, gpsFollowing, mapReadyNonce]);
 
-  const replayVisible = !!track && replayTotal > 0;
+  const replayVisible = !!effectiveTrack && replayTotal > 0 && oc?.replay_scrubber !== false;
   const replayStartLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[0]) : "--:--";
   const replayEndLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[replayTotal - 1]) : "--:--";
   const replayCurrentLabel = replayVisible ? formatReplayTimeLabel(replayTimeline[Math.min(replayIndex, replayTotal - 1)], true) : "--:--:--";
   const highlightedTrackSnapshot = useMemo<HighlightedTrackSnapshot | null>(() => {
-    if (!track || highlightedTrackUploadId == null) {
+    if (!effectiveTrack || effectiveHighlightedTrackUploadId == null) {
       return null;
     }
-    const highlightedFeature = track.features.find((feature) => Number(feature.properties?.upload_id) === highlightedTrackUploadId);
+    const highlightedFeature = effectiveTrack.features.find((feature) => Number(feature.properties?.upload_id) === effectiveHighlightedTrackUploadId);
     if (!highlightedFeature || highlightedFeature.geometry.type !== "LineString" || !highlightedFeature.geometry.coordinates.length) {
       return null;
     }
-    const timestamps = trackFeatureTimelines.find((feature) => feature.uploadId === highlightedTrackUploadId)?.timestamps ?? [];
+    const timestamps = trackFeatureTimelines.find((feature) => feature.uploadId === effectiveHighlightedTrackUploadId)?.timestamps ?? [];
     const shouldUseReplayPosition = replayVisible && (isReplaying || replayHasInteracted);
     const coordinateIndex = timestamps.length
       ? (() => {
@@ -2264,7 +2693,7 @@ export const TaskMap = React.memo(function TaskMap({
     if (!coordinate) {
       return null;
     }
-    const telemetrySeries = smoothedTrackTelemetrySeries.find((series) => series.uploadId === highlightedTrackUploadId);
+    const telemetrySeries = smoothedTrackTelemetrySeries.find((series) => series.uploadId === effectiveHighlightedTrackUploadId);
     return {
       pilotName: String(highlightedFeature.properties?.pilot_name ?? "Pilot"),
       coordinate: [coordinate[0], coordinate[1]] as [number, number],
@@ -2277,7 +2706,7 @@ export const TaskMap = React.memo(function TaskMap({
       glideRatio: telemetrySeries?.glideRatio[coordinateIndex] ?? null,
       color: String(highlightedFeature.properties?.color ?? "#2563eb"),
     };
-  }, [highlightedTrackUploadId, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, replayVisible, smoothedTrackTelemetrySeries, track, trackFeatureTimelines]);
+  }, [effectiveHighlightedTrackUploadId, effectiveTrack, isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, replayVisible, smoothedTrackTelemetrySeries, trackFeatureTimelines]);
   const highlightedTrackSnapshotRef = useRef<HighlightedTrackSnapshot | null>(null);
   const telemetryThrottleMs = useMemo(
     () => (mode === "replay" && isReplaying ? replayTelemetryThrottleMs(replaySpeed) : 0),
@@ -2298,18 +2727,18 @@ export const TaskMap = React.memo(function TaskMap({
       setDisplayedHighlightedTrackSnapshot(highlightedTrackSnapshotRef.current);
     }, telemetryThrottleMs);
     return () => window.clearInterval(intervalId);
-  }, [telemetryThrottleMs, highlightedTrackUploadId]);
+  }, [effectiveHighlightedTrackUploadId, telemetryThrottleMs]);
 
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !isPerspective3D) {
       return;
     }
-    if (highlightedTrackUploadId == null || !highlightedTrackSnapshot) {
+    if (effectiveHighlightedTrackUploadId == null || !highlightedTrackSnapshot) {
       lastCenteredHighlightRef.current = null;
       return;
     }
-    if (lastCenteredHighlightRef.current === highlightedTrackUploadId) {
+    if (lastCenteredHighlightRef.current === effectiveHighlightedTrackUploadId) {
       return;
     }
     const currentZoom = map.getZoom();
@@ -2326,8 +2755,23 @@ export const TaskMap = React.memo(function TaskMap({
       easing: (value) => 1 - Math.pow(1 - value, 3),
       essential: true,
     });
-    lastCenteredHighlightRef.current = highlightedTrackUploadId;
-  }, [highlightedTrackSnapshot, highlightedTrackUploadId, isPerspective3D]);
+    lastCenteredHighlightRef.current = effectiveHighlightedTrackUploadId;
+  }, [effectiveHighlightedTrackUploadId, highlightedTrackSnapshot, isPerspective3D]);
+
+  // Fly to a specific position when the parent requests it (e.g. pilot row click).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !focusPosition) return;
+    if (lastFocusPositionKeyRef.current === focusPosition.key) return;
+    programmaticCameraMoveRef.current = true;
+    map.easeTo({
+      center: [focusPosition.lon, focusPosition.lat],
+      zoom: Math.max(map.getZoom(), 14),
+      duration: 600,
+      easing: (t: number) => 1 - Math.pow(1 - t, 3),
+    });
+    lastFocusPositionKeyRef.current = focusPosition.key;
+  }, [focusPosition]);
 
   const telemetryOverlay = displayedHighlightedTrackSnapshot ? (
     <div className="map-track-telemetry" aria-label="Highlighted pilot telemetry">
@@ -2345,33 +2789,128 @@ export const TaskMap = React.memo(function TaskMap({
     </div>
   ) : null;
 
-  const distanceSummaryOverlay =
-    !hideDistanceSummary && !(isFullscreen && hideFullscreenDistanceOverlay) ? (
-      <div className="map-distance-summary" aria-label="Task distance summary">
-        <div className="map-distance-summary-row">
-          <strong>Total:</strong>
-          <span>{formatDistanceLabel(totalDistanceKm, units.distance)}</span>
-        </div>
-        <div className="map-distance-summary-row">
-          <strong>Optimized:</strong>
-          <span>{formatDistanceLabel(optimizedDistanceKm, units.distance)}</span>
-        </div>
-      </div>
-    ) : null;
+  const hasFullscreenTaskEditorOverlay = isFullscreen && hasTaskEditorOverlay;
+  const taskEditorToggleLabel = isTaskEditorOverlayCollapsed ? "Expand task turnpoints overlay" : "Collapse task turnpoints overlay";
+  const taskEditorOverlayToggleButton = hasFullscreenTaskEditorOverlay ? (
+    <button
+      type="button"
+      className="map-task-editor-collapse-button"
+      aria-label={taskEditorToggleLabel}
+      aria-controls={taskEditorOverlayContentId}
+      aria-expanded={!isTaskEditorOverlayCollapsed}
+      title={taskEditorToggleLabel}
+      onClick={() => setIsTaskEditorOverlayCollapsed((current) => !current)}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path
+          d={isTaskEditorOverlayCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  ) : null;
+  const renderedTaskEditorOverlay =
+    hasFullscreenTaskEditorOverlay && taskEditorOverlay
+      ? typeof taskEditorOverlay === "function"
+        ? taskEditorOverlay({
+            collapsed: isTaskEditorOverlayCollapsed,
+            contentId: taskEditorOverlayContentId,
+            overlayId: taskEditorOverlayId,
+            toggleButton: taskEditorOverlayToggleButton,
+          })
+        : (
+          <div id={taskEditorOverlayId} className={`map-task-editor-fallback${isTaskEditorOverlayCollapsed ? " is-collapsed" : ""}`}>
+            <div className="map-task-editor-fallback-actions">{taskEditorOverlayToggleButton}</div>
+            <div id={taskEditorOverlayContentId} hidden={isTaskEditorOverlayCollapsed}>
+              {taskEditorOverlay}
+            </div>
+          </div>
+        )
+      : null;
 
-  const fullscreenCompositeOverlay = isFullscreen && taskEditorOverlay ? (
-    <div className="map-fullscreen-overlay-group">
-      <div className="map-fullscreen-overlay-top">
-        <div className="map-task-editor-overlay">{taskEditorOverlay}</div>
-        {distanceSummaryOverlay}
-      </div>
+  const fullscreenCompositeOverlay = hasFullscreenTaskEditorOverlay ? (
+    <div className={`map-fullscreen-overlay-group${isTaskEditorOverlayCollapsed ? " is-task-editor-collapsed" : ""}`}>
+      {renderedTaskEditorOverlay ? (
+        <div className="map-fullscreen-overlay-top">
+          {renderedTaskEditorOverlay ? <div className="map-task-editor-overlay">{renderedTaskEditorOverlay}</div> : null}
+        </div>
+      ) : null}
       {telemetryOverlay}
     </div>
   ) : null;
+  const hasFullscreenSidebar = isFullscreen && Boolean(fullscreenSidebar);
+  const fullscreenSidebarUsesInlineToggle = typeof fullscreenSidebar === "function";
+  const fullscreenSidebarToggleLabel = isFullscreenSidebarCollapsed
+    ? `Show ${fullscreenSidebarLabel}`
+    : `Hide ${fullscreenSidebarLabel}`;
+  const fullscreenSidebarToggleButton = (
+    <button
+      type="button"
+      className="map-fullscreen-live-sidebar-toggle"
+      aria-label={fullscreenSidebarToggleLabel}
+      aria-controls={fullscreenSidebarUsesInlineToggle && !isFullscreenSidebarCollapsed ? fullscreenSidebarContentId : fullscreenSidebarPanelContentId}
+      aria-expanded={!isFullscreenSidebarCollapsed}
+      title={fullscreenSidebarToggleLabel}
+      onClick={() => setIsFullscreenSidebarCollapsed((current) => !current)}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path
+          d={isFullscreenSidebarCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+  const renderedFullscreenSidebar =
+    fullscreenSidebarUsesInlineToggle && typeof fullscreenSidebar === "function"
+      ? fullscreenSidebar({
+          contentId: fullscreenSidebarContentId,
+          toggleButton: fullscreenSidebarToggleButton,
+        })
+      : fullscreenSidebar;
+  const fullscreenSidebarPanel = hasFullscreenSidebar ? (
+    <aside
+      className={`map-fullscreen-live-sidebar${fullscreenSidebarUsesInlineToggle ? " has-inline-toggle" : ""}${isFullscreenSidebarCollapsed ? " is-collapsed" : ""}`}
+      aria-label={fullscreenSidebarLabel}
+    >
+      {!fullscreenSidebarUsesInlineToggle || isFullscreenSidebarCollapsed ? (
+      <div className="map-fullscreen-live-sidebar-toolbar">
+        {fullscreenSidebarToggleButton}
+      </div>
+      ) : null}
+      <div
+        id={fullscreenSidebarPanelContentId}
+        className="map-fullscreen-live-sidebar-content"
+        hidden={isFullscreenSidebarCollapsed}
+      >
+        {renderedFullscreenSidebar}
+      </div>
+    </aside>
+  ) : null;
+  const mapShellClassName = [
+    "map-shell",
+    isFullscreen ? "map-shell-fullscreen" : "",
+    replayVisible && mode === "replay" ? "has-replay" : "",
+    hasFullscreenSidebar ? "has-fullscreen-live-sidebar" : "",
+    hasFullscreenSidebar && fullscreenSidebarUsesInlineToggle ? "has-inline-fullscreen-sidebar" : "",
+    hasFullscreenSidebar && isFullscreenSidebarCollapsed ? "is-fullscreen-live-sidebar-collapsed" : "",
+  ].filter(Boolean).join(" ");
 
   return (
     <div
-      className={`${isFullscreen ? "map-shell map-shell-fullscreen" : "map-shell"}${replayVisible && mode === "replay" ? " has-replay" : ""}`}
+      className={mapShellClassName}
       ref={shellRef}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
@@ -2380,22 +2919,22 @@ export const TaskMap = React.memo(function TaskMap({
         ref={containerRef}
         style={
           isFullscreen
-            ? { height: replayVisible && mode === "replay" ? "calc(100vh - 104px)" : "100vh", minHeight: replayVisible && mode === "replay" ? "calc(100vh - 104px)" : "100vh" }
+            ? { height: "100vh", minHeight: "100vh" }
             : replayVisible && mode === "replay"
               ? { height: "calc(420px - 104px)", minHeight: "calc(420px - 104px)" }
               : undefined
         }
       />
+      {fullscreenSidebarPanel}
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {fullscreenCompositeOverlay ?? (
           <>
-            {isFullscreen && taskEditorOverlay ? <div className="map-task-editor-overlay">{taskEditorOverlay}</div> : null}
             {telemetryOverlay}
-            {distanceSummaryOverlay}
           </>
         )}
       </div>
       <div className="map-control-stack">
+        {oc?.["2d_3d_toggle"] !== false ? (
         <button
           type="button"
           className="map-control-button map-control-mode-button"
@@ -2417,7 +2956,8 @@ export const TaskMap = React.memo(function TaskMap({
         >
           {isPerspective3D ? "3D" : "2D"}
         </button>
-        {showGpsButton && typeof navigator !== "undefined" && "geolocation" in navigator ? (
+        ) : null}
+        {showGpsButton && oc?.gps_button !== false && typeof navigator !== "undefined" && "geolocation" in navigator ? (
           <button
             type="button"
             className={`map-control-button map-control-mode-button${gpsFollowing ? " map-control-gps-active" : ""}`}
@@ -2433,7 +2973,7 @@ export const TaskMap = React.memo(function TaskMap({
         ) : null}
       </div>
       <div className="map-picker-stack">
-        {isPerspective3D ? (
+        {isPerspective3D && oc?.altitude_slider !== false ? (
           <label className="map-style-picker">
             <span>Altitude</span>
             <select value={String(altitudeMultiplier)} onChange={(event) => setAltitudeMultiplier(Number(event.target.value))}>
@@ -2445,6 +2985,7 @@ export const TaskMap = React.memo(function TaskMap({
             </select>
           </label>
         ) : null}
+        {oc?.basemap_selector !== false ? (
         <label className="map-style-picker">
           <span>Map</span>
           <select value={basemapMode} onChange={(event) => setBasemapMode(event.target.value as BasemapMode)}>
@@ -2453,6 +2994,7 @@ export const TaskMap = React.memo(function TaskMap({
             <option value="terrain">Terrain</option>
           </select>
         </label>
+        ) : null}
       </div>
       {replayVisible && mode === "replay" ? (
         <div className="replay-bar">
@@ -2527,15 +3069,17 @@ export const TaskMap = React.memo(function TaskMap({
                   </svg>
                 )}
               </button>
-              <label className="replay-speed-select">
-                <select aria-label="Replay speed" value={String(replaySpeed)} onChange={(event) => setReplaySpeed(Number(event.target.value))}>
-                  {REPLAY_SPEEDS.map((speed) => (
-                    <option key={speed} value={speed}>
-                      {speed}x
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {oc?.replay_speed !== false ? (
+                <label className="replay-speed-select">
+                  <select aria-label="Replay speed" value={String(replaySpeed)} onChange={(event) => setReplaySpeed(Number(event.target.value))}>
+                    {REPLAY_SPEEDS.map((speed) => (
+                      <option key={speed} value={speed}>
+                        {speed}x
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           </div>
         </div>

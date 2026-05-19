@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
@@ -423,6 +424,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   _InfoRow(label: 'App', value: 'Aervyx Pilot'),
                   const SizedBox(height: 4),
                   _InfoRow(label: 'Version', value: _version),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1),
+                  const SizedBox(height: 12),
+                  // TODO: Change download URL to https://aervyx.net/app once deployed to production.
+                  GestureDetector(
+                    onTap: () => launchUrl(
+                      Uri.parse('https://staging.aervyx.net/app'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.download_rounded,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          'Download latest app',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.primary,
+                                decoration: TextDecoration.underline,
+                              ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),

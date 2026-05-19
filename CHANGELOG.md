@@ -13,6 +13,60 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.04.11]
+
+### Changed
+- **LoRa Region is device-specific.** The Region row was removed from the
+  admin Meshtastic profile editor and from the backend profile defaults
+  (all four roles). Region is no longer carried in the fleet-wide profile
+  JSON or pushed by `applyProfile()`. Operators set Region per device on
+  the mobile Meshtastic settings screen — same pattern as Wi-Fi
+  credentials. This stops a profile push from silencing radios that were
+  already on a legal frequency.
+- **Mobile Meshtastic settings now require Region.** When Region is unset,
+  the screen shows a red banner ("LoRa Region is not set — the radio will
+  NOT transmit on the right frequency until you pick a region"), the
+  Region row is rendered red, and switching device role / applying a
+  profile is blocked with a red snackbar until a region is chosen.
+
+### Fixed
+- **Mobile Google sign-in surfaces real errors.** `_handleGoogleSignIn`
+  now catches `PlatformException` and prints actionable messages
+  (`DEVELOPER_ERROR / SHA-1 not registered in Google Cloud`,
+  network errors, etc.) instead of swallowing native Google Play Services
+  failures into a generic "Login failed" message. The null-idToken path
+  now also explains that the Android OAuth client for this build is
+  probably not registered in the Google Cloud project that owns the
+  web client ID.
+
+### Added
+- **Admin Meshtastic profile editor** now exposes the full ~38 fields per
+  profile, grouped to mirror the official Meshtastic Android app: Device,
+  Position, LoRa, Power, Bluetooth, Network, Display, and Modules. Each
+  row has an inline info popover explaining what the setting does and
+  what a sane default looks like (#165).
+- **Per-field POSITION packet contents** in the admin Meshtastic table.
+  The opaque `position_flags` bitmask is now exposed as ten individual
+  toggles under the Position group — Send altitude, altitude MSL,
+  geoidal separation, DOP, HDOP/VDOP, satellite count, sequence #,
+  timestamp, heading, and speed. Storage and wire format are unchanged
+  so existing devices keep working (#166).
+
+### Changed
+- **Meshtastic safe BLE defaults.** All four profiles (Pilot, Driver,
+  Driver Wi-Fi, Repeater) now ship with `bluetooth_enabled=true` and
+  `bluetooth_mode=fixed_pin` (default PIN `123456`). Previously the
+  default was `random_pin`, which on a headless device with no display
+  could permanently lock admins out — there was no way to read the
+  generated PIN. Fixed-PIN is now the default everywhere (#166).
+- **Wi-Fi credentials are device-specific, not fleet-wide.** Wi-Fi SSID
+  and password are no longer part of the Meshtastic profile defaults
+  on the backend, are no longer rendered in the admin profile table,
+  and are no longer carried by the mobile `ProfileConfig`. Operators
+  set Wi-Fi credentials per device from the Meshtastic settings screen
+  on their own phone — the credentials never touch the backend or any
+  other device (#166).
+
 ## [2026.04.05]
 
 ### Added

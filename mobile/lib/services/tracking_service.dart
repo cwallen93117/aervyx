@@ -46,6 +46,9 @@ enum TrackingState {
   monitoring,
 }
 
+/// Severity level for tracking notifications (flight save results, etc.).
+enum NotificationLevel { success, warning, error }
+
 /// Sport type — determines takeoff detection thresholds.
 enum SportType { paraglider, hangGlider, glider }
 
@@ -80,6 +83,7 @@ class TrackingService extends ChangeNotifier {
   Timer? _positionHeartbeatTimer;
   int _positionCount = 0;
   String? _error;
+  NotificationLevel _notificationLevel = NotificationLevel.error;
   bool _backendConnected = false;
   Timer? _heartbeatTimer;
 
@@ -177,6 +181,7 @@ class TrackingService extends ChangeNotifier {
   model.Position? get lastPosition => _lastPosition;
   int get positionCount => _positionCount;
   String? get error => _error;
+  NotificationLevel get notificationLevel => _notificationLevel;
   bool get backendConnected => _backendConnected;
   int? get batteryThreshold => _batteryThreshold;
   int? get currentBatteryLevel => _currentBatteryLevel;
@@ -1118,12 +1123,15 @@ class TrackingService extends ChangeNotifier {
       );
       if (_lastSavedIgcPath != null) {
         _error = 'Flight saved ($trackPoints points)';
+        _notificationLevel = NotificationLevel.success;
       } else {
         _error = 'Flight too short to save ($trackPoints points recorded)';
+        _notificationLevel = NotificationLevel.warning;
       }
     } catch (e) {
       _lastSavedIgcPath = null;
       _error = 'Failed to save flight: $e';
+      _notificationLevel = NotificationLevel.error;
     }
     notifyListeners();
 

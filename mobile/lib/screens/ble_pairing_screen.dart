@@ -107,9 +107,13 @@ class BlePairingScreen extends StatelessWidget {
                       itemCount: ble.discoveredDevices.length,
                       itemBuilder: (context, index) {
                         final device = ble.discoveredDevices[index];
+                        final deviceId = device.device.remoteId.toString();
                         final isConnected =
                             ble.connectedDevice?.device.remoteId ==
                                 device.device.remoteId;
+                        final isThisConnecting =
+                            ble.isConnecting &&
+                            ble.connectingDeviceId == deviceId;
                         return ListTile(
                           leading: Icon(
                             Icons.bluetooth,
@@ -119,12 +123,20 @@ class BlePairingScreen extends StatelessWidget {
                           subtitle: Text('RSSI: ${device.rssi} dBm'),
                           trailing: isConnected
                               ? const Chip(label: Text('Connected'))
-                              : OutlinedButton(
-                                  onPressed: ble.isConnecting
-                                      ? null
-                                      : () => ble.connectToDevice(device),
-                                  child: const Text('Pair'),
-                                ),
+                              : isThisConnecting
+                                  ? const SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : OutlinedButton(
+                                      onPressed: ble.isConnecting
+                                          ? null
+                                          : () =>
+                                              ble.connectToDevice(device),
+                                      child: const Text('Pair'),
+                                    ),
                         );
                       },
                     ),

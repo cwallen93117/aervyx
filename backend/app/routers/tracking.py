@@ -15,14 +15,17 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, IGCUpload, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
     get_live_positions_for_pilots,
     get_position_history,
     get_position_history_for_pilots,
+    mesh_purpose_to_profile_type,
     normalize_position_source,
+    resolve_active_task_id,
+    resolve_mesh_device_assignment,
     store_position,
     subscribe,
     subscribe_pilots,
@@ -95,6 +98,26 @@ class ActivePilotResponse(BaseModel):
     position_source: str = "other"
 
 
+class MeshNodeResponse(BaseModel):
+    device_id: str
+    pilot_id: int | None = None
+    pilot_name: str | None = None
+    profile_type: str | None = None
+    device_label: str | None = None
+    device_purpose: str | None = None
+    registered_owner_user_id: int | None = None
+    registered_owner_name: str | None = None
+    lat: float
+    lon: float
+    alt: float | None = None
+    speed: float | None = None
+    heading: float | None = None
+    battery_level: int | None = None
+    timestamp: str
+    source: str | None = None
+    position_source: str = "other"
+
+
 class SosPayload(BaseModel):
     lat: float
     lon: float
@@ -164,9 +187,25 @@ def post_position(
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
+    source = payload.source or "app"
+    pilot_id = user.pilot_id
+    task_id = payload.task_id
+    response_profile_type = user.profile_type or "pilot"
+    response_aircraft_icon = user.aircraft_icon or "hang_glider"
+    if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
+        mesh_user, mesh_device = resolve_mesh_device_assignment(session, payload.device_id)
+        pilot_id = mesh_user.pilot_id if mesh_user is not None else None
+        if mesh_user is not None:
+            response_profile_type = mesh_user.profile_type or "pilot"
+            response_aircraft_icon = mesh_user.aircraft_icon or "hang_glider"
+        elif mesh_device is not None:
+            response_profile_type = mesh_purpose_to_profile_type(mesh_device.purpose)
+        if task_id is None and pilot_id is not None:
+            task_id = resolve_active_task_id(session, pilot_id)
+
     pos = store_position(
         session,
-        task_id=payload.task_id,
+        task_id=task_id,
         lat=payload.lat,
         lon=payload.lon,
         alt=payload.alt,
@@ -174,10 +213,10 @@ def post_position(
         heading=payload.heading,
         accuracy=payload.accuracy,
         timestamp=payload.timestamp,
-        source=payload.source or "app",
+        source=source,
         device_id=payload.device_id,
         battery_level=payload.battery_level,
-        pilot_id=user.pilot_id,
+        pilot_id=pilot_id,
     )
     session.commit()
 
@@ -195,8 +234,8 @@ def post_position(
         source=pos.source,
         device_id=pos.device_id,
         battery_level=pos.battery_level,
-        aircraft_icon=(user.aircraft_icon or "hang_glider"),
-        profile_type=(user.profile_type or "pilot"),
+        aircraft_icon=response_aircraft_icon,
+        profile_type=response_profile_type,
         position_source=normalize_position_source(pos.source),
     )
 
@@ -390,14 +429,44 @@ def get_igc_track(
 
 
 @router.get("/api/config/mesh", response_model=MeshConfigResponse)
-def get_mesh_config(user: User = Depends(get_current_user)) -> MeshConfigResponse:
-    settings = get_settings()
+def get_mesh_config(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshConfigResponse:
+    site = session.get(SiteSettings, 1)
+    if site is None:
+        # Fall back to env-based config if site_settings row doesn't exist yet
+        settings = get_settings()
+        return MeshConfigResponse(
+            channel_psk=getattr(settings, "mesh_channel_psk", None),
+            mqtt_host=getattr(settings, "mqtt_host", None),
+            mqtt_port=getattr(settings, "mqtt_port", 1883),
+            topic_prefix=getattr(settings, "mesh_mqtt_topic_prefix", "aervyx"),
+        )
+    mqtt_host = "mqtt.meshtastic.org" if site.mqtt_broker_mode == "public" else site.mqtt_host
     return MeshConfigResponse(
-        channel_psk=getattr(settings, "mesh_channel_psk", None),
-        mqtt_host=getattr(settings, "mqtt_host", None),
-        mqtt_port=getattr(settings, "mqtt_port", 1883),
-        topic_prefix=getattr(settings, "mesh_mqtt_topic_prefix", "aervyx"),
+        channel_psk=site.mqtt_channel_psk,
+        mqtt_host=mqtt_host,
+        mqtt_port=site.mqtt_port,
+        topic_prefix=site.mqtt_topic_prefix,
     )
+
+
+class MeshProfilesResponse(BaseModel):
+    profiles: dict
+    updated_at: str | None = None
+
+
+@router.get("/api/config/mesh-profiles", response_model=MeshProfilesResponse)
+def get_mesh_profiles(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshProfilesResponse:
+    from app.routers.site_settings import DEFAULT_MESH_PROFILES
+    site = session.get(SiteSettings, 1)
+    profiles = site.mesh_profiles if site and site.mesh_profiles else DEFAULT_MESH_PROFILES
+    updated = site.updated_at.isoformat() if site and site.updated_at else None
+    return MeshProfilesResponse(profiles=profiles, updated_at=updated)
 
 
 @router.get("/api/track/active-task", response_model=ActiveTaskResponse | None)
@@ -596,6 +665,8 @@ def register_stationary_node(
         existing.is_active = True
         session.add(existing)
         session.commit()
+        from app.services.mqtt_subscriber import request_mqtt_reconnect
+        request_mqtt_reconnect()
         session.refresh(existing)
         return StationaryNodeResponse(
             user_id=existing.id,
@@ -620,6 +691,8 @@ def register_stationary_node(
     )
     session.add(node)
     session.commit()
+    from app.services.mqtt_subscriber import request_mqtt_reconnect
+    request_mqtt_reconnect()
     session.refresh(node)
     return StationaryNodeResponse(
         user_id=node.id,
@@ -627,3 +700,165 @@ def register_stationary_node(
         display_name=node.full_name,
         profile_type=node.profile_type,
     )
+
+
+@router.get("/api/admin/mesh-nodes", response_model=list[MeshNodeResponse])
+def get_mesh_nodes(
+    minutes: int = Query(default=60, ge=1, le=1440),
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> list[MeshNodeResponse]:
+    """Return the latest position for every device_id that reported a position recently.
+
+    Unlike the active-pilots endpoint this query is keyed on device_id rather
+    than pilot_id, so bare mesh nodes (relays, stationary nodes, unregistered
+    handsets) that never linked to a pilot account still appear on the map.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import func as sa_func
+
+    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+
+    # Window function: rank rows per device_id by descending timestamp so we
+    # can pick only the most-recent position for each device in one query.
+    row_num = sa_func.row_number().over(
+        partition_by=LivePosition.device_id,
+        order_by=LivePosition.timestamp.desc(),
+    ).label("rn")
+
+    subq = (
+        select(LivePosition, row_num)
+        .where(
+            LivePosition.device_id.isnot(None),
+            LivePosition.device_id != "",
+            LivePosition.timestamp >= cutoff,
+        )
+        .subquery()
+    )
+
+    rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
+
+    if not rows:
+        return []
+
+    # Resolve pilot names / profile types via pilot_id when available.
+    pilot_ids = [r.pilot_id for r in rows if r.pilot_id is not None]
+    users_by_pilot: dict[int, User] = {}
+    if pilot_ids:
+        for u in session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all():
+            if u.pilot_id is not None:
+                users_by_pilot[u.pilot_id] = u
+
+    # Fall back to device_id → User lookup for positions with no pilot_id.
+    unlinked_device_ids = [r.device_id for r in rows if r.pilot_id is None and r.device_id]
+    users_by_device: dict[str, User] = {}
+    if unlinked_device_ids:
+        for u in session.scalars(select(User).where(User.mesh_device_id.in_(unlinked_device_ids))).all():
+            if u.mesh_device_id:
+                users_by_device[u.mesh_device_id] = u
+
+    all_device_ids = [r.device_id for r in rows if r.device_id]
+    devices_by_id: dict[str, MeshDevice] = {}
+    owners_by_id: dict[int, User] = {}
+    if all_device_ids:
+        devices = session.scalars(select(MeshDevice).where(MeshDevice.device_id.in_(all_device_ids))).all()
+        devices_by_id = {device.device_id: device for device in devices}
+        owner_ids = {device.owner_user_id for device in devices}
+        if owner_ids:
+            owners_by_id = {
+                owner.id: owner
+                for owner in session.scalars(select(User).where(User.id.in_(owner_ids))).all()
+            }
+
+    # For devices whose latest position has alt=NULL, look up the most recent
+    # position that DID have altitude (backfill from older rows).
+    devices_missing_alt = [r.device_id for r in rows if r.alt is None and r.device_id]
+    alt_backfill: dict[str, float] = {}
+    if devices_missing_alt:
+        alt_subq = (
+            select(
+                LivePosition.device_id,
+                LivePosition.alt,
+                sa_func.row_number().over(
+                    partition_by=LivePosition.device_id,
+                    order_by=LivePosition.timestamp.desc(),
+                ).label("rn"),
+            )
+            .where(
+                LivePosition.device_id.in_(devices_missing_alt),
+                LivePosition.alt.isnot(None),
+                LivePosition.timestamp >= cutoff,
+            )
+            .subquery()
+        )
+        alt_rows = session.execute(
+            select(alt_subq.c.device_id, alt_subq.c.alt).where(alt_subq.c.rn == 1)
+        ).all()
+        alt_backfill = {r.device_id: r.alt for r in alt_rows}
+
+    # Similarly backfill battery from recent positions for devices with NULL battery
+    devices_missing_bat = [r.device_id for r in rows if r.battery_level is None and r.device_id]
+    bat_backfill: dict[str, int] = {}
+    if devices_missing_bat:
+        bat_subq = (
+            select(
+                LivePosition.device_id,
+                LivePosition.battery_level,
+                sa_func.row_number().over(
+                    partition_by=LivePosition.device_id,
+                    order_by=LivePosition.timestamp.desc(),
+                ).label("rn"),
+            )
+            .where(
+                LivePosition.device_id.in_(devices_missing_bat),
+                LivePosition.battery_level.isnot(None),
+                LivePosition.timestamp >= cutoff,
+            )
+            .subquery()
+        )
+        bat_rows = session.execute(
+            select(bat_subq.c.device_id, bat_subq.c.battery_level).where(bat_subq.c.rn == 1)
+        ).all()
+        bat_backfill = {r.device_id: r.battery_level for r in bat_rows}
+
+    results: list[MeshNodeResponse] = []
+    for row in rows:
+        device = devices_by_id.get(row.device_id)
+        owner = owners_by_id.get(device.owner_user_id) if device is not None else None
+        u = (
+            users_by_pilot.get(row.pilot_id)
+            if row.pilot_id is not None
+            else (owner or users_by_device.get(row.device_id))
+        )
+        profile_type = (
+            u.profile_type
+            if row.pilot_id is not None and u is not None
+            else mesh_purpose_to_profile_type(device.purpose) if device is not None
+            else u.profile_type if u is not None else None
+        )
+        alt = row.alt if row.alt is not None else alt_backfill.get(row.device_id)
+        battery = row.battery_level if row.battery_level is not None else bat_backfill.get(row.device_id)
+        results.append(
+            MeshNodeResponse(
+                device_id=row.device_id,
+                pilot_id=row.pilot_id,
+                pilot_name=u.full_name if u else None,
+                profile_type=profile_type,
+                device_label=device.label if device else None,
+                device_purpose=device.purpose if device else None,
+                registered_owner_user_id=owner.id if owner else (u.id if u and row.pilot_id is None else None),
+                registered_owner_name=owner.full_name if owner else (u.full_name if u and row.pilot_id is None else None),
+                lat=row.lat,
+                lon=row.lon,
+                alt=alt,
+                speed=row.speed,
+                heading=row.heading,
+                battery_level=battery,
+                timestamp=row.timestamp.isoformat(),
+                source=row.source,
+                position_source=normalize_position_source(row.source),
+            )
+        )
+
+    return results

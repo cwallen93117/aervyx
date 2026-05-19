@@ -613,20 +613,20 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         height_px = lats_sub.shape[0]
         width_px = lats_sub.shape[1]
 
-        # Corners from actual grid corners (after subsample)
-        w_lon = float(lons_sub[0, 0])
-        e_lon = float(lons_sub[0, -1])
-        n_lat = float(lats_sub[0, 0])
-        s_lat = float(lats_sub[-1, 0])
         # Detect if rows are south-to-north (first row has smaller lat)
         if lats_sub[0, 0] < lats_sub[-1, 0]:
             data_sub = np.flipud(data_sub)
             lats_sub = np.flipud(lats_sub)
-            n_lat = float(lats_sub[0, 0])
-            s_lat = float(lats_sub[-1, 0])
-            # Recompute corner lons after flip (same columns, just rows flipped)
-            w_lon = float(lons_sub[-1, 0])
-            e_lon = float(lons_sub[-1, -1])
+            lons_sub = np.flipud(lons_sub)
+
+        # Use cell EDGES (not centers) — expand by half a grid cell in each direction.
+        # For 2D grids, estimate cell spacing from adjacent points.
+        half_dlat = abs(float(lats_sub[0, 0] - lats_sub[1, 0])) / 2 if height_px > 1 else 0.015
+        half_dlon = abs(float(lons_sub[0, 1] - lons_sub[0, 0])) / 2 if width_px > 1 else 0.015
+        n_lat = float(np.max(lats_sub)) + half_dlat
+        s_lat = float(np.min(lats_sub)) - half_dlat
+        w_lon = float(np.min(lons_sub)) - half_dlon
+        e_lon = float(np.max(lons_sub)) + half_dlon
     else:
         # 1-D lat/lon arrays
         lat_idx = np.arange(0, len(lats), step)
@@ -649,10 +649,15 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
         height_px = len(lats_1d)
         width_px = len(lons_1d)
 
-        n_lat = float(lats_1d.max())
-        s_lat = float(lats_1d.min())
-        w_lon = float(lons_1d.min())
-        e_lon = float(lons_1d.max())
+        # Use cell EDGES (not centers) so the image aligns correctly.
+        # Each pixel represents a grid cell; the image boundary should be
+        # half a cell beyond the outermost grid-point centers.
+        half_dlat = abs(float(lats_1d[1] - lats_1d[0])) / 2 if len(lats_1d) > 1 else 0.125
+        half_dlon = abs(float(lons_1d[1] - lons_1d[0])) / 2 if len(lons_1d) > 1 else 0.125
+        n_lat = float(lats_1d.max()) + half_dlat
+        s_lat = float(lats_1d.min()) - half_dlat
+        w_lon = float(lons_1d.min()) - half_dlon
+        e_lon = float(lons_1d.max()) + half_dlon
 
         # Ensure first image row = northernmost lat
         if lats_1d[0] < lats_1d[-1]:
@@ -725,8 +730,17 @@ def _fetch_raster(model: str, run_date: str, run_hour: str, fxx: int, variable: 
     }
 
 
-def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
-    """Convert grid arrays to GeoJSON features, subsampling every `step` points."""
+def _build_geojson(
+    lats: Any,
+    lons: Any,
+    data: Any,
+    step: int,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> list[dict]:
+    """Convert grid arrays to GeoJSON features, subsampling every `step` points.
+
+    bbox = (lat_min, lat_max, lon_min, lon_max) — if given, skip points outside.
+    """
     features: list[dict] = []
     if lats.ndim == 2:
         for i in range(0, lats.shape[0], step):
@@ -738,6 +752,8 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
                 lon_v = float(lons[i, j])
                 if lon_v > 180:
                     lon_v -= 360
+                if bbox and not (bbox[0] <= lat_v <= bbox[1] and bbox[2] <= lon_v <= bbox[3]):
+                    continue
                 features.append({
                     "type": "Feature",
                     "geometry": {"type": "Point", "coordinates": [round(lon_v, 3), round(lat_v, 3)]},
@@ -745,6 +761,9 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
                 })
     else:
         for i in range(0, len(lats), step):
+            lat_v = float(lats[i])
+            if bbox and not (bbox[0] <= lat_v <= bbox[1]):
+                continue
             for j in range(0, len(lons), step):
                 val = float(data[i, j]) if data.ndim > 1 else float(data[i])
                 if np.isnan(val):
@@ -752,15 +771,17 @@ def _build_geojson(lats: Any, lons: Any, data: Any, step: int) -> list[dict]:
                 lon_v = float(lons[j])
                 if lon_v > 180:
                     lon_v -= 360
+                if bbox and not (bbox[2] <= lon_v <= bbox[3]):
+                    continue
                 features.append({
                     "type": "Feature",
-                    "geometry": {"type": "Point", "coordinates": [round(lon_v, 3), round(float(lats[i]), 3)]},
+                    "geometry": {"type": "Point", "coordinates": [round(lon_v, 3), round(lat_v, 3)]},
                     "properties": {"value": round(val, 2)},
                 })
     return features
 
 
-def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: str) -> dict:
+def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: str, step_override: int | None = None, bbox: tuple[float, float, float, float] | None = None) -> dict:
     """Synchronous Herbie fetch — runs in thread pool."""
     from herbie import Herbie
 
@@ -779,7 +800,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
     except Exception as exc:
         raise RuntimeError(f"Herbie init failed for {model} {dt_str} f{fxx:02d}: {exc}")
 
-    step = SUBSAMPLE.get(model, 10)
+    step = step_override if step_override is not None else SUBSAMPLE.get(model, 10)
 
     # Wind speed: fetch U and V components, compute sqrt(u^2 + v^2)
     if vdef.get("is_wind_speed"):
@@ -797,7 +818,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
 
         lats = ds_u.latitude.values
         lons = ds_u.longitude.values
-        features = _build_geojson(lats, lons, speed, step)
+        features = _build_geojson(lats, lons, speed, step, bbox)
     elif variable in ("thermal_updraft", "soaring_quality", "bsratio"):
         # Derived soaring variables — graceful fallback for missing SHTFL
         from app.services.soaring_derivation import (
@@ -876,7 +897,7 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
         else:
             arr = wstar
 
-        features = _build_geojson(lats, lons, arr, step)
+        features = _build_geojson(lats, lons, arr, step, bbox)
     else:
         try:
             ds = H.xarray(vdef["search"])
@@ -894,8 +915,9 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
 
         lats = ds.latitude.values
         lons = ds.longitude.values
-        features = _build_geojson(lats, lons, arr, step)
+        features = _build_geojson(lats, lons, arr, step, bbox)
 
+    vcfg = _VAR_SCALE.get(variable, {"scale_min": 0, "scale_max": 1})
     return {
         "type": "FeatureCollection",
         "features": features,
@@ -904,6 +926,8 @@ def _fetch_grid(model: str, run_date: str, run_hour: str, fxx: int, variable: st
             "variable": variable,
             "run": f"{run_date}T{run_hour}:00Z",
             "fxx": fxx,
+            "scale_min": vcfg.get("scale_min", 0),
+            "scale_max": vcfg.get("scale_max", 1),
         },
     }
 
@@ -1101,6 +1125,9 @@ async def weather_grid(
     hour: str = Query(..., description="Run hour e.g. 12"),
     fh: int = Query(..., description="Forecast hour"),
     variable: str = Query(..., description="Variable name"),
+    step: int | None = Query(None, description="Override subsample step (1=full resolution)"),
+    lat_min: float | None = Query(None), lat_max: float | None = Query(None),
+    lon_min: float | None = Query(None), lon_max: float | None = Query(None),
 ):
     """Fetch a model grid via Herbie and return subsampled GeoJSON."""
     if model not in MODEL_CONFIG:
@@ -1110,30 +1137,21 @@ async def weather_grid(
     if model in VARIABLES[variable].get("exclude_models", []):
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
-    cache_key = f"{model}:{date}:{hour}:{fh}:{variable}"
-    now = time.time()
+    # Build bbox tuple if all bounds provided
+    bbox = None
+    if lat_min is not None and lat_max is not None and lon_min is not None and lon_max is not None:
+        bbox = (lat_min, lat_max, lon_min, lon_max)
 
-    if cache_key in _grid_cache:
-        data, ts = _grid_cache[cache_key]
-        if now - ts < GRID_TTL:
-            return JSONResponse(data)
-
+    # No caching — always fetch live data for debugging
     loop = asyncio.get_event_loop()
     try:
         result = await loop.run_in_executor(
-            _executor, _fetch_grid, model, date, hour, fh, variable
+            _executor, _fetch_grid, model, date, hour, fh, variable, step, bbox
         )
     except RuntimeError as exc:
         raise HTTPException(502, str(exc))
     except Exception as exc:
         raise HTTPException(500, f"Unexpected error: {exc}")
-
-    _grid_cache[cache_key] = (result, now)
-
-    # Prune old cache entries
-    for k, (_, ts) in list(_grid_cache.items()):
-        if now - ts > GRID_TTL:
-            del _grid_cache[k]
 
     return JSONResponse(result)
 
@@ -1166,7 +1184,7 @@ async def weather_raster(
         raise HTTPException(400, f"Variable {variable} not available for {model}")
 
     # Version suffix — bump when raster generation logic changes to invalidate cache
-    _RASTER_VERSION = "v11"
+    _RASTER_VERSION = "v12"
     cache_key = f"raster:{_RASTER_VERSION}:{model}:{date}:{hour}:{fh}:{variable}"
 
     # Check persistent cache first

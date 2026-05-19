@@ -33,6 +33,8 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 .nav-cta:hover{background:#1aecff;transform:translateY(-1px);box-shadow:0 0 28px rgba(0,229,255,.44)}
 .nav-live{padding:.46rem 1.1rem;border-radius:8px;background:var(--green);color:var(--void);font-family:'Barlow',sans-serif;font-size:.875rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:.38rem;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 18px rgba(0,230,118,.26)}
 .nav-live:hover{background:#1aef82;transform:translateY(-1px);box-shadow:0 0 28px rgba(0,230,118,.44)}
+.nav-scores{padding:.46rem 1.1rem;border-radius:8px;background:rgba(251,191,36,.12);border:1px solid rgba(251,191,36,.32);color:var(--gold);font-family:'Barlow',sans-serif;font-size:.875rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:.38rem;transition:background .18s,transform .14s,box-shadow .18s,border-color .18s;box-shadow:0 0 18px rgba(251,191,36,.16);white-space:nowrap}
+.nav-scores:hover{background:rgba(251,191,36,.18);border-color:rgba(251,191,36,.48);transform:translateY(-1px);box-shadow:0 0 28px rgba(251,191,36,.24)}
 
 /* HERO */
 .hero{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:122px 2rem 5rem;position:relative;overflow:hidden;text-align:center}
@@ -400,7 +402,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .logbook-features{grid-template-columns:1fr}
   .driver-info{border-left:none;border-top:1px solid var(--border)}
   .oss-grid{grid-template-columns:1fr}.sf-2c{grid-template-columns:1fr}.footer-inner{grid-template-columns:1fr}
-  /* Nav: hide secondary buttons, keep Watch Live + CTA */
+  /* Nav: hide secondary buttons, keep Watch Live, Scores + CTA */
   .nav-gh{display:none}
   .nav-right{gap:.4rem}
   /* New sections responsive */
@@ -421,6 +423,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   /* Nav: shorten login text, tighten Watch Live + CTA to fit alongside brand */
   .nav-cta-long{display:none}
   .nav-live{font-size:.78rem;padding:.42rem .72rem;gap:.38rem}
+  .nav-scores{font-size:.78rem;padding:.42rem .72rem;gap:.35rem}
   .nav-cta{font-size:.8rem;padding:.42rem .82rem}
   .nav-right{gap:.35rem}
   /* Get Started section CTA: prevent oversized button overflow */
@@ -440,5 +443,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .nav-wordmark{font-size:1rem}
   .nav-icon svg{width:24px;height:24px}
   .nav-live{font-size:.72rem;padding:.36rem .6rem}
+  .nav-live-watch,.nav-scores-prefix{display:none}
+  .nav-scores{font-size:.72rem;padding:.36rem .6rem}
   .nav-cta{font-size:.76rem;padding:.36rem .7rem}
 }

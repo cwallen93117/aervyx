@@ -17,6 +17,9 @@ import type {
 type FeedbackState = { type: "success" | "error" | "pending"; text: string } | null;
 type ConfirmAction = "delete_all" | "delete_scored_task" | null;
 type UploadedIgcRecord = { id: number; pilot_id: number; filename: string };
+const TOKEN_KEY = "flightcomp-platform-token";
+const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
+let refreshPromise: Promise<string> | null = null;
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -25,19 +28,65 @@ function resolveApiBase() {
   return configured ?? "/backend";
 }
 
+async function refreshAccessToken(): Promise<string> {
+  if (typeof window === "undefined") return "";
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
+  if (!refreshToken) return "";
+  try {
+    const response = await fetch(`${resolveApiBase()}/api/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+      cache: "no-store",
+    });
+    if (!response.ok) return "";
+    const data = (await response.json()) as { access_token?: string; refresh_token?: string };
+    if (!data.access_token) return "";
+    window.localStorage.setItem(TOKEN_KEY, data.access_token);
+    if (data.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+    return data.access_token;
+  } catch {
+    return "";
+  }
+}
+
+async function responseError(response: Response): Promise<Error> {
+  const text = await response.text();
+  if (response.status === 401 && text.includes("Invalid token")) {
+    return new Error("Session expired. Please sign in again, then retry the upload.");
+  }
+  return new Error(text || `Request failed (${response.status})`);
+}
+
 async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   const isFormData = typeof FormData !== "undefined" && init.body instanceof FormData;
-  const response = await fetch(`${resolveApiBase()}${path}`, {
+  const buildInit = (activeToken: string): RequestInit => ({
     ...init,
     cache: "no-store",
     headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(activeToken ? { Authorization: `Bearer ${activeToken}` } : {}),
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...init.headers,
     },
   });
+  const response = await fetch(`${resolveApiBase()}${path}`, buildInit(token));
+  if (response.status === 401) {
+    if (!refreshPromise) {
+      refreshPromise = refreshAccessToken().then((newToken) => {
+        refreshPromise = null;
+        return newToken;
+      });
+    }
+    const newToken = await refreshPromise;
+    if (newToken) {
+      const retryResponse = await fetch(`${resolveApiBase()}${path}`, buildInit(newToken));
+      if (!retryResponse.ok) throw await responseError(retryResponse);
+      if (retryResponse.status === 204) return undefined as T;
+      return retryResponse.json() as Promise<T>;
+    }
+  }
   if (!response.ok) {
-    throw new Error((await response.text()) || `Request failed (${response.status})`);
+    throw await responseError(response);
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
@@ -326,19 +375,17 @@ export default function ScoringOperationsPanel({
     try {
       setFeedback({ type: "pending", text: `Uploading ${Array.from(files).length} IGC files...` });
       const batchResults = await apiFetch<BulkUploadItemRecord[]>(`/api/tasks/${activePublishedTaskId}/uploads/bulk`, token, { method: "POST", body: formData });
-      const matchedUploads = batchResults.filter(
-        (item): item is BulkUploadItemRecord & { pilot_id: number; upload_id: number } =>
-          item.matched === true && item.pilot_id != null && item.upload_id != null,
-      );
-      if (matchedUploads.length) {
-        await Promise.all(
-          matchedUploads.map((item) => saveSelectionAndRescore(item.pilot_id, item.upload_id, null)),
-        );
-        await apiFetch(`/api/tasks/${activePublishedTaskId}/rescore`, token, { method: "POST" });
-      }
+      const matchedCount = batchResults.filter((item) => item.matched).length;
+      const duplicateCount = batchResults.filter((item) => item.message.toLowerCase().includes("already uploaded")).length;
+      const unmatchedCount = batchResults.length - matchedCount;
       await reloadTaskAndRows();
       await refreshEventSummary();
-      setFeedback({ type: "success", text: "Bulk upload complete and task scored." });
+      const details = [
+        `${matchedCount} matched`,
+        duplicateCount ? `${duplicateCount} already existed` : null,
+        unmatchedCount ? `${unmatchedCount} need review` : null,
+      ].filter(Boolean);
+      setFeedback({ type: "success", text: `Bulk upload complete and task scored: ${details.join(", ")}.` });
     } catch (caught) {
       setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Bulk upload failed." });
     }
@@ -445,6 +492,27 @@ export default function ScoringOperationsPanel({
               </button>
             ))}
             <div className="scoring-ops-task-actions">
+              {feedback ? (
+                <div className="scoring-ops-action-feedback" role="status" aria-live="polite">
+                  <div className={`status-chip ${feedback.type}`}>{feedback.text}</div>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="scoring-ops-footer-btn secondary"
+                onClick={() => bulkUploadRef.current?.click()}
+                disabled={!activePublishedTaskId}
+              >
+                Upload all IGCs
+              </button>
+              <button
+                type="button"
+                className="scoring-ops-footer-btn destructive"
+                onClick={() => setConfirmAction("delete_all")}
+                disabled={!activePublishedTaskId}
+              >
+                Delete all IGCs
+              </button>
               <button
                 type="button"
                 className="scoring-ops-footer-btn secondary"
@@ -624,26 +692,6 @@ export default function ScoringOperationsPanel({
           </div>
 
           <div className="scoring-ops-footer-actions">
-            <div className="scoring-ops-footer-main">
-              <div className="scoring-ops-footer-left">
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn secondary"
-                  onClick={() => bulkUploadRef.current?.click()}
-                  disabled={!activePublishedTaskId}
-                >
-                  Upload all IGCs
-                </button>
-                <button
-                  type="button"
-                  className="scoring-ops-footer-btn destructive"
-                  onClick={() => setConfirmAction("delete_all")}
-                  disabled={!activePublishedTaskId}
-                >
-                  Delete all IGCs
-                </button>
-              </div>
-            </div>
             <div className="scoring-ops-footer-note">
               Scoring uses the <strong>currently selected item</strong> in each pilot&apos;s dropdown - file, status, or blank.
             </div>
@@ -660,11 +708,6 @@ export default function ScoringOperationsPanel({
               }}
             />
           </div>
-          {feedback ? (
-            <div className="scoring-ops-footer-feedback">
-              <div className={`status-chip ${feedback.type}`}>{feedback.text}</div>
-            </div>
-          ) : null}
         </div>
       </SectionCard>
 

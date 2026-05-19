@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate
+from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
+from app.services.pilot_identity import participant_event_ids_for_user
 
 router = APIRouter(prefix="/api/events", tags=["events"])
+STAFF_ROLES = {"admin", "organizer"}
 
 DEFAULT_SCORING_PRESETS = [
     {"id": "airspace-minor", "label": "Airspace minor -5%", "penalty_type": "percentage", "value": 5, "reason": "Airspace minor"},
@@ -35,6 +37,14 @@ def _event_create_payload(event: Event) -> dict:
     return {field: getattr(event, field) for field in EventCreate.model_fields}
 
 
+def _normalized_duplicate_task_type(task_type: str | None) -> str:
+    if task_type in {None, "race", "race_to_goal", "speedrun_interval"}:
+        return "race_to_goal_with_gates"
+    if task_type == "speedrun":
+        return "elapsed_time"
+    return task_type
+
+
 def _duplicate_name(session: Session, base_name: str) -> str:
     candidate = f"{base_name} Duplicate"
     suffix = 2
@@ -52,6 +62,19 @@ def _copy_stored_file(stored_path: str, new_event_id: int, source_id: int) -> st
     if not duplicate_path.exists():
         copy2(original_path, duplicate_path)
     return str(duplicate_path)
+
+
+def _event_visible_to_user(session: Session, event: Event, user: User, participant_event_ids: set[int] | None = None) -> bool:
+    if user.role in STAFF_ROLES:
+        return True
+    visibility = event.visibility or "private"
+    if visibility in {"public", "users"}:
+        return True
+    if visibility == "participants":
+        if participant_event_ids is None:
+            participant_event_ids = participant_event_ids_for_user(session, user)
+        return event.id in participant_event_ids
+    return False
 
 
 def _event_payload(session: Session, event: Event) -> EventResponse:
@@ -79,6 +102,8 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         time_points_if_not_in_goal=event.time_points_if_not_in_goal if event.time_points_if_not_in_goal is not None else 1,
         jump_the_gun_factor=event.jump_the_gun_factor if event.jump_the_gun_factor is not None else 0,
         jump_the_gun_max_seconds=event.jump_the_gun_max_seconds if event.jump_the_gun_max_seconds is not None else 0,
+        default_start_gate_count=event.default_start_gate_count or 5,
+        default_start_gate_interval_seconds=event.default_start_gate_interval_seconds if event.default_start_gate_interval_seconds is not None else 900,
         stopped_glide_bonus=event.stopped_glide_bonus if event.stopped_glide_bonus is not None else 0,
         use_1000_points_for_max_day_quality=False if event.use_1000_points_for_max_day_quality is None else event.use_1000_points_for_max_day_quality,
         normalize_1000_before_day_quality=False if event.normalize_1000_before_day_quality is None else event.normalize_1000_before_day_quality,
@@ -109,6 +134,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         visible_airspace_classes_json=list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]),
         show_restricted_fields=True if event.show_restricted_fields is None else event.show_restricted_fields,
         penalties_json=event.penalties_json or {},
+        is_public_tracking=event.is_public_tracking,
         visibility=event.visibility or "private",
         created_at=event.created_at,
         updated_at=event.updated_at,
@@ -123,29 +149,15 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
 @router.get("", response_model=list[EventResponse])
 def list_events(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[EventResponse]:
     # Staff (admin/organizer) can see all events regardless of visibility
-    if user.role in {"admin", "organizer"}:
+    if user.role in STAFF_ROLES:
         events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
         return [_event_payload(session, event) for event in events]
 
-    # Regular users: public + users visibility
-    visible_events = list(
-        session.scalars(
-            select(Event).where(Event.visibility.in_(["public", "users"])).order_by(Event.updated_at.desc(), Event.name.asc())
-        ).all()
-    )
-
-    # Also include participant-visible events where user is a participant
-    if user.pilot_id is not None:
-        participant_event_ids = list(
-            session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all()
-        )
-        if participant_event_ids:
-            participant_events = list(
-                session.scalars(
-                    select(Event).where(Event.id.in_(participant_event_ids), Event.visibility == "participants")
-                ).all()
-            )
-            visible_events.extend(participant_events)
+    participant_event_ids = participant_event_ids_for_user(session, user)
+    events = session.scalars(
+        select(Event).where(Event.visibility.in_(["public", "users", "participants"])).order_by(Event.updated_at.desc(), Event.name.asc())
+    ).all()
+    visible_events = [event for event in events if _event_visible_to_user(session, event, user, participant_event_ids)]
 
     # Deduplicate and sort by updated_at desc, name asc
     seen: set[int] = set()
@@ -264,7 +276,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
             event_id=duplicated_event.id,
             name=task.name,
             status=task.status,
-            task_type=task.task_type,
+            task_type=_normalized_duplicate_task_type(task.task_type),
             task_start_time=task.task_start_time,
             task_finish_time=task.task_finish_time,
             start_open_time=task.start_open_time,
@@ -272,11 +284,6 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
             start_gate_count=task.start_gate_count,
             start_gate_interval_seconds=task.start_gate_interval_seconds,
             version=task.version,
-            nominal_distance_km=task.nominal_distance_km,
-            nominal_time_hours=task.nominal_time_hours,
-            nominal_launch=task.nominal_launch,
-            minimum_distance_km=task.minimum_distance_km,
-            penalties_json=task.penalties_json,
             published_at=task.published_at,
         )
         session.add(duplicated_task)
@@ -289,6 +296,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
                 task_id=task_id_map[task_point.task_id],
                 position=task_point.position,
                 point_type=task_point.point_type,
+                direction=task_point.direction if task_point.direction in {"enter", "exit"} else default_task_point_direction(task_point.point_type),
                 radius_m=task_point.radius_m,
                 turnpoint_id=turnpoint_id_map.get(task_point.turnpoint_id) if task_point.turnpoint_id else None,
                 name=task_point.name,
@@ -315,17 +323,8 @@ def get_event(event_id: int, user: User = Depends(get_current_user), session: Se
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    # Staff can always see any event
-    if user.role not in {"admin", "organizer"}:
-        visibility = event.visibility or "private"
-        if visibility == "private":
-            raise HTTPException(status_code=404, detail="Event not found")
-        if visibility == "participants":
-            is_participant = user.pilot_id is not None and session.scalar(
-                select(EventPilot.id).where(EventPilot.event_id == event_id, EventPilot.pilot_id == user.pilot_id).limit(1)
-            )
-            if not is_participant:
-                raise HTTPException(status_code=404, detail="Event not found")
+    if not _event_visible_to_user(session, event, user):
+        raise HTTPException(status_code=404, detail="Event not found")
     return _event_payload(session, event)
 
 

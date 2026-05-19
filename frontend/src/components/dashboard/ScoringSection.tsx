@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { SectionCard } from "../SectionCard";
-import { TaskMap, type MapLegMetric, type MapTurnpoint, type TrackCollection } from "../TaskMap";
+import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
+import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type {
   AccountSettingsRecord,
   EventFormState,
@@ -14,24 +15,26 @@ import type {
   SiteSettingsRecord,
   ScoresPortalTab,
   ScoringTab,
+  TaskResultSummaryRecord,
   TaskDraftState,
   TaskRecord,
   UploadRecord,
 } from "./types";
 
 const taskTypeOptions = [
-  { value: "race_to_goal_with_gates", label: "Race to Goal with Gates" },
-  { value: "race_to_goal", label: "Race to Goal" },
+  { value: "race_to_goal_with_gates", label: "Race to Goal" },
   { value: "elapsed_time", label: "Elapsed Time" },
   { value: "open_distance", label: "Open Distance" },
 ] as const;
 
 function normalizeTaskType(value: string | null | undefined): string {
   switch (value) {
-    case "race": return "race_to_goal";
+    case "race":
+    case "race_to_goal":
+      return "race_to_goal_with_gates";
     case "speedrun": return "elapsed_time";
     case "speedrun_interval": return "race_to_goal_with_gates";
-    default: return value ?? "race_to_goal";
+    default: return value ?? "race_to_goal_with_gates";
   }
 }
 
@@ -39,9 +42,35 @@ function taskTypeLabel(value: string): string {
   return taskTypeOptions.find((option) => option.value === normalizeTaskType(value))?.label ?? value;
 }
 
-function formatClockTime(value: string | null | undefined, includeSeconds = false): string {
+function taskTypeLabelWithGateCount(task: TaskRecord): string {
+  const label = taskTypeLabel(task.task_type);
+  if (normalizeTaskType(task.task_type) === "race_to_goal_with_gates" && task.start_gate_count > 1) {
+    return `${label} with ${task.start_gate_count} start gates`;
+  }
+  return label;
+}
+
+function formatClockTime(value: string | null | undefined, includeSeconds = false, timeZone?: string): string {
   if (!value) return "-";
-  return new Date(value).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: true });
+  const normalizedValue = /T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/.test(value) ? `${value}Z` : value;
+  const parsed = new Date(normalizedValue);
+  if (Number.isNaN(parsed.getTime())) return value;
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: includeSeconds ? "2-digit" : undefined,
+      hour12: false,
+      timeZone: timeZone || undefined,
+    }).format(parsed);
+  } catch {
+    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: false });
+  }
+}
+
+function resultScoringTimezone(result: ResultRecord, fallback?: string): string | undefined {
+  const timezone = result.details_json?.scoring_timezone;
+  return typeof timezone === "string" && timezone.trim() ? timezone : fallback;
 }
 
 function formatTaskClockLabel(value: string | null | undefined): string {
@@ -108,12 +137,11 @@ function formatMeters(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.max(0, Math.round(value || 0)));
 }
 
-function taskDayQuality(results: ResultRecord[]): string {
-  const firstGap = results.find((result) => result.details_json?.gap)?.details_json?.gap as
-    | { validity?: { overall?: number } }
-    | undefined;
-  const overall = Number(firstGap?.validity?.overall ?? NaN);
-  return Number.isFinite(overall) ? overall.toFixed(3) : "-";
+function formatDayQualityPercent(value: number | null | undefined): string {
+  const dayQuality = Number(value ?? NaN);
+  if (!Number.isFinite(dayQuality)) return "-";
+  const percent = dayQuality * 100;
+  return `${percent.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}%`;
 }
 
 function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
@@ -163,6 +191,7 @@ export interface ScoringSectionProps {
   pilotNameById: Map<number, string>;
   uploadById: Map<number, UploadRecord>;
   pilotSummary: PilotSummaryRecord[];
+  taskResultSummary: TaskResultSummaryRecord[];
   scoredTasks: TaskRecord[];
   taskMetricsById: Map<number, { totalDistanceKm: number; optimizedDistanceKm: number; routeCoordinates: [number, number][]; legMetrics: MapLegMetric[] }>;
   taskDraft: TaskDraftState;
@@ -202,7 +231,6 @@ export interface ScoringSectionProps {
   highlightedResultUploadId: number | null;
   setHighlightedResultUploadId: (id: number | null) => void;
   resultsTrackOverlay: TrackCollection | null;
-  resultsTrackPilotList: ReactNode;
   resultsTaskMapTurnpoints: MapTurnpoint[];
   allTurnpoints: MapTurnpoint[];
   token: string;
@@ -217,6 +245,7 @@ export interface ScoringSectionProps {
   downloadAllIgcFiles: () => void;
   toggleResultTrack: (uploadId: number, checked: boolean) => void;
   toggleAllResultTracks: () => void;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export default function ScoringSection(props: ScoringSectionProps) {
@@ -232,6 +261,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     pilotNameById,
     uploadById,
     pilotSummary,
+    taskResultSummary,
     scoredTasks,
     taskMetricsById,
     taskDraft,
@@ -239,6 +269,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     taskDefinitionRows,
     startGateLabels,
     taskResultsColumns,
+    eventForm,
     settingsForm,
     siteSettings,
     canManagePlatform,
@@ -258,7 +289,6 @@ export default function ScoringSection(props: ScoringSectionProps) {
     highlightedResultUploadId,
     setHighlightedResultUploadId,
     resultsTrackOverlay,
-    resultsTrackPilotList,
     resultsTaskMapTurnpoints,
     allTurnpoints,
     token,
@@ -273,11 +303,15 @@ export default function ScoringSection(props: ScoringSectionProps) {
     downloadAllIgcFiles,
     toggleResultTrack,
     toggleAllResultTracks,
+    overlayConfig,
   } = props;
+  const fullscreenPilotTracksContentId = useId();
+  const [isFullscreenPilotTracksCollapsed, setIsFullscreenPilotTracksCollapsed] = useState(false);
   const publishedTasks = tasks.filter((task) => task.status === "published");
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
   const scoringTaskMetrics = computeTaskOptimization(scoringTaskPoints);
+  const taskResultSummaryById = useMemo(() => new Map(taskResultSummary.map((summary) => [summary.task_id, summary])), [taskResultSummary]);
   const overallTaskResultStates = useMemo(() => {
     const states = new Map<number, string>();
     for (const task of scoredTasks) {
@@ -311,6 +345,111 @@ export default function ScoringSection(props: ScoringSectionProps) {
   }));
   const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
   const taskResultsIncludePenalty = results.some((result) => Number(result.raw_score_points ?? result.score_points ?? 0) - Number(result.score_points ?? 0) > 0.05);
+  const fullscreenPilotTracksToggleLabel = isFullscreenPilotTracksCollapsed ? "Expand pilot tracks" : "Collapse pilot tracks";
+  const fullscreenPilotTracksToggleButton = (
+    <button
+      type="button"
+      className="map-task-editor-collapse-button results-task-map-pilot-collapse-button"
+      aria-label={fullscreenPilotTracksToggleLabel}
+      aria-controls={fullscreenPilotTracksContentId}
+      aria-expanded={!isFullscreenPilotTracksCollapsed}
+      title={fullscreenPilotTracksToggleLabel}
+      onClick={() => setIsFullscreenPilotTracksCollapsed((current) => !current)}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="14" rx="2" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path d="M10 5v14" fill="none" stroke="currentColor" strokeWidth="2" />
+        <path
+          d={isFullscreenPilotTracksCollapsed ? "M13 9l4 3-4 3" : "M17 9l-4 3 4 3"}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
+  const renderResultsTrackPilotList = ({
+    collapsed = false,
+    contentId,
+    titleAction,
+    className = "",
+  }: {
+    collapsed?: boolean;
+    contentId?: string;
+    titleAction?: ReactNode;
+    className?: string;
+  } = {}) => (
+    <div className={`results-task-map-pilot-list${className ? ` ${className}` : ""}${collapsed ? " is-collapsed" : ""}`}>
+      <div className="results-task-map-pilot-header">
+        <strong>Show pilot tracks</strong>
+        <div className="results-task-map-pilot-header-actions">
+          <label className="results-task-map-pilot-master-toggle">
+            <input
+              type="checkbox"
+              checked={allResultTracksChecked}
+              disabled={!scoredTrackResults.length}
+              onChange={() => void toggleAllResultTracks()}
+            />
+          </label>
+          {titleAction}
+        </div>
+      </div>
+      <div id={contentId} className="results-task-map-pilot-items" hidden={collapsed}>
+        {scoredTrackResults.map((result) => {
+          const isChecked = selectedResultUploadIds.includes(result.upload_id);
+          const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
+          return (
+            <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
+              <input
+                type="checkbox"
+                checked={isChecked}
+                onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
+              />
+              <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
+              <button
+                type="button"
+                className="results-task-map-pilot-button"
+                onClick={() =>
+                  setHighlightedResultUploadId(
+                    highlightedResultUploadId === result.upload_id ? null : result.upload_id,
+                  )
+                }
+              >
+                <span className="results-task-map-pilot-copy">
+                  <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
+                  <small>{result.status.toUpperCase()} &middot; {result.score_points.toFixed(1)} pts</small>
+                </span>
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+  const scoringFullscreenOverlay = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+    <div className="scoring-fullscreen-overlay">
+      <div id={overlayId} className={`map-task-editor scoring-fullscreen-turnpoints-card${collapsed ? " is-collapsed" : ""}`}>
+        <TaskTurnpointsTable
+          points={scoringTaskPoints}
+          taskPointAdvanced
+          turnpoints={allTurnpoints}
+          taskDistanceMetrics={scoringTaskMetrics}
+          distanceUnit={settingsForm.distance_unit}
+          collapsed={collapsed}
+          contentId={contentId}
+          titleAction={toggleButton}
+        />
+      </div>
+      {renderResultsTrackPilotList({
+        collapsed: isFullscreenPilotTracksCollapsed,
+        contentId: fullscreenPilotTracksContentId,
+        titleAction: fullscreenPilotTracksToggleButton,
+        className: "scoring-fullscreen-pilot-tracks-card",
+      })}
+    </div>
+  );
 
   if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
   return (
@@ -366,7 +505,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                     <p>{selectedTask?.name ?? taskDraft.name} {taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type) ? `- ${taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)}` : ""}</p>
                   </div>
                   <div className="results-table-wrap">
-                    <table className="results-table results-table-compact">
+                    <table className="results-table results-table-compact overall-task-summary-table">
                       <thead>
                         <tr>
                           <th>No</th>
@@ -452,10 +591,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                   <strong>{result.pilot_name}</strong>
                                   {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
                                 </td>
-                              <td>{pilot?.nation ?? "-"}</td>
-                              <td>-</td>
-                              <td>{isUnscored ? "-" : formatClockTime(result.started_at, true)}</td>
-                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true)}</td>
+                                <td>{pilot?.nation ?? "-"}</td>
+                                <td>-</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.started_at, true, resultScoringTimezone(result, eventForm.timezone))}</td>
+                                <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true, resultScoringTimezone(result, eventForm.timezone))}</td>
                                 <td>{isUnscored ? "-" : formatElapsedSeconds(result.elapsed_seconds)}</td>
                                 <td>{isUnscored ? "-" : formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
                                 <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>
@@ -495,49 +634,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                   {scoringTaskPoints.length ? (
                     <div className="results-task-map">
                       <div className="results-task-map-layout">
-                        <div className="results-task-map-pilot-list">
-                          <div className="results-task-map-pilot-header">
-                            <strong>Show pilot tracks</strong>
-                            <label className="results-task-map-pilot-master-toggle">
-                              <input
-                                type="checkbox"
-                                checked={allResultTracksChecked}
-                                disabled={!results.length}
-                                onChange={() => void toggleAllResultTracks()}
-                              />
-                            </label>
-                          </div>
-                          <div className="results-task-map-pilot-items">
-                            {scoredTrackResults.map((result) => {
-                              const isChecked = selectedResultUploadIds.includes(result.upload_id);
-                              const pilotTrackColor = resultTrackColorsByUploadId.get(result.upload_id) ?? resultTrackPalette[0];
-                              return (
-                                <div key={result.id} className={`results-task-map-pilot-item${highlightedResultUploadId === result.upload_id ? " is-highlighted" : ""}`}>
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={(event) => void toggleResultTrack(result.upload_id, event.target.checked)}
-                                  />
-                                  <span className="results-task-map-pilot-rank">{result.rank ?? "-"}</span>
-                                  <button
-                                    type="button"
-                                    className="results-task-map-pilot-button"
-                                    onClick={() =>
-                                      setHighlightedResultUploadId(
-                                        highlightedResultUploadId === result.upload_id ? null : result.upload_id,
-                                      )
-                                    }
-                                  >
-                                    <span className="results-task-map-pilot-copy">
-                                    <strong style={{ color: pilotTrackColor }}>{result.pilot_name}</strong>
-                                    <small>{result.status.toUpperCase()} &middot; {result.score_points.toFixed(1)} pts</small>
-                                    </span>
-                                  </button>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
+                        {renderResultsTrackPilotList()}
                       <TaskMap
                         key={`scoring-map-${selectedTaskId ?? "none"}`}
                         turnpoints={scoringTaskMapTurnpoints}
@@ -545,11 +642,9 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         taskPoints={scoringTaskPoints}
                           optimizedRoute={scoringTaskMetrics.routeCoordinates}
                           legMetrics={scoringTaskMetrics.legMetrics}
-                          totalDistanceKm={scoringTaskMetrics.totalDistanceKm}
-                          optimizedDistanceKm={scoringTaskMetrics.optimizedDistanceKm}
                           track={resultsTrackOverlay}
                           editable={false}
-                        taskEditorOverlay={resultsTrackPilotList}
+                        taskEditorOverlay={scoringFullscreenOverlay}
                         highlightedTrackUploadId={highlightedResultUploadId}
                         fitKey={selectedTaskId}
                         fitTurnpoints={allTurnpoints}
@@ -560,6 +655,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             vario: settingsForm.vario_unit,
                           }}
                           telemetrySmoothing={siteSettings}
+                          overlayConfig={overlayConfig}
                         />
                       </div>
                     </div>
@@ -588,8 +684,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             <td><strong>{task.name}</strong></td>
                             <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                             <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
-                            <td>{selectedTaskId === task.id ? taskDayQuality(results) : "-"}</td>
-                            <td>{taskTypeLabel(task.task_type)}</td>
+                            <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
+                            <td>{taskTypeLabelWithGateCount(task)}</td>
                           </tr>
                         ))}
                       </tbody>

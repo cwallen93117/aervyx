@@ -1,5 +1,9 @@
+import json
+
 from sqlalchemy import inspect, text
 from sqlalchemy.engine import Engine
+
+from app.services.map_overlay_config import DEFAULT_MAP_OVERLAY_CONFIG
 
 
 def ensure_runtime_schema(engine: Engine) -> None:
@@ -90,6 +94,49 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 )
             )
 
+        if "integration_credentials" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE integration_credentials (
+                      provider VARCHAR(80) PRIMARY KEY,
+                      enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                      base_url VARCHAR(255) NOT NULL DEFAULT 'https://api.faa.gov',
+                      client_id_header VARCHAR(80) NOT NULL DEFAULT 'client_id',
+                      client_secret_header VARCHAR(80) NOT NULL DEFAULT 'client_secret',
+                      encrypted_client_id TEXT,
+                      encrypted_client_secret TEXT,
+                      last_tested_at TIMESTAMP,
+                      last_test_status VARCHAR(20),
+                      last_test_message TEXT,
+                      updated_by_user_id INTEGER,
+                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(updated_by_user_id) REFERENCES users (id) ON DELETE SET NULL
+                    )
+                    """
+                )
+            )
+        else:
+            integration_columns = {column["name"] for column in inspector.get_columns("integration_credentials")}
+            integration_statements = {
+                "enabled": "ALTER TABLE integration_credentials ADD COLUMN enabled BOOLEAN NOT NULL DEFAULT FALSE",
+                "base_url": "ALTER TABLE integration_credentials ADD COLUMN base_url VARCHAR(255) NOT NULL DEFAULT 'https://api.faa.gov'",
+                "client_id_header": "ALTER TABLE integration_credentials ADD COLUMN client_id_header VARCHAR(80) NOT NULL DEFAULT 'client_id'",
+                "client_secret_header": "ALTER TABLE integration_credentials ADD COLUMN client_secret_header VARCHAR(80) NOT NULL DEFAULT 'client_secret'",
+                "encrypted_client_id": "ALTER TABLE integration_credentials ADD COLUMN encrypted_client_id TEXT",
+                "encrypted_client_secret": "ALTER TABLE integration_credentials ADD COLUMN encrypted_client_secret TEXT",
+                "last_tested_at": "ALTER TABLE integration_credentials ADD COLUMN last_tested_at TIMESTAMP",
+                "last_test_status": "ALTER TABLE integration_credentials ADD COLUMN last_test_status VARCHAR(20)",
+                "last_test_message": "ALTER TABLE integration_credentials ADD COLUMN last_test_message TEXT",
+                "updated_by_user_id": "ALTER TABLE integration_credentials ADD COLUMN updated_by_user_id INTEGER",
+                "created_at": "ALTER TABLE integration_credentials ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "ALTER TABLE integration_credentials ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            }
+            for column_name, statement in integration_statements.items():
+                if column_name not in integration_columns:
+                    connection.execute(text(statement))
+
         if "flight_sites" not in table_names:
             connection.execute(
                 text(
@@ -163,12 +210,113 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_score_penalties_task_pilot ON score_penalties (task_id, pilot_id)"))
 
+        if "map_overlay_config" not in table_names:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE map_overlay_config (
+                      id INTEGER PRIMARY KEY,
+                      config TEXT NOT NULL DEFAULT '{}',
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO map_overlay_config (id, config) VALUES (1, :config)"
+                ),
+                {"config": json.dumps(DEFAULT_MAP_OVERLAY_CONFIG)},
+            )
+        else:
+            map_overlay_columns = {column["name"] for column in inspector.get_columns("map_overlay_config")}
+            if "config" not in map_overlay_columns:
+                connection.execute(text("ALTER TABLE map_overlay_config ADD COLUMN config TEXT NOT NULL DEFAULT '{}'"))
+            if "updated_at" not in map_overlay_columns:
+                connection.execute(text("ALTER TABLE map_overlay_config ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO map_overlay_config (id, config)
+                    SELECT 1, :config
+                    WHERE NOT EXISTS (SELECT 1 FROM map_overlay_config WHERE id = 1)
+                    """
+                ),
+                {"config": json.dumps(DEFAULT_MAP_OVERLAY_CONFIG)},
+            )
+
+    pre_user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
+    if "users" in table_names:
+        with engine.begin() as connection:
+            if "mesh_devices" not in table_names:
+                id_column = "id INTEGER PRIMARY KEY" if dialect_name == "sqlite" else "id SERIAL PRIMARY KEY"
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE mesh_devices (
+                          {id_column},
+                          owner_user_id INTEGER NOT NULL,
+                          device_id VARCHAR(80) NOT NULL,
+                          label VARCHAR(160) NOT NULL,
+                          purpose VARCHAR(32) NOT NULL DEFAULT 'tracking',
+                          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          FOREIGN KEY(owner_user_id) REFERENCES users (id) ON DELETE CASCADE,
+                          CONSTRAINT uq_mesh_devices_device_id UNIQUE (device_id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_mesh_devices_owner_user_id ON mesh_devices (owner_user_id)"))
+                connection.execute(text("CREATE INDEX ix_mesh_devices_purpose ON mesh_devices (purpose)"))
+                table_names.add("mesh_devices")
+
+            mesh_device_columns = {column["name"] for column in inspector.get_columns("mesh_devices")}
+            mesh_device_statements = {
+                "label": "ALTER TABLE mesh_devices ADD COLUMN label VARCHAR(160) NOT NULL DEFAULT 'Meshtastic device'",
+                "purpose": "ALTER TABLE mesh_devices ADD COLUMN purpose VARCHAR(32) NOT NULL DEFAULT 'tracking'",
+                "is_active": "ALTER TABLE mesh_devices ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE",
+                "created_at": "ALTER TABLE mesh_devices ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                "updated_at": "ALTER TABLE mesh_devices ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            }
+            for column_name, statement in mesh_device_statements.items():
+                if column_name not in mesh_device_columns:
+                    connection.execute(text(statement))
+
+            existing_mesh_indexes = {idx["name"] for idx in inspector.get_indexes("mesh_devices")}
+            if "ix_mesh_devices_owner_user_id" not in existing_mesh_indexes:
+                connection.execute(text("CREATE INDEX ix_mesh_devices_owner_user_id ON mesh_devices (owner_user_id)"))
+            if "ix_mesh_devices_purpose" not in existing_mesh_indexes:
+                connection.execute(text("CREATE INDEX ix_mesh_devices_purpose ON mesh_devices (purpose)"))
+
+            if "mesh_device_id" in pre_user_columns:
+                insert_sql = (
+                    """
+                    INSERT OR IGNORE INTO mesh_devices (owner_user_id, device_id, label, purpose, is_active)
+                    SELECT id, mesh_device_id, COALESCE(NULLIF(full_name, ''), username), 'tracking', is_active
+                    FROM users
+                    WHERE mesh_device_id IS NOT NULL AND mesh_device_id <> ''
+                    """
+                    if dialect_name == "sqlite"
+                    else
+                    """
+                    INSERT INTO mesh_devices (owner_user_id, device_id, label, purpose, is_active)
+                    SELECT id, mesh_device_id, COALESCE(NULLIF(full_name, ''), username), 'tracking', is_active
+                    FROM users
+                    WHERE mesh_device_id IS NOT NULL AND mesh_device_id <> ''
+                    ON CONFLICT (device_id) DO NOTHING
+                    """
+                )
+                connection.execute(text(insert_sql))
+
     if "events" not in table_names:
         return
 
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
+    task_point_columns = {column["name"] for column in inspector.get_columns("task_points")} if "task_points" in table_names else set()
     score_result_details = {column["name"]: column for column in inspector.get_columns("score_results")} if "score_results" in table_names else {}
     score_result_columns = set(score_result_details)
     task_scoring_input_columns = {column["name"] for column in inspector.get_columns("task_scoring_inputs")} if "task_scoring_inputs" in table_names else set()
@@ -189,6 +337,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "time_points_if_not_in_goal": "ALTER TABLE events ADD COLUMN time_points_if_not_in_goal FLOAT",
         "jump_the_gun_factor": "ALTER TABLE events ADD COLUMN jump_the_gun_factor FLOAT",
         "jump_the_gun_max_seconds": "ALTER TABLE events ADD COLUMN jump_the_gun_max_seconds INTEGER",
+        "default_start_gate_count": "ALTER TABLE events ADD COLUMN default_start_gate_count INTEGER DEFAULT 5",
+        "default_start_gate_interval_seconds": "ALTER TABLE events ADD COLUMN default_start_gate_interval_seconds INTEGER DEFAULT 900",
         "stopped_glide_bonus": "ALTER TABLE events ADD COLUMN stopped_glide_bonus FLOAT",
         "use_1000_points_for_max_day_quality": "ALTER TABLE events ADD COLUMN use_1000_points_for_max_day_quality BOOLEAN",
         "normalize_1000_before_day_quality": "ALTER TABLE events ADD COLUMN normalize_1000_before_day_quality BOOLEAN",
@@ -224,7 +374,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "visibility": "ALTER TABLE events ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
     }
     task_statements = {
-        "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race'",
+        "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race_to_goal_with_gates'",
         "task_date": "ALTER TABLE tasks ADD COLUMN task_date DATE",
         "task_start_time": "ALTER TABLE tasks ADD COLUMN task_start_time VARCHAR(8)",
         "task_finish_time": "ALTER TABLE tasks ADD COLUMN task_finish_time VARCHAR(8)",
@@ -232,6 +382,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "start_close_time": "ALTER TABLE tasks ADD COLUMN start_close_time VARCHAR(8)",
         "start_gate_count": "ALTER TABLE tasks ADD COLUMN start_gate_count INTEGER DEFAULT 1",
         "start_gate_interval_seconds": "ALTER TABLE tasks ADD COLUMN start_gate_interval_seconds INTEGER",
+    }
+    task_point_statements = {
+        "direction": "ALTER TABLE task_points ADD COLUMN direction VARCHAR(10) DEFAULT 'enter'",
     }
     score_result_statements = {
         "raw_score_points": "ALTER TABLE score_results ADD COLUMN raw_score_points FLOAT DEFAULT 0",
@@ -280,9 +433,30 @@ def ensure_runtime_schema(engine: Engine) -> None:
         for column_name, statement in task_statements.items():
             if column_name not in task_columns:
                 connection.execute(text(statement))
+        if "task_points" in table_names:
+            for column_name, statement in task_point_statements.items():
+                if column_name not in task_point_columns:
+                    connection.execute(text(statement))
         for column_name, statement in score_result_statements.items():
             if column_name not in score_result_columns:
                 connection.execute(text(statement))
+        if "events" in table_names:
+            connection.execute(text("UPDATE events SET default_start_gate_count = 5 WHERE default_start_gate_count IS NULL"))
+            connection.execute(text("UPDATE events SET default_start_gate_interval_seconds = 900 WHERE default_start_gate_interval_seconds IS NULL"))
+        if "tasks" in table_names:
+            connection.execute(
+                text(
+                    """
+                    UPDATE tasks
+                    SET task_type = 'race_to_goal_with_gates'
+                    WHERE task_type IS NULL OR task_type IN ('race', 'race_to_goal', 'speedrun_interval')
+                    """
+                )
+            )
+            connection.execute(text("UPDATE tasks SET task_type = 'elapsed_time' WHERE task_type = 'speedrun'"))
+        if "task_points" in table_names:
+            connection.execute(text("UPDATE task_points SET direction = 'exit' WHERE point_type = 'start' AND (direction IS NULL OR direction NOT IN ('enter', 'exit'))"))
+            connection.execute(text("UPDATE task_points SET direction = 'enter' WHERE point_type <> 'start' AND (direction IS NULL OR direction NOT IN ('enter', 'exit'))"))
         if "score_results" in table_names:
             upload_id_column = score_result_details.get("upload_id")
             if upload_id_column and upload_id_column.get("nullable") is False and dialect_name != "sqlite":
@@ -450,6 +624,22 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE tracking_sessions ALTER COLUMN task_id DROP NOT NULL"))
 
         # -------------------------------------------------------------------
+        # SOS alert management columns (0009)
+        # -------------------------------------------------------------------
+        if "sos_alerts" in table_names:
+            sos_columns = {col["name"] for col in inspector.get_columns("sos_alerts")}
+            if "status" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'active'"))
+            if "acknowledged_at" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN acknowledged_at TIMESTAMP WITH TIME ZONE NULL"))
+            if "resolved_at" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN resolved_at TIMESTAMP WITH TIME ZONE NULL"))
+            if "resolved_by" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN resolved_by VARCHAR(100) NULL"))
+            if "notes" not in sos_columns:
+                connection.execute(text("ALTER TABLE sos_alerts ADD COLUMN notes TEXT NULL"))
+
+        # -------------------------------------------------------------------
         # FAA Airspace cache tables
         # -------------------------------------------------------------------
         if "faa_airspace_features" not in table_names:
@@ -470,6 +660,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
                         lower_desc VARCHAR(100) DEFAULT '',
                         city VARCHAR(100),
                         state VARCHAR(10),
+                        notam_id VARCHAR(80),
+                        effective_start TIMESTAMP WITH TIME ZONE,
+                        effective_end TIMESTAMP WITH TIME ZONE,
+                        notice_time TIMESTAMP WITH TIME ZONE,
                         min_lat FLOAT NOT NULL,
                         max_lat FLOAT NOT NULL,
                         min_lon FLOAT NOT NULL,
@@ -483,6 +677,17 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("CREATE INDEX ix_faa_airspace_source ON faa_airspace_features (source)"))
             connection.execute(text("CREATE INDEX ix_faa_airspace_category ON faa_airspace_features (category)"))
             connection.execute(text("CREATE INDEX ix_faa_airspace_bbox ON faa_airspace_features (min_lon, min_lat, max_lon, max_lat)"))
+        else:
+            faa_airspace_feature_columns = {column["name"] for column in inspector.get_columns("faa_airspace_features")}
+            faa_airspace_feature_statements = {
+                "notam_id": "ALTER TABLE faa_airspace_features ADD COLUMN notam_id VARCHAR(80)",
+                "effective_start": "ALTER TABLE faa_airspace_features ADD COLUMN effective_start TIMESTAMP WITH TIME ZONE",
+                "effective_end": "ALTER TABLE faa_airspace_features ADD COLUMN effective_end TIMESTAMP WITH TIME ZONE",
+                "notice_time": "ALTER TABLE faa_airspace_features ADD COLUMN notice_time TIMESTAMP WITH TIME ZONE",
+            }
+            for column_name, statement in faa_airspace_feature_statements.items():
+                if column_name not in faa_airspace_feature_columns:
+                    connection.execute(text(statement))
 
         if "faa_airspace_meta" not in table_names:
             connection.execute(
@@ -493,8 +698,13 @@ def ensure_runtime_schema(engine: Engine) -> None:
                         source VARCHAR(10) UNIQUE NOT NULL,
                         last_edit_date VARCHAR(40),
                         record_count INTEGER DEFAULT 0,
-                        last_fetched_at TIMESTAMP WITH TIME ZONE
+                        last_fetched_at TIMESTAMP WITH TIME ZONE,
+                        last_checked_at TIMESTAMP WITH TIME ZONE
                     )
                     """
                 )
             )
+        else:
+            faa_airspace_meta_columns = {column["name"] for column in inspector.get_columns("faa_airspace_meta")}
+            if "last_checked_at" not in faa_airspace_meta_columns:
+                connection.execute(text("ALTER TABLE faa_airspace_meta ADD COLUMN last_checked_at TIMESTAMP WITH TIME ZONE"))

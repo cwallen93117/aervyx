@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     mqtt_port: int = 1883
     mesh_mqtt_topic_prefix: str = "aervyx"
     valhalla_url: str = "http://valhalla:8002"
+    integration_secret_key: str | None = None
+    faa_notam_api_enabled: bool = False
+    faa_notam_api_base_url: str = "https://api.faa.gov"
+    faa_notam_api_client_id: str | None = None
+    faa_notam_api_client_secret: str | None = None
+    faa_notam_api_client_id_header: str = "client_id"
+    faa_notam_api_client_secret_header: str = "client_secret"
 
     model_config = SettingsConfigDict(
         env_file=".env",

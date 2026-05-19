@@ -15,7 +15,10 @@ backend/storage/uploads/
 backend/.env
 backend/.env.production
 frontend/.env.local
+frontend/.env.local.*
 frontend/.env.production
+frontend/*.log
+frontend/tsconfig.tsbuildinfo
 
 # Deployment
 deploy/cloudflared/*.json

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+def default_task_point_direction(point_type: str | None) -> str:
+    return "exit" if (point_type or "").lower() == "start" else "enter"
 
 
 class GoogleAuthRequest(BaseModel):
@@ -139,6 +143,7 @@ class AdminUserResponse(BaseModel):
     email: str | None = None
     pilot_name: str | None = None
     competition_number: str | None = None
+    mesh_device_id: str | None = None
     is_active: bool
     created_at: datetime
 
@@ -154,6 +159,49 @@ class AdminUserCredentialsUpdate(BaseModel):
     password: str | None = None
 
 
+class MeshDeviceRegister(BaseModel):
+    mesh_device_id: str | None = None
+
+
+class MeshDeviceCreate(BaseModel):
+    device_id: str
+    label: str | None = None
+    purpose: str = "tracking"
+    is_active: bool = True
+
+
+class MeshDeviceUpdate(BaseModel):
+    device_id: str | None = None
+    label: str | None = None
+    purpose: str | None = None
+    is_active: bool | None = None
+
+
+class MeshDeviceResponse(BaseModel):
+    id: int
+    owner_user_id: int
+    owner_name: str | None = None
+    device_id: str
+    label: str
+    purpose: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MapOverlayConfigResponse(BaseModel):
+    config: dict
+    updated_at: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MapOverlayConfigUpdate(BaseModel):
+    config: dict
+
+
 class SiteSettingsResponse(BaseModel):
     telemetry_vario_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
@@ -161,6 +209,13 @@ class SiteSettingsResponse(BaseModel):
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
+    mqtt_enabled: bool = True
+    mqtt_broker_mode: str = "public"
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_topic_prefix: str = "msh"
+    mqtt_channel_psk: str | None = None
+    mesh_profiles: dict | None = None
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -173,6 +228,42 @@ class SiteSettingsUpdate(BaseModel):
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
     max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
+    mqtt_enabled: bool = True
+    mqtt_broker_mode: str = "public"
+    mqtt_host: str | None = None
+    mqtt_port: int = 1883
+    mqtt_topic_prefix: str = "msh"
+    mqtt_channel_psk: str | None = None
+    mesh_profiles: dict | None = None
+
+
+class IntegrationCredentialsResponse(BaseModel):
+    provider: str
+    enabled: bool = False
+    base_url: str = "https://api.faa.gov"
+    client_id_header: str = "client_id"
+    client_secret_header: str = "client_secret"
+    client_id_configured: bool = False
+    client_secret_configured: bool = False
+    admin_client_id_configured: bool = False
+    admin_client_secret_configured: bool = False
+    credential_source: str = "none"
+    env_override: bool = False
+    last_tested_at: datetime | None = None
+    last_test_status: str | None = None
+    last_test_message: str | None = None
+    updated_by_user_id: int | None = None
+    updated_at: datetime | None = None
+
+
+class IntegrationCredentialsUpdate(BaseModel):
+    enabled: bool = False
+    base_url: str = Field(default="https://api.faa.gov", min_length=1, max_length=255)
+    client_id_header: str = Field(default="client_id", min_length=1, max_length=80)
+    client_secret_header: str = Field(default="client_secret", min_length=1, max_length=80)
+    client_id: str | None = None
+    client_secret: str | None = None
+    clear_credentials: bool = False
 
 
 class FlightSiteCreate(BaseModel):
@@ -236,6 +327,8 @@ class EventCreate(BaseModel):
     time_points_if_not_in_goal: float = 1.0
     jump_the_gun_factor: float = 0.0
     jump_the_gun_max_seconds: int = 0
+    default_start_gate_count: int = Field(default=5, ge=1)
+    default_start_gate_interval_seconds: int = Field(default=900, ge=0)
     stopped_glide_bonus: float = 0.0
     use_1000_points_for_max_day_quality: bool = False
     normalize_1000_before_day_quality: bool = False
@@ -390,29 +483,31 @@ class AirspaceRegionResponse(BaseModel):
 class TaskPointInput(BaseModel):
     position: int
     point_type: str
+    direction: str | None = Field(default=None, pattern="^(enter|exit)$")
     radius_m: float = Field(default=400, gt=0)
     turnpoint_id: int | None = None
     name: str
     latitude: float
     longitude: float
 
+    @model_validator(mode="after")
+    def apply_default_direction(self) -> "TaskPointInput":
+        if self.direction not in {"enter", "exit"}:
+            self.direction = default_task_point_direction(self.point_type)
+        return self
+
 
 class TaskInput(BaseModel):
     name: str
     task_date: date | None = None
     status: str = "draft"
-    task_type: str = "race_to_goal"
+    task_type: str = "race_to_goal_with_gates"
     task_start_time: str | None = None
     task_finish_time: str | None = None
     start_open_time: str | None = None
     start_close_time: str | None = None
     start_gate_count: int = Field(default=1, ge=1)
     start_gate_interval_seconds: int | None = Field(default=None, ge=0)
-    nominal_distance_km: float = 60
-    nominal_time_hours: float = 1.5
-    nominal_launch: float = 0.95
-    minimum_distance_km: float = 5
-    penalties_json: dict = Field(default_factory=dict)
     points: list[TaskPointInput]
 
 
@@ -434,11 +529,6 @@ class TaskResponse(BaseModel):
     start_gate_count: int
     start_gate_interval_seconds: int | None
     version: int
-    nominal_distance_km: float
-    nominal_time_hours: float
-    nominal_launch: float
-    minimum_distance_km: float
-    penalties_json: dict
     published_at: datetime | None
     points: list[TaskPointResponse]
 
@@ -462,6 +552,7 @@ class BulkUploadItemResponse(BaseModel):
     upload_id: int | None = None
     pilot_id: int | None = None
     pilot_name: str | None = None
+    match_confidence: str | None = None
     message: str
 
 
@@ -494,6 +585,11 @@ class PilotSummaryResponse(BaseModel):
     best_distance_km: float
     task_scores: dict[int, float] = Field(default_factory=dict)
     task_result_states: dict[int, str] = Field(default_factory=dict)
+
+
+class TaskResultSummaryResponse(BaseModel):
+    task_id: int
+    day_quality: float | None = None
 
 
 class TaskScoringInputUpdate(BaseModel):

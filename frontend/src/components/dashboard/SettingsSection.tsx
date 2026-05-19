@@ -3,6 +3,7 @@
 import { useState, type FormEvent } from "react";
 import BuddyGroupsManager from "./BuddyGroupsManager";
 import EmailsManager from "./EmailsManager";
+import MeshDevicesManager from "./MeshDevicesManager";
 import PilotClaimSection from "./PilotClaimSection";
 import type { AccountSettingsRecord } from "./types";
 
@@ -24,13 +25,14 @@ export interface SettingsSectionProps {
   onPilotClaimed: () => void;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "emails" | "pilot_record" | "buddies";
+type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
   { key: "units", label: "Units" },
   { key: "password", label: "Password" },
   { key: "emails", label: "Emails" },
+  { key: "meshtastic", label: "Meshtastic" },
   { key: "pilot_record", label: "Pilot Record" },
   { key: "buddies", label: "Pilot Buddies" },
 ];
@@ -240,6 +242,12 @@ export default function SettingsSection(props: SettingsSectionProps) {
       {activeTab === "emails" && (
         <div className="settings-tab-panel">
           <EmailsManager token={token} />
+        </div>
+      )}
+
+      {activeTab === "meshtastic" && (
+        <div className="settings-tab-panel">
+          <MeshDevicesManager token={token} />
         </div>
       )}
 

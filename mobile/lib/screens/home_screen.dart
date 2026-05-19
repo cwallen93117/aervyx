@@ -11,6 +11,7 @@ import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
 import 'flights_screen.dart';
 import 'live_view_screen.dart';
+import 'meshtastic_settings_screen.dart';
 import 'settings_screen.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -205,33 +206,51 @@ class HomeScreen extends StatelessWidget {
 
               const SizedBox(height: 12),
 
-              // Error message
+              // Notification message (success / warning / error)
               if (tracking.error != null &&
                   !tracking.error!.startsWith('Landing detected'))
-                Card(
-                  color: colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded,
-                            color: colorScheme.onErrorContainer, size: 18),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            tracking.error!,
-                            style: TextStyle(
-                              color: colorScheme.onErrorContainer,
-                              fontSize: 12,
+                Builder(builder: (_) {
+                  final Color bgColor;
+                  final Color fgColor;
+                  final IconData icon;
+                  switch (tracking.notificationLevel) {
+                    case NotificationLevel.success:
+                      bgColor = colorScheme.primaryContainer;
+                      fgColor = colorScheme.onPrimaryContainer;
+                      icon = Icons.check_circle;
+                      break;
+                    case NotificationLevel.warning:
+                      bgColor = colorScheme.tertiaryContainer;
+                      fgColor = colorScheme.onTertiaryContainer;
+                      icon = Icons.warning_amber_rounded;
+                      break;
+                    case NotificationLevel.error:
+                      bgColor = colorScheme.errorContainer;
+                      fgColor = colorScheme.onErrorContainer;
+                      icon = Icons.error;
+                      break;
+                  }
+                  return Card(
+                    color: bgColor,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          Icon(icon, color: fgColor, size: 18),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              tracking.error!,
+                              style: TextStyle(color: fgColor, fontSize: 12),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                }),
 
               // Logout button at bottom
               TextButton.icon(
@@ -723,24 +742,34 @@ class _MeshDetails extends StatelessWidget {
     final theme = Theme.of(context);
 
     if (!ble.isConnected) {
-      return Row(
-        children: [
-          Icon(Icons.bluetooth_disabled,
-              color: theme.colorScheme.onSurfaceVariant, size: 20),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              'No Meshtastic device paired.\nGo to Settings to connect.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+      return InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => const MeshtasticSettingsScreen()),
+        ),
+        borderRadius: BorderRadius.circular(8),
+        child: Row(
+          children: [
+            Icon(Icons.bluetooth_disabled,
+                color: theme.colorScheme.onSurfaceVariant, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'No Meshtastic device paired.\nTap to connect.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.primary,
+                ),
               ),
             ),
-          ),
-        ],
+            Icon(Icons.arrow_forward_ios,
+                size: 14, color: theme.colorScheme.primary),
+          ],
+        ),
       );
     }
 
     final ds = ble.deviceState;
+    final auth = context.read<AuthService>();
+    final altUnit = auth.user?.altitudeUnit ?? 'ft';
 
     // Map Meshtastic device role to Aervyx profile name
     String profileName;
@@ -786,10 +815,25 @@ class _MeshDetails extends StatelessWidget {
                 ),
               ),
             ],
+            const Spacer(),
+            SizedBox(
+              width: 28,
+              height: 28,
+              child: IconButton(
+                iconSize: 18,
+                padding: EdgeInsets.zero,
+                icon: Icon(Icons.settings,
+                    color: theme.colorScheme.onSurfaceVariant),
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                      builder: (_) => const MeshtasticSettingsScreen()),
+                ),
+              ),
+            ),
           ],
         ),
-        const Divider(height: 16),
-        // Mesh stats grid (Aervyx/MQTT row removed — covered by Server status)
+        const Divider(height: 12),
+        // Mesh stats grid — compact 2×2: Profile, GPS, Altitude, Battery
         Table(
           columnWidths: const {
             0: FlexColumnWidth(1),
@@ -799,7 +843,7 @@ class _MeshDetails extends StatelessWidget {
             TableRow(
               children: [
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
                     icon: profileIcon,
                     label: 'Profile',
@@ -807,47 +851,37 @@ class _MeshDetails extends StatelessWidget {
                   ),
                 ),
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
                   child: _StatTile(
-                    icon: Icons.cell_tower,
-                    label: 'Channel',
-                    value:
-                        ds.channelName.isNotEmpty ? ds.channelName : '--',
-                  ),
-                ),
-              ],
-            ),
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.radio,
-                    label: 'Modem',
-                    value: ds.modemPreset.label,
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.route,
-                    label: 'Hops',
-                    value: '${ds.hopLimit}',
-                  ),
-                ),
-              ],
-            ),
-            TableRow(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: _StatTile(
-                    icon: Icons.gps_fixed,
+                    icon: ds.gpsMode == GpsMode.notPresent
+                        ? Icons.gps_off
+                        : Icons.satellite_alt,
                     label: 'GPS',
-                    value: ds.gpsMode.label,
+                    value: _formatDeviceGps(ble, ds),
+                    iconColor: _gpsIconColor(ble, ds),
                   ),
                 ),
-                const SizedBox.shrink(),
+              ],
+            ),
+            TableRow(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: _StatTile(
+                    icon: Icons.terrain,
+                    label: 'Altitude',
+                    value: _formatDeviceAltitude(ble, ds, altUnit),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: _StatTile(
+                    icon: _batteryIcon(ble.deviceBatteryLevel),
+                    label: 'Battery',
+                    value: _formatBattery(ble),
+                    iconColor: _batteryIconColor(ble.deviceBatteryLevel),
+                  ),
+                ),
               ],
             ),
           ],
@@ -988,15 +1022,90 @@ class _SosButton extends StatelessWidget {
 
 // ── Stat Tile (shared) ──
 
+/// Format the GPS tile value: "No GPS", "Disabled", satellite count, or searching.
+String _formatDeviceGps(BleService ble, MeshtasticDeviceState ds) {
+  if (ds.gpsMode == GpsMode.notPresent) return 'Not present';
+  if (ds.gpsMode == GpsMode.disabled) return 'Disabled';
+  if (!ble.deviceHasGpsFix) return 'Searching…';
+  // Has a fix — show satellite count + quality when available
+  final parts = <String>[];
+  final sats = ble.deviceGpsSats;
+  if (sats != null && sats > 0) {
+    parts.add('$sats sats');
+  }
+  final pdop = ble.deviceGpsPdop;
+  if (pdop != null) {
+    final quality = pdop < 2.0
+        ? 'excellent'
+        : pdop < 5.0
+            ? 'good'
+            : pdop < 10.0
+                ? 'fair'
+                : 'poor';
+    parts.add(quality);
+  }
+  if (parts.isEmpty) return '3D Fix';
+  return parts.join(' · ');
+}
+
+/// Format the device altitude from its GPS using the user's preferred unit.
+String _formatDeviceAltitude(BleService ble, MeshtasticDeviceState ds, String altUnit) {
+  if (ds.gpsMode == GpsMode.notPresent) return 'N/A';
+  if (!ble.deviceHasGpsFix) return '--';
+  return UnitConverter.formatAltitude(ble.deviceGpsAlt, altUnit);
+}
+
+/// Format battery display: percentage, "Powered" (USB), or "--" if unknown.
+String _formatBattery(BleService ble) {
+  final level = ble.deviceBatteryLevel;
+  if (level == null) return '--';
+  if (level == 101) return 'USB powered';
+  final voltage = ble.deviceVoltage;
+  if (voltage != null) {
+    return '$level% · ${voltage.toStringAsFixed(1)}V';
+  }
+  return '$level%';
+}
+
+/// Pick battery icon based on level.
+IconData _batteryIcon(int? level) {
+  if (level == null) return Icons.battery_unknown;
+  if (level == 101) return Icons.power;
+  if (level > 90) return Icons.battery_full;
+  if (level > 60) return Icons.battery_5_bar;
+  if (level > 40) return Icons.battery_3_bar;
+  if (level > 20) return Icons.battery_2_bar;
+  return Icons.battery_alert;
+}
+
+/// GPS icon color based on device state.
+Color _gpsIconColor(BleService ble, MeshtasticDeviceState ds) {
+  if (ds.gpsMode == GpsMode.notPresent) return Colors.grey;
+  if (ds.gpsMode == GpsMode.disabled) return Colors.orange;
+  if (!ble.deviceHasGpsFix) return Colors.orange;
+  return Colors.green;
+}
+
+/// Battery icon color based on level.
+Color _batteryIconColor(int? level) {
+  if (level == null) return Colors.grey;
+  if (level == 101) return Colors.green;
+  if (level > 60) return Colors.green;
+  if (level >= 20) return Colors.orange;
+  return Colors.red;
+}
+
 class _StatTile extends StatelessWidget {
   final IconData icon;
   final String label;
   final String value;
+  final Color? iconColor;
 
   const _StatTile({
     required this.icon,
     required this.label,
     required this.value,
+    this.iconColor,
   });
 
   @override
@@ -1006,7 +1115,7 @@ class _StatTile extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 16, color: theme.colorScheme.primary),
+        Icon(icon, size: 16, color: iconColor ?? theme.colorScheme.primary),
         const SizedBox(width: 6),
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,

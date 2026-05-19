@@ -1,6 +1,6 @@
 name: aervyx_mobile
 description: Aervyx pilot tracking and competition companion app.
-version: 0.3.3+15
+version: 0.4.19+36
 publish_to: none
 
 environment:
@@ -25,6 +25,8 @@ dependencies:
   flutter_local_notifications: ^18.0.0
   # Bluetooth (Meshtastic BLE)
   flutter_blue_plus: ^1.35.0
+  # USB Serial (Meshtastic OTG — Android only)
+  usb_serial: ^0.5.2
   # Battery
   battery_plus: ^6.0.0
   # File storage / sharing
@@ -35,6 +37,8 @@ dependencies:
   url_launcher: ^6.3.2
   protobuf: ^6.0.0
   wifi_scan: ^0.4.1+2
+  # mDNS / Network Service Discovery (Meshtastic WiFi scan)
+  nsd: ^5.0.1
   # Google Sign-In
   google_sign_in: ^6.2.0
   package_info_plus: ^9.0.1

@@ -42,6 +42,24 @@ class UserEmail(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 
+class MeshDevice(Base):
+    __tablename__ = "mesh_devices"
+    __table_args__ = (
+        UniqueConstraint("device_id", name="uq_mesh_devices_device_id"),
+        Index("ix_mesh_devices_owner_user_id", "owner_user_id"),
+        Index("ix_mesh_devices_purpose", "purpose"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    owner_user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    device_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    label: Mapped[str] = mapped_column(String(160), nullable=False)
+    purpose: Mapped[str] = mapped_column(String(32), default="tracking")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class SiteSettings(Base):
     __tablename__ = "site_settings"
 
@@ -52,7 +70,44 @@ class SiteSettings(Base):
     telemetry_glide_ratio_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=5)
     max_map_pitch_degrees: Mapped[int] = mapped_column(Integer, default=75)
     site_match_radius_m: Mapped[int] = mapped_column(Integer, default=1000)
+    # MQTT broker settings
+    mqtt_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    mqtt_broker_mode: Mapped[str] = mapped_column(String(20), default="public")
+    mqtt_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mqtt_port: Mapped[int] = mapped_column(Integer, default=1883)
+    mqtt_topic_prefix: Mapped[str] = mapped_column(String(80), default="msh")
+    mqtt_channel_psk: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Meshtastic device profiles (JSON blob)
+    mesh_profiles: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class IntegrationCredential(Base):
+    __tablename__ = "integration_credentials"
+
+    provider: Mapped[str] = mapped_column(String(80), primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    base_url: Mapped[str] = mapped_column(String(255), default="https://api.faa.gov")
+    client_id_header: Mapped[str] = mapped_column(String(80), default="client_id")
+    client_secret_header: Mapped[str] = mapped_column(String(80), default="client_secret")
+    encrypted_client_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_client_secret: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_tested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_test_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    last_test_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_by_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class MapOverlayConfig(Base):
+    __tablename__ = "map_overlay_config"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    config: Mapped[str] = mapped_column(Text, default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class Event(Base):
@@ -76,6 +131,8 @@ class Event(Base):
     time_points_if_not_in_goal: Mapped[float | None] = mapped_column(Float, nullable=True)
     jump_the_gun_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
     jump_the_gun_max_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    default_start_gate_count: Mapped[int] = mapped_column(Integer, default=5)
+    default_start_gate_interval_seconds: Mapped[int] = mapped_column(Integer, default=900)
     stopped_glide_bonus: Mapped[float | None] = mapped_column(Float, nullable=True)
     use_1000_points_for_max_day_quality: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     normalize_1000_before_day_quality: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
@@ -235,7 +292,7 @@ class Task(Base):
     name: Mapped[str] = mapped_column(String(160))
     task_date: Mapped[date | None] = mapped_column(Date, nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(20), default="draft")
-    task_type: Mapped[str] = mapped_column(String(40), default="race_to_goal")
+    task_type: Mapped[str] = mapped_column(String(40), default="race_to_goal_with_gates")
     task_start_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
     task_finish_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
     start_open_time: Mapped[str | None] = mapped_column(String(8), nullable=True)
@@ -261,6 +318,7 @@ class TaskPoint(Base):
     task_id: Mapped[int] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), index=True)
     position: Mapped[int] = mapped_column(Integer)
     point_type: Mapped[str] = mapped_column(String(20))
+    direction: Mapped[str] = mapped_column(String(10), default="enter")
     radius_m: Mapped[float] = mapped_column(Float, default=400)
     turnpoint_id: Mapped[int | None] = mapped_column(ForeignKey("turnpoints.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(String(160))
@@ -486,6 +544,11 @@ class SosAlert(Base):
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active")
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class DriverAssignment(Base):
@@ -563,6 +626,10 @@ class FaaAirspaceFeature(Base):
     lower_desc: Mapped[str] = mapped_column(String(100), default="")
     city: Mapped[str | None] = mapped_column(String(100), nullable=True)
     state: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    notam_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    effective_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    effective_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    notice_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     min_lat: Mapped[float] = mapped_column(Float, nullable=False)
     max_lat: Mapped[float] = mapped_column(Float, nullable=False)
     min_lon: Mapped[float] = mapped_column(Float, nullable=False)
@@ -579,3 +646,4 @@ class FaaAirspaceMeta(Base):
     last_edit_date: Mapped[str | None] = mapped_column(String(40), nullable=True)
     record_count: Mapped[int] = mapped_column(Integer, default=0)
     last_fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

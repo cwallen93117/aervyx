@@ -1,7 +1,8 @@
 """Background MQTT subscriber for Meshtastic position messages.
 
-Connects to the Mosquitto broker, subscribes to ``<prefix>/#`` and persists
-incoming position reports into the ``live_positions`` table with
+Connects to the configured MQTT broker (read from site_settings DB),
+subscribes to ``<prefix>/#`` and persists incoming position reports for
+registered platform devices into the ``live_positions`` table with
 ``source='mqtt_gateway'``.
 
 Supports two payload formats:
@@ -28,23 +29,40 @@ Supports two payload formats:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import struct
+import threading
+import time
 from datetime import UTC, datetime
 
-import aiomqtt
+import paho.mqtt.client as paho_mqtt
+from sqlalchemy import select
 
-from app.core.config import get_settings
 from app.db import SessionLocal
-from app.services.tracking import store_position
+from app.models import MeshDevice, SiteSettings, User
+from app.services.tracking import (
+    LIVE_POSITION_RETENTION_DAYS,
+    prune_old_live_positions,
+    resolve_active_task_id,
+    resolve_mesh_device_assignment,
+    store_position,
+)
 
 logger = logging.getLogger("aervyx.mqtt")
 
 # Module-level state exposed for the admin debug endpoint
 mqtt_connected: bool = False
 mqtt_last_message_at: datetime | None = None
+
+# Event set by settings/device handlers to trigger reconnection
+mqtt_reconnect_event: threading.Event | None = None
+
+# In-memory battery cache: device_id → (battery_level, timestamp)
+# Populated from TELEMETRY_APP (portnum 67) messages and injected into
+# subsequent POSITION_APP messages for the same device.
+_battery_cache: dict[str, tuple[int, float]] = {}
+_BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
 
 
 def _parse_position(raw: bytes | bytearray) -> dict | None:
@@ -58,12 +76,12 @@ def _parse_position(raw: bytes | bytearray) -> dict | None:
     if not isinstance(data, dict):
         return None
 
-    # Require at minimum lat, lon, and task_id
+    # Require at minimum lat and lon (task_id is resolved later if missing)
     lat = data.get("latitude")
     lon = data.get("longitude")
     task_id = data.get("task_id")
-    if lat is None or lon is None or task_id is None:
-        logger.debug("Ignoring MQTT message missing latitude, longitude, or task_id")
+    if lat is None or lon is None:
+        logger.debug("Ignoring MQTT message missing latitude or longitude")
         return None
 
     ts_raw = data.get("timestamp")
@@ -75,7 +93,7 @@ def _parse_position(raw: bytes | bytearray) -> dict | None:
             pass
 
     return {
-        "task_id": int(task_id),
+        "task_id": int(task_id) if task_id is not None else None,
         "lat": float(lat),
         "lon": float(lon),
         "alt": float(data["altitude"]) if data.get("altitude") is not None else None,
@@ -194,51 +212,116 @@ def _get_sfixed32(fields: dict, field_number: int) -> int | None:
     return None
 
 
-def _parse_protobuf_position(raw: bytes) -> dict | None:
-    """Try to decode a Meshtastic protobuf ServiceEnvelope and extract a
-    POSITION_APP payload.
+def _decode_mesh_envelope(raw: bytes) -> tuple[int | None, int | None, bytes | None] | None:
+    """Decode a Meshtastic ServiceEnvelope → MeshPacket → Data.
 
-    Returns the same dict format as :func:`_parse_position` on success, or
-    ``None`` if the message is not a valid position envelope.
+    Returns ``(from_node, portnum, payload_bytes)`` or ``None`` on failure.
     """
     try:
-        # -- ServiceEnvelope -------------------------------------------------
         envelope_fields = _parse_protobuf_fields(raw)
-
-        # Field 1 = MeshPacket (length-delimited)
         mesh_packet_bytes = _get_bytes(envelope_fields, 1)
         if mesh_packet_bytes is None:
             return None
 
-        # -- MeshPacket ------------------------------------------------------
         mp_fields = _parse_protobuf_fields(mesh_packet_bytes)
-
-        # Field 1 = from (fixed32, wire type 5)
         from_node = _get_fixed32(mp_fields, 1)
 
-        # Field 3 = decoded Data (length-delimited) -- only present when not
-        # encrypted
         data_bytes = _get_bytes(mp_fields, 3)
         if data_bytes is None:
             logger.debug("Protobuf MeshPacket has no decoded Data (probably encrypted)")
             return None
 
-        # -- Data ------------------------------------------------------------
         data_fields = _parse_protobuf_fields(data_bytes)
-
-        # Field 1 = portnum (varint).  POSITION_APP = 3
         portnum = _get_varint(data_fields, 1)
-        if portnum != 3:
-            logger.debug("Protobuf Data portnum=%s, not POSITION_APP(3) -- skipping", portnum)
-            return None
+        payload_bytes = _get_bytes(data_fields, 2)
 
-        # Field 2 = payload (length-delimited, contains Position message)
-        position_bytes = _get_bytes(data_fields, 2)
-        if position_bytes is None:
-            return None
+        return from_node, portnum, payload_bytes
+    except (ValueError, struct.error, IndexError, KeyError) as exc:
+        logger.debug("Failed to decode protobuf ServiceEnvelope: %s", exc)
+        return None
 
+
+def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> None:
+    """Decode a TELEMETRY_APP payload and cache battery level by device_id.
+
+    Meshtastic Telemetry message layout:
+      field 1 = time (uint32, unix timestamp)
+      field 2 = device_metrics (DeviceMetrics, length-delimited)
+
+    DeviceMetrics layout:
+      field 1 = battery_level (uint32, 0-100)
+      field 2 = voltage (float)
+      field 3 = channel_utilization (float)
+      field 4 = air_util_tx (float)
+      field 5 = uptime_seconds (uint32)
+    """
+    device_id = f"!{from_node:08x}" if from_node is not None else None
+    if not device_id:
+        return
+
+    try:
+        telemetry_fields = _parse_protobuf_fields(raw)
+
+        # Field 2 = device_metrics (length-delimited)
+        metrics_bytes = _get_bytes(telemetry_fields, 2)
+        if metrics_bytes is None:
+            # Could be environment_metrics or power_metrics — not device_metrics
+            return
+
+        metrics_fields = _parse_protobuf_fields(metrics_bytes)
+
+        # Field 1 = battery_level (uint32)
+        battery = _get_varint(metrics_fields, 1)
+        if battery is not None and 0 <= battery <= 100:
+            _battery_cache[device_id] = (battery, time.time())
+            logger.debug("Cached battery for %s: %d%%", device_id, battery)
+
+    except (ValueError, struct.error, IndexError, KeyError) as exc:
+        logger.debug("Failed to decode Telemetry payload: %s", exc)
+
+
+def _get_cached_battery(device_id: str | None) -> int | None:
+    """Return cached battery level for a device, or None if stale/missing."""
+    if not device_id or device_id not in _battery_cache:
+        return None
+    battery, cached_at = _battery_cache[device_id]
+    if time.time() - cached_at > _BATTERY_CACHE_MAX_AGE_S:
+        del _battery_cache[device_id]
+        return None
+    return battery
+
+
+def _parse_protobuf_position(raw: bytes) -> dict | None:
+    """Try to decode a Meshtastic protobuf ServiceEnvelope and extract a
+    POSITION_APP payload.  Also processes TELEMETRY_APP messages to cache
+    battery levels for later injection.
+
+    Returns the same dict format as :func:`_parse_position` on success, or
+    ``None`` if the message is not a valid position envelope.
+    """
+    decoded = _decode_mesh_envelope(raw)
+    if decoded is None:
+        return None
+
+    from_node, portnum, payload_bytes = decoded
+    device_id = f"!{from_node:08x}" if from_node is not None else None
+
+    # Handle TELEMETRY_APP (portnum 67) — cache battery, no position to return
+    if portnum == 67 and payload_bytes:
+        _parse_protobuf_telemetry(payload_bytes, from_node)
+        return None
+
+    # Only process POSITION_APP (portnum 3)
+    if portnum != 3:
+        logger.debug("Protobuf Data portnum=%s, not POSITION_APP(3) or TELEMETRY_APP(67) -- skipping", portnum)
+        return None
+
+    if payload_bytes is None:
+        return None
+
+    try:
         # -- Position --------------------------------------------------------
-        pos_fields = _parse_protobuf_fields(position_bytes)
+        pos_fields = _parse_protobuf_fields(payload_bytes)
 
         # latitude_i  = field 1, sfixed32 (wire type 5)
         lat_i = _get_sfixed32(pos_fields, 1)
@@ -257,8 +340,11 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
             logger.debug("Protobuf Position lat/lon out of range: %s, %s", lat, lon)
             return None
 
-        # altitude = field 3, int32 (varint)
+        # altitude = field 3 (int32, legacy) or altitude_hae = field 11 (int32, preferred)
+        # Many devices populate only field 11 (height above ellipsoid).
         alt_raw = _get_varint(pos_fields, 3)
+        if alt_raw is None:
+            alt_raw = _get_varint(pos_fields, 11)
         alt = float(alt_raw) if alt_raw is not None else None
 
         # time = field 4, int32 (varint) -- unix timestamp
@@ -273,12 +359,12 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
         heading_raw = _get_varint(pos_fields, 9)
         heading = heading_raw / 1e5 if heading_raw is not None else None
 
-        # Build device_id from the MeshPacket ``from`` field
-        device_id = f"!{from_node:08x}" if from_node is not None else None
+        # Battery: use cached value from most recent TELEMETRY_APP message
+        battery = _get_cached_battery(device_id)
 
         logger.debug(
-            "Decoded protobuf position: device=%s lat=%.6f lon=%.6f alt=%s",
-            device_id, lat, lon, alt,
+            "Decoded protobuf position: device=%s lat=%.6f lon=%.6f alt=%s speed=%s heading=%s battery=%s",
+            device_id, lat, lon, alt, speed, heading, battery,
         )
 
         return {
@@ -292,76 +378,235 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
             "timestamp": ts,
             "source": "mqtt_gateway",
             "device_id": device_id,
-            "battery_level": None,
+            "battery_level": battery,
             "pilot_id": None,
         }
 
     except (ValueError, struct.error, IndexError, KeyError) as exc:
-        logger.debug("Failed to decode protobuf ServiceEnvelope: %s", exc)
+        logger.debug("Failed to decode protobuf Position: %s", exc)
         return None
 
 
-async def _subscribe_loop(host: str, port: int, topic_prefix: str) -> None:
-    """Connect to broker and process messages indefinitely."""
-    topic = f"{topic_prefix}/#"
-    logger.info("MQTT subscriber connecting to %s:%d topic %s", host, port, topic)
+def _resolve_mesh_user(session, device_id: str | None) -> User | None:
+    """Return the active tracking user assigned to a mesh device ID."""
+    user, _device = resolve_mesh_device_assignment(session, device_id)
+    return user
 
-    global mqtt_connected, mqtt_last_message_at
+
+def _read_registered_mesh_device_ids_from_db() -> list[str]:
+    """Return active platform mesh device IDs for targeted public MQTT subscriptions."""
+    session = SessionLocal()
+    try:
+        device_ids = set(
+            session.scalars(
+                select(MeshDevice.device_id)
+                .join(User, User.id == MeshDevice.owner_user_id)
+                .where(
+                    MeshDevice.is_active.is_(True),
+                    MeshDevice.device_id.isnot(None),
+                    MeshDevice.device_id != "",
+                    User.is_active.is_(True),
+                )
+            ).all()
+        )
+        device_ids.update(
+            session.scalars(
+                select(User.mesh_device_id)
+                .where(
+                    User.is_active.is_(True),
+                    User.mesh_device_id.isnot(None),
+                    User.mesh_device_id != "",
+                )
+            ).all()
+        )
+        return sorted(device_ids)
+    finally:
+        session.close()
+
+
+def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str | None]:
+    """Read MQTT broker settings from the site_settings DB row.
+
+    Returns ``(host, port, topic_prefix, username, password)``.  If the row
+    doesn't exist or MQTT is disabled, ``host`` will be ``None``.
+    """
+    session = SessionLocal()
+    try:
+        site = session.get(SiteSettings, 1)
+        if site is None or not site.mqtt_enabled:
+            return None, 1883, "msh", None, None
+        is_public = site.mqtt_broker_mode == "public"
+        host = "mqtt.meshtastic.org" if is_public else site.mqtt_host
+        # Public Meshtastic broker requires well-known credentials
+        username = "meshdev" if is_public else None
+        password = "large4cats" if is_public else None
+        return host, site.mqtt_port, site.mqtt_topic_prefix, username, password
+    finally:
+        session.close()
+
+
+def prune_old_mqtt_positions(retention_days: int = LIVE_POSITION_RETENTION_DAYS) -> int:
+    """Backward-compatible wrapper for the global live-position retention rule."""
+    return prune_old_live_positions(retention_days=retention_days)
+
+
+def request_mqtt_reconnect() -> None:
+    """Ask the subscriber thread to refresh broker settings and device topics."""
+    if mqtt_reconnect_event is not None:
+        mqtt_reconnect_event.set()
+
+
+def _handle_message(payload: bytes) -> None:
+    """Process a single MQTT message payload."""
+    parsed = _parse_position(payload)
+    if parsed is None:
+        parsed = _parse_protobuf_position(payload)
+    if parsed is None:
+        return
+
+    global mqtt_last_message_at
+
+    session = SessionLocal()
+    try:
+        mesh_user, mesh_device = resolve_mesh_device_assignment(session, parsed.get("device_id"))
+        if mesh_user is None and mesh_device is None:
+            return
+
+        parsed["pilot_id"] = mesh_user.pilot_id if mesh_user is not None else None
+        if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
+            parsed["task_id"] = resolve_active_task_id(session, parsed["pilot_id"])
+        store_position(session, **parsed)
+        session.commit()
+        mqtt_last_message_at = datetime.now(UTC)
+    except Exception:
+        logger.exception("Failed to store MQTT position")
+        session.rollback()
+    finally:
+        session.close()
+
+
+def _paho_subscribe_loop() -> None:
+    """Blocking loop using paho-mqtt (runs in a daemon thread)."""
+    global mqtt_connected
 
     while True:
+        host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
+        if not host:
+            print("[MQTT] Not configured or disabled — sleeping 30s", flush=True)
+            mqtt_connected = False
+            time.sleep(30)
+            continue
+
+        # For the public Meshtastic broker, avoid the full LongFast firehose:
+        # subscribe directly to each registered device's topic.
+        if host == "mqtt.meshtastic.org":
+            registered_device_ids = _read_registered_mesh_device_ids_from_db()
+            if not registered_device_ids:
+                print("[MQTT] Public broker enabled, but no registered mesh devices - sleeping 30s", flush=True)
+                mqtt_connected = False
+                time.sleep(30)
+                continue
+            topics = [(f"{topic_prefix}/US/2/e/LongFast/{device_id}", 0) for device_id in registered_device_ids]
+            topic_description = f"{len(topics)} registered device topic(s)"
+        else:
+            topics = [(f"{topic_prefix}/#", 0)]
+            topic_description = f"{topic_prefix}/#"
+        print(f"[MQTT] Connecting to {host}:{port} topic={topic_description} user={username}", flush=True)
+
+        # Explicit VERSION1 callback API for paho-mqtt 2.x compatibility
         try:
-            async with aiomqtt.Client(hostname=host, port=port) as client:
-                await client.subscribe(topic)
+            from paho.mqtt.enums import CallbackAPIVersion
+            client = paho_mqtt.Client(
+                callback_api_version=CallbackAPIVersion.VERSION1,
+                client_id=f"aervyx-{int(time.time()) % 100000}",
+            )
+        except ImportError:
+            # Fallback for paho-mqtt 1.x
+            client = paho_mqtt.Client(client_id=f"aervyx-{int(time.time()) % 100000}")
+
+        if username:
+            client.username_pw_set(username, password)
+
+        connected_event = threading.Event()
+
+        def on_connect(client, userdata, flags, rc):
+            global mqtt_connected
+            print(f"[MQTT] on_connect: rc={rc} flags={flags}", flush=True)
+            if rc == 0:
                 mqtt_connected = True
-                logger.info("MQTT subscribed to %s", topic)
-                async for message in client.messages:
-                    payload = message.payload
-                    if not isinstance(payload, (bytes, bytearray)):
-                        continue
+                client.subscribe(topics)
+                connected_event.set()
+                print(f"[MQTT] Subscribed to {topic_description}", flush=True)
+            else:
+                print(f"[MQTT] CONNECT REFUSED rc={rc}", flush=True)
 
-                    # Try JSON first, then fall back to protobuf
-                    parsed = _parse_position(payload)
-                    if parsed is None:
-                        parsed = _parse_protobuf_position(payload)
-
-                    if parsed is None:
-                        continue
-
-                    session = SessionLocal()
-                    try:
-                        store_position(session, **parsed)
-                        session.commit()
-                        mqtt_last_message_at = datetime.now(UTC)
-                    except Exception:
-                        logger.exception("Failed to store MQTT position")
-                        session.rollback()
-                    finally:
-                        session.close()
-
-        except aiomqtt.MqttError as exc:
+        def on_disconnect(client, userdata, rc):
+            global mqtt_connected
             mqtt_connected = False
-            logger.warning("MQTT connection lost (%s), reconnecting in 5s…", exc)
-            await asyncio.sleep(5)
-        except Exception:
+            print(f"[MQTT] Disconnected rc={rc}", flush=True)
+
+        _msg_count = [0]
+
+        def on_message(client, userdata, msg):
+            _msg_count[0] += 1
+            if _msg_count[0] <= 3 or _msg_count[0] % 100 == 0:
+                print(f"[MQTT] Message #{_msg_count[0]}: {msg.topic} ({len(msg.payload)} bytes)", flush=True)
+            payload = msg.payload
+            if isinstance(payload, (bytes, bytearray)):
+                _handle_message(payload)
+
+        client.on_connect = on_connect
+        client.on_disconnect = on_disconnect
+        client.on_message = on_message
+
+        try:
+            client.connect(host, port, keepalive=60)
+            client.loop_start()
+
+            # Wait for CONNACK with timeout instead of polling is_connected()
+            if not connected_event.wait(timeout=15):
+                print("[MQTT] Timed out waiting for CONNACK after 15s", flush=True)
+                client.loop_stop()
+                try:
+                    client.disconnect()
+                except Exception:
+                    pass
+                time.sleep(5)
+                continue
+
+            print("[MQTT] Connected and subscribed, monitoring…", flush=True)
+
+            # Stay connected; check for reconnect signal
+            while True:
+                time.sleep(5)
+                if not client.is_connected():
+                    print("[MQTT] Connection lost, will reconnect", flush=True)
+                    break
+                if mqtt_reconnect_event is not None and mqtt_reconnect_event.is_set():
+                    mqtt_reconnect_event.clear()
+                    print("[MQTT] Settings changed — reconnecting…", flush=True)
+                    break
+            client.loop_stop()
+        except Exception as exc:
             mqtt_connected = False
-            logger.exception("Unexpected MQTT error, reconnecting in 10s…")
-            await asyncio.sleep(10)
+            print(f"[MQTT] Connection error: {exc}", flush=True)
+        finally:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+        time.sleep(5)
 
 
-async def start_mqtt_subscriber() -> asyncio.Task | None:
-    """Launch the MQTT subscriber as a background asyncio task.
+async def start_mqtt_subscriber() -> None:
+    """Launch the MQTT subscriber as a background daemon thread.
 
-    Returns the task handle, or ``None`` if MQTT is not configured.
+    Uses paho-mqtt directly for reliable connections to the public
+    Meshtastic broker.
     """
-    settings = get_settings()
-    host = settings.mqtt_host
-    if not host:
-        logger.info("MQTT_HOST not set — MQTT subscriber disabled")
-        return None
-
-    port = settings.mqtt_port
-    prefix = settings.mesh_mqtt_topic_prefix
-
-    task = asyncio.create_task(_subscribe_loop(host, port, prefix))
-    logger.info("MQTT subscriber background task started")
-    return task
+    global mqtt_reconnect_event
+    mqtt_reconnect_event = threading.Event()
+    thread = threading.Thread(target=_paho_subscribe_loop, daemon=True)
+    thread.start()
+    logger.info("MQTT subscriber background thread started")

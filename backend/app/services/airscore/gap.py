@@ -40,6 +40,8 @@ def _spread(buc: list[float]) -> list[float]:
 
 def select_coeff(formula: dict) -> str:
     """Determine which leading coefficient field to use."""
+    if not formula.get("use_distance_squared_for_lc", False):
+        return "tarLeadingCoeff"
     fclass = formula.get("class", "gap")
     version = int(formula.get("version", 0))
     if fclass in ("pwc", "gap", "ozgap", "ggap") and version > 2022:
@@ -325,7 +327,8 @@ def pilot_departure_leadout(
 
     if departure_mode == "leadout":
         # Leading coefficient (Gap.pm line 655-673)
-        coeff = pil.get("coeff", 0)
+        coeff_key = "coeff2" if select_coeff(formula) == "tarLeadingCoeff2" else "coeff"
+        coeff = pil.get(coeff_key, pil.get("coeff", 0))
         if coeff > 0:
             if coeff <= Cmin:
                 Pdepart = Astart
@@ -415,6 +418,7 @@ def points_allocation(
     """
     quality = taskt["quality"]
     leadingcoeff_field = select_coeff(formula)
+    leadingcoeff_key = "coeff2" if leadingcoeff_field == "tarLeadingCoeff2" else "coeff"
 
     # Available points (Gap.pm line 1073)
     Adistance, Aspeed, Astart, Aarrival = points_weight(task, taskt, formula)
@@ -430,13 +434,13 @@ def points_allocation(
 
                     submaxlc = missing_leading_area(task, remdist, tasktime, leadingcoeff_field)
                     addlastlc = missing_leading_area(task, remdist, timedif, leadingcoeff_field)
-                    pil["coeff"] = pil.get("coeff", 0) - submaxlc + addlastlc
+                    pil[leadingcoeff_key] = pil.get(leadingcoeff_key, pil.get("coeff", 0)) - submaxlc + addlastlc
 
-                    if pil["coeff"] < 0:
-                        pil["coeff"] = 0
+                    if pil[leadingcoeff_key] < 0:
+                        pil[leadingcoeff_key] = 0
 
-                    if pil["coeff"] > 0 and pil["coeff"] < taskt.get("mincoeff", float("inf")):
-                        taskt["mincoeff"] = pil["coeff"]
+                    if pil[leadingcoeff_key] > 0 and pil[leadingcoeff_key] < taskt.get("mincoeff", float("inf")):
+                        taskt["mincoeff"] = pil[leadingcoeff_key]
 
     # Score each pilot (Gap.pm line 1076-1146)
     for pil in pilots:
@@ -570,10 +574,15 @@ def build_task_totals(
 
     # Min leading coefficient (Gap.pm line 199-213)
     leadingcoeff = select_coeff(formula)
+    leadingcoeff_key = "coeff2" if leadingcoeff == "tarLeadingCoeff2" else "coeff"
     if ess > 0:
-        coeffs = [p.get("coeff", 0) for p in active if (p.get("endSS", 0) - p.get("startSS", 0)) > 0 and p.get("coeff", 0) > 0]
+        coeffs = [
+            p.get(leadingcoeff_key, p.get("coeff", 0))
+            for p in active
+            if (p.get("endSS", 0) - p.get("startSS", 0)) > 0 and p.get(leadingcoeff_key, p.get("coeff", 0)) > 0
+        ]
     else:
-        coeffs = [p.get("coeff", 0) for p in active if p.get("coeff", 0) > 0]
+        coeffs = [p.get(leadingcoeff_key, p.get("coeff", 0)) for p in active if p.get(leadingcoeff_key, p.get("coeff", 0)) > 0]
     mincoeff = min(coeffs) if coeffs else 0
 
     # Median distance (Gap.pm line 241-248)

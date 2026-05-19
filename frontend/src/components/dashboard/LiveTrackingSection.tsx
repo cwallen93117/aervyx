@@ -8,10 +8,13 @@ import {
   TaskMap,
   type MapAirspaceRegion,
   type MapLivePosition,
+  type TaskEditorOverlayRenderProps,
   type MapTurnpoint,
   type MapUnitPreferences,
   type TrackCollection,
 } from "../TaskMap";
+import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type { BuddyGroup, TaskPointRecord, TaskRecord } from "./types";
 import {
   TRACK_COLORS,
@@ -59,6 +62,7 @@ export interface LiveTrackingSectionProps {
   canManagePlatform: boolean;
   units: MapUnitPreferences;
   loadTask: (activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData?: boolean) => Promise<void>;
+  overlayConfig?: Record<string, boolean>;
 }
 
 export default function LiveTrackingSection({
@@ -73,6 +77,7 @@ export default function LiveTrackingSection({
   canManagePlatform,
   units,
   loadTask,
+  overlayConfig,
 }: LiveTrackingSectionProps) {
   const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
   const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
@@ -83,6 +88,7 @@ export default function LiveTrackingSection({
   const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
   const [trackingSource, setTrackingSource] = useState<TrackingSource>(null);
   const [allUsersNameById, setAllUsersNameById] = useState<Map<number, string>>(new Map());
+  const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
 
   // Fetch buddy groups on mount
   useEffect(() => {
@@ -442,6 +448,7 @@ export default function LiveTrackingSection({
       aircraftType: position.aircraft_icon ?? "hang_glider",
       profileType: position.profile_type ?? "pilot",
       positionSource: position.position_source ?? "other",
+      deviceId: position.device_id,
     }));
   }, [livePositionsByPilot, activePilotNameById]);
 
@@ -455,6 +462,10 @@ export default function LiveTrackingSection({
       return left.pilotName.localeCompare(right.pilotName);
     });
   }, [livePositions]);
+
+  const handlePilotClick = useCallback((pilot: MapLivePosition) => {
+    setFocusPosition({ lat: pilot.latitude, lon: pilot.longitude, key: `${pilot.pilotId}-${Date.now()}` });
+  }, []);
 
   // Status label for the current tracking source
   const sourceLabel = useMemo(() => {
@@ -471,7 +482,24 @@ export default function LiveTrackingSection({
   }, [trackingSource, tasks, buddyGroups]);
 
   const isSourceActive = trackingSource !== null;
-  const showTaskMap = trackingSource?.type === "task" && selectedTask;
+  const showTaskMap = trackingSource?.type === "task" && selectedTask !== null;
+  const liveTaskDistanceMetrics = useMemo(() => computeTaskOptimization(showTaskMap ? taskPoints : []), [showTaskMap, taskPoints]);
+  const liveTaskFullscreenOverlay = showTaskMap
+    ? ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
+        <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
+          <TaskTurnpointsTable
+            points={taskPoints}
+            taskPointAdvanced
+            turnpoints={turnpoints}
+            taskDistanceMetrics={liveTaskDistanceMetrics}
+            distanceUnit={units.distance}
+            collapsed={collapsed}
+            contentId={contentId}
+            titleAction={toggleButton}
+          />
+        </div>
+      )
+    : undefined;
 
   return (
     <div className="section-stack">
@@ -553,7 +581,11 @@ export default function LiveTrackingSection({
                 <div className="results-task-map-pilot-items">
                   {livePilotRows.length ? (
                     livePilotRows.map((pilot) => (
-                      <div key={pilot.id} className="results-task-map-pilot-item live-tracking-pilot-item">
+                      <div
+                        key={pilot.id}
+                        className="results-task-map-pilot-item live-tracking-pilot-item"
+                        onClick={() => handlePilotClick(pilot)}
+                      >
                         <span className="results-task-map-pilot-rank">
                           <PilotRoleBadge
                             profileType={pilot.profileType}
@@ -564,14 +596,19 @@ export default function LiveTrackingSection({
                         </span>
                         <span className="results-task-map-pilot-copy">
                           <strong style={{ color: pilot.color ?? "#2563eb" }}>{pilot.pilotName}</strong>
-                          <small>
-                            {convertAltitude(pilot.altitudeM, units.altitude)} · {convertSpeed(pilot.speedKmh, units.speed)}
+                          <small className="live-tracking-pilot-source">
+                            {pilot.positionSource === "mesh" ? "Mesh" : pilot.positionSource === "cellular" ? "Phone" : ""}
+                            {pilot.positionSource === "mesh" && pilot.deviceId ? (
+                              <span className="live-tracking-device-id">{pilot.deviceId}</span>
+                            ) : null}
                           </small>
                         </span>
                         <span className="live-tracking-pilot-meta">
-                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span> : null}
-                          <span>{formatRelativeTime(pilot.timestamp)}</span>
-                          {pilot.batteryLevel != null ? <span>{pilot.batteryLevel}%</span> : null}
+                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? (
+                            <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span>
+                          ) : null}
+                          <span className="live-tracking-meta-time">{formatRelativeTime(pilot.timestamp)}</span>
+                          <span className="live-tracking-meta-battery">{pilot.batteryLevel != null ? `${pilot.batteryLevel}%` : ""}</span>
                         </span>
                       </div>
                     ))
@@ -594,11 +631,16 @@ export default function LiveTrackingSection({
                   fitTurnpoints={showTaskMap ? turnpoints : []}
                   airspaces={showTaskMap ? visibleAirspaces : []}
                   taskPoints={showTaskMap ? taskPoints : []}
+                  optimizedRoute={showTaskMap ? liveTaskDistanceMetrics.routeCoordinates : []}
+                  legMetrics={showTaskMap ? liveTaskDistanceMetrics.legMetrics : []}
                   track={liveTrack}
                   livePositions={livePositions}
                   editable={false}
+                  taskEditorOverlay={liveTaskFullscreenOverlay}
                   mode="live"
                   units={units}
+                  overlayConfig={overlayConfig}
+                  focusPosition={focusPosition}
                   fitKey={
                     trackingSource.type === "task"
                       ? `live-${trackingSource.taskId}`

@@ -2,45 +2,30 @@ from __future__ import annotations
 
 import csv
 import io
-import re
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password
 from app.db import get_session
 from app.deps import get_current_user, require_staff
 from app.models import Event, EventPilot, Pilot, User
 from app.schemas import PilotResponse, PilotUpsert
 from app.services.audit import log_action
-from app.services.seeding import DEFAULT_PILOT_PASSWORD
+from app.services.pilot_identity import (
+    apply_pilot_profile,
+    ensure_event_membership,
+    ensure_pilot_login_identity,
+    find_canonical_pilot_by_email,
+    linked_user_for_pilot,
+    normalize_email,
+)
 
 router = APIRouter(tags=["pilots"])
 
 
-def _slug_username(first_name: str, last_name: str, competition_number: str | None) -> str:
-    base = re.sub(r"[^a-z0-9]+", "-", f"{first_name}-{last_name}-{competition_number or 'pilot'}".lower()).strip("-")
-    return base or "pilot"
-
-
-def _ensure_portal_user(session: Session, pilot: Pilot, username: str | None, password: str | None) -> tuple[str, str | None]:
-    existing = session.scalar(select(User).where(User.pilot_id == pilot.id))
-    generated_password = password or DEFAULT_PILOT_PASSWORD
-    username_value = username or _slug_username(pilot.first_name, pilot.last_name, pilot.competition_number)
-    if existing is None:
-        candidate = username_value
-        suffix = 1
-        while session.scalar(select(User).where(User.username == candidate)) is not None:
-            suffix += 1
-            candidate = f"{username_value}-{suffix}"
-        session.add(User(username=candidate, full_name=f"{pilot.first_name} {pilot.last_name}", role="pilot", pilot_id=pilot.id, password_hash=hash_password(generated_password)))
-        return candidate, generated_password
-    return existing.username, None
-
-
 def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = None) -> PilotResponse:
-    user = session.scalar(select(User).where(User.pilot_id == pilot.id))
+    user = linked_user_for_pilot(session, pilot)
     return PilotResponse(
         id=pilot.id,
         first_name=pilot.first_name,
@@ -84,14 +69,28 @@ def list_people(search: str | None = None, admin: User = Depends(require_staff),
 def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> PilotResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    pilot = Pilot(first_name=payload.first_name, last_name=payload.last_name, email=payload.email, nation=payload.nation, competition_number=payload.competition_number, civl_id=payload.civl_id)
+    email = normalize_email(payload.email)
+    pilot = find_canonical_pilot_by_email(session, email) if email else None
+    if pilot is None:
+        pilot = Pilot(first_name=payload.first_name, last_name=payload.last_name, email=email, nation=payload.nation, competition_number=payload.competition_number, civl_id=payload.civl_id)
+    else:
+        apply_pilot_profile(
+            pilot,
+            first_name=payload.first_name,
+            last_name=payload.last_name,
+            email=email,
+            nation=payload.nation,
+            competition_number=payload.competition_number,
+            civl_id=payload.civl_id,
+        )
     session.add(pilot)
     session.flush()
-    session.add(EventPilot(event_id=event_id, pilot_id=pilot.id))
-    username, temp_password = _ensure_portal_user(session, pilot, payload.username, payload.password)
-    log_action(session, actor_user_id=admin.id, action="pilot.create", entity_type="pilot", entity_id=str(pilot.id), details={"event_id": event_id, "username": username})
+    identity = ensure_pilot_login_identity(session, pilot, payload.username, payload.password)
+    ensure_event_membership(session, event_id, identity.pilot.id)
+    username = identity.user.username if identity.user else None
+    log_action(session, actor_user_id=admin.id, action="pilot.create", entity_type="pilot", entity_id=str(identity.pilot.id), details={"event_id": event_id, "username": username})
     session.commit()
-    return _pilot_payload(session, pilot, temp_password=temp_password)
+    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password)
 
 
 @router.post("/api/events/{event_id}/pilots/{pilot_id}/assign", response_model=PilotResponse)
@@ -101,12 +100,11 @@ def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(re
     pilot = session.get(Pilot, pilot_id)
     if pilot is None:
         raise HTTPException(status_code=404, detail="Pilot not found")
-    existing = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == pilot_id))
-    if existing is None:
-        session.add(EventPilot(event_id=event_id, pilot_id=pilot_id))
-        log_action(session, actor_user_id=admin.id, action="pilot.assign_existing", entity_type="pilot", entity_id=str(pilot_id), details={"event_id": event_id})
-        session.commit()
-    return _pilot_payload(session, pilot)
+    identity = ensure_pilot_login_identity(session, pilot)
+    ensure_event_membership(session, event_id, identity.pilot.id)
+    log_action(session, actor_user_id=admin.id, action="pilot.assign_existing", entity_type="pilot", entity_id=str(identity.pilot.id), details={"event_id": event_id, "source_pilot_id": pilot_id})
+    session.commit()
+    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password)
 
 
 @router.put("/api/pilots/{pilot_id}", response_model=PilotResponse)
@@ -120,12 +118,19 @@ def update_pilot(pilot_id: int, payload: PilotUpsert, actor: User = Depends(get_
         claim = session.scalar(select(User).where(User.pilot_id == pilot.id))
         if claim is not None:
             raise HTTPException(status_code=403, detail="Only admins can edit claimed pilot accounts")
-    for field in ["first_name", "last_name", "email", "nation", "competition_number", "civl_id"]:
-        setattr(pilot, field, getattr(payload, field))
-    _, temp_password = _ensure_portal_user(session, pilot, payload.username, payload.password)
-    log_action(session, actor_user_id=actor.id, action="pilot.update", entity_type="pilot", entity_id=str(pilot.id), details={"competition_number": pilot.competition_number})
+    apply_pilot_profile(
+        pilot,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        email=payload.email,
+        nation=payload.nation,
+        competition_number=payload.competition_number,
+        civl_id=payload.civl_id,
+    )
+    identity = ensure_pilot_login_identity(session, pilot, payload.username, payload.password)
+    log_action(session, actor_user_id=actor.id, action="pilot.update", entity_type="pilot", entity_id=str(identity.pilot.id), details={"competition_number": identity.pilot.competition_number})
     session.commit()
-    return _pilot_payload(session, pilot, temp_password=temp_password)
+    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password)
 
 
 @router.delete("/api/events/{event_id}/pilots/{pilot_id}", status_code=204)
@@ -151,19 +156,32 @@ async def import_pilots(event_id: int, file: UploadFile = File(...), admin: User
     for row in reader:
         if not row.get("first_name") or not row.get("last_name"):
             continue
-        pilot = Pilot(
-            first_name=row["first_name"].strip(),
-            last_name=row["last_name"].strip(),
-            email=(row.get("email") or "").strip() or None,
-            nation=(row.get("nation") or "").strip() or None,
-            competition_number=(row.get("competition_number") or "").strip() or None,
-            civl_id=(row.get("civl_id") or "").strip() or None,
-        )
+        email = normalize_email(row.get("email"))
+        pilot = find_canonical_pilot_by_email(session, email) if email else None
+        if pilot is None:
+            pilot = Pilot(
+                first_name=row["first_name"].strip(),
+                last_name=row["last_name"].strip(),
+                email=email,
+                nation=(row.get("nation") or "").strip() or None,
+                competition_number=(row.get("competition_number") or "").strip() or None,
+                civl_id=(row.get("civl_id") or "").strip() or None,
+            )
+        else:
+            apply_pilot_profile(
+                pilot,
+                first_name=row["first_name"].strip(),
+                last_name=row["last_name"].strip(),
+                email=email,
+                nation=(row.get("nation") or "").strip() or None,
+                competition_number=(row.get("competition_number") or "").strip() or None,
+                civl_id=(row.get("civl_id") or "").strip() or None,
+            )
         session.add(pilot)
         session.flush()
-        session.add(EventPilot(event_id=event_id, pilot_id=pilot.id))
-        _, temp_password = _ensure_portal_user(session, pilot, (row.get("username") or "").strip() or None, (row.get("password") or "").strip() or None)
-        imported.append(_pilot_payload(session, pilot, temp_password=temp_password))
+        identity = ensure_pilot_login_identity(session, pilot, (row.get("username") or "").strip() or None, (row.get("password") or "").strip() or None)
+        ensure_event_membership(session, event_id, identity.pilot.id)
+        imported.append(_pilot_payload(session, identity.pilot, temp_password=identity.temp_password))
     log_action(session, actor_user_id=admin.id, action="pilot.import_csv", entity_type="event", entity_id=str(event_id), details={"filename": file.filename, "count": len(imported)})
     session.commit()
     return imported

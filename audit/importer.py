@@ -175,9 +175,6 @@ def _build_task_payload(task: FsdbTask, comp_formula: FsdbFormula) -> dict:
         except (ValueError, TypeError):
             gate_interval = 600  # Default 10 min
 
-    # Use task-level formula if it differs, else comp formula
-    f = task.formula
-
     payload = {
         "name": task.name,
         "status": "draft",
@@ -188,11 +185,6 @@ def _build_task_payload(task: FsdbTask, comp_formula: FsdbFormula) -> dict:
         "start_close_time": start_close,
         "start_gate_count": gate_count,
         "start_gate_interval_seconds": gate_interval,
-        "nominal_distance_km": f.nom_dist,
-        "nominal_time_hours": f.nom_time,
-        "nominal_launch": f.nom_launch,
-        "minimum_distance_km": f.min_dist,
-        "penalties_json": {},
         "points": points,
     }
     return payload
