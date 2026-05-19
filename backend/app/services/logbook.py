@@ -292,6 +292,8 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         current_altitude = stats_altitude(current)
         climb_rate = _validated_climb_rate(previous_altitude, current_altitude, elapsed_seconds)
         if climb_rate is not None:
+            if best_climb_mps is None or climb_rate > best_climb_mps:
+                best_climb_mps = climb_rate
             segment_climb_rates.append(climb_rate)
             segment_durations.append(elapsed_seconds)
 
@@ -301,8 +303,6 @@ def derive_flight_stats(points: Sequence[TrackFix | TrackPoint | PilotFlightTrac
         window_start = max(0, index - 1)
         window_end = min(len(segment_climb_rates), index + 2)
         smoothed_climb_rate = sum(segment_climb_rates[window_start:window_end]) / (window_end - window_start)
-        if best_climb_mps is None or smoothed_climb_rate > best_climb_mps:
-            best_climb_mps = smoothed_climb_rate
         if smoothed_climb_rate >= 0.5:
             time_in_thermals_seconds += segment_durations[index]
         else:
