@@ -2982,12 +2982,6 @@ export const TaskMap = React.memo(function TaskMap({
               : undefined
         }
       />
-      {scaleBar ? (
-        <div className="map-scale-bar" aria-label={`Map scale ${scaleBar.label}`}>
-          <span className="map-scale-bar-label">{scaleBar.label}</span>
-          <span className="map-scale-bar-line" style={{ width: scaleBar.width }} />
-        </div>
-      ) : null}
       {fullscreenSidebarPanel}
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {fullscreenCompositeOverlay ?? (
@@ -3047,6 +3041,12 @@ export const TaskMap = React.memo(function TaskMap({
               ))}
             </select>
           </label>
+        ) : null}
+        {scaleBar ? (
+          <div className="map-scale-bar" aria-label={`Map scale ${scaleBar.label}`}>
+            <span className="map-scale-bar-label">{scaleBar.label}</span>
+            <span className="map-scale-bar-line" style={{ width: scaleBar.width }} />
+          </div>
         ) : null}
         {oc?.basemap_selector !== false ? (
         <label className="map-style-picker">

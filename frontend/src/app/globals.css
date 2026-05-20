@@ -5093,10 +5093,9 @@ button[type="submit"]:hover,
 }
 
 .map-scale-bar {
-  position: absolute;
-  top: 10px;
-  right: 54px;
-  z-index: 15;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
   min-width: 48px;
   padding: 3px 8px 5px;
   border: 1px solid rgba(203, 213, 225, 0.96);
