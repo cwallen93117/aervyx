@@ -103,7 +103,6 @@ const DEFAULT_MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
 const SCALE_BAR_MAX_WIDTH_PIXELS = 96;
-const WEB_MERCATOR_EQUATOR_METERS_PER_PIXEL = 156543.03392804097;
 const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
 
 // Inline SVG icons used for live-map role markers. Each SVG is white-fill so the
@@ -393,56 +392,80 @@ function formatDistanceLabel(distanceKm: number, unit: MapUnitPreferences["dista
   return `${convertDistance(distanceKm, unit).toFixed(decimals)} ${unit}`;
 }
 
-function chooseScaleStop(maxValue: number, stops: number[]) {
-  let selected = stops[0] ?? 1;
-  for (const stop of stops) {
-    if (stop > maxValue) {
-      break;
-    }
-    selected = stop;
-  }
-  return selected;
-}
-
 function formatScaleStop(value: number) {
   return Number.isInteger(value) ? value.toFixed(0) : String(value);
 }
 
+function getDecimalRoundNum(value: number) {
+  const multiplier = Math.pow(10, Math.ceil(-Math.log(value) / Math.LN10));
+  return Math.round(value * multiplier) / multiplier;
+}
+
+function getRoundNum(value: number) {
+  const pow10 = Math.pow(10, `${Math.floor(value)}`.length - 1);
+  let scaled = value / pow10;
+  scaled = scaled >= 10
+    ? 10
+    : scaled >= 5
+      ? 5
+      : scaled >= 3
+        ? 3
+        : scaled >= 2
+          ? 2
+          : scaled >= 1
+            ? 1
+            : getDecimalRoundNum(scaled);
+  return pow10 * scaled;
+}
+
 function computeScaleBar(map: maplibregl.Map, unit: MapUnitPreferences["distance"]) {
-  const center = map.getCenter();
-  const latitudeScale = Math.max(0.000001, Math.cos((Math.abs(center.lat) * Math.PI) / 180));
-  const metersPerPixel = (WEB_MERCATOR_EQUATOR_METERS_PER_PIXEL * latitudeScale) / Math.pow(2, map.getZoom());
-  const maxMeters = metersPerPixel * SCALE_BAR_MAX_WIDTH_PIXELS;
-  if (!Number.isFinite(maxMeters) || maxMeters <= 0) {
+  const container = map.getContainer();
+  const containerWidth = container.clientWidth;
+  const containerHeight = container.clientHeight;
+  if (!containerWidth || !containerHeight) {
     return null;
   }
 
-  let label: string;
-  let scaleMeters: number;
-  if (unit === "mi") {
-    const maxFeet = maxMeters * 3.280839895;
-    if (maxFeet < 2640) {
-      const feet = chooseScaleStop(maxFeet, [10, 20, 50, 100, 200, 500, 1000, 2000]);
-      scaleMeters = feet / 3.280839895;
-      label = `${feet} ft`;
-    } else {
-      const miles = chooseScaleStop(maxMeters / 1609.344, [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]);
-      scaleMeters = miles * 1609.344;
-      label = `${formatScaleStop(miles)} mi`;
-    }
-  } else if (maxMeters < 1000) {
-    const meters = chooseScaleStop(maxMeters, [1, 2, 5, 10, 20, 50, 100, 200, 500]);
-    scaleMeters = meters;
-    label = `${meters} m`;
-  } else {
-    const kilometers = chooseScaleStop(maxMeters / 1000, [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]);
-    scaleMeters = kilometers * 1000;
-    label = `${kilometers} km`;
+  const targetWidth = Math.min(SCALE_BAR_MAX_WIDTH_PIXELS, containerWidth);
+  const x = containerWidth / 2;
+  const y = containerHeight / 2;
+  const left = map.unproject([x - targetWidth / 2, y]);
+  const right = map.unproject([x + targetWidth / 2, y]);
+  const projectedWidth = Math.round(map.project(right).x - map.project(left).x);
+  const maxWidth = Math.min(targetWidth, projectedWidth, containerWidth);
+  const maxMeters = left.distanceTo(right);
+  if (!Number.isFinite(maxWidth) || maxWidth <= 0 || !Number.isFinite(maxMeters) || maxMeters <= 0) {
+    return null;
   }
 
+  let maxDistance: number;
+  let unitLabel: string;
+  if (unit === "mi") {
+    const maxFeet = maxMeters * 3.280839895;
+    if (maxFeet > 5280) {
+      maxDistance = maxFeet / 5280;
+      unitLabel = "mi";
+    } else {
+      maxDistance = maxFeet;
+      unitLabel = "ft";
+    }
+  } else if (maxMeters >= 1000) {
+    maxDistance = maxMeters / 1000;
+    unitLabel = "km";
+  } else {
+    maxDistance = maxMeters;
+    unitLabel = "m";
+  }
+
+  const distance = getRoundNum(maxDistance);
+  if (!Number.isFinite(distance) || distance <= 0) {
+    return null;
+  }
+  const ratio = distance / maxDistance;
+
   return {
-    label,
-    width: Math.max(24, Math.min(SCALE_BAR_MAX_WIDTH_PIXELS, Math.round(scaleMeters / metersPerPixel))),
+    label: `${formatScaleStop(distance)} ${unitLabel}`,
+    width: Math.max(1, Math.min(SCALE_BAR_MAX_WIDTH_PIXELS, Math.round(maxWidth * ratio))),
   };
 }
 
