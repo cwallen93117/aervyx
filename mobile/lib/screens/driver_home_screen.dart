@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/driver_service.dart';
+import '../widgets/map_scale_bar.dart';
 import 'driver_navigation_screen.dart';
 
 /// Home screen for driver-profile users.
@@ -72,7 +73,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             icon: Icon(
               driver.showAllPilots ? Icons.people : Icons.person,
             ),
-            tooltip: driver.showAllPilots ? 'Show my pilots' : 'Show all pilots',
+            tooltip:
+                driver.showAllPilots ? 'Show my pilots' : 'Show all pilots',
             onPressed: driver.toggleShowAllPilots,
           ),
           // Connection indicator
@@ -173,6 +175,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                           );
                         }).toList(),
                       ),
+                      const AppMapScaleBar(),
                     ],
                   ),
                 ),
@@ -308,9 +311,8 @@ class _DriverPilotCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 3),
-      color: isSelected
-          ? theme.colorScheme.primaryContainer.withAlpha(120)
-          : null,
+      color:
+          isSelected ? theme.colorScheme.primaryContainer.withAlpha(120) : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,

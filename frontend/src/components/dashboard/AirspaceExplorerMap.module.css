@@ -1,6 +1,7 @@
 .shell { display: flex; height: calc(100vh - 56px); min-height: 500px; overflow: hidden; }
 .leftPanel { width: 260px; flex-shrink: 0; display: flex; flex-direction: column; overflow-y: auto; background: var(--panel); border-right: 1px solid var(--line); }
 .mapContainer { flex: 1; position: relative; min-width: 0; }
+.mapContainer :global(.maplibregl-ctrl-scale) { margin-left: 58px; margin-bottom: 30px; background: rgba(255,255,255,0.92); border: 1px solid rgba(203,213,225,0.96); border-radius: 8px; box-shadow: var(--shadow-sm); color: #0f172a; font-size: 11px; font-weight: 600; }
 .section { padding: 12px 14px; border-bottom: 1px solid var(--line); }
 .sectionLabel { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 8px 0; }
 .categoryRow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 0.8125rem; color: var(--ink); cursor: pointer; }

@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../services/tracking_service.dart';
+import '../widgets/map_scale_bar.dart';
 
 /// A pilot position received from the backend.
 class _LivePilot {
@@ -280,8 +281,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               onMapEvent: (event) {
                 if (!_userPanned &&
                     (event.source == MapEventSource.onDrag ||
-                     event.source == MapEventSource.onMultiFinger ||
-                     event.source == MapEventSource.flingAnimationController)) {
+                        event.source == MapEventSource.onMultiFinger ||
+                        event.source ==
+                            MapEventSource.flingAnimationController)) {
                   _userPanned = true;
                 }
               },
@@ -322,6 +324,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                     ),
                 ],
               ),
+              const AppMapScaleBar(),
             ],
           ),
 
@@ -334,7 +337,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               children: [
                 _InfoChip(
                   icon: Icons.people,
-                  text: '${_pilots.length} pilot${_pilots.length == 1 ? '' : 's'} flying',
+                  text:
+                      '${_pilots.length} pilot${_pilots.length == 1 ? '' : 's'} flying',
                 ),
                 if (!_hasActiveTask)
                   const _InfoChip(

@@ -327,6 +327,7 @@ export default function AirspaceExplorerMap({
     });
 
     map.addControl(new maplibregl.NavigationControl(), "top-right");
+    map.addControl(new maplibregl.ScaleControl({ maxWidth: 96, unit: "metric" }), "bottom-left");
     mapRef.current = map;
 
     map.on("load", () => {

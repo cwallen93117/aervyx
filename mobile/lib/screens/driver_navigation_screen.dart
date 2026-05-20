@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/driver_route.dart';
 import '../services/routing_service.dart';
+import '../widgets/map_scale_bar.dart';
 import '../widgets/route_stop_card.dart';
 
 /// Full-screen turn-by-turn navigation screen for drivers.
@@ -14,8 +15,7 @@ class DriverNavigationScreen extends StatefulWidget {
   const DriverNavigationScreen({super.key, required this.taskId});
 
   @override
-  State<DriverNavigationScreen> createState() =>
-      _DriverNavigationScreenState();
+  State<DriverNavigationScreen> createState() => _DriverNavigationScreenState();
 }
 
 class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
@@ -120,8 +120,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.aervyx.aervyx_mobile',
               ),
               // Route polyline
@@ -153,6 +152,7 @@ class _DriverNavigationScreenState extends State<DriverNavigationScreen> {
                   );
                 }).toList(),
               ),
+              const AppMapScaleBar(),
             ],
           ),
         ),

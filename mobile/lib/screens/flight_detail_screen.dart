@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../services/igc_service.dart';
+import '../widgets/map_scale_bar.dart';
 
 /// Displays a saved flight track on a map with altitude gradient coloring.
 class FlightDetailScreen extends StatefulWidget {
@@ -187,6 +188,12 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
                   ),
                 ],
               ),
+            AppMapScaleBar(
+              padding: EdgeInsets.only(
+                left: 12,
+                bottom: 64 + MediaQuery.of(context).padding.bottom,
+              ),
+            ),
           ],
         ),
         // Map style selector
@@ -255,7 +262,8 @@ class _AltitudeLegend extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               Text('${maxAlt.toStringAsFixed(0)}m',
-                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
+                  style: const TextStyle(
+                      fontSize: 9, fontWeight: FontWeight.w600)),
               const SizedBox(height: 2),
               Container(
                 width: 12,
@@ -277,7 +285,8 @@ class _AltitudeLegend extends StatelessWidget {
               ),
               const SizedBox(height: 2),
               Text('${minAlt.toStringAsFixed(0)}m',
-                  style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w600)),
+                  style: const TextStyle(
+                      fontSize: 9, fontWeight: FontWeight.w600)),
             ],
           ),
         ],
@@ -309,8 +318,7 @@ class _FlightInfoBar extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
             _InfoChip(
-                icon: Icons.timer,
-                label: _formatDuration(flight.duration)),
+                icon: Icons.timer, label: _formatDuration(flight.duration)),
             _InfoChip(
                 icon: Icons.height,
                 label: flight.maxAltitude != null
@@ -359,7 +367,8 @@ enum _MapStyle {
   satellite(
     label: 'Satellite',
     icon: Icons.satellite_alt,
-    urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    urlTemplate:
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     maxZoom: 18,
   ),
   terrain(
@@ -408,7 +417,8 @@ class _MapStyleSelector extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
-                color: selected ? Colors.blue.withAlpha(30) : Colors.transparent,
+                color:
+                    selected ? Colors.blue.withAlpha(30) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -424,7 +434,8 @@ class _MapStyleSelector extends StatelessWidget {
                     style.label,
                     style: TextStyle(
                       fontSize: 11,
-                      fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
+                      fontWeight:
+                          selected ? FontWeight.w600 : FontWeight.normal,
                       color: selected ? Colors.blue : Colors.grey.shade700,
                     ),
                   ),
