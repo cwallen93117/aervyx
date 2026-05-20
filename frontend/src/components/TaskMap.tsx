@@ -102,6 +102,8 @@ const TERRAIN_EXAGGERATION = 1.25;
 const DEFAULT_MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
+const SCALE_BAR_MAX_WIDTH_PIXELS = 96;
+const WEB_MERCATOR_EQUATOR_METERS_PER_PIXEL = 156543.03392804097;
 const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
 
 // Inline SVG icons used for live-map role markers. Each SVG is white-fill so the
@@ -389,6 +391,59 @@ function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"
 
 function formatDistanceLabel(distanceKm: number, unit: MapUnitPreferences["distance"], decimals = 1) {
   return `${convertDistance(distanceKm, unit).toFixed(decimals)} ${unit}`;
+}
+
+function chooseScaleStop(maxValue: number, stops: number[]) {
+  let selected = stops[0] ?? 1;
+  for (const stop of stops) {
+    if (stop > maxValue) {
+      break;
+    }
+    selected = stop;
+  }
+  return selected;
+}
+
+function formatScaleStop(value: number) {
+  return Number.isInteger(value) ? value.toFixed(0) : String(value);
+}
+
+function computeScaleBar(map: maplibregl.Map, unit: MapUnitPreferences["distance"]) {
+  const center = map.getCenter();
+  const latitudeScale = Math.max(0.000001, Math.cos((Math.abs(center.lat) * Math.PI) / 180));
+  const metersPerPixel = (WEB_MERCATOR_EQUATOR_METERS_PER_PIXEL * latitudeScale) / Math.pow(2, map.getZoom());
+  const maxMeters = metersPerPixel * SCALE_BAR_MAX_WIDTH_PIXELS;
+  if (!Number.isFinite(maxMeters) || maxMeters <= 0) {
+    return null;
+  }
+
+  let label: string;
+  let scaleMeters: number;
+  if (unit === "mi") {
+    const maxFeet = maxMeters * 3.280839895;
+    if (maxFeet < 2640) {
+      const feet = chooseScaleStop(maxFeet, [10, 20, 50, 100, 200, 500, 1000, 2000]);
+      scaleMeters = feet / 3.280839895;
+      label = `${feet} ft`;
+    } else {
+      const miles = chooseScaleStop(maxMeters / 1609.344, [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]);
+      scaleMeters = miles * 1609.344;
+      label = `${formatScaleStop(miles)} mi`;
+    }
+  } else if (maxMeters < 1000) {
+    const meters = chooseScaleStop(maxMeters, [1, 2, 5, 10, 20, 50, 100, 200, 500]);
+    scaleMeters = meters;
+    label = `${meters} m`;
+  } else {
+    const kilometers = chooseScaleStop(maxMeters / 1000, [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000]);
+    scaleMeters = kilometers * 1000;
+    label = `${kilometers} km`;
+  }
+
+  return {
+    label,
+    width: Math.max(24, Math.min(SCALE_BAR_MAX_WIDTH_PIXELS, Math.round(scaleMeters / metersPerPixel))),
+  };
 }
 
 function formatAltitudeLabel(altitudeM: number, unit: MapUnitPreferences["altitude"]) {
@@ -1220,7 +1275,6 @@ export const TaskMap = React.memo(function TaskMap({
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
   const fullscreenControlRef = useRef<maplibregl.FullscreenControl | null>(null);
-  const scaleControlRef = useRef<maplibregl.ScaleControl | null>(null);
   const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
   const taskPointsRef = useRef(taskPoints);
@@ -1265,6 +1319,7 @@ export const TaskMap = React.memo(function TaskMap({
   const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
   const [gpsFollowing, setGpsFollowing] = useState(false);
   const [mapReadyNonce, setMapReadyNonce] = useState(0);
+  const [scaleBar, setScaleBar] = useState<{ label: string; width: number } | null>(null);
   const gpsWatchIdRef = useRef<number | null>(null);
   const gpsFollowingRef = useRef(false);
   const gpsLocateRequestIdRef = useRef(0);
@@ -2194,12 +2249,6 @@ export const TaskMap = React.memo(function TaskMap({
       });
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
-      const scaleControl = new maplibregl.ScaleControl({
-        maxWidth: 96,
-        unit: units.distance === "mi" ? "imperial" : "metric",
-      });
-      map.addControl(scaleControl, "bottom-left");
-      scaleControlRef.current = scaleControl;
       const deckOverlay = new MapboxOverlay({ interleaved: false, layers: [] });
       map.addControl(deckOverlay);
       deckOverlayRef.current = deckOverlay;
@@ -2304,7 +2353,6 @@ export const TaskMap = React.memo(function TaskMap({
         }
         scoredPointPopupRef.current?.remove();
         scoredPointPopupRef.current = null;
-        scaleControlRef.current = null;
         map.remove();
         mapRef.current = null;
       };
@@ -2357,12 +2405,21 @@ export const TaskMap = React.memo(function TaskMap({
   }, [basemapMode]);
 
   useEffect(() => {
-    const scaleControl = scaleControlRef.current;
-    if (!scaleControl) {
+    const map = mapRef.current;
+    if (!map) {
       return;
     }
-    scaleControl.setUnit(units.distance === "mi" ? "imperial" : "metric");
-  }, [units.distance]);
+    const updateScaleBar = () => {
+      setScaleBar(computeScaleBar(map, units.distance));
+    };
+    updateScaleBar();
+    map.on("move", updateScaleBar);
+    map.on("resize", updateScaleBar);
+    return () => {
+      map.off("move", updateScaleBar);
+      map.off("resize", updateScaleBar);
+    };
+  }, [mapReadyNonce, units.distance]);
 
   useEffect(() => {
     const deckOverlay = deckOverlayRef.current;
@@ -2925,6 +2982,12 @@ export const TaskMap = React.memo(function TaskMap({
               : undefined
         }
       />
+      {scaleBar ? (
+        <div className="map-scale-bar" aria-label={`Map scale ${scaleBar.label}`}>
+          <span className="map-scale-bar-label">{scaleBar.label}</span>
+          <span className="map-scale-bar-line" style={{ width: scaleBar.width }} />
+        </div>
+      ) : null}
       {fullscreenSidebarPanel}
       <div className={isFullscreen ? "map-overlay-column map-fullscreen-sidebar" : "map-overlay-column"}>
         {fullscreenCompositeOverlay ?? (
