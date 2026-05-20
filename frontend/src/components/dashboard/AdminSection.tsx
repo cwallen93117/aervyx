@@ -1044,8 +1044,14 @@ export default function AdminSection(props: AdminSectionProps) {
               </label>
             </div>
             <div className="admin-sites-layout">
-              <div className="results-table-wrap">
-                <table className="results-table logbook-table">
+              <div className="results-table-wrap site-database-table-wrap">
+                <table className="results-table logbook-table site-database-table">
+                  <colgroup>
+                    <col className="site-database-site-column" />
+                    <col className="site-database-city-column" />
+                    <col className="site-database-flights-column" />
+                    <col className="site-database-actions-column" />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th>Site name</th>

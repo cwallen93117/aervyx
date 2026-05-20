@@ -2899,8 +2899,46 @@ button[type="submit"]:hover,
   align-items: start;
 }
 
+.site-database-table-wrap {
+  min-width: 0;
+}
+
+.site-database-table {
+  min-width: 760px;
+  table-layout: fixed;
+}
+
+.site-database-site-column {
+  width: 27%;
+}
+
+.site-database-city-column {
+  width: 32%;
+}
+
+.site-database-flights-column {
+  width: 13%;
+}
+
+.site-database-actions-column {
+  width: 28%;
+}
+
+.site-database-table thead th,
+.site-database-table tbody td {
+  padding: 8px 14px;
+  text-align: center;
+}
+
+.site-database-table .participant-table-actions {
+  width: auto;
+  text-align: center;
+}
+
 .site-database-row input {
+  min-width: 0;
   width: 100%;
+  text-align: center;
 }
 
 .site-database-row td {
@@ -2917,15 +2955,7 @@ button[type="submit"]:hover,
 
 .site-database-name-cell,
 .site-database-city-cell {
-  width: 1%;
-}
-
-.site-database-name-cell input {
-  min-width: 220px;
-}
-
-.site-database-city-cell input {
-  min-width: 180px;
+  width: auto;
 }
 
 .site-database-flight-count {
@@ -2934,7 +2964,7 @@ button[type="submit"]:hover,
 
 .site-database-actions {
   flex-wrap: nowrap;
-  justify-content: flex-end;
+  justify-content: center;
 }
 
 .logbook-site-preview {
