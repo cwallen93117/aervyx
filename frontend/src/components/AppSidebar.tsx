@@ -84,6 +84,15 @@ function SidebarIcon({ id }: { id: string }) {
   }
 }
 
+function AervyxMark() {
+  return (
+    <svg className="sidebar-logo-mark" viewBox="0 0 30 30" aria-hidden="true">
+      <path d="M15 3L27 25L15 19L3 25Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M15 3L15 19" fill="none" stroke="currentColor" strokeWidth="1" opacity=".4" />
+    </svg>
+  );
+}
+
 const itemThemes: Record<string, string> = {
   events: "theme-events",
   tasks: "theme-tasks",
@@ -114,6 +123,9 @@ export function AppSidebar({
     <aside className={compact ? "panel nav-sidebar compact-mode" : "panel nav-sidebar"}>
       <div className="sidebar-brand">
         <div className="sidebar-brand-row">
+          <a href="/" className="sidebar-logo-link" aria-label="Aervyx public site" title="Aervyx public site">
+            <AervyxMark />
+          </a>
           <button
             type="button"
             className="sidebar-toggle"

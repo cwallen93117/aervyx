@@ -114,17 +114,56 @@ input, select, textarea { font-family: inherit; }
 }
 
 .workspace-shell.sidebar-compact .sidebar-brand {
-  padding: 16px 12px;
+  padding: 16px 4px;
 }
 
 .sidebar-brand-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .workspace-shell.sidebar-compact .sidebar-brand-row {
   justify-content: center;
+  gap: 4px;
+}
+
+.sidebar-logo-link {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: #00e5ff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.sidebar-logo-link:hover {
+  background: rgba(0, 229, 255, 0.1);
+  color: #67e8f9;
+}
+
+.sidebar-logo-link:focus-visible {
+  outline: 2px solid rgba(0, 229, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.sidebar-logo-mark {
+  width: 22px;
+  height: 22px;
+}
+
+.workspace-shell.sidebar-compact .sidebar-logo-link {
+  width: 22px;
+  height: 26px;
+}
+
+.workspace-shell.sidebar-compact .sidebar-logo-mark {
+  width: 18px;
+  height: 18px;
 }
 
 .sidebar-toggle {
@@ -138,6 +177,11 @@ input, select, textarea { font-family: inherit; }
   align-items: center;
   justify-content: center;
   transition: background 150ms ease;
+}
+
+.workspace-shell.sidebar-compact .sidebar-toggle {
+  width: 26px;
+  height: 26px;
 }
 
 .sidebar-toggle:hover {
