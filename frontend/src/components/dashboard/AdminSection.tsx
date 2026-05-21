@@ -1959,30 +1959,8 @@ function LiveTrackingTab({
                 unified.map((d) => {
                   const color = lastSeenColor(d.lastSeenAt);
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
-                  const lastFixColor = color === "green" ? "inherit" : color === "orange" ? "#f59e0b" : "#ef4444";
                   const isExpanded = expandedKeys.has(d.key);
                   const canExpand = true; // Always expandable for position detail
-                  const hasConnectedMesh = d.meshDevices.some((device) => device.isConnected);
-
-                  const newestMeshDevice = d.meshDevices.reduce<MeshDeviceStatus | null>((latest, device) => {
-                    if (!latest) return device;
-                    const latestTs = latest.lastSeenAt ? new Date(latest.lastSeenAt).getTime() : 0;
-                    const deviceTs = device.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0;
-                    return deviceTs > latestTs ? device : latest;
-                  }, null);
-                  const meshSummaryStatus = newestMeshDevice?.meshStatus ?? (hasConnectedMesh ? "live" : "never_seen");
-                  const sessionTs = d.session?.last_seen_at ? new Date(d.session.last_seen_at).getTime() : 0;
-                  const meshTs = newestMeshDevice?.lastSeenAt ? new Date(newestMeshDevice.lastSeenAt).getTime() : 0;
-                  const battery = sessionTs >= meshTs
-                    ? (d.session?.battery_level ?? newestMeshDevice?.batteryLevel ?? null)
-                    : (newestMeshDevice?.batteryLevel ?? d.session?.battery_level ?? null);
-                  const deviceIdHint = d.session?.device_id ?? (d.meshDevices.length === 1 ? d.meshDevices[0].deviceId : null);
-                  const meshPacketCount = d.meshDevices.reduce((total, device) => total + (device.packetCount || 0), 0);
-                  const purposeSummary = d.meshDevices.length === 0
-                    ? "Unregistered"
-                    : d.meshDevices.length === 1
-                      ? meshPurposeLabel(d.meshDevices[0].purpose)
-                      : `${d.meshDevices.length} mesh devices`;
 
                   return (
                     <Fragment key={d.key}>
@@ -1996,35 +1974,18 @@ function LiveTrackingTab({
                         >
                           {canExpand ? (isExpanded ? "▾" : "▸") : ""}
                         </td>
-                        <td>
-                          <span style={{
-                            display: "inline-block",
-                            width: 10,
-                            height: 10,
-                            borderRadius: "50%",
-                            backgroundColor: d.isOnline ? "#22c55e" : "#ef4444",
-                            boxShadow: d.isOnline ? "0 0 6px #22c55e80" : undefined,
-                          }} title={d.isOnline ? "Online" : "Offline"} />
-                        </td>
+                        <td></td>
                         <td>
                           <strong>{d.pilot_name}</strong>
-                          {d.meshDevices.length ? <div className="hint">{d.meshDevices.length} mesh device{d.meshDevices.length !== 1 ? "s" : ""}</div> : null}
                         </td>
-                        <td>{purposeSummary}</td>
-                        <td>{newestMeshDevice?.registeredOwnerName ?? (d.pilot_id != null ? d.pilot_name : "\u2014")}</td>
-                        <td>
-                          {d.hasPhone && <span className="tracking-source-pill phone">Phone</span>}
-                          {d.hasMesh && (
-                            <span className={`tracking-source-pill mesh${meshStatusClass(meshSummaryStatus)}`} title={newestMeshDevice ? meshDiagnostic(newestMeshDevice) : undefined}>
-                              Mesh {meshStatusLabel(meshSummaryStatus)}
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{deviceIdHint ?? "\u2014"}</td>
-                        <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
-                        <td>{battery != null ? `${battery}%` : "\u2014"}</td>
-                        <td>{meshPacketCount ? meshPacketCount.toLocaleString() : d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
-                        <td style={{ color: lastFixColor }}>{relativeTime(d.lastSeenAt)}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                       </tr>
                       {isExpanded && (
                         <>
