@@ -7499,10 +7499,6 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   overflow: hidden;
 }
 
-.live-tracking-debugging-actions {
-  padding: 0 12px;
-}
-
 .tracking-sub-row td {
   background: var(--wash, rgba(255,255,255,0.03));
   font-size: 0.8rem;

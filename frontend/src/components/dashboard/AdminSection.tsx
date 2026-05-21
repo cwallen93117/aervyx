@@ -410,7 +410,6 @@ export default function AdminSection(props: AdminSectionProps) {
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
   const [meshNodes, setMeshNodes] = useState<MeshNode[]>([]);
-  const [meshNodesLoading, setMeshNodesLoading] = useState(false);
   const [userSearch, setUserSearch] = useState("");
   const [userSortField, setUserSortField] = useState<UserSortField>("last_name");
   const [userSortDir, setUserSortDir] = useState<SortDir>("asc");
@@ -610,7 +609,6 @@ export default function AdminSection(props: AdminSectionProps) {
   }
 
   const loadMeshNodes = useCallback(async () => {
-    setMeshNodesLoading(true);
     try {
       const res = await fetch(`${apiBase}/api/admin/mesh-nodes?minutes=60`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -620,9 +618,7 @@ export default function AdminSection(props: AdminSectionProps) {
         setMeshNodes((await res.json()) as MeshNode[]);
       }
     } catch {
-      // Keep the last known mesh-node data visible if a manual refresh fails.
-    } finally {
-      setMeshNodesLoading(false);
+      // Keep the last known mesh-node data visible if an auto-refresh fails.
     }
   }, [apiBase, token]);
 
@@ -1481,10 +1477,7 @@ export default function AdminSection(props: AdminSectionProps) {
       ) : activeTab === "live_tracking" ? (
         <LiveTrackingTab
           debugStatus={debugStatus}
-          refreshDebugStatus={refreshDebugStatus}
-          refreshMeshNodes={loadMeshNodes}
           meshNodes={meshNodes}
-          meshNodesLoading={meshNodesLoading}
           overlayConfig={mapOverlayConfig.config.dashboard_live}
         />
       ) : (
@@ -1802,17 +1795,11 @@ function formatDebugPosition(position: MeshDeviceStatus["lastPosition"] | import
 
 function LiveTrackingTab({
   debugStatus,
-  refreshDebugStatus,
-  refreshMeshNodes,
   meshNodes,
-  meshNodesLoading,
   overlayConfig,
 }: {
   debugStatus: import("./types").DebugStatusResponse | null;
-  refreshDebugStatus: () => void;
-  refreshMeshNodes: () => Promise<void>;
   meshNodes: MeshNode[];
-  meshNodesLoading: boolean;
   overlayConfig?: MapOverlayConfigRecord["config"]["dashboard_live"];
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -1976,11 +1963,6 @@ function LiveTrackingTab({
     });
   }
 
-  function refreshLiveTracking() {
-    refreshDebugStatus();
-    void refreshMeshNodes();
-  }
-
   return (
     <SectionCard>
       <div className="stack form-block live-tracking-debugging-body">
@@ -2142,13 +2124,6 @@ function LiveTrackingTab({
             mode="live"
             overlayConfig={overlayConfig}
           />
-        </div>
-
-        {/* D) Refresh */}
-        <div className="button-row live-tracking-debugging-actions">
-          <button type="button" className="ghost-button" disabled={meshNodesLoading} onClick={refreshLiveTracking}>
-            {meshNodesLoading ? "Refreshing..." : "Refresh now"}
-          </button>
         </div>
       </div>
     </SectionCard>
