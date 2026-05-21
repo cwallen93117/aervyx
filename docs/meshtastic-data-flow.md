@@ -127,18 +127,24 @@ The Aervyx backend subscribes to that broker.
 | LoRa broadcast | Device broadcasts position via radio |
 | Mesh relay | Other nodes rebroadcast (up to `hop_limit`) |
 | Gateway receives | Any MQTT-enabled node with internet hears the packet |
-| MQTT publish | Gateway publishes to broker topic `msh/US/2/e/position/...` |
-| Decryption | Channel uplink sends plaintext (encryption_enabled=false) so backend can parse |
+| MQTT publish | Gateway publishes to broker topic `msh/US/2/e/LongFast/!GATEWAYID` |
+| Decode/decrypt | Plaintext packets are parsed directly; encrypted packets are decrypted with the configured/default channel PSK when possible |
 | Aervyx subscribes | MQTT subscriber receives the ServiceEnvelope message |
 | Protobuf parse | ServiceEnvelope -> MeshPacket -> Position |
 | pilot_id lookup | `from_node` -> `!XXXXXXXX` -> `users.mesh_device_id` |
 | task_id lookup | Active task resolution from event registration |
 | Store + broadcast | Position saved, SSE pushed to live map |
 
+**Gateway topic rule:** On the public broker, Aervyx subscribes to registered mesh
+device IDs. If an Ethernet/Wi-Fi gateway is publishing packets heard from trackers,
+the gateway ID must be registered too; trackers appear inside the MeshPacket `from`
+field, not necessarily in the MQTT topic suffix.
+
 **MQTT encryption:** Our profiles set `encryption_enabled=false` on the MQTT config
-so that channel packets arrive in plaintext on the broker. The backend parser only
-handles unencrypted ServiceEnvelope payloads — encrypted packets are silently
-dropped. Position privacy on the public mesh is not a concern for competition use.
+so that channel packets arrive in plaintext on the broker. If a device publishes an
+encrypted MeshPacket anyway, the backend records it as heard and attempts
+Meshtastic AES-CTR decryption with the configured/default channel PSK. Wrong or
+missing keys still prove the gateway/sender were heard, but no position is stored.
 
 ---
 

@@ -29,6 +29,8 @@ Supports two payload formats:
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import logging
 import struct
@@ -37,6 +39,7 @@ import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
@@ -64,6 +67,7 @@ mqtt_reconnect_event: threading.Event | None = None
 # subsequent POSITION_APP messages for the same device.
 _battery_cache: dict[str, tuple[int, float]] = {}
 _BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
+_MESHTASTIC_DEFAULT_PSK = bytes.fromhex("d4f1bb3a20290759f0bcffabcf4e6901")
 
 PORTNUM_PACKET_TYPES = {
     3: "POSITION_APP",
@@ -82,6 +86,8 @@ class DecodedMeshEnvelope:
     payload_bytes: bytes | None
     gateway_id: str | None = None
     channel_id: str | None = None
+    encrypted: bool = False
+    decrypted: bool = False
 
 
 def _normalize_mesh_node_id(value: str | None) -> str | None:
@@ -268,7 +274,93 @@ def _get_sfixed32(fields: dict, field_number: int) -> int | None:
     return None
 
 
-def _decode_mesh_envelope(raw: bytes) -> DecodedMeshEnvelope | None:
+def _expanded_meshtastic_psk(raw: bytes) -> bytes | None:
+    """Expand Meshtastic channel PSK aliases to AES key bytes."""
+    if len(raw) == 0:
+        return b""
+    if len(raw) == 1:
+        psk_index = raw[0]
+        if psk_index == 0:
+            return b""
+        key = bytearray(_MESHTASTIC_DEFAULT_PSK)
+        key[-1] = (key[-1] + psk_index - 1) & 0xFF
+        return bytes(key)
+    if len(raw) in (16, 32):
+        return raw
+    if len(raw) < 16:
+        return raw.ljust(16, b"\x00")
+    if len(raw) < 32:
+        return raw.ljust(32, b"\x00")
+    return None
+
+
+def _decode_psk_text(value: str | None) -> bytes | None:
+    candidate = (value or "").strip()
+    if not candidate:
+        return _expanded_meshtastic_psk(b"\x01")
+
+    hex_candidate = candidate.replace(" ", "").replace(":", "").replace("-", "")
+    if len(hex_candidate) % 2 == 0 and all(ch in "0123456789abcdefABCDEF" for ch in hex_candidate):
+        try:
+            return _expanded_meshtastic_psk(bytes.fromhex(hex_candidate))
+        except ValueError:
+            pass
+
+    try:
+        return _expanded_meshtastic_psk(base64.b64decode(candidate, validate=True))
+    except (ValueError, binascii.Error):
+        logger.warning("Ignoring invalid Meshtastic MQTT channel PSK setting")
+        return None
+
+
+def _mqtt_channel_psk_candidates(setting_value: str | None) -> list[bytes]:
+    """Return candidate channel PSKs, trying configured and default keys."""
+    candidates: list[bytes] = []
+    configured = _decode_psk_text(setting_value)
+    default_key = _expanded_meshtastic_psk(b"\x01")
+    for key in (configured, default_key):
+        if key is not None and key not in candidates:
+            candidates.append(key)
+    return candidates
+
+
+def _read_mqtt_channel_psks_from_db() -> list[bytes]:
+    session = SessionLocal()
+    try:
+        site = session.get(SiteSettings, 1)
+        return _mqtt_channel_psk_candidates(site.mqtt_channel_psk if site else None)
+    finally:
+        session.close()
+
+
+def _decrypt_meshtastic_payload(
+    encrypted_bytes: bytes,
+    *,
+    from_node: int | None,
+    packet_id: int | None,
+    psk: bytes,
+) -> bytes | None:
+    if from_node is None or not psk or len(psk) not in (16, 32):
+        return None
+    nonce = struct.pack("<Q", packet_id or 0) + struct.pack("<I", from_node) + b"\x00" * 4
+    try:
+        decryptor = Cipher(algorithms.AES(psk), modes.CTR(nonce)).decryptor()
+        return decryptor.update(encrypted_bytes) + decryptor.finalize()
+    except ValueError as exc:
+        logger.debug("Failed to decrypt Meshtastic payload: %s", exc)
+        return None
+
+
+def _decode_data_message(data_bytes: bytes, *, require_known_portnum: bool = False) -> tuple[int | None, bytes | None] | None:
+    data_fields = _parse_protobuf_fields(data_bytes)
+    portnum = _get_varint(data_fields, 1)
+    payload_bytes = _get_bytes(data_fields, 2)
+    if require_known_portnum and portnum not in PORTNUM_PACKET_TYPES:
+        return None
+    return portnum, payload_bytes
+
+
+def _decode_mesh_envelope(raw: bytes, channel_psks: list[bytes] | None = None) -> DecodedMeshEnvelope | None:
     """Decode a Meshtastic ServiceEnvelope → MeshPacket → Data.
 
     Returns a decoded envelope or ``None`` on failure.
@@ -283,22 +375,66 @@ def _decode_mesh_envelope(raw: bytes) -> DecodedMeshEnvelope | None:
 
         mp_fields = _parse_protobuf_fields(mesh_packet_bytes)
         from_node = _get_fixed32(mp_fields, 1)
+        packet_id = _get_fixed32(mp_fields, 6)
 
-        data_bytes = _get_bytes(mp_fields, 3)
+        data_bytes = _get_bytes(mp_fields, 4)
         if data_bytes is None:
-            logger.debug("Protobuf MeshPacket has no decoded Data (probably encrypted)")
+            # Legacy/internal Aervyx packets used field 3 before this parser
+            # matched the official MeshPacket oneof. Field 3 is normally channel.
+            data_bytes = _get_bytes(mp_fields, 3)
+
+        if data_bytes is not None:
+            decoded_data = _decode_data_message(data_bytes)
+            if decoded_data is None:
+                return None
+            portnum, payload_bytes = decoded_data
+            return DecodedMeshEnvelope(
+                from_node=from_node,
+                portnum=portnum,
+                payload_bytes=payload_bytes,
+                gateway_id=gateway_id,
+                channel_id=channel_id,
+            )
+
+        encrypted_bytes = _get_bytes(mp_fields, 5)
+        if encrypted_bytes is None:
+            logger.debug("Protobuf MeshPacket has no decoded or encrypted Data")
             return None
 
-        data_fields = _parse_protobuf_fields(data_bytes)
-        portnum = _get_varint(data_fields, 1)
-        payload_bytes = _get_bytes(data_fields, 2)
+        for psk in channel_psks or []:
+            decrypted_bytes = _decrypt_meshtastic_payload(
+                encrypted_bytes,
+                from_node=from_node,
+                packet_id=packet_id,
+                psk=psk,
+            )
+            if decrypted_bytes is None:
+                continue
+            try:
+                decoded_data = _decode_data_message(decrypted_bytes, require_known_portnum=True)
+            except (ValueError, struct.error, IndexError, KeyError):
+                continue
+            if decoded_data is None:
+                continue
+            portnum, payload_bytes = decoded_data
+            return DecodedMeshEnvelope(
+                from_node=from_node,
+                portnum=portnum,
+                payload_bytes=payload_bytes,
+                gateway_id=gateway_id,
+                channel_id=channel_id,
+                encrypted=True,
+                decrypted=True,
+            )
 
         return DecodedMeshEnvelope(
             from_node=from_node,
-            portnum=portnum,
-            payload_bytes=payload_bytes,
+            portnum=None,
+            payload_bytes=None,
             gateway_id=gateway_id,
             channel_id=channel_id,
+            encrypted=True,
+            decrypted=False,
         )
     except (ValueError, struct.error, IndexError, KeyError) as exc:
         logger.debug("Failed to decode protobuf ServiceEnvelope: %s", exc)
@@ -374,7 +510,7 @@ def _parse_protobuf_node_info(raw: bytes) -> dict[str, str | None]:
 
 def _status_details_from_decoded(decoded: DecodedMeshEnvelope) -> dict[str, object | None]:
     device_id = _format_node_id(decoded.from_node)
-    packet_type = _packet_type_for_portnum(decoded.portnum)
+    packet_type = "ENCRYPTED_APP" if decoded.encrypted and not decoded.decrypted else _packet_type_for_portnum(decoded.portnum)
     battery_level: int | None = None
     long_name: str | None = None
     short_name: str | None = None
@@ -435,7 +571,7 @@ def _record_mesh_node_status(
     return status
 
 
-def _parse_protobuf_position(raw: bytes) -> dict | None:
+def _parse_protobuf_position(raw: bytes | None = None, decoded: DecodedMeshEnvelope | None = None) -> dict | None:
     """Try to decode a Meshtastic protobuf ServiceEnvelope and extract a
     POSITION_APP payload.  Also processes TELEMETRY_APP messages to cache
     battery levels for later injection.
@@ -443,7 +579,8 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
     Returns the same dict format as :func:`_parse_position` on success, or
     ``None`` if the message is not a valid position envelope.
     """
-    decoded = _decode_mesh_envelope(raw)
+    if decoded is None and raw is not None:
+        decoded = _decode_mesh_envelope(raw)
     if decoded is None:
         return None
 
@@ -607,10 +744,10 @@ def _handle_message(payload: bytes, topic: str | None = None) -> None:
     parsed = _parse_position(payload)
     decoded: DecodedMeshEnvelope | None = None
     if parsed is None:
-        decoded = _decode_mesh_envelope(payload)
+        decoded = _decode_mesh_envelope(payload, _read_mqtt_channel_psks_from_db())
         if decoded is None:
             return
-        parsed = _parse_protobuf_position(payload)
+        parsed = _parse_protobuf_position(decoded=decoded)
     if parsed is None and decoded is None:
         return
 

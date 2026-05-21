@@ -110,7 +110,7 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
     owner = User(username="owner@example.com", full_name="Owner", role="pilot")
     session.add_all([admin, owner])
     session.flush()
-    for device_id in ["!live", "!stale", "!offline", "!never"]:
+    for device_id in ["!live", "!stale", "!offline", "!encrypted", "!never"]:
         session.add(
             MeshDevice(
                 owner_user_id=owner.id,
@@ -146,6 +146,14 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
                 last_gateway_id="!gateway",
                 packet_count=1,
             ),
+            MeshNodeStatus(
+                device_id="!encrypted",
+                last_seen_at=now - timedelta(minutes=3),
+                last_packet_type="ENCRYPTED_APP",
+                last_source="mqtt_gateway",
+                last_gateway_id="!gateway",
+                packet_count=4,
+            ),
         ]
     )
     session.commit()
@@ -158,6 +166,8 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
     assert by_device["!stale"]["mesh_status"] == "stale"
     assert by_device["!stale"]["is_connected"] is False
     assert by_device["!offline"]["mesh_status"] == "offline"
+    assert by_device["!encrypted"]["mesh_status"] == "live"
+    assert by_device["!encrypted"]["last_packet_type"] == "ENCRYPTED_APP"
     assert by_device["!never"]["mesh_status"] == "never_seen"
     assert by_device["!live"]["last_gateway_id"] == "!gateway"
     assert by_device["!live"]["packet_count"] == 3

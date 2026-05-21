@@ -1671,6 +1671,7 @@ function packetTypeLabel(packetType: string | null | undefined): string | null {
     NEIGHBORINFO_APP: "NeighborInfo",
     MAP_REPORT_APP: "MapReport",
     ROUTING_APP: "Routing",
+    ENCRYPTED_APP: "Encrypted",
     UNKNOWN_APP: "Unknown",
   };
   return labels[packetType] ?? packetType.replace(/^unknown_/, "Unknown ");
