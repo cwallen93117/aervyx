@@ -1688,22 +1688,32 @@ function meshDiagnostic(device: MeshDeviceStatus): string {
   const packet = packetTypeLabel(device.lastPacketType);
   if (!packet) return device.lastSeenAt ? "Packet heard" : "No MQTT packets heard";
   const gateway = meshGatewayDisplayLabel(device);
-  if (device.lastGatewayId && device.lastGatewayId !== device.deviceId) return `${packet} via ${gateway}`;
-  if (device.lastGatewayId) return `Gateway saw ${packet}`;
+  if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `Published ${packet} to MQTT`;
+  if (device.lastGatewayId) return `${packet} via ${gateway}`;
   return packet;
 }
 
+function normalizedMeshNodeId(value: string | null | undefined): string | null {
+  const normalized = (value ?? "").trim().toLowerCase().replace(/^!/, "");
+  return normalized || null;
+}
+
+function isSameMeshNode(left: string | null | undefined, right: string | null | undefined): boolean {
+  const normalizedLeft = normalizedMeshNodeId(left);
+  const normalizedRight = normalizedMeshNodeId(right);
+  return normalizedLeft != null && normalizedRight != null && normalizedLeft === normalizedRight;
+}
+
 function meshGatewayDisplayLabel(device: MeshDeviceStatus): string {
-  return device.lastGatewayDisplayName || device.lastGatewayId || "MQTT broker";
+  if (device.lastGatewayDisplayName) return device.lastGatewayDisplayName;
+  if (device.lastGatewayId) return `Public Node (${device.lastGatewayId})`;
+  return "Not heard yet";
 }
 
 function meshPacketFromLabel(device: MeshDeviceStatus): string {
   if (!device.lastSeenAt) return "Not heard yet";
-  const gateway = meshGatewayDisplayLabel(device);
-  if (device.lastGatewayDisplayName && device.lastGatewayId && device.lastGatewayDisplayName !== device.lastGatewayId) {
-    return `${gateway} (${device.lastGatewayId})`;
-  }
-  return gateway;
+  if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return "Device published via MQTT";
+  return meshGatewayDisplayLabel(device);
 }
 
 function meshFixSummary(device: MeshDeviceStatus): string {
