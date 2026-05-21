@@ -140,7 +140,7 @@ def list_public_tasks(event_id: int, session: Session = Depends(get_session)) ->
     tasks = session.scalars(
         select(Task)
         .where(Task.event_id == event_id, Task.status == "published")
-        .order_by(Task.created_at.asc())
+        .order_by(Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
     ).all()
     return [_task_response(session, task) for task in tasks]
 

@@ -5,6 +5,7 @@ import { SectionCard } from "../SectionCard";
 import { type MapAirspaceRegion, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import { TaskBuilderMap } from "../TaskBuilderMap";
 import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
+import { sortTasksByDateAsc } from "./taskSorting";
 import type { AccountSettingsRecord, TaskDraftState, TaskPointRecord, TaskRecord } from "./types";
 
 const taskTypeOptions = [
@@ -20,12 +21,6 @@ function taskTypeLabel(value: string | null | undefined): string {
 function displayTaskValue(value: string | number | null | undefined): string {
   if (value === null || value === undefined || value === "") return "Not set";
   return String(value);
-}
-
-function compareTasksByDateAsc(a: TaskRecord, b: TaskRecord): number {
-  const dateComparison = (a.task_date ?? "").localeCompare(b.task_date ?? "");
-  if (dateComparison !== 0) return dateComparison;
-  return a.id - b.id;
 }
 
 export interface TasksSectionProps {
@@ -123,7 +118,7 @@ export default function TasksSection(props: TasksSectionProps) {
     radiusInputValue,
     overlayConfig,
   } = props;
-  const sortedTasks = [...tasks].sort(compareTasksByDateAsc);
+  const sortedTasks = sortTasksByDateAsc(tasks);
   if (!selectedEventId) {
     return canManagePlatform ? (
       <SectionCard title="Tasks" description="Create or select an event first.">

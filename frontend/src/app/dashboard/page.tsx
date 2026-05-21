@@ -20,6 +20,7 @@ import { AirspaceSection } from "../../components/dashboard/AirspaceSection";
 import ParticipantCards from "../../components/dashboard/ParticipantCards";
 import DriverDashboard from "../../components/dashboard/DriverDashboard";
 import { ThemeToggle } from "../../components/ThemeToggle";
+import { sortTasksByDateAsc } from "../../components/dashboard/taskSorting";
 import {
   type SidebarSection,
   type EventTab,
@@ -1654,7 +1655,7 @@ export default function HomePage() {
         apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
       ]);
       const viewer = activeUser ?? user;
-      const visibleTasks = viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks;
+      const visibleTasks = sortTasksByDateAsc(viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks);
       setPilots(loadedPilots);
       setTurnpoints(loadedTurnpoints);
       setTurnpointSources(loadedTurnpointSources);

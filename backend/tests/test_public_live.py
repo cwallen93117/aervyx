@@ -268,7 +268,9 @@ def test_public_tasks_include_only_published_tasks_for_public_events() -> None:
     session.flush()
     session.add_all(
         [
-            Task(event_id=public_event.id, name="Published", status="published", task_date=date(2026, 5, 2)),
+            Task(event_id=public_event.id, name="Newer Published", status="published", task_date=date(2026, 5, 5)),
+            Task(event_id=public_event.id, name="Undated Published", status="published", task_date=None),
+            Task(event_id=public_event.id, name="Older Published", status="published", task_date=date(2026, 5, 2)),
             Task(event_id=public_event.id, name="Draft", status="draft", task_date=date(2026, 5, 3)),
             Task(event_id=private_event.id, name="Private Published", status="published", task_date=date(2026, 5, 4)),
         ]
@@ -277,7 +279,7 @@ def test_public_tasks_include_only_published_tasks_for_public_events() -> None:
 
     payload = list_public_tasks(public_event.id, session=session)
 
-    assert [task.name for task in payload] == ["Published"]
+    assert [task.name for task in payload] == ["Older Published", "Newer Published", "Undated Published"]
     with pytest.raises(HTTPException) as caught:
         list_public_tasks(private_event.id, session=session)
     assert caught.value.status_code == 404

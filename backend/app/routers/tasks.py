@@ -101,7 +101,11 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
 def list_tasks(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TaskResponse]:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    tasks = session.scalars(select(Task).where(Task.event_id == event_id).order_by(Task.created_at.asc())).all()
+    tasks = session.scalars(
+        select(Task)
+        .where(Task.event_id == event_id)
+        .order_by(Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
+    ).all()
     return [_task_response(session, task) for task in tasks]
 
 

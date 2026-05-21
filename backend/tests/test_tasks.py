@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.tasks import _task_response, delete_task, unpublish_task
+from app.routers.tasks import _task_response, delete_task, list_tasks, unpublish_task
 from app.schemas import TaskInput
 
 
@@ -141,6 +141,32 @@ def test_task_input_ignores_deprecated_formula_fields() -> None:
     assert not hasattr(payload, "nominal_launch")
     assert not hasattr(payload, "minimum_distance_km")
     assert not hasattr(payload, "penalties_json")
+
+
+def test_list_tasks_orders_dated_tasks_oldest_first_with_undated_last() -> None:
+    session = _session()
+    user = User(username="organizer@example.com", full_name="Organizer", role="organizer")
+    event = Event(
+        name="Sorted Tasks Event",
+        location="Tow Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+    )
+    session.add_all([user, event])
+    session.flush()
+    session.add_all(
+        [
+            Task(event_id=event.id, name="Newer", task_date=date(2026, 5, 5)),
+            Task(event_id=event.id, name="Undated", task_date=None),
+            Task(event_id=event.id, name="Older", task_date=date(2026, 5, 2)),
+        ]
+    )
+    session.commit()
+
+    payload = list_tasks(event.id, user=user, session=session)
+
+    assert [task.name for task in payload] == ["Older", "Newer", "Undated"]
 
 
 def test_task_response_preserves_all_points_without_active_slots() -> None:
