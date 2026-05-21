@@ -287,6 +287,21 @@ def test_mesh_device_auto_registration_creates_tracking_inventory() -> None:
     assert device.purpose == "tracking"
 
 
+def test_mesh_device_registration_normalizes_bare_hex_node_id() -> None:
+    session = _session()
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+
+    response = register_mesh_device(MeshDeviceRegister(mesh_device_id="435A8B00"), user, session)
+
+    session.refresh(user)
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!435a8b00"))
+    assert response["mesh_device_id"] == "!435a8b00"
+    assert user.mesh_device_id == "!435a8b00"
+    assert device is not None
+
+
 def test_nontracking_mesh_device_does_not_replace_tracking_mirror() -> None:
     session = _session()
     user = User(username="driver@example.com", full_name="Driver User", role="pilot", password_hash="hash")

@@ -171,3 +171,39 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
     assert by_device["!never"]["mesh_status"] == "never_seen"
     assert by_device["!live"]["last_gateway_id"] == "!gateway"
     assert by_device["!live"]["packet_count"] == 3
+
+
+def test_admin_debug_status_matches_legacy_bare_hex_device_id() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    owner = User(username="owner@example.com", full_name="Owner", role="pilot")
+    session.add_all([admin, owner])
+    session.flush()
+    session.add(
+        MeshDevice(
+            owner_user_id=owner.id,
+            device_id="435a8b00",
+            label="Tahoe Supreme",
+            purpose="tracking",
+            is_active=True,
+        )
+    )
+    session.add(
+        MeshNodeStatus(
+            device_id="!435a8b00",
+            last_seen_at=now - timedelta(minutes=1),
+            last_packet_type="NODEINFO_APP",
+            last_source="mqtt_gateway",
+            last_gateway_id="!435a8b00",
+            packet_count=1,
+        )
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+    device = payload["registered_mesh_devices"][0]
+
+    assert device["device_id"] == "!435a8b00"
+    assert device["mesh_status"] == "live"
+    assert device["last_packet_type"] == "NODEINFO_APP"

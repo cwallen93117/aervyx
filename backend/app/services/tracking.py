@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
 from app.models import Event, EventPilot, LivePosition, MeshDevice, Task, TrackingSession, User
+from app.services.mesh_ids import mesh_device_id_lookup_variants, normalize_mesh_device_id
 
 
 # ---------------------------------------------------------------------------
@@ -117,16 +118,20 @@ def resolve_active_task_id(session: Session, pilot_id: int | None) -> int | None
 
 
 def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> tuple[User | None, MeshDevice | None]:
-    normalized = (device_id or "").strip().lower()
+    normalized = normalize_mesh_device_id(device_id)
     if not normalized:
         return None, None
 
-    device = session.scalar(
-        select(MeshDevice).where(
-            MeshDevice.device_id == normalized,
-            MeshDevice.is_active.is_(True),
+    device = None
+    for candidate in mesh_device_id_lookup_variants(normalized):
+        device = session.scalar(
+            select(MeshDevice).where(
+                MeshDevice.device_id == candidate,
+                MeshDevice.is_active.is_(True),
+            )
         )
-    )
+        if device is not None:
+            break
     if device is not None:
         if device.purpose != TRACKING_MESH_PURPOSE:
             return None, device
@@ -135,12 +140,16 @@ def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> t
             return owner, device
         return None, device
 
-    legacy_owner = session.scalar(
-        select(User).where(
-            User.mesh_device_id == normalized,
-            User.is_active.is_(True),
+    legacy_owner = None
+    for candidate in mesh_device_id_lookup_variants(normalized):
+        legacy_owner = session.scalar(
+            select(User).where(
+                User.mesh_device_id == candidate,
+                User.is_active.is_(True),
+            )
         )
-    )
+        if legacy_owner is not None:
+            break
     return legacy_owner, None
 
 
@@ -202,13 +211,24 @@ def _stationary_node_by_device(session: Session, device_ids: list[str]) -> dict[
     """Return a map of ``device_id → User`` for any stationary-node users matching the given device IDs."""
     if not device_ids:
         return {}
+    lookup_ids: set[str] = set()
+    canonical_by_lookup: dict[str, str] = {}
+    for device_id in device_ids:
+        normalized = normalize_mesh_device_id(device_id)
+        if not normalized:
+            continue
+        for candidate in mesh_device_id_lookup_variants(normalized):
+            lookup_ids.add(candidate)
+            canonical_by_lookup[candidate] = normalized
+    if not lookup_ids:
+        return {}
     users = session.scalars(
         select(User).where(
-            User.mesh_device_id.in_(device_ids),
+            User.mesh_device_id.in_(lookup_ids),
             User.profile_type == "stationary_node",
         )
     ).all()
-    return {user.mesh_device_id: user for user in users if user.mesh_device_id}
+    return {canonical_by_lookup.get(user.mesh_device_id, user.mesh_device_id): user for user in users if user.mesh_device_id}
 
 
 def subscribe(task_id: int) -> asyncio.Queue[dict[str, Any]]:
@@ -415,9 +435,10 @@ def store_position(
                 aircraft_icon = _normalize_aircraft_icon(user.aircraft_icon)
                 profile_type = _normalize_profile_type(user.profile_type)
         elif device_id:
+            device_candidates = mesh_device_id_lookup_variants(device_id)
             registered_device = session.scalar(
                 select(MeshDevice).where(
-                    MeshDevice.device_id == device_id,
+                    MeshDevice.device_id.in_(device_candidates),
                     MeshDevice.is_active.is_(True),
                 )
             )
@@ -430,7 +451,7 @@ def store_position(
             else:
                 stationary = session.scalar(
                     select(User).where(
-                        User.mesh_device_id == device_id,
+                        User.mesh_device_id.in_(device_candidates),
                         User.profile_type == "stationary_node",
                     )
                 )

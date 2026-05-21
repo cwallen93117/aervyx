@@ -45,6 +45,7 @@ from sqlalchemy import select
 
 from app.db import SessionLocal
 from app.models import MeshDevice, MeshNodeStatus, SiteSettings, User
+from app.services.mesh_ids import normalize_mesh_device_id
 from app.services.tracking import (
     LIVE_POSITION_RETENTION_DAYS,
     prune_old_live_positions,
@@ -680,7 +681,7 @@ def _read_registered_mesh_device_ids_from_db() -> list[str]:
     """Return active platform mesh device IDs for targeted public MQTT subscriptions."""
     session = SessionLocal()
     try:
-        device_ids = set(
+        raw_device_ids = set(
             session.scalars(
                 select(MeshDevice.device_id)
                 .join(User, User.id == MeshDevice.owner_user_id)
@@ -692,7 +693,7 @@ def _read_registered_mesh_device_ids_from_db() -> list[str]:
                 )
             ).all()
         )
-        device_ids.update(
+        raw_device_ids.update(
             session.scalars(
                 select(User.mesh_device_id)
                 .where(
@@ -702,6 +703,11 @@ def _read_registered_mesh_device_ids_from_db() -> list[str]:
                 )
             ).all()
         )
+        device_ids = {
+            normalized
+            for raw_device_id in raw_device_ids
+            if (normalized := normalize_mesh_device_id(raw_device_id)) is not None
+        }
         return sorted(device_ids)
     finally:
         session.close()

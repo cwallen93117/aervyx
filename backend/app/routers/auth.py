@@ -38,6 +38,7 @@ from app.schemas import (
     UserSummary,
 )
 from app.services.pilot_identity import repair_user_email_identity
+from app.services.mesh_ids import normalize_mesh_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +130,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
 
 
 def _normalize_mesh_device_id(value: str | None) -> str | None:
-    candidate = (value or "").strip().lower()
-    return candidate or None
+    return normalize_mesh_device_id(value)
 
 
 def _normalize_mesh_purpose(value: str | None) -> str:

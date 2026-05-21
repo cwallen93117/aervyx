@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import require_admin
 from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, SosAlert, Task, TrackingSession, User
+from app.services.mesh_ids import mesh_device_id_lookup_variants, normalize_mesh_device_id
 
 router = APIRouter(tags=["admin-debug"])
 
@@ -178,29 +179,38 @@ def admin_debug_status(
     ).all()
 
     registered_device_ids = [device.device_id for device, *_ in registered_device_rows]
+    registered_device_lookup_ids = sorted(
+        {
+            candidate
+            for device_id in registered_device_ids
+            for candidate in mesh_device_id_lookup_variants(device_id)
+        }
+    )
     latest_by_device: dict[str, object] = {}
     status_by_device: dict[str, MeshNodeStatus] = {}
-    if registered_device_ids:
+    if registered_device_lookup_ids:
         row_num = func.row_number().over(
             partition_by=LivePosition.device_id,
             order_by=LivePosition.timestamp.desc(),
         ).label("rn")
         latest_subq = (
             select(LivePosition, row_num)
-            .where(LivePosition.device_id.in_(registered_device_ids))
+            .where(LivePosition.device_id.in_(registered_device_lookup_ids))
             .subquery()
         )
         latest_rows = session.execute(select(latest_subq).where(latest_subq.c.rn == 1)).all()
         latest_by_device = {row.device_id: row for row in latest_rows if row.device_id}
         statuses = session.scalars(
-            select(MeshNodeStatus).where(MeshNodeStatus.device_id.in_(registered_device_ids))
+            select(MeshNodeStatus).where(MeshNodeStatus.device_id.in_(registered_device_lookup_ids))
         ).all()
         status_by_device = {status.device_id: status for status in statuses}
 
     registered_mesh_devices = []
     for device, owner_user_id, owner_name, owner_pilot_id in registered_device_rows:
-        latest_pos = latest_by_device.get(device.device_id)
-        node_status = status_by_device.get(device.device_id)
+        lookup_ids = mesh_device_id_lookup_variants(device.device_id)
+        canonical_device_id = normalize_mesh_device_id(device.device_id) or device.device_id
+        latest_pos = next((latest_by_device[lookup_id] for lookup_id in lookup_ids if lookup_id in latest_by_device), None)
+        node_status = next((status_by_device[lookup_id] for lookup_id in lookup_ids if lookup_id in status_by_device), None)
         status_ts = node_status.last_seen_at if node_status is not None else None
         latest_pos_ts = getattr(latest_pos, "timestamp", None)
         latest_ts = status_ts
@@ -211,7 +221,7 @@ def admin_debug_status(
             "owner_user_id": owner_user_id,
             "owner_name": owner_name,
             "owner_pilot_id": owner_pilot_id,
-            "device_id": device.device_id,
+            "device_id": canonical_device_id,
             "label": device.label,
             "purpose": device.purpose,
             "is_active": device.is_active,

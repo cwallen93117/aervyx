@@ -532,11 +532,13 @@ def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypat
     factory = _session_factory(monkeypatch)
     with factory() as session:
         active = User(username="active", full_name="Active", role="pilot", mesh_device_id="!active")
+        bare_hex = User(username="bare", full_name="Bare Hex", role="pilot", mesh_device_id="435a8b00")
         inactive = User(username="inactive", full_name="Inactive", role="pilot", mesh_device_id="!inactive", is_active=False)
         owner = User(username="owner", full_name="Owner", role="pilot")
         session.add_all(
             [
                 active,
+                bare_hex,
                 inactive,
                 User(username="empty", full_name="Empty", role="pilot", mesh_device_id=""),
                 User(username="none", full_name="None", role="pilot"),
@@ -547,13 +549,57 @@ def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypat
         session.add_all(
             [
                 MeshDevice(owner_user_id=owner.id, device_id="!base", label="Base", purpose="base_station"),
+                MeshDevice(owner_user_id=owner.id, device_id="89abcdef", label="Bare Base", purpose="base_station"),
                 MeshDevice(owner_user_id=inactive.id, device_id="!inactive-device", label="Inactive", purpose="driver_wifi"),
                 MeshDevice(owner_user_id=owner.id, device_id="!disabled", label="Disabled", purpose="relay", is_active=False),
             ]
         )
         session.commit()
 
-    assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == ["!active", "!base"]
+    assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == [
+        "!435a8b00",
+        "!89abcdef",
+        "!active",
+        "!base",
+    ]
+
+
+def test_json_position_matches_legacy_bare_hex_mesh_registration(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        pilot = Pilot(first_name="Tahoe", last_name="Supreme", email="tahoe@example.com")
+        session.add(pilot)
+        session.flush()
+        pilot_id = pilot.id
+        user = User(
+            username="tahoe@example.com",
+            full_name="Tahoe Supreme",
+            role="pilot",
+            pilot_id=pilot_id,
+            mesh_device_id="435a8b00",
+        )
+        session.add(user)
+        session.flush()
+        session.add(
+            MeshDevice(
+                owner_user_id=user.id,
+                device_id="435a8b00",
+                label="Tahoe Supreme",
+                purpose="tracking",
+            )
+        )
+        session.commit()
+
+    mqtt_subscriber._handle_message(_position_payload("!435a8b00"), topic="msh/US/2/e/LongFast/!435a8b00")
+
+    with factory() as session:
+        position = session.scalar(select(LivePosition).where(LivePosition.device_id == "!435a8b00"))
+        status = session.scalar(select(MeshNodeStatus).where(MeshNodeStatus.device_id == "!435a8b00"))
+
+    assert position is not None
+    assert position.pilot_id == pilot_id
+    assert status is not None
+    assert status.last_packet_type == "POSITION_APP"
 
 
 def test_prune_old_mqtt_positions_delegates_to_all_live_position_retention(monkeypatch) -> None:
