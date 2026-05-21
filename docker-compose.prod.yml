@@ -50,6 +50,7 @@ services:
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
+      MOSQUITTO_PASSWORD_FILE: /mosquitto/secrets/passwords
     restart: unless-stopped
     expose:
       - "8000"
@@ -57,6 +58,7 @@ services:
       - backend_uploads:/app/storage/uploads
       - backend_apks:/app/storage/apks
       - raster_cache:/app/storage/raster_cache
+      - ${MOSQUITTO_SECRET_DIR:-./mosquitto/secrets}:/mosquitto/secrets
 
   frontend:
     build:

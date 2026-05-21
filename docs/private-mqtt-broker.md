@@ -25,14 +25,9 @@ certificate files to:
 /srv/aervyx-staging/mosquitto/certs/privkey.pem
 ```
 
-4. Create the shared fleet password file:
-
-```bash
-docker run --rm -it \
-  -v /srv/aervyx-staging/mosquitto/secrets:/mosquitto/secrets \
-  eclipse-mosquitto:2 \
-  mosquitto_passwd -c /mosquitto/secrets/passwords aervyx-mesh
-```
+4. Let Aervyx manage the shared fleet password file. The backend writes the
+Mosquitto-compatible hash when the Admin MQTT username/password are saved, so
+the secrets directory only needs to exist and be mounted into both containers.
 
 5. Enable the TLS listener:
 
@@ -47,6 +42,7 @@ cp /srv/aervyx-staging/staging-repo/mosquitto/config/conf.d/public-tls.conf.exam
 MOSQUITTO_EXTRA_CONFIG_DIR=/srv/aervyx-staging/mosquitto/conf.d
 MOSQUITTO_CERT_DIR=/srv/aervyx-staging/mosquitto/certs
 MOSQUITTO_SECRET_DIR=/srv/aervyx-staging/mosquitto/secrets
+MOSQUITTO_PASSWORD_FILE=/mosquitto/secrets/passwords
 ```
 
 7. Redeploy staging. Mosquitto should listen internally on `1883` and publicly
@@ -65,8 +61,12 @@ In Admin → Meshtastic Configuration → MQTT / Mesh:
 - Topic prefix: `msh`
 - Channel PSK: blank/default unless using a custom channel PSK
 
-When these settings are saved, the backend reconnects to the internal broker,
-and the mobile app will push the external broker settings to Meshtastic radios.
+When these settings are saved, the backend writes
+`/mosquitto/secrets/passwords` with a Mosquitto `sha512-pbkdf2` password hash,
+reconnects to the internal broker, and the mobile app will push the external
+broker settings to Meshtastic radios. Mosquitto must reload or restart after a
+password-file change before the new broker credential is accepted; a normal
+staging redeploy/restart handles this.
 
 ## Validation
 

@@ -23,6 +23,7 @@ services:
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - ./mosquitto/config/conf.d:/mosquitto/config/conf.d:ro
+      - ./mosquitto/secrets:/mosquitto/secrets:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
 
@@ -54,6 +55,7 @@ services:
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
+      MOSQUITTO_PASSWORD_FILE: /mosquitto/secrets/passwords
     restart: unless-stopped
     ports:
       - "8000:8000"
@@ -61,6 +63,7 @@ services:
       - ./backend:/app
       - backend_uploads:/app/storage/uploads
       - backend_apks:/app/storage/apks
+      - ./mosquitto/secrets:/mosquitto/secrets
 
   frontend:
     build:

@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import SiteSettings, User
 from app.schemas import SiteSettingsResponse, SiteSettingsUpdate
+from app.services.mosquitto_passwords import write_mosquitto_password_file
 
 router = APIRouter(prefix="/api/site-settings", tags=["site-settings"])
 
@@ -243,8 +245,33 @@ def update_site_settings(
     _: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ) -> SiteSettingsResponse:
-    if payload.mqtt_broker_mode == "private" and not payload.mqtt_host:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Private MQTT mode requires an MQTT host.")
+    if payload.mqtt_broker_mode == "private":
+        if not payload.mqtt_host:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Private MQTT mode requires an MQTT host.",
+            )
+        if not payload.mqtt_username or not payload.mqtt_password:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Private MQTT mode requires an MQTT username and password.",
+            )
+
+        password_file = get_settings().mosquitto_password_file
+        if password_file:
+            try:
+                write_mosquitto_password_file(
+                    password_file,
+                    payload.mqtt_username,
+                    payload.mqtt_password,
+                )
+            except OSError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Could not update Mosquitto password file: {exc}",
+                ) from exc
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     settings = _get_site_settings(session)
     settings.telemetry_vario_smoothing_seconds = payload.telemetry_vario_smoothing_seconds
