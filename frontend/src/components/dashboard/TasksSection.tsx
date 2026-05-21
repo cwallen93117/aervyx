@@ -22,6 +22,12 @@ function displayTaskValue(value: string | number | null | undefined): string {
   return String(value);
 }
 
+function compareTasksByDateAsc(a: TaskRecord, b: TaskRecord): number {
+  const dateComparison = (a.task_date ?? "").localeCompare(b.task_date ?? "");
+  if (dateComparison !== 0) return dateComparison;
+  return a.id - b.id;
+}
+
 export interface TasksSectionProps {
   selectedEventId: number | null;
   selectedEvent: { name?: string } | null;
@@ -117,6 +123,7 @@ export default function TasksSection(props: TasksSectionProps) {
     radiusInputValue,
     overlayConfig,
   } = props;
+  const sortedTasks = [...tasks].sort(compareTasksByDateAsc);
   if (!selectedEventId) {
     return canManagePlatform ? (
       <SectionCard title="Tasks" description="Create or select an event first.">
@@ -199,9 +206,9 @@ export default function TasksSection(props: TasksSectionProps) {
             <>
               <label className="stack compact task-toolbar-picker">
                 <span>Selected task</span>
-                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = tasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
+                <select value={selectedTaskId ?? ""} onChange={(event) => { const nextId = Number(event.target.value); const nextTask = sortedTasks.find((task) => task.id === nextId); if (nextTask) void loadTask(token, nextId, nextTask, activeSection === "scoring"); }}>
                   <option value="">Select a task</option>
-                  {tasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
+                  {sortedTasks.map((task) => <option key={task.id} value={task.id}>{task.name} - {task.status}</option>)}
                 </select>
               </label>
               <button type="button" className="ghost-button" onClick={startNewTask}>New task</button>
@@ -219,7 +226,7 @@ export default function TasksSection(props: TasksSectionProps) {
             </>
           ) : (
             <div className="scoring-nav pilot-task-nav" aria-label="Select task">
-              {tasks.length ? tasks.map((task, index) => (
+              {sortedTasks.length ? sortedTasks.map((task, index) => (
                 <button
                   key={task.id}
                   type="button"
