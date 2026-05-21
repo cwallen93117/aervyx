@@ -30,6 +30,7 @@ type MeshNode = {
   mesh_status: MeshConnectionStatus;
   last_packet_type: string | null;
   last_gateway_id: string | null;
+  last_gateway_display_name: string | null;
   last_topic: string | null;
   packet_count: number;
 };
@@ -53,6 +54,7 @@ type MeshDeviceStatus = {
   lastSeenAt: string | null;
   lastPacketType: string | null;
   lastGatewayId: string | null;
+  lastGatewayDisplayName: string | null;
   lastTopic: string | null;
   packetCount: number;
   lastPosition: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
@@ -1685,15 +1687,28 @@ function packetTypeLabel(packetType: string | null | undefined): string | null {
 function meshDiagnostic(device: MeshDeviceStatus): string {
   const packet = packetTypeLabel(device.lastPacketType);
   if (!packet) return device.lastSeenAt ? "Packet heard" : "No MQTT packets heard";
-  if (device.lastGatewayId && device.lastGatewayId !== device.deviceId) return `${packet} via ${device.lastGatewayId}`;
+  const gateway = meshGatewayDisplayLabel(device);
+  if (device.lastGatewayId && device.lastGatewayId !== device.deviceId) return `${packet} via ${gateway}`;
   if (device.lastGatewayId) return `Gateway saw ${packet}`;
   return packet;
 }
 
-function meshPacketDetails(device: MeshDeviceStatus): string {
-  const parts = [`Packets: ${device.packetCount}`];
-  if (device.lastTopic) parts.push(`Topic: ${device.lastTopic}`);
-  return parts.join(" | ");
+function meshGatewayDisplayLabel(device: MeshDeviceStatus): string {
+  return device.lastGatewayDisplayName || device.lastGatewayId || "MQTT broker";
+}
+
+function meshPacketFromLabel(device: MeshDeviceStatus): string {
+  if (!device.lastSeenAt) return "Not heard yet";
+  const gateway = meshGatewayDisplayLabel(device);
+  if (device.lastGatewayDisplayName && device.lastGatewayId && device.lastGatewayDisplayName !== device.lastGatewayId) {
+    return `${gateway} (${device.lastGatewayId})`;
+  }
+  return gateway;
+}
+
+function meshFixSummary(device: MeshDeviceStatus): string {
+  if (device.lastPosition) return formatDebugPosition(device.lastPosition);
+  return device.lastSeenAt ? "No GPS fix" : "No fix yet";
 }
 
 function phoneSourcePillClass(session: import("./types").DebugActiveSession | null): string {
@@ -1734,6 +1749,7 @@ function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
     lastSeenAt: device.last_seen_at,
     lastPacketType: device.last_packet_type,
     lastGatewayId: device.last_gateway_id,
+    lastGatewayDisplayName: device.last_gateway_display_name,
     lastTopic: device.last_topic,
     packetCount: device.packet_count,
     lastPosition: device.last_position,
@@ -1758,6 +1774,7 @@ function meshDeviceFromNode(node: MeshNode): MeshDeviceStatus {
     lastSeenAt: node.timestamp,
     lastPacketType: node.last_packet_type,
     lastGatewayId: node.last_gateway_id,
+    lastGatewayDisplayName: node.last_gateway_display_name,
     lastTopic: node.last_topic,
     packetCount: node.packet_count,
     lastPosition: node.lat != null && node.lon != null ? {
@@ -2084,8 +2101,9 @@ function LiveTrackingTab({
                                 <td>{meshDevice.isActive ? "Active" : "Inactive"}</td>
                                 <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
                                 <td>
-                                  {meshDevice.lastPosition ? formatDebugPosition(meshDevice.lastPosition) : (meshDevice.lastSeenAt ? "No GPS fix" : "-")}
-                                  <div className="hint">{meshPacketDetails(meshDevice)}</div>
+                                  <div>{meshFixSummary(meshDevice)}</div>
+                                  <div className="hint">Packets sent: {meshDevice.packetCount}</div>
+                                  <div className="hint">From: {meshPacketFromLabel(meshDevice)}</div>
                                 </td>
                                 <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
                               </tr>

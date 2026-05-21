@@ -11,7 +11,11 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import require_admin
 from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, SosAlert, Task, TrackingSession, User
-from app.services.mesh_ids import mesh_device_id_lookup_variants, normalize_mesh_device_id
+from app.services.mesh_ids import (
+    mesh_device_id_lookup_variants,
+    normalize_mesh_device_id,
+    resolve_mesh_device_display_names,
+)
 
 router = APIRouter(tags=["admin-debug"])
 
@@ -204,6 +208,10 @@ def admin_debug_status(
             select(MeshNodeStatus).where(MeshNodeStatus.device_id.in_(registered_device_lookup_ids))
         ).all()
         status_by_device = {status.device_id: status for status in statuses}
+    gateway_display_names = resolve_mesh_device_display_names(
+        session,
+        {status.last_gateway_id for status in status_by_device.values()},
+    )
 
     registered_mesh_devices = []
     for device, owner_user_id, owner_name, owner_pilot_id in registered_device_rows:
@@ -230,6 +238,11 @@ def admin_debug_status(
             "last_seen_at": latest_ts.isoformat() if latest_ts else None,
             "last_packet_type": node_status.last_packet_type if node_status is not None else ("POSITION_APP" if latest_pos is not None else None),
             "last_gateway_id": node_status.last_gateway_id if node_status is not None else None,
+            "last_gateway_display_name": (
+                gateway_display_names.get(node_status.last_gateway_id)
+                if node_status is not None and node_status.last_gateway_id is not None
+                else None
+            ),
             "last_topic": node_status.last_topic if node_status is not None else None,
             "packet_count": node_status.packet_count if node_status is not None else (1 if latest_pos is not None else 0),
             "long_name": node_status.long_name if node_status is not None else None,

@@ -120,6 +120,15 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
                 is_active=True,
             )
         )
+    session.add(
+        MeshDevice(
+            owner_user_id=owner.id,
+            device_id="!gateway",
+            label="Ethernet Gateway",
+            purpose="relay",
+            is_active=True,
+        )
+    )
     session.add_all(
         [
             MeshNodeStatus(
@@ -170,6 +179,7 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
     assert by_device["!encrypted"]["last_packet_type"] == "ENCRYPTED_APP"
     assert by_device["!never"]["mesh_status"] == "never_seen"
     assert by_device["!live"]["last_gateway_id"] == "!gateway"
+    assert by_device["!live"]["last_gateway_display_name"] == "Ethernet Gateway"
     assert by_device["!live"]["packet_count"] == 3
 
 

@@ -16,6 +16,7 @@ from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, MeshNodeStatus, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.services.mesh_ids import resolve_mesh_device_display_names
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
@@ -135,6 +136,7 @@ class MeshNodeResponse(BaseModel):
     mesh_status: str = "never_seen"
     last_packet_type: str | None = None
     last_gateway_id: str | None = None
+    last_gateway_display_name: str | None = None
     last_topic: str | None = None
     packet_count: int = 0
 
@@ -765,6 +767,10 @@ def get_mesh_nodes(
         select(MeshNodeStatus).where(MeshNodeStatus.last_seen_at >= cutoff)
     ).all()
     status_by_device = {status.device_id: status for status in status_rows}
+    gateway_display_names = resolve_mesh_device_display_names(
+        session,
+        {status.last_gateway_id for status in status_rows},
+    )
     all_device_ids = sorted(set(position_by_device) | set(status_by_device))
 
     if not all_device_ids:
@@ -917,6 +923,11 @@ def get_mesh_nodes(
                 mesh_status=mesh_status,
                 last_packet_type=node_status.last_packet_type if node_status is not None else ("POSITION_APP" if row is not None else None),
                 last_gateway_id=node_status.last_gateway_id if node_status is not None else None,
+                last_gateway_display_name=(
+                    gateway_display_names.get(node_status.last_gateway_id)
+                    if node_status is not None and node_status.last_gateway_id is not None
+                    else None
+                ),
                 last_topic=node_status.last_topic if node_status is not None else None,
                 packet_count=node_status.packet_count if node_status is not None else (1 if row is not None else 0),
             )

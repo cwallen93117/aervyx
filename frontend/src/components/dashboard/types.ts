@@ -405,6 +405,7 @@ export type DebugMeshDevice = {
   last_seen_at: string | null;
   last_packet_type: string | null;
   last_gateway_id: string | null;
+  last_gateway_display_name: string | null;
   last_topic: string | null;
   packet_count: number;
   long_name: string | null;
