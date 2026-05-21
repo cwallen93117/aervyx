@@ -1710,12 +1710,6 @@ function meshGatewayDisplayLabel(device: MeshDeviceStatus): string {
   return "Not heard yet";
 }
 
-function meshPacketFromLabel(device: MeshDeviceStatus): string {
-  if (!device.lastSeenAt) return "Not heard yet";
-  if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return "Device published via MQTT";
-  return meshGatewayDisplayLabel(device);
-}
-
 function meshFixSummary(device: MeshDeviceStatus): string {
   if (device.lastPosition) return formatDebugPosition(device.lastPosition);
   return device.lastSeenAt ? "No GPS fix" : "No fix yet";
@@ -2098,7 +2092,6 @@ function LiveTrackingTab({
                                 </td>
                                 <td>
                                   <strong>{meshDevice.label ?? meshDevice.deviceId}</strong>
-                                  <div className="hint">{meshDiagnostic(meshDevice)}</div>
                                 </td>
                                 <td>{meshPurposeLabel(meshDevice.purpose)}</td>
                                 <td>{meshDevice.registeredOwnerName ?? d.pilot_name}</td>
@@ -2113,7 +2106,7 @@ function LiveTrackingTab({
                                 <td>
                                   <div>{meshFixSummary(meshDevice)}</div>
                                   <div className="hint">Packets sent: {meshDevice.packetCount}</div>
-                                  <div className="hint">From: {meshPacketFromLabel(meshDevice)}</div>
+                                  <div className="hint">{meshDiagnostic(meshDevice)}</div>
                                 </td>
                                 <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
                               </tr>
