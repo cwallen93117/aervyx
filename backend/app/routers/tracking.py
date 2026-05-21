@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, MeshNodeStatus, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
@@ -34,6 +34,22 @@ from app.services.tracking import (
 )
 
 router = APIRouter(tags=["tracking"])
+
+MESH_STATUS_LIVE_SECONDS = 10 * 60
+MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
+
+
+def mesh_status_for_seen_at(now: datetime, value: datetime | None) -> str:
+    if value is None:
+        return "never_seen"
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    age = (now - value).total_seconds()
+    if age < MESH_STATUS_LIVE_SECONDS:
+        return "live"
+    if age < MESH_STATUS_STALE_SECONDS:
+        return "stale"
+    return "offline"
 logger = logging.getLogger("aervyx.tracking")
 
 
@@ -107,8 +123,8 @@ class MeshNodeResponse(BaseModel):
     device_purpose: str | None = None
     registered_owner_user_id: int | None = None
     registered_owner_name: str | None = None
-    lat: float
-    lon: float
+    lat: float | None = None
+    lon: float | None = None
     alt: float | None = None
     speed: float | None = None
     heading: float | None = None
@@ -116,6 +132,11 @@ class MeshNodeResponse(BaseModel):
     timestamp: str
     source: str | None = None
     position_source: str = "other"
+    mesh_status: str = "never_seen"
+    last_packet_type: str | None = None
+    last_gateway_id: str | None = None
+    last_topic: str | None = None
+    packet_count: int = 0
 
 
 class SosPayload(BaseModel):
@@ -718,7 +739,8 @@ def get_mesh_nodes(
 
     from sqlalchemy import func as sa_func
 
-    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
+    now = datetime.now(UTC)
+    cutoff = now - timedelta(minutes=minutes)
 
     # Window function: rank rows per device_id by descending timestamp so we
     # can pick only the most-recent position for each device in one query.
@@ -738,12 +760,18 @@ def get_mesh_nodes(
     )
 
     rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
+    position_by_device = {r.device_id: r for r in rows if r.device_id}
+    status_rows = session.scalars(
+        select(MeshNodeStatus).where(MeshNodeStatus.last_seen_at >= cutoff)
+    ).all()
+    status_by_device = {status.device_id: status for status in status_rows}
+    all_device_ids = sorted(set(position_by_device) | set(status_by_device))
 
-    if not rows:
+    if not all_device_ids:
         return []
 
     # Resolve pilot names / profile types via pilot_id when available.
-    pilot_ids = [r.pilot_id for r in rows if r.pilot_id is not None]
+    pilot_ids = [r.pilot_id for r in position_by_device.values() if r.pilot_id is not None]
     users_by_pilot: dict[int, User] = {}
     if pilot_ids:
         for u in session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all():
@@ -751,14 +779,17 @@ def get_mesh_nodes(
                 users_by_pilot[u.pilot_id] = u
 
     # Fall back to device_id → User lookup for positions with no pilot_id.
-    unlinked_device_ids = [r.device_id for r in rows if r.pilot_id is None and r.device_id]
+    unlinked_device_ids = [
+        device_id
+        for device_id in all_device_ids
+        if position_by_device.get(device_id) is None or position_by_device[device_id].pilot_id is None
+    ]
     users_by_device: dict[str, User] = {}
     if unlinked_device_ids:
         for u in session.scalars(select(User).where(User.mesh_device_id.in_(unlinked_device_ids))).all():
             if u.mesh_device_id:
                 users_by_device[u.mesh_device_id] = u
 
-    all_device_ids = [r.device_id for r in rows if r.device_id]
     devices_by_id: dict[str, MeshDevice] = {}
     owners_by_id: dict[int, User] = {}
     if all_device_ids:
@@ -773,7 +804,7 @@ def get_mesh_nodes(
 
     # For devices whose latest position has alt=NULL, look up the most recent
     # position that DID have altitude (backfill from older rows).
-    devices_missing_alt = [r.device_id for r in rows if r.alt is None and r.device_id]
+    devices_missing_alt = [r.device_id for r in position_by_device.values() if r.alt is None and r.device_id]
     alt_backfill: dict[str, float] = {}
     if devices_missing_alt:
         alt_subq = (
@@ -798,7 +829,7 @@ def get_mesh_nodes(
         alt_backfill = {r.device_id: r.alt for r in alt_rows}
 
     # Similarly backfill battery from recent positions for devices with NULL battery
-    devices_missing_bat = [r.device_id for r in rows if r.battery_level is None and r.device_id]
+    devices_missing_bat = [r.device_id for r in position_by_device.values() if r.battery_level is None and r.device_id]
     bat_backfill: dict[str, int] = {}
     if devices_missing_bat:
         bat_subq = (
@@ -822,42 +853,72 @@ def get_mesh_nodes(
         ).all()
         bat_backfill = {r.device_id: r.battery_level for r in bat_rows}
 
+    def _ts_value(value: datetime | None) -> float:
+        if value is None:
+            return 0
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.timestamp()
+
     results: list[MeshNodeResponse] = []
-    for row in rows:
-        device = devices_by_id.get(row.device_id)
+    for device_id in sorted(
+        all_device_ids,
+        key=lambda item: max(
+            _ts_value(status_by_device[item].last_seen_at) if item in status_by_device else 0,
+            _ts_value(position_by_device[item].timestamp) if item in position_by_device else 0,
+        ),
+        reverse=True,
+    ):
+        row = position_by_device.get(device_id)
+        node_status = status_by_device.get(device_id)
+        device = devices_by_id.get(device_id)
         owner = owners_by_id.get(device.owner_user_id) if device is not None else None
         u = (
             users_by_pilot.get(row.pilot_id)
-            if row.pilot_id is not None
-            else (owner or users_by_device.get(row.device_id))
+            if row is not None and row.pilot_id is not None
+            else (owner or users_by_device.get(device_id))
         )
         profile_type = (
             u.profile_type
-            if row.pilot_id is not None and u is not None
+            if row is not None and row.pilot_id is not None and u is not None
             else mesh_purpose_to_profile_type(device.purpose) if device is not None
             else u.profile_type if u is not None else None
         )
-        alt = row.alt if row.alt is not None else alt_backfill.get(row.device_id)
-        battery = row.battery_level if row.battery_level is not None else bat_backfill.get(row.device_id)
+        alt = row.alt if row is not None and row.alt is not None else alt_backfill.get(device_id)
+        battery = (
+            node_status.battery_level
+            if node_status is not None and node_status.battery_level is not None
+            else row.battery_level if row is not None and row.battery_level is not None
+            else bat_backfill.get(device_id)
+        )
+        latest_ts = node_status.last_seen_at if node_status is not None else None
+        if row is not None and _ts_value(row.timestamp) > _ts_value(latest_ts):
+            latest_ts = row.timestamp
+        mesh_status = mesh_status_for_seen_at(now, latest_ts)
         results.append(
             MeshNodeResponse(
-                device_id=row.device_id,
-                pilot_id=row.pilot_id,
+                device_id=device_id,
+                pilot_id=row.pilot_id if row is not None else (u.pilot_id if u else None),
                 pilot_name=u.full_name if u else None,
                 profile_type=profile_type,
                 device_label=device.label if device else None,
                 device_purpose=device.purpose if device else None,
-                registered_owner_user_id=owner.id if owner else (u.id if u and row.pilot_id is None else None),
-                registered_owner_name=owner.full_name if owner else (u.full_name if u and row.pilot_id is None else None),
-                lat=row.lat,
-                lon=row.lon,
+                registered_owner_user_id=owner.id if owner else (u.id if u and (row is None or row.pilot_id is None) else None),
+                registered_owner_name=owner.full_name if owner else (u.full_name if u and (row is None or row.pilot_id is None) else None),
+                lat=row.lat if row is not None else None,
+                lon=row.lon if row is not None else None,
                 alt=alt,
-                speed=row.speed,
-                heading=row.heading,
+                speed=row.speed if row is not None else None,
+                heading=row.heading if row is not None else None,
                 battery_level=battery,
-                timestamp=row.timestamp.isoformat(),
-                source=row.source,
-                position_source=normalize_position_source(row.source),
+                timestamp=latest_ts.isoformat() if latest_ts else now.isoformat(),
+                source=node_status.last_source if node_status is not None and node_status.last_source else (row.source if row is not None else None),
+                position_source=normalize_position_source(row.source if row is not None else None),
+                mesh_status=mesh_status,
+                last_packet_type=node_status.last_packet_type if node_status is not None else ("POSITION_APP" if row is not None else None),
+                last_gateway_id=node_status.last_gateway_id if node_status is not None else None,
+                last_topic=node_status.last_topic if node_status is not None else None,
+                packet_count=node_status.packet_count if node_status is not None else (1 if row is not None else 0),
             )
         )
 

@@ -401,7 +401,14 @@ export type DebugMeshDevice = {
   purpose: MeshDevicePurpose | string;
   is_active: boolean;
   is_connected: boolean;
+  mesh_status: "live" | "stale" | "offline" | "never_seen";
   last_seen_at: string | null;
+  last_packet_type: string | null;
+  last_gateway_id: string | null;
+  last_topic: string | null;
+  packet_count: number;
+  long_name: string | null;
+  short_name: string | null;
   battery_level: number | null;
   source: string | null;
   last_position: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;

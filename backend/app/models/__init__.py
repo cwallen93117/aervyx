@@ -60,6 +60,28 @@ class MeshDevice(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class MeshNodeStatus(Base):
+    __tablename__ = "mesh_node_statuses"
+    __table_args__ = (
+        UniqueConstraint("device_id", name="uq_mesh_node_statuses_device_id"),
+        Index("ix_mesh_node_statuses_last_seen_at", "last_seen_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_packet_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    last_source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    last_gateway_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    packet_count: Mapped[int] = mapped_column(Integer, default=0)
+    battery_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    long_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    short_name: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class SiteSettings(Base):
     __tablename__ = "site_settings"
 

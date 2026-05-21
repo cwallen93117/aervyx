@@ -343,6 +343,55 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 )
                 connection.execute(text(insert_sql))
 
+            if "mesh_node_statuses" not in table_names:
+                id_column = "id INTEGER PRIMARY KEY" if dialect_name == "sqlite" else "id SERIAL PRIMARY KEY"
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE mesh_node_statuses (
+                          {id_column},
+                          device_id VARCHAR(80) NOT NULL,
+                          last_seen_at TIMESTAMP NOT NULL,
+                          last_packet_type VARCHAR(40),
+                          last_source VARCHAR(32),
+                          last_gateway_id VARCHAR(80),
+                          last_topic VARCHAR(255),
+                          packet_count INTEGER NOT NULL DEFAULT 0,
+                          battery_level INTEGER,
+                          long_name VARCHAR(160),
+                          short_name VARCHAR(40),
+                          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                          CONSTRAINT uq_mesh_node_statuses_device_id UNIQUE (device_id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_mesh_node_statuses_last_seen_at ON mesh_node_statuses (last_seen_at)"))
+                table_names.add("mesh_node_statuses")
+            else:
+                mesh_node_status_columns = {column["name"] for column in inspector.get_columns("mesh_node_statuses")}
+                mesh_node_status_statements = {
+                    "last_seen_at": "ALTER TABLE mesh_node_statuses ADD COLUMN last_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    "last_packet_type": "ALTER TABLE mesh_node_statuses ADD COLUMN last_packet_type VARCHAR(40)",
+                    "last_source": "ALTER TABLE mesh_node_statuses ADD COLUMN last_source VARCHAR(32)",
+                    "last_gateway_id": "ALTER TABLE mesh_node_statuses ADD COLUMN last_gateway_id VARCHAR(80)",
+                    "last_topic": "ALTER TABLE mesh_node_statuses ADD COLUMN last_topic VARCHAR(255)",
+                    "packet_count": "ALTER TABLE mesh_node_statuses ADD COLUMN packet_count INTEGER NOT NULL DEFAULT 0",
+                    "battery_level": "ALTER TABLE mesh_node_statuses ADD COLUMN battery_level INTEGER",
+                    "long_name": "ALTER TABLE mesh_node_statuses ADD COLUMN long_name VARCHAR(160)",
+                    "short_name": "ALTER TABLE mesh_node_statuses ADD COLUMN short_name VARCHAR(40)",
+                    "created_at": "ALTER TABLE mesh_node_statuses ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                    "updated_at": "ALTER TABLE mesh_node_statuses ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+                }
+                for column_name, statement in mesh_node_status_statements.items():
+                    if column_name not in mesh_node_status_columns:
+                        connection.execute(text(statement))
+
+            existing_mesh_status_indexes = {idx["name"] for idx in inspector.get_indexes("mesh_node_statuses")}
+            if "ix_mesh_node_statuses_last_seen_at" not in existing_mesh_status_indexes:
+                connection.execute(text("CREATE INDEX ix_mesh_node_statuses_last_seen_at ON mesh_node_statuses (last_seen_at)"))
+
     if "events" not in table_names:
         return
 

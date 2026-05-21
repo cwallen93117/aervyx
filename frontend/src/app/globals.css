@@ -7527,6 +7527,10 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   background: rgba(34, 197, 94, 0.15);
   color: #22c55e;
 }
+.tracking-source-pill.stale {
+  background: rgba(245, 158, 11, 0.14);
+  color: #f59e0b;
+}
 .tracking-source-pill.offline {
   background: rgba(239, 68, 68, 0.14);
   color: #ef4444;

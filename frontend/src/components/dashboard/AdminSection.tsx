@@ -7,6 +7,7 @@ import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
+type MeshConnectionStatus = "live" | "stale" | "offline" | "never_seen";
 
 type MeshNode = {
   device_id: string;
@@ -17,8 +18,8 @@ type MeshNode = {
   device_purpose: string | null;
   registered_owner_user_id: number | null;
   registered_owner_name: string | null;
-  lat: number;
-  lon: number;
+  lat: number | null;
+  lon: number | null;
   alt: number | null;
   speed: number | null;
   heading: number | null;
@@ -26,6 +27,11 @@ type MeshNode = {
   timestamp: string;
   source: string | null;
   position_source: string;
+  mesh_status: MeshConnectionStatus;
+  last_packet_type: string | null;
+  last_gateway_id: string | null;
+  last_topic: string | null;
+  packet_count: number;
 };
 
 type MeshDeviceDebug = NonNullable<DebugStatusResponse["registered_mesh_devices"]>[number];
@@ -37,6 +43,7 @@ type MeshDeviceStatus = {
   purpose: string | null;
   isActive: boolean;
   isConnected: boolean;
+  meshStatus: MeshConnectionStatus;
   registeredOwnerUserId: number | null;
   registeredOwnerName: string | null;
   ownerPilotId: number | null;
@@ -44,6 +51,10 @@ type MeshDeviceStatus = {
   positionSource: string;
   batteryLevel: number | null;
   lastSeenAt: string | null;
+  lastPacketType: string | null;
+  lastGatewayId: string | null;
+  lastTopic: string | null;
+  packetCount: number;
   lastPosition: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
 };
 
@@ -1621,14 +1632,56 @@ function relativeTime(isoOrNull: string | null | undefined): string {
 function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange" | "red" {
   if (!isoOrNull) return "red";
   const diffMs = Date.now() - new Date(isoOrNull).getTime();
-  if (diffMs <= 30_000) return "green";
-  if (diffMs <= 120_000) return "orange";
+  if (diffMs <= 10 * 60_000) return "green";
+  if (diffMs <= 6 * 60 * 60_000) return "orange";
   return "red";
 }
 
-function isRecentTrackingFix(isoOrNull: string | null | undefined): boolean {
-  if (!isoOrNull) return false;
-  return Date.now() - new Date(isoOrNull).getTime() < 60_000;
+function meshStatusLabel(status: MeshConnectionStatus | null | undefined): string {
+  switch (status) {
+    case "live":
+      return "Live";
+    case "stale":
+      return "Stale";
+    case "offline":
+      return "Offline";
+    default:
+      return "Never seen";
+  }
+}
+
+function meshStatusClass(status: MeshConnectionStatus | null | undefined): string {
+  if (status === "live") return "";
+  if (status === "stale") return " stale";
+  return " offline";
+}
+
+function meshStatusColor(status: MeshConnectionStatus | null | undefined): string {
+  if (status === "live") return "#22c55e";
+  if (status === "stale") return "#f59e0b";
+  return "#ef4444";
+}
+
+function packetTypeLabel(packetType: string | null | undefined): string | null {
+  if (!packetType) return null;
+  const labels: Record<string, string> = {
+    POSITION_APP: "Position",
+    NODEINFO_APP: "NodeInfo",
+    TELEMETRY_APP: "Telemetry",
+    NEIGHBORINFO_APP: "NeighborInfo",
+    MAP_REPORT_APP: "MapReport",
+    ROUTING_APP: "Routing",
+    UNKNOWN_APP: "Unknown",
+  };
+  return labels[packetType] ?? packetType.replace(/^unknown_/, "Unknown ");
+}
+
+function meshDiagnostic(device: MeshDeviceStatus): string {
+  const packet = packetTypeLabel(device.lastPacketType);
+  if (!packet) return device.lastSeenAt ? "Packet heard" : "No MQTT packets heard";
+  if (device.lastGatewayId && device.lastGatewayId !== device.deviceId) return `${packet} via ${device.lastGatewayId}`;
+  if (device.lastGatewayId) return `Gateway saw ${packet}`;
+  return packet;
 }
 
 function latestTimestamp(left: string | null | undefined, right: string | null | undefined): string | null {
@@ -1645,6 +1698,7 @@ function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
     purpose: device.purpose,
     isActive: device.is_active,
     isConnected: device.is_connected,
+    meshStatus: device.mesh_status,
     registeredOwnerUserId: device.owner_user_id,
     registeredOwnerName: device.owner_name,
     ownerPilotId: device.owner_pilot_id,
@@ -1652,6 +1706,10 @@ function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
     positionSource: "mesh",
     batteryLevel: device.battery_level,
     lastSeenAt: device.last_seen_at,
+    lastPacketType: device.last_packet_type,
+    lastGatewayId: device.last_gateway_id,
+    lastTopic: device.last_topic,
+    packetCount: device.packet_count,
     lastPosition: device.last_position,
   };
 }
@@ -1663,7 +1721,8 @@ function meshDeviceFromNode(node: MeshNode): MeshDeviceStatus {
     label: node.device_label,
     purpose: node.device_purpose,
     isActive: true,
-    isConnected: isRecentTrackingFix(node.timestamp),
+    isConnected: node.mesh_status === "live",
+    meshStatus: node.mesh_status,
     registeredOwnerUserId: node.registered_owner_user_id,
     registeredOwnerName: node.registered_owner_name,
     ownerPilotId: node.pilot_id,
@@ -1671,13 +1730,17 @@ function meshDeviceFromNode(node: MeshNode): MeshDeviceStatus {
     positionSource: node.position_source,
     batteryLevel: node.battery_level,
     lastSeenAt: node.timestamp,
-    lastPosition: {
+    lastPacketType: node.last_packet_type,
+    lastGatewayId: node.last_gateway_id,
+    lastTopic: node.last_topic,
+    packetCount: node.packet_count,
+    lastPosition: node.lat != null && node.lon != null ? {
       lat: node.lat,
       lon: node.lon,
       alt: node.alt,
       speed: node.speed,
       heading: node.heading,
-    },
+    } : null,
   };
 }
 
@@ -1887,8 +1950,8 @@ function LiveTrackingTab({
                 <th>Device ID</th>
                 <th>Task</th>
                 <th>Battery</th>
-                <th>Positions</th>
-                <th>Last Fix</th>
+                <th>Fix / Packets</th>
+                <th>Last Heard</th>
               </tr>
             </thead>
             <tbody>
@@ -1907,12 +1970,14 @@ function LiveTrackingTab({
                     const deviceTs = device.lastSeenAt ? new Date(device.lastSeenAt).getTime() : 0;
                     return deviceTs > latestTs ? device : latest;
                   }, null);
+                  const meshSummaryStatus = newestMeshDevice?.meshStatus ?? (hasConnectedMesh ? "live" : "never_seen");
                   const sessionTs = d.session?.last_seen_at ? new Date(d.session.last_seen_at).getTime() : 0;
                   const meshTs = newestMeshDevice?.lastSeenAt ? new Date(newestMeshDevice.lastSeenAt).getTime() : 0;
                   const battery = sessionTs >= meshTs
                     ? (d.session?.battery_level ?? newestMeshDevice?.batteryLevel ?? null)
                     : (newestMeshDevice?.batteryLevel ?? d.session?.battery_level ?? null);
                   const deviceIdHint = d.session?.device_id ?? (d.meshDevices.length === 1 ? d.meshDevices[0].deviceId : null);
+                  const meshPacketCount = d.meshDevices.reduce((total, device) => total + (device.packetCount || 0), 0);
                   const purposeSummary = d.meshDevices.length === 0
                     ? "Unregistered"
                     : d.meshDevices.length === 1
@@ -1949,12 +2014,16 @@ function LiveTrackingTab({
                         <td>{newestMeshDevice?.registeredOwnerName ?? (d.pilot_id != null ? d.pilot_name : "\u2014")}</td>
                         <td>
                           {d.hasPhone && <span className="tracking-source-pill phone">Phone</span>}
-                          {d.hasMesh && <span className={`tracking-source-pill mesh${hasConnectedMesh ? "" : " offline"}`}>Mesh</span>}
+                          {d.hasMesh && (
+                            <span className={`tracking-source-pill mesh${meshStatusClass(meshSummaryStatus)}`} title={newestMeshDevice ? meshDiagnostic(newestMeshDevice) : undefined}>
+                              Mesh {meshStatusLabel(meshSummaryStatus)}
+                            </span>
+                          )}
                         </td>
                         <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{deviceIdHint ?? "\u2014"}</td>
                         <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
                         <td>{battery != null ? `${battery}%` : "\u2014"}</td>
-                        <td>{d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
+                        <td>{meshPacketCount ? meshPacketCount.toLocaleString() : d.session ? d.session.position_count.toLocaleString() : "\u2014"}</td>
                         <td style={{ color: lastFixColor }}>{relativeTime(d.lastSeenAt)}</td>
                       </tr>
                       {isExpanded && (
@@ -1990,7 +2059,7 @@ function LiveTrackingTab({
                           {d.meshDevices.map((meshDevice) => {
                             const meshFixColor = lastSeenColor(meshDevice.lastSeenAt);
                             const meshLastFixColor = meshFixColor === "green" ? "inherit" : meshFixColor === "orange" ? "#f59e0b" : "#ef4444";
-                            const meshDotColor = meshDevice.isConnected ? "#22c55e" : "#ef4444";
+                            const meshDotColor = meshStatusColor(meshDevice.meshStatus);
                             return (
                               <tr
                                 key={`${d.key}-${meshDevice.deviceId}`}
@@ -2007,24 +2076,24 @@ function LiveTrackingTab({
                                 <td>
                                   <span
                                     style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: meshDotColor, marginRight: "4px" }}
-                                    title={meshDevice.isConnected ? "Connected" : "Offline"}
+                                    title={meshStatusLabel(meshDevice.meshStatus)}
                                   />
                                 </td>
                                 <td>
                                   <strong>{meshDevice.label ?? meshDevice.deviceId}</strong>
-                                  <div className="hint">{meshDevice.source ?? "Mesh"}</div>
+                                  <div className="hint">{meshDiagnostic(meshDevice)}</div>
                                 </td>
                                 <td>{meshPurposeLabel(meshDevice.purpose)}</td>
                                 <td>{meshDevice.registeredOwnerName ?? d.pilot_name}</td>
                                 <td>
-                                  <span className={`tracking-source-pill mesh${meshDevice.isConnected ? "" : " offline"}`}>
-                                    {meshDevice.isConnected ? "Connected" : "Offline"}
+                                  <span className={`tracking-source-pill mesh${meshStatusClass(meshDevice.meshStatus)}`}>
+                                    {meshStatusLabel(meshDevice.meshStatus)}
                                   </span>
                                 </td>
                                 <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{meshDevice.deviceId}</td>
                                 <td>{meshDevice.isActive ? "Active" : "Inactive"}</td>
                                 <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
-                                <td>{formatDebugPosition(meshDevice.lastPosition)}</td>
+                                <td>{meshDevice.lastPosition ? formatDebugPosition(meshDevice.lastPosition) : (meshDevice.lastSeenAt ? "No GPS fix" : "-")}</td>
                                 <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
                               </tr>
                             );

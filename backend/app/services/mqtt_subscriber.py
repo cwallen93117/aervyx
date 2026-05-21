@@ -34,13 +34,14 @@ import logging
 import struct
 import threading
 import time
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
 from app.db import SessionLocal
-from app.models import MeshDevice, SiteSettings, User
+from app.models import MeshDevice, MeshNodeStatus, SiteSettings, User
 from app.services.tracking import (
     LIVE_POSITION_RETENTION_DAYS,
     prune_old_live_positions,
@@ -63,6 +64,61 @@ mqtt_reconnect_event: threading.Event | None = None
 # subsequent POSITION_APP messages for the same device.
 _battery_cache: dict[str, tuple[int, float]] = {}
 _BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
+
+PORTNUM_PACKET_TYPES = {
+    3: "POSITION_APP",
+    4: "NODEINFO_APP",
+    5: "ROUTING_APP",
+    67: "TELEMETRY_APP",
+    71: "NEIGHBORINFO_APP",
+    73: "MAP_REPORT_APP",
+}
+
+
+@dataclass
+class DecodedMeshEnvelope:
+    from_node: int | None
+    portnum: int | None
+    payload_bytes: bytes | None
+    gateway_id: str | None = None
+    channel_id: str | None = None
+
+
+def _normalize_mesh_node_id(value: str | None) -> str | None:
+    candidate = (value or "").strip().lower()
+    if not candidate:
+        return None
+    if candidate.startswith("!"):
+        return candidate
+    if len(candidate) == 8 and all(ch in "0123456789abcdef" for ch in candidate):
+        return f"!{candidate}"
+    return candidate
+
+
+def _format_node_id(node_num: int | None) -> str | None:
+    return f"!{node_num:08x}" if node_num is not None else None
+
+
+def _packet_type_for_portnum(portnum: int | None) -> str:
+    if portnum is None:
+        return "UNKNOWN_APP"
+    return PORTNUM_PACKET_TYPES.get(portnum, f"unknown_{portnum}")
+
+
+def _decode_string(raw: bytes | None) -> str | None:
+    if not raw:
+        return None
+    try:
+        return raw.decode("utf-8", errors="ignore").strip() or None
+    except Exception:
+        return None
+
+
+def _gateway_id_from_topic(topic: str | None) -> str | None:
+    if not topic:
+        return None
+    candidate = topic.strip().split("/")[-1]
+    return _normalize_mesh_node_id(candidate)
 
 
 def _parse_position(raw: bytes | bytearray) -> dict | None:
@@ -212,16 +268,18 @@ def _get_sfixed32(fields: dict, field_number: int) -> int | None:
     return None
 
 
-def _decode_mesh_envelope(raw: bytes) -> tuple[int | None, int | None, bytes | None] | None:
+def _decode_mesh_envelope(raw: bytes) -> DecodedMeshEnvelope | None:
     """Decode a Meshtastic ServiceEnvelope → MeshPacket → Data.
 
-    Returns ``(from_node, portnum, payload_bytes)`` or ``None`` on failure.
+    Returns a decoded envelope or ``None`` on failure.
     """
     try:
         envelope_fields = _parse_protobuf_fields(raw)
         mesh_packet_bytes = _get_bytes(envelope_fields, 1)
         if mesh_packet_bytes is None:
             return None
+        channel_id = _decode_string(_get_bytes(envelope_fields, 2))
+        gateway_id = _normalize_mesh_node_id(_decode_string(_get_bytes(envelope_fields, 3)))
 
         mp_fields = _parse_protobuf_fields(mesh_packet_bytes)
         from_node = _get_fixed32(mp_fields, 1)
@@ -235,13 +293,19 @@ def _decode_mesh_envelope(raw: bytes) -> tuple[int | None, int | None, bytes | N
         portnum = _get_varint(data_fields, 1)
         payload_bytes = _get_bytes(data_fields, 2)
 
-        return from_node, portnum, payload_bytes
+        return DecodedMeshEnvelope(
+            from_node=from_node,
+            portnum=portnum,
+            payload_bytes=payload_bytes,
+            gateway_id=gateway_id,
+            channel_id=channel_id,
+        )
     except (ValueError, struct.error, IndexError, KeyError) as exc:
         logger.debug("Failed to decode protobuf ServiceEnvelope: %s", exc)
         return None
 
 
-def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> None:
+def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> int | None:
     """Decode a TELEMETRY_APP payload and cache battery level by device_id.
 
     Meshtastic Telemetry message layout:
@@ -257,7 +321,7 @@ def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> None:
     """
     device_id = f"!{from_node:08x}" if from_node is not None else None
     if not device_id:
-        return
+        return None
 
     try:
         telemetry_fields = _parse_protobuf_fields(raw)
@@ -266,7 +330,7 @@ def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> None:
         metrics_bytes = _get_bytes(telemetry_fields, 2)
         if metrics_bytes is None:
             # Could be environment_metrics or power_metrics — not device_metrics
-            return
+            return None
 
         metrics_fields = _parse_protobuf_fields(metrics_bytes)
 
@@ -275,9 +339,11 @@ def _parse_protobuf_telemetry(raw: bytes, from_node: int | None) -> None:
         if battery is not None and 0 <= battery <= 100:
             _battery_cache[device_id] = (battery, time.time())
             logger.debug("Cached battery for %s: %d%%", device_id, battery)
+            return battery
 
     except (ValueError, struct.error, IndexError, KeyError) as exc:
         logger.debug("Failed to decode Telemetry payload: %s", exc)
+    return None
 
 
 def _get_cached_battery(device_id: str | None) -> int | None:
@@ -289,6 +355,84 @@ def _get_cached_battery(device_id: str | None) -> int | None:
         del _battery_cache[device_id]
         return None
     return battery
+
+
+def _parse_protobuf_node_info(raw: bytes) -> dict[str, str | None]:
+    """Decode the small subset of User/NodeInfo fields useful for debugging."""
+    try:
+        fields = _parse_protobuf_fields(raw)
+    except (ValueError, struct.error, IndexError, KeyError) as exc:
+        logger.debug("Failed to decode NodeInfo payload: %s", exc)
+        return {"device_id": None, "long_name": None, "short_name": None}
+
+    return {
+        "device_id": _normalize_mesh_node_id(_decode_string(_get_bytes(fields, 1))),
+        "long_name": _decode_string(_get_bytes(fields, 2)),
+        "short_name": _decode_string(_get_bytes(fields, 3)),
+    }
+
+
+def _status_details_from_decoded(decoded: DecodedMeshEnvelope) -> dict[str, object | None]:
+    device_id = _format_node_id(decoded.from_node)
+    packet_type = _packet_type_for_portnum(decoded.portnum)
+    battery_level: int | None = None
+    long_name: str | None = None
+    short_name: str | None = None
+
+    if decoded.portnum == 67 and decoded.payload_bytes:
+        battery_level = _parse_protobuf_telemetry(decoded.payload_bytes, decoded.from_node)
+    elif decoded.portnum == 4 and decoded.payload_bytes:
+        node_info = _parse_protobuf_node_info(decoded.payload_bytes)
+        device_id = node_info.get("device_id") or device_id
+        long_name = node_info.get("long_name")
+        short_name = node_info.get("short_name")
+
+    return {
+        "device_id": _normalize_mesh_node_id(device_id),
+        "packet_type": packet_type,
+        "battery_level": battery_level,
+        "long_name": long_name,
+        "short_name": short_name,
+    }
+
+
+def _record_mesh_node_status(
+    session,
+    *,
+    device_id: str | None,
+    packet_type: str,
+    seen_at: datetime,
+    gateway_id: str | None = None,
+    topic: str | None = None,
+    battery_level: int | None = None,
+    long_name: str | None = None,
+    short_name: str | None = None,
+) -> MeshNodeStatus | None:
+    normalized = _normalize_mesh_node_id(device_id)
+    if normalized is None:
+        return None
+
+    status = session.scalar(select(MeshNodeStatus).where(MeshNodeStatus.device_id == normalized))
+    if status is None:
+        status = MeshNodeStatus(
+            device_id=normalized,
+            last_seen_at=seen_at,
+            packet_count=0,
+        )
+    status.last_seen_at = seen_at
+    status.last_packet_type = packet_type
+    status.last_source = "mqtt_gateway"
+    status.last_gateway_id = _normalize_mesh_node_id(gateway_id)
+    status.last_topic = topic[:255] if topic else None
+    status.packet_count = (status.packet_count or 0) + 1
+    if battery_level is not None:
+        status.battery_level = battery_level
+    if long_name:
+        status.long_name = long_name[:160]
+    if short_name:
+        status.short_name = short_name[:40]
+    session.add(status)
+    return status
 
 
 def _parse_protobuf_position(raw: bytes) -> dict | None:
@@ -303,8 +447,10 @@ def _parse_protobuf_position(raw: bytes) -> dict | None:
     if decoded is None:
         return None
 
-    from_node, portnum, payload_bytes = decoded
-    device_id = f"!{from_node:08x}" if from_node is not None else None
+    from_node = decoded.from_node
+    portnum = decoded.portnum
+    payload_bytes = decoded.payload_bytes
+    device_id = _format_node_id(from_node)
 
     # Handle TELEMETRY_APP (portnum 67) — cache battery, no position to return
     if portnum == 67 and payload_bytes:
@@ -456,30 +602,75 @@ def request_mqtt_reconnect() -> None:
         mqtt_reconnect_event.set()
 
 
-def _handle_message(payload: bytes) -> None:
+def _handle_message(payload: bytes, topic: str | None = None) -> None:
     """Process a single MQTT message payload."""
     parsed = _parse_position(payload)
+    decoded: DecodedMeshEnvelope | None = None
     if parsed is None:
+        decoded = _decode_mesh_envelope(payload)
+        if decoded is None:
+            return
         parsed = _parse_protobuf_position(payload)
-    if parsed is None:
+    if parsed is None and decoded is None:
         return
 
     global mqtt_last_message_at
+    seen_at = datetime.now(UTC)
 
     session = SessionLocal()
     try:
-        mesh_user, mesh_device = resolve_mesh_device_assignment(session, parsed.get("device_id"))
-        if mesh_user is None and mesh_device is None:
-            return
+        if parsed is not None and decoded is None:
+            _record_mesh_node_status(
+                session,
+                device_id=parsed.get("device_id"),
+                packet_type="POSITION_APP",
+                seen_at=seen_at,
+                topic=topic,
+                battery_level=parsed.get("battery_level"),
+            )
 
-        parsed["pilot_id"] = mesh_user.pilot_id if mesh_user is not None else None
-        if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
-            parsed["task_id"] = resolve_active_task_id(session, parsed["pilot_id"])
-        store_position(session, **parsed)
+        if decoded is not None:
+            gateway_id = _gateway_id_from_topic(topic) or decoded.gateway_id
+            details = _status_details_from_decoded(decoded)
+            packet_type = str(details["packet_type"])
+            sender_id = _normalize_mesh_node_id(details.get("device_id") if isinstance(details.get("device_id"), str) else None)
+
+            if gateway_id is not None:
+                _record_mesh_node_status(
+                    session,
+                    device_id=gateway_id,
+                    packet_type=packet_type,
+                    seen_at=seen_at,
+                    gateway_id=gateway_id,
+                    topic=topic,
+                    battery_level=details.get("battery_level") if sender_id == gateway_id and isinstance(details.get("battery_level"), int) else None,
+                    long_name=details.get("long_name") if sender_id == gateway_id and isinstance(details.get("long_name"), str) else None,
+                    short_name=details.get("short_name") if sender_id == gateway_id and isinstance(details.get("short_name"), str) else None,
+                )
+            if sender_id is not None and sender_id != gateway_id:
+                _record_mesh_node_status(
+                    session,
+                    device_id=sender_id,
+                    packet_type=packet_type,
+                    seen_at=seen_at,
+                    gateway_id=gateway_id,
+                    topic=topic,
+                    battery_level=details.get("battery_level") if isinstance(details.get("battery_level"), int) else None,
+                    long_name=details.get("long_name") if isinstance(details.get("long_name"), str) else None,
+                    short_name=details.get("short_name") if isinstance(details.get("short_name"), str) else None,
+                )
+
+        if parsed is not None:
+            mesh_user, mesh_device = resolve_mesh_device_assignment(session, parsed.get("device_id"))
+            if mesh_user is not None or mesh_device is not None:
+                parsed["pilot_id"] = mesh_user.pilot_id if mesh_user is not None else None
+                if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
+                    parsed["task_id"] = resolve_active_task_id(session, parsed["pilot_id"])
+                store_position(session, **parsed)
         session.commit()
-        mqtt_last_message_at = datetime.now(UTC)
+        mqtt_last_message_at = seen_at
     except Exception:
-        logger.exception("Failed to store MQTT position")
+        logger.exception("Failed to process MQTT message")
         session.rollback()
     finally:
         session.close()
@@ -553,7 +744,7 @@ def _paho_subscribe_loop() -> None:
                 print(f"[MQTT] Message #{_msg_count[0]}: {msg.topic} ({len(msg.payload)} bytes)", flush=True)
             payload = msg.payload
             if isinstance(payload, (bytes, bytearray)):
-                _handle_message(payload)
+                _handle_message(payload, topic=getattr(msg, "topic", None))
 
         client.on_connect = on_connect
         client.on_disconnect = on_disconnect

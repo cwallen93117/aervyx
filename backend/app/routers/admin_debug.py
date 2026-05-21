@@ -10,9 +10,12 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import require_admin
-from app.models import LivePosition, MeshDevice, Pilot, SosAlert, Task, TrackingSession, User
+from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, SosAlert, Task, TrackingSession, User
 
 router = APIRouter(tags=["admin-debug"])
+
+MESH_STATUS_LIVE_SECONDS = 10 * 60
+MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
 
 
 def _age_seconds(now: datetime, value: datetime | None) -> float | None:
@@ -23,9 +26,28 @@ def _age_seconds(now: datetime, value: datetime | None) -> float | None:
     return (now - value).total_seconds()
 
 
+def _timestamp_value(value: datetime | None) -> float:
+    if value is None:
+        return 0
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.timestamp()
+
+
 def _is_recent(now: datetime, value: datetime | None, *, seconds: int = 60) -> bool:
     age = _age_seconds(now, value)
     return age is not None and age < seconds
+
+
+def mesh_status_for_seen_at(now: datetime, value: datetime | None) -> str:
+    age = _age_seconds(now, value)
+    if age is None:
+        return "never_seen"
+    if age < MESH_STATUS_LIVE_SECONDS:
+        return "live"
+    if age < MESH_STATUS_STALE_SECONDS:
+        return "stale"
+    return "offline"
 
 
 @router.get("/api/admin/debug/status")
@@ -157,6 +179,7 @@ def admin_debug_status(
 
     registered_device_ids = [device.device_id for device, *_ in registered_device_rows]
     latest_by_device: dict[str, object] = {}
+    status_by_device: dict[str, MeshNodeStatus] = {}
     if registered_device_ids:
         row_num = func.row_number().over(
             partition_by=LivePosition.device_id,
@@ -169,11 +192,21 @@ def admin_debug_status(
         )
         latest_rows = session.execute(select(latest_subq).where(latest_subq.c.rn == 1)).all()
         latest_by_device = {row.device_id: row for row in latest_rows if row.device_id}
+        statuses = session.scalars(
+            select(MeshNodeStatus).where(MeshNodeStatus.device_id.in_(registered_device_ids))
+        ).all()
+        status_by_device = {status.device_id: status for status in statuses}
 
     registered_mesh_devices = []
     for device, owner_user_id, owner_name, owner_pilot_id in registered_device_rows:
         latest_pos = latest_by_device.get(device.device_id)
-        latest_ts = getattr(latest_pos, "timestamp", None)
+        node_status = status_by_device.get(device.device_id)
+        status_ts = node_status.last_seen_at if node_status is not None else None
+        latest_pos_ts = getattr(latest_pos, "timestamp", None)
+        latest_ts = status_ts
+        if latest_pos_ts is not None and _timestamp_value(latest_pos_ts) > _timestamp_value(latest_ts):
+            latest_ts = latest_pos_ts
+        mesh_status = mesh_status_for_seen_at(now, latest_ts)
         registered_mesh_devices.append({
             "owner_user_id": owner_user_id,
             "owner_name": owner_name,
@@ -182,10 +215,25 @@ def admin_debug_status(
             "label": device.label,
             "purpose": device.purpose,
             "is_active": device.is_active,
-            "is_connected": _is_recent(now, latest_ts),
+            "is_connected": mesh_status == "live",
+            "mesh_status": mesh_status,
             "last_seen_at": latest_ts.isoformat() if latest_ts else None,
-            "battery_level": getattr(latest_pos, "battery_level", None) if latest_pos is not None else None,
-            "source": getattr(latest_pos, "source", None) if latest_pos is not None else None,
+            "last_packet_type": node_status.last_packet_type if node_status is not None else ("POSITION_APP" if latest_pos is not None else None),
+            "last_gateway_id": node_status.last_gateway_id if node_status is not None else None,
+            "last_topic": node_status.last_topic if node_status is not None else None,
+            "packet_count": node_status.packet_count if node_status is not None else (1 if latest_pos is not None else 0),
+            "long_name": node_status.long_name if node_status is not None else None,
+            "short_name": node_status.short_name if node_status is not None else None,
+            "battery_level": (
+                node_status.battery_level
+                if node_status is not None and node_status.battery_level is not None
+                else getattr(latest_pos, "battery_level", None) if latest_pos is not None else None
+            ),
+            "source": (
+                node_status.last_source
+                if node_status is not None and node_status.last_source is not None
+                else getattr(latest_pos, "source", None) if latest_pos is not None else None
+            ),
             "last_position": (
                 {
                     "lat": latest_pos.lat,
