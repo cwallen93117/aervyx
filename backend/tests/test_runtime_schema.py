@@ -36,6 +36,9 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
         "mqtt_broker_mode",
         "mqtt_host",
         "mqtt_port",
+        "mqtt_tls_enabled",
+        "mqtt_username",
+        "mqtt_password",
         "mqtt_topic_prefix",
         "mqtt_channel_psk",
         "mesh_profiles",
@@ -45,7 +48,7 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
         row = connection.execute(
             text(
                 """
-                SELECT mqtt_enabled, mqtt_broker_mode, mqtt_port, mqtt_topic_prefix
+                SELECT mqtt_enabled, mqtt_broker_mode, mqtt_port, mqtt_tls_enabled, mqtt_topic_prefix
                 FROM site_settings
                 WHERE id = 1
                 """
@@ -55,4 +58,5 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
     assert bool(row.mqtt_enabled) is True
     assert row.mqtt_broker_mode == "public"
     assert row.mqtt_port == 1883
+    assert bool(row.mqtt_tls_enabled) is False
     assert row.mqtt_topic_prefix == "msh"

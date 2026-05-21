@@ -1297,6 +1297,49 @@ export default function AdminSection(props: AdminSectionProps) {
                         }
                       />
                     </label>
+                    <label className="stack compact">
+                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                        <input
+                          type="checkbox"
+                          checked={siteSettings.mqtt_tls_enabled ?? false}
+                          onChange={(event) =>
+                            setSiteSettings((current) => ({
+                              ...current,
+                              mqtt_tls_enabled: event.target.checked,
+                            }))
+                          }
+                        />
+                        TLS enabled
+                      </span>
+                    </label>
+                    <label className="stack compact">
+                      <span>MQTT username</span>
+                      <input
+                        type="text"
+                        placeholder="Fleet username"
+                        value={siteSettings.mqtt_username ?? ""}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_username: event.target.value || null,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="stack compact">
+                      <span>MQTT password</span>
+                      <input
+                        type="password"
+                        placeholder="Fleet password"
+                        value={siteSettings.mqtt_password ?? ""}
+                        onChange={(event) =>
+                          setSiteSettings((current) => ({
+                            ...current,
+                            mqtt_password: event.target.value || null,
+                          }))
+                        }
+                      />
+                    </label>
                   </>
                 )}
                 <label className="stack compact">

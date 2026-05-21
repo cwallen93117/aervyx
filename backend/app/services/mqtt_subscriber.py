@@ -43,6 +43,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 import paho.mqtt.client as paho_mqtt
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.db import SessionLocal
 from app.models import MeshDevice, MeshNodeStatus, SiteSettings, User
 from app.services.mesh_ids import normalize_mesh_device_id
@@ -713,23 +714,35 @@ def _read_registered_mesh_device_ids_from_db() -> list[str]:
         session.close()
 
 
-def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str | None]:
+def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str | None, bool]:
     """Read MQTT broker settings from the site_settings DB row.
 
-    Returns ``(host, port, topic_prefix, username, password)``.  If the row
+    Returns ``(host, port, topic_prefix, username, password, tls_enabled)``.  If the row
     doesn't exist or MQTT is disabled, ``host`` will be ``None``.
     """
     session = SessionLocal()
     try:
         site = session.get(SiteSettings, 1)
         if site is None or not site.mqtt_enabled:
-            return None, 1883, "msh", None, None
+            return None, 1883, "msh", None, None, False
         is_public = site.mqtt_broker_mode == "public"
-        host = "mqtt.meshtastic.org" if is_public else site.mqtt_host
-        # Public Meshtastic broker requires well-known credentials
-        username = "meshdev" if is_public else None
-        password = "large4cats" if is_public else None
-        return host, site.mqtt_port, site.mqtt_topic_prefix, username, password
+        if is_public:
+            # Public Meshtastic broker requires well-known credentials.
+            return "mqtt.meshtastic.org", site.mqtt_port, site.mqtt_topic_prefix, "meshdev", "large4cats", False
+
+        settings = get_settings()
+        internal_host = getattr(settings, "mqtt_host", None)
+        if internal_host:
+            return internal_host, getattr(settings, "mqtt_port", 1883), site.mqtt_topic_prefix, None, None, False
+
+        return (
+            site.mqtt_host,
+            site.mqtt_port,
+            site.mqtt_topic_prefix,
+            site.mqtt_username,
+            site.mqtt_password,
+            site.mqtt_tls_enabled,
+        )
     finally:
         session.close()
 
@@ -824,7 +837,7 @@ def _paho_subscribe_loop() -> None:
     global mqtt_connected
 
     while True:
-        host, port, topic_prefix, username, password = _read_mqtt_config_from_db()
+        host, port, topic_prefix, username, password, tls_enabled = _read_mqtt_config_from_db()
         if not host:
             print("[MQTT] Not configured or disabled — sleeping 30s", flush=True)
             mqtt_connected = False
@@ -860,6 +873,8 @@ def _paho_subscribe_loop() -> None:
 
         if username:
             client.username_pw_set(username, password)
+        if tls_enabled:
+            client.tls_set()
 
         connected_event = threading.Event()
 

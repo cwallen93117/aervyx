@@ -95,6 +95,9 @@ class MeshConfigResponse(BaseModel):
     channel_psk: str | None = None
     mqtt_host: str | None = None
     mqtt_port: int = 1883
+    mqtt_tls_enabled: bool = False
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
     topic_prefix: str = "aervyx"
 
 
@@ -464,13 +467,20 @@ def get_mesh_config(
             channel_psk=getattr(settings, "mesh_channel_psk", None),
             mqtt_host=getattr(settings, "mqtt_host", None),
             mqtt_port=getattr(settings, "mqtt_port", 1883),
+            mqtt_tls_enabled=getattr(settings, "mqtt_tls_enabled", False),
+            mqtt_username=getattr(settings, "mqtt_username", None),
+            mqtt_password=getattr(settings, "mqtt_password", None),
             topic_prefix=getattr(settings, "mesh_mqtt_topic_prefix", "aervyx"),
         )
-    mqtt_host = "mqtt.meshtastic.org" if site.mqtt_broker_mode == "public" else site.mqtt_host
+    is_public = site.mqtt_broker_mode == "public"
+    mqtt_host = "mqtt.meshtastic.org" if is_public else site.mqtt_host
     return MeshConfigResponse(
         channel_psk=site.mqtt_channel_psk,
         mqtt_host=mqtt_host,
         mqtt_port=site.mqtt_port,
+        mqtt_tls_enabled=False if is_public else site.mqtt_tls_enabled,
+        mqtt_username="meshdev" if is_public else site.mqtt_username,
+        mqtt_password="large4cats" if is_public else site.mqtt_password,
         topic_prefix=site.mqtt_topic_prefix,
     )
 

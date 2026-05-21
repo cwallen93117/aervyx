@@ -201,6 +201,10 @@ What it does:
 7. runs backend and frontend health checks
 8. records the deployed SHA in `/srv/aervyx-staging/hooks/last-deployed.txt`
 
+For private Meshtastic MQTT setup, see `docs/private-mqtt-broker.md`. The stack
+includes Mosquitto by default; public TLS on `8883` is enabled with VM-managed
+certificates, credentials, and a listener snippet.
+
 ## Backups
 
 Install the backup timer:

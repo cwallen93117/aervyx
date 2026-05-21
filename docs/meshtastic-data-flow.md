@@ -174,6 +174,8 @@ Your devices --> mesh --> only YOUR configured nodes --> your broker
 - No benefit from public nodes -- strangers cannot relay to your broker because
   they do not have your credentials
 - You must run and maintain the broker infrastructure
+- Aervyx's Docker stack includes Mosquitto for this path; see
+  `docs/private-mqtt-broker.md` for the VM listener and credential setup.
 
 ---
 

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -222,6 +222,7 @@ def _get_site_settings(session: Session) -> SiteSettings:
             mqtt_enabled=True,
             mqtt_broker_mode="public",
             mqtt_port=1883,
+            mqtt_tls_enabled=False,
             mqtt_topic_prefix="msh",
             mesh_profiles=DEFAULT_MESH_PROFILES,
         )
@@ -242,6 +243,9 @@ def update_site_settings(
     _: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ) -> SiteSettingsResponse:
+    if payload.mqtt_broker_mode == "private" and not payload.mqtt_host:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Private MQTT mode requires an MQTT host.")
+
     settings = _get_site_settings(session)
     settings.telemetry_vario_smoothing_seconds = payload.telemetry_vario_smoothing_seconds
     settings.telemetry_altitude_smoothing_seconds = payload.telemetry_altitude_smoothing_seconds
@@ -253,6 +257,9 @@ def update_site_settings(
     settings.mqtt_broker_mode = payload.mqtt_broker_mode
     settings.mqtt_host = payload.mqtt_host
     settings.mqtt_port = payload.mqtt_port
+    settings.mqtt_tls_enabled = payload.mqtt_tls_enabled
+    settings.mqtt_username = payload.mqtt_username
+    settings.mqtt_password = payload.mqtt_password
     settings.mqtt_topic_prefix = payload.mqtt_topic_prefix
     settings.mqtt_channel_psk = payload.mqtt_channel_psk
     if payload.mesh_profiles is not None:

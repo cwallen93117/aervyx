@@ -213,6 +213,9 @@ class SiteSettingsResponse(BaseModel):
     mqtt_broker_mode: str = "public"
     mqtt_host: str | None = None
     mqtt_port: int = 1883
+    mqtt_tls_enabled: bool = False
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
     mqtt_topic_prefix: str = "msh"
     mqtt_channel_psk: str | None = None
     mesh_profiles: dict | None = None
@@ -232,6 +235,9 @@ class SiteSettingsUpdate(BaseModel):
     mqtt_broker_mode: str = "public"
     mqtt_host: str | None = None
     mqtt_port: int = 1883
+    mqtt_tls_enabled: bool = False
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
     mqtt_topic_prefix: str = "msh"
     mqtt_channel_psk: str | None = None
     mesh_profiles: dict | None = None

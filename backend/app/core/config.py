@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     mesh_channel_psk: str | None = None
     mqtt_host: str | None = None
     mqtt_port: int = 1883
+    mqtt_tls_enabled: bool = False
+    mqtt_username: str | None = None
+    mqtt_password: str | None = None
     mesh_mqtt_topic_prefix: str = "aervyx"
     valhalla_url: str = "http://valhalla:8002"
     integration_secret_key: str | None = None

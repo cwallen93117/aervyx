@@ -187,10 +187,22 @@ class BleService extends ChangeNotifier {
   // ── Cached platform MQTT config (fetched from server) ──
   String? _platformMqttHost;
   int _platformMqttPort = 1883;
+  bool _platformMqttTlsEnabled = false;
+  String? _platformMqttUsername;
+  String? _platformMqttPassword;
   String _platformMqttTopicPrefix = 'msh';
   String? _platformMqttPsk;
 
   BleService(this._api);
+
+  String _platformMqttAddressForRadio() {
+    final host = _platformMqttHost ?? 'mqtt.meshtastic.org';
+    final defaultPort = _platformMqttTlsEnabled ? 8883 : 1883;
+    if (_platformMqttPort > 0 && _platformMqttPort != defaultPort && !host.contains(':')) {
+      return '$host:$_platformMqttPort';
+    }
+    return host;
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // Platform config sync — called once per app open when authenticated
@@ -208,6 +220,9 @@ class BleService extends ChangeNotifier {
       final meshConfig = await _api.get(ApiConfig.meshConfigPath);
       _platformMqttHost = meshConfig['mqtt_host'] as String?;
       _platformMqttPort = meshConfig['mqtt_port'] as int? ?? 1883;
+      _platformMqttTlsEnabled = meshConfig['mqtt_tls_enabled'] as bool? ?? false;
+      _platformMqttUsername = meshConfig['mqtt_username'] as String?;
+      _platformMqttPassword = meshConfig['mqtt_password'] as String?;
       _platformMqttTopicPrefix = meshConfig['topic_prefix'] as String? ?? 'msh';
       _platformMqttPsk = meshConfig['channel_psk'] as String?;
 
@@ -250,6 +265,9 @@ class BleService extends ChangeNotifier {
           if (mqtt is Map<String, dynamic>) {
             _platformMqttHost = mqtt['mqtt_host'] as String?;
             _platformMqttPort = mqtt['mqtt_port'] as int? ?? 1883;
+            _platformMqttTlsEnabled = mqtt['mqtt_tls_enabled'] as bool? ?? false;
+            _platformMqttUsername = mqtt['mqtt_username'] as String?;
+            _platformMqttPassword = mqtt['mqtt_password'] as String?;
             _platformMqttTopicPrefix = mqtt['topic_prefix'] as String? ?? 'msh';
             _platformMqttPsk = mqtt['channel_psk'] as String?;
           }
@@ -1588,9 +1606,12 @@ class BleService extends ChangeNotifier {
       )));
 
       writes.add(MapEntry('MQTT config', buildSetMqttConfig(
-        address: _platformMqttHost ?? 'mqtt.meshtastic.org',
+        address: _platformMqttAddressForRadio(),
+        username: _platformMqttUsername,
+        password: _platformMqttPassword,
         rootTopic: _platformMqttTopicPrefix,
         encryptionEnabled: false,
+        tlsEnabled: _platformMqttTlsEnabled,
         proxyToClientEnabled: config.bluetoothEnabled,
       )));
 

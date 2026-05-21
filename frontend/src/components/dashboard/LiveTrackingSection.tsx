@@ -32,6 +32,9 @@ type MeshConfigRecord = {
   channel_psk: string | null;
   mqtt_host: string | null;
   mqtt_port: number;
+  mqtt_tls_enabled: boolean;
+  mqtt_username: string | null;
+  mqtt_password: string | null;
   topic_prefix: string;
 };
 

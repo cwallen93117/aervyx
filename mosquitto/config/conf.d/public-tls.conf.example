@@ -1,0 +1,15 @@
+# Copy this file to the VM-managed MOSQUITTO_EXTRA_CONFIG_DIR as
+# public-tls.conf after creating certs and a password file.
+#
+# Expected mounts:
+# - /mosquitto/certs/fullchain.pem
+# - /mosquitto/certs/privkey.pem
+# - /mosquitto/secrets/passwords
+
+listener 8883
+protocol mqtt
+allow_anonymous false
+password_file /mosquitto/secrets/passwords
+certfile /mosquitto/certs/fullchain.pem
+keyfile /mosquitto/certs/privkey.pem
+require_certificate false

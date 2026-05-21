@@ -102,6 +102,9 @@ export type SiteSettingsRecord = {
   mqtt_broker_mode: string;
   mqtt_host: string | null;
   mqtt_port: number;
+  mqtt_tls_enabled: boolean;
+  mqtt_username: string | null;
+  mqtt_password: string | null;
   mqtt_topic_prefix: string;
   mqtt_channel_psk: string | null;
   mesh_profiles: Record<string, Record<string, unknown>> | null;

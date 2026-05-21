@@ -1,0 +1,8 @@
+ALTER TABLE site_settings
+  ADD COLUMN IF NOT EXISTS mqtt_tls_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE site_settings
+  ADD COLUMN IF NOT EXISTS mqtt_username VARCHAR(255);
+
+ALTER TABLE site_settings
+  ADD COLUMN IF NOT EXISTS mqtt_password VARCHAR(255);

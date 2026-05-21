@@ -28,6 +28,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'public',
                       mqtt_host VARCHAR(255),
                       mqtt_port INTEGER NOT NULL DEFAULT 1883,
+                      mqtt_tls_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                      mqtt_username VARCHAR(255),
+                      mqtt_password VARCHAR(255),
                       mqtt_topic_prefix VARCHAR(80) NOT NULL DEFAULT 'msh',
                       mqtt_channel_psk VARCHAR(255),
                       mesh_profiles JSON,
@@ -77,6 +80,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_host VARCHAR(255)"))
             if "mqtt_port" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_port INTEGER NOT NULL DEFAULT 1883"))
+            if "mqtt_tls_enabled" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_tls_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+            if "mqtt_username" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_username VARCHAR(255)"))
+            if "mqtt_password" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_password VARCHAR(255)"))
             if "mqtt_topic_prefix" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_topic_prefix VARCHAR(80) NOT NULL DEFAULT 'msh'"))
             if "mqtt_channel_psk" not in site_settings_columns:
@@ -120,6 +129,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_enabled = COALESCE(mqtt_enabled, TRUE),
                       mqtt_broker_mode = COALESCE(mqtt_broker_mode, 'public'),
                       mqtt_port = COALESCE(mqtt_port, 1883),
+                      mqtt_tls_enabled = COALESCE(mqtt_tls_enabled, FALSE),
                       mqtt_topic_prefix = COALESCE(mqtt_topic_prefix, 'msh'),
                       updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
                     WHERE id = 1

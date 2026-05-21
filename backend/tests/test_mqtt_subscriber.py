@@ -1,6 +1,10 @@
 import base64
 import json
+import os
+from types import SimpleNamespace
 from datetime import UTC, datetime, timedelta
+
+os.environ.setdefault("APP_SECRET_KEY", "mqtt-subscriber-test-secret-key")
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from sqlalchemy import create_engine, select
@@ -294,6 +298,40 @@ def test_mqtt_records_nodeinfo_status_without_position(monkeypatch) -> None:
         assert status.long_name == "Owner Tracker"
         assert status.short_name == "OWN"
         assert status.packet_count == 1
+
+
+def test_private_mqtt_subscriber_uses_internal_broker_settings(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        session.add(
+            SiteSettings(
+                id=1,
+                mqtt_enabled=True,
+                mqtt_broker_mode="private",
+                mqtt_host="mqtt-staging.aervyx.net",
+                mqtt_port=8883,
+                mqtt_tls_enabled=True,
+                mqtt_username="fleet",
+                mqtt_password="secret",
+                mqtt_topic_prefix="msh",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        mqtt_subscriber,
+        "get_settings",
+        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883),
+    )
+
+    assert mqtt_subscriber._read_mqtt_config_from_db() == (
+        "mosquitto",
+        1883,
+        "msh",
+        None,
+        None,
+        False,
+    )
 
 
 def test_mqtt_keeps_legacy_field_three_decoded_fallback(monkeypatch) -> None:

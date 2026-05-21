@@ -13,8 +13,13 @@ services:
   mosquitto:
     image: eclipse-mosquitto:2
     restart: unless-stopped
+    ports:
+      - "8883:8883"
     volumes:
       - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ${MOSQUITTO_EXTRA_CONFIG_DIR:-./mosquitto/config/conf.d}:/mosquitto/config/conf.d:ro
+      - ${MOSQUITTO_CERT_DIR:-./mosquitto/certs}:/mosquitto/certs:ro
+      - ${MOSQUITTO_SECRET_DIR:-./mosquitto/secrets}:/mosquitto/secrets:ro
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
 
