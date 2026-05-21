@@ -1650,6 +1650,11 @@ function meshStatusLabel(status: MeshConnectionStatus | null | undefined): strin
   }
 }
 
+function meshSourcePillLabel(status: MeshConnectionStatus | null | undefined): string {
+  if (status === "never_seen" || !status) return "Never seen";
+  return `${meshStatusLabel(status)} MQTT`;
+}
+
 function meshStatusClass(status: MeshConnectionStatus | null | undefined): string {
   if (status === "live") return "";
   if (status === "stale") return " stale";
@@ -1683,6 +1688,26 @@ function meshDiagnostic(device: MeshDeviceStatus): string {
   if (device.lastGatewayId && device.lastGatewayId !== device.deviceId) return `${packet} via ${device.lastGatewayId}`;
   if (device.lastGatewayId) return `Gateway saw ${packet}`;
   return packet;
+}
+
+function meshPacketDetails(device: MeshDeviceStatus): string {
+  const parts = [`Packets: ${device.packetCount}`];
+  if (device.lastTopic) parts.push(`Topic: ${device.lastTopic}`);
+  return parts.join(" | ");
+}
+
+function phoneSourcePillClass(session: import("./types").DebugActiveSession | null): string {
+  if (session?.is_online) return "tracking-source-pill phone";
+  const freshness = lastSeenColor(session?.last_seen_at);
+  if (freshness === "orange") return "tracking-source-pill phone stale";
+  return "tracking-source-pill phone offline";
+}
+
+function phoneStatusColor(session: import("./types").DebugActiveSession | null): string {
+  if (session?.is_online) return "#3b82f6";
+  const freshness = lastSeenColor(session?.last_seen_at);
+  if (freshness === "orange") return "#f59e0b";
+  return "#ef4444";
 }
 
 function latestTimestamp(left: string | null | undefined, right: string | null | undefined): string | null {
@@ -2003,12 +2028,15 @@ function LiveTrackingTab({
                             >
                               <td></td>
                               <td>
-                                <span style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: "#3b82f6", marginRight: "4px" }} />
+                                <span
+                                  style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: phoneStatusColor(d.session), marginRight: "4px" }}
+                                  title={d.session?.is_online ? "Phone app live" : "Phone app offline"}
+                                />
                               </td>
                               <td>Phone</td>
-                              <td>Cellular</td>
+                              <td>Phone app</td>
                               <td>{d.pilot_name}</td>
-                              <td><span className="tracking-source-pill phone">Phone</span></td>
+                              <td><span className={phoneSourcePillClass(d.session)}>Phone app</span></td>
                               <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{d.session?.device_id ?? "\u2014"}</td>
                               <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
                               <td>{d.session?.battery_level != null ? `${d.session?.battery_level}%` : "\u2014"}</td>
@@ -2038,7 +2066,7 @@ function LiveTrackingTab({
                                 <td>
                                   <span
                                     style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: meshDotColor, marginRight: "4px" }}
-                                    title={meshStatusLabel(meshDevice.meshStatus)}
+                                    title={meshSourcePillLabel(meshDevice.meshStatus)}
                                   />
                                 </td>
                                 <td>
@@ -2049,13 +2077,16 @@ function LiveTrackingTab({
                                 <td>{meshDevice.registeredOwnerName ?? d.pilot_name}</td>
                                 <td>
                                   <span className={`tracking-source-pill mesh${meshStatusClass(meshDevice.meshStatus)}`}>
-                                    {meshStatusLabel(meshDevice.meshStatus)}
+                                    {meshSourcePillLabel(meshDevice.meshStatus)}
                                   </span>
                                 </td>
                                 <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{meshDevice.deviceId}</td>
                                 <td>{meshDevice.isActive ? "Active" : "Inactive"}</td>
                                 <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
-                                <td>{meshDevice.lastPosition ? formatDebugPosition(meshDevice.lastPosition) : (meshDevice.lastSeenAt ? "No GPS fix" : "-")}</td>
+                                <td>
+                                  {meshDevice.lastPosition ? formatDebugPosition(meshDevice.lastPosition) : (meshDevice.lastSeenAt ? "No GPS fix" : "-")}
+                                  <div className="hint">{meshPacketDetails(meshDevice)}</div>
+                                </td>
                                 <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
                               </tr>
                             );
