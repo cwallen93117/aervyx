@@ -731,9 +731,15 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
             return "mqtt.meshtastic.org", site.mqtt_port, site.mqtt_topic_prefix, "meshdev", "large4cats", False
 
         settings = get_settings()
-        internal_host = getattr(settings, "mqtt_host", None)
-        if internal_host:
-            return internal_host, getattr(settings, "mqtt_port", 1883), site.mqtt_topic_prefix, None, None, False
+        if getattr(settings, "mqtt_subscriber_use_env", False):
+            return (
+                getattr(settings, "mqtt_host", None),
+                getattr(settings, "mqtt_port", 1883),
+                site.mqtt_topic_prefix,
+                getattr(settings, "mqtt_username", None),
+                getattr(settings, "mqtt_password", None),
+                getattr(settings, "mqtt_tls_enabled", False),
+            )
 
         return (
             site.mqtt_host,

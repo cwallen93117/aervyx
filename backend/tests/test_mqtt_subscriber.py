@@ -300,7 +300,7 @@ def test_mqtt_records_nodeinfo_status_without_position(monkeypatch) -> None:
         assert status.packet_count == 1
 
 
-def test_private_mqtt_subscriber_uses_internal_broker_settings(monkeypatch) -> None:
+def test_private_mqtt_subscriber_uses_admin_broker_by_default(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     with factory() as session:
         session.add(
@@ -321,7 +321,48 @@ def test_private_mqtt_subscriber_uses_internal_broker_settings(monkeypatch) -> N
     monkeypatch.setattr(
         mqtt_subscriber,
         "get_settings",
-        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883),
+        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883, mqtt_subscriber_use_env=False),
+    )
+
+    assert mqtt_subscriber._read_mqtt_config_from_db() == (
+        "mqtt-staging.aervyx.net",
+        8883,
+        "msh",
+        "fleet",
+        "secret",
+        True,
+    )
+
+
+def test_private_mqtt_subscriber_can_use_env_broker_override(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        session.add(
+            SiteSettings(
+                id=1,
+                mqtt_enabled=True,
+                mqtt_broker_mode="private",
+                mqtt_host="mqtt-staging.aervyx.net",
+                mqtt_port=8883,
+                mqtt_tls_enabled=True,
+                mqtt_username="fleet",
+                mqtt_password="secret",
+                mqtt_topic_prefix="msh",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        mqtt_subscriber,
+        "get_settings",
+        lambda: SimpleNamespace(
+            mqtt_host="mosquitto",
+            mqtt_port=1883,
+            mqtt_username=None,
+            mqtt_password=None,
+            mqtt_tls_enabled=False,
+            mqtt_subscriber_use_env=True,
+        ),
     )
 
     assert mqtt_subscriber._read_mqtt_config_from_db() == (
