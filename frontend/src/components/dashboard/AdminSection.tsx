@@ -2149,10 +2149,8 @@ function LiveTrackingTab({
                 <th>Status</th>
                 <th>Device / Pilot</th>
                 <th>Purpose</th>
-                <th>Registered To</th>
                 <th>Sources</th>
                 <th>Device ID</th>
-                <th>Task</th>
                 <th>Battery</th>
                 <th>Fix / Packets</th>
                 <th>Last Heard</th>
@@ -2188,8 +2186,6 @@ function LiveTrackingTab({
                         <td></td>
                         <td></td>
                         <td></td>
-                        <td></td>
-                        <td></td>
                       </tr>
                       {isExpanded && (
                         <>
@@ -2213,10 +2209,8 @@ function LiveTrackingTab({
                               </td>
                               <td>Phone</td>
                               <td>Phone app</td>
-                              <td>{d.pilot_name}</td>
                               <td><span className={phoneSourcePillClass(d.session)}>Phone app</span></td>
                               <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{d.session?.device_id ?? "\u2014"}</td>
-                              <td>{d.session ? (d.session.task_name ?? "Free flight") : "\u2014"}</td>
                               <td>{d.session?.battery_level != null ? `${d.session?.battery_level}%` : "\u2014"}</td>
                               <td>{formatDebugPosition(d.session?.last_position)}</td>
                               <td style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
@@ -2251,14 +2245,12 @@ function LiveTrackingTab({
                                   <strong>{meshDevice.label ?? meshDevice.deviceId}</strong>
                                 </td>
                                 <td>{meshPurposeLabel(meshDevice.purpose)}</td>
-                                <td>{meshDevice.registeredOwnerName ?? d.pilot_name}</td>
                                 <td>
                                   <span className={`tracking-source-pill mesh${meshStatusClass(meshDevice.meshStatus)}`}>
                                     {meshSourcePillLabel(meshDevice.meshStatus)}
                                   </span>
                                 </td>
                                 <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{meshDevice.deviceId}</td>
-                                <td>{meshDevice.isActive ? "Active" : "Inactive"}</td>
                                 <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
                                 <td>
                                   <div>{meshFixSummary(meshDevice)}</div>
@@ -2276,7 +2268,7 @@ function LiveTrackingTab({
                 })
               ) : (
                 <tr>
-                  <td colSpan={11} className="participant-table-empty">No active tracking sessions or mesh devices.</td>
+                  <td colSpan={9} className="participant-table-empty">No active tracking sessions or mesh devices.</td>
                 </tr>
               )}
             </tbody>
