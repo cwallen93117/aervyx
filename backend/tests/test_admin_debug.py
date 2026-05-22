@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, User
+from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, TrackingSession, User
 from app.routers.admin_debug import admin_debug_status
 
 
@@ -101,6 +101,131 @@ def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
         "speed": 42.0,
         "heading": 271.0,
     }
+
+
+def test_admin_debug_status_does_not_report_mqtt_only_activity_as_phone_session() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    session.add_all([admin, pilot, owner])
+    session.flush()
+    owner.pilot_id = pilot.id
+    session.add_all(
+        [
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id="!abc123",
+                label="Tracker",
+                purpose="tracking",
+                is_active=True,
+            ),
+            TrackingSession(
+                pilot_id=pilot.id,
+                task_id=None,
+                started_at=now - timedelta(minutes=5),
+                last_seen_at=now - timedelta(seconds=5),
+                is_active=True,
+                position_count=1,
+            ),
+            LivePosition(
+                pilot_id=pilot.id,
+                task_id=None,
+                lat=40.05484,
+                lon=-75.35188,
+                alt=None,
+                speed=None,
+                heading=0,
+                accuracy=None,
+                timestamp=now - timedelta(seconds=5),
+                source="mqtt_gateway",
+                device_id="!abc123",
+                battery_level=None,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    assert payload["active_sessions"] == []
+    device = payload["registered_mesh_devices"][0]
+    assert device["device_id"] == "!abc123"
+    assert device["mesh_status"] == "live"
+    assert device["source"] == "mqtt_gateway"
+
+
+def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_position() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    session.add_all([admin, pilot, owner])
+    session.flush()
+    owner.pilot_id = pilot.id
+    session.add(
+        TrackingSession(
+            pilot_id=pilot.id,
+            task_id=None,
+            started_at=now - timedelta(minutes=10),
+            last_seen_at=now - timedelta(seconds=5),
+            is_active=True,
+            position_count=2,
+        )
+    )
+    session.add_all(
+        [
+            LivePosition(
+                pilot_id=pilot.id,
+                task_id=None,
+                lat=40.1,
+                lon=-75.1,
+                alt=300,
+                speed=12,
+                heading=None,
+                accuracy=None,
+                timestamp=now - timedelta(minutes=2),
+                source="app",
+                device_id="app-device-should-not-render",
+                battery_level=44,
+            ),
+            LivePosition(
+                pilot_id=pilot.id,
+                task_id=None,
+                lat=40.05484,
+                lon=-75.35188,
+                alt=350,
+                speed=14,
+                heading=0,
+                accuracy=None,
+                timestamp=now - timedelta(seconds=5),
+                source="mqtt_gateway",
+                device_id="!abc123",
+                battery_level=80,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    assert len(payload["active_sessions"]) == 1
+    phone = payload["active_sessions"][0]
+    assert phone["device_id"] is None
+    assert phone["source"] == "app"
+    assert phone["battery_level"] == 44
+    assert phone["position_count"] == 1
+    assert phone["positions_last_60s"] == 0
+    assert phone["is_online"] is False
+    assert phone["last_position"] == {
+        "lat": 40.1,
+        "lon": -75.1,
+        "alt": 300.0,
+        "speed": 12.0,
+    }
+    assert phone["has_mesh"] is True
 
 
 def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:

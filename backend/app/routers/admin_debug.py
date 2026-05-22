@@ -21,6 +21,7 @@ router = APIRouter(tags=["admin-debug"])
 
 MESH_STATUS_LIVE_SECONDS = 10 * 60
 MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
+PHONE_APP_POSITION_SOURCE = "app"
 
 
 def _age_seconds(now: datetime, value: datetime | None) -> float | None:
@@ -101,21 +102,34 @@ def admin_debug_status(
     for ts, first_name, last_name, task_name in active_sessions_rows:
         pilot_name = f"{first_name or ''} {last_name or ''}".strip() or "Unknown"
 
-        # Latest position for this session's pilot (any task including free-flight)
-        pos_filter = [LivePosition.pilot_id == ts.pilot_id]
+        # Phone rows must reflect only direct app uploads. TrackingSession rows
+        # are refreshed by mesh/MQTT positions too, so using the session timestamp
+        # or latest position across all sources would make a mesh node look like
+        # a live phone.
+        pos_filter = [
+            LivePosition.pilot_id == ts.pilot_id,
+            LivePosition.source == PHONE_APP_POSITION_SOURCE,
+        ]
         if ts.task_id is not None:
             pos_filter.append(LivePosition.task_id == ts.task_id)
         else:
             pos_filter.append(LivePosition.task_id.is_(None))
 
-        latest_pos = session.scalar(
+        latest_app_pos = session.scalar(
             select(LivePosition)
             .where(*pos_filter)
             .order_by(LivePosition.timestamp.desc())
             .limit(1)
         )
+        if latest_app_pos is None:
+            continue
 
-        # Count positions in last 60 seconds
+        # Count phone-app positions for this session.
+        phone_position_count = session.scalar(
+            select(func.count())
+            .select_from(LivePosition)
+            .where(*pos_filter)
+        ) or 0
         positions_last_60s = session.scalar(
             select(func.count())
             .select_from(LivePosition)
@@ -135,36 +149,28 @@ def admin_debug_status(
             )
         ) or 0
 
-        last_position = None
-        device_id = None
-        source = None
-        battery_level = None
-        if latest_pos is not None:
-            last_position = {
-                "lat": latest_pos.lat,
-                "lon": latest_pos.lon,
-                "alt": latest_pos.alt,
-                "speed": latest_pos.speed,
-            }
-            device_id = latest_pos.device_id
-            source = latest_pos.source
-            battery_level = latest_pos.battery_level
+        last_position = {
+            "lat": latest_app_pos.lat,
+            "lon": latest_app_pos.lon,
+            "alt": latest_app_pos.alt,
+            "speed": latest_app_pos.speed,
+        }
 
         # Online = received a position in the last 60 seconds
-        is_online = _is_recent(now, ts.last_seen_at)
+        is_online = _is_recent(now, latest_app_pos.timestamp)
 
         active_sessions.append({
             "pilot_id": ts.pilot_id,
             "pilot_name": pilot_name,
             "task_id": ts.task_id,
             "task_name": task_name or ("Free Flight" if ts.task_id is None else None),
-            "device_id": device_id,
-            "source": source,
-            "battery_level": battery_level,
-            "position_count": ts.position_count or 0,
+            "device_id": None,
+            "source": PHONE_APP_POSITION_SOURCE,
+            "battery_level": latest_app_pos.battery_level,
+            "position_count": phone_position_count,
             "positions_last_60s": positions_last_60s,
             "started_at": ts.started_at.isoformat() if ts.started_at else None,
-            "last_seen_at": ts.last_seen_at.isoformat() if ts.last_seen_at else None,
+            "last_seen_at": latest_app_pos.timestamp.isoformat(),
             "last_position": last_position,
             "is_online": is_online,
             "has_mesh": has_mesh > 0,
