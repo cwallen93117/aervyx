@@ -13,6 +13,15 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.22]
+
+### Changed
+- **Mobile v0.4.21+38** adds the Meshtastic MQTT client-proxy bridge inside
+  Aerox/Aervyx mobile. When a radio has MQTT Client Proxy enabled and is
+  connected to the app, the app can publish the radio's proxied MQTT messages
+  using the phone's internet connection and forward subscribed MQTT traffic
+  back to the radio over the Meshtastic PhoneAPI.
+
 ## [2026.04.11]
 
 ### Changed
