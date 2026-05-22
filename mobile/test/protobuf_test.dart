@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:aervyx_mobile/models/meshtastic_protobufs.dart';
+import 'package:aervyx_mobile/services/mqtt_client_proxy_service.dart';
 
 void main() {
   // ═══════════════════════════════════════════════════════════════════════════
@@ -217,7 +218,13 @@ void main() {
     test('reads string', () {
       // Field 1, wire type 2, length 5, "hello"
       final data = Uint8List.fromList([
-        0x0A, 0x05, 0x68, 0x65, 0x6C, 0x6C, 0x6F,
+        0x0A,
+        0x05,
+        0x68,
+        0x65,
+        0x6C,
+        0x6C,
+        0x6F,
       ]);
       final reader = ProtoReader(data);
 
@@ -354,6 +361,80 @@ void main() {
     });
   });
 
+  group('MqttClientProxyMessage', () {
+    test('data payload round-trips with retained flag', () {
+      final message = MqttClientProxyMessage(
+        topic: 'msh/US/2/e/LongFast/!12345678',
+        data: Uint8List.fromList([1, 2, 3, 4]),
+        retained: true,
+      );
+
+      final parsed = MqttClientProxyMessage.fromBytes(message.toBytes());
+
+      expect(parsed.topic, message.topic);
+      expect(parsed.data, Uint8List.fromList([1, 2, 3, 4]));
+      expect(parsed.text, isNull);
+      expect(parsed.retained, true);
+    });
+
+    test('text payload round-trips', () {
+      const message = MqttClientProxyMessage(
+        topic: 'msh/US/2/json/LongFast/!12345678',
+        text: '{"from":1}',
+      );
+
+      final parsed = MqttClientProxyMessage.fromBytes(message.toBytes());
+
+      expect(parsed.topic, message.topic);
+      expect(parsed.text, '{"from":1}');
+      expect(parsed.data, isNull);
+      expect(parsed.retained, false);
+    });
+
+    test('buildToRadioMqttClientProxyMessage uses ToRadio field 6', () {
+      final bytes = buildToRadioMqttClientProxyMessage(
+        MqttClientProxyMessage(
+          topic: 'msh/US/2/e/LongFast/!12345678',
+          data: Uint8List.fromList([9, 8, 7]),
+        ),
+      );
+      final reader = ProtoReader(bytes);
+
+      final (fieldNumber, wireType) = reader.readTag();
+      expect(fieldNumber, 6);
+      expect(wireType, 2);
+
+      final parsed = MqttClientProxyMessage.fromBytes(reader.readBytes());
+      expect(parsed.data, Uint8List.fromList([9, 8, 7]));
+    });
+  });
+
+  group('Meshtastic MQTT proxy topics', () {
+    test('subscribes to primary downlink channel and PKI', () {
+      final state = MeshtasticDeviceState()
+        ..mqttRootTopic = 'msh/US'
+        ..channelName = 'LongFast'
+        ..channelDownlinkEnabled = true;
+
+      final topics = meshtasticMqttSubscriptionTopics(state);
+
+      expect(topics, contains('msh/US/2/e/LongFast/+'));
+      expect(topics, contains('msh/US/2/e/PKI/+'));
+    });
+
+    test('falls back to modem preset channel name when channel is empty', () {
+      final state = MeshtasticDeviceState()
+        ..mqttRootTopic = 'msh/US'
+        ..modemPreset = ModemPreset.longModerate
+        ..channelDownlinkEnabled = true;
+
+      expect(
+        meshtasticMqttSubscriptionTopics(state),
+        contains('msh/US/2/e/LongMod/+'),
+      );
+    });
+  });
+
   group('buildPositionPacket', () {
     test('encodes lat/lon as sfixed32 (wire type 5)', () {
       final bytes = buildPositionPacket(
@@ -414,8 +495,7 @@ void main() {
       expect(lonI, (-122.3321 * 1e7).round());
     });
 
-    test('position lat/lon survive round-trip for southern/western hemispheres',
-        () {
+    test('position lat/lon survive round-trip for southern/western hemispheres', () {
       // Use a location in South America: Buenos Aires
       const lat = -34.6037;
       const lon = -58.3816;
@@ -480,8 +560,7 @@ void main() {
       expect(recoveredLon, closeTo(lon, 0.00001));
     });
 
-    test('position lat/lon survive round-trip for northern/eastern hemispheres',
-        () {
+    test('position lat/lon survive round-trip for northern/eastern hemispheres', () {
       // Sydney, Australia (southern, but eastern)
       const lat = 37.7749;
       const lon = 127.4194;

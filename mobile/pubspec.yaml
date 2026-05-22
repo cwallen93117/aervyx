@@ -36,6 +36,7 @@ dependencies:
   intl: ^0.19.0
   url_launcher: ^6.3.2
   protobuf: ^6.0.0
+  mqtt_client: ^10.11.11
   wifi_scan: ^0.4.1+2
   # mDNS / Network Service Discovery (Meshtastic WiFi scan)
   nsd: ^5.0.1

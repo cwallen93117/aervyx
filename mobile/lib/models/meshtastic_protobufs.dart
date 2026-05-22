@@ -35,9 +35,7 @@ enum DeviceRole {
   final String label;
   const DeviceRole(this.value, this.label);
 
-  static DeviceRole fromValue(int v) =>
-      DeviceRole.values.firstWhere((e) => e.value == v,
-          orElse: () => DeviceRole.client);
+  static DeviceRole fromValue(int v) => DeviceRole.values.firstWhere((e) => e.value == v, orElse: () => DeviceRole.client);
 }
 
 /// Config.DeviceConfig.RebroadcastMode
@@ -53,9 +51,7 @@ enum RebroadcastMode {
   final String label;
   const RebroadcastMode(this.value, this.label);
 
-  static RebroadcastMode fromValue(int v) =>
-      RebroadcastMode.values.firstWhere((e) => e.value == v,
-          orElse: () => RebroadcastMode.all);
+  static RebroadcastMode fromValue(int v) => RebroadcastMode.values.firstWhere((e) => e.value == v, orElse: () => RebroadcastMode.all);
 }
 
 /// Config.PositionConfig.GpsMode
@@ -68,9 +64,7 @@ enum GpsMode {
   final String label;
   const GpsMode(this.value, this.label);
 
-  static GpsMode fromValue(int v) =>
-      GpsMode.values.firstWhere((e) => e.value == v,
-          orElse: () => GpsMode.enabled);
+  static GpsMode fromValue(int v) => GpsMode.values.firstWhere((e) => e.value == v, orElse: () => GpsMode.enabled);
 }
 
 /// Config.LoRaConfig.ModemPreset
@@ -90,9 +84,7 @@ enum ModemPreset {
   final String label;
   const ModemPreset(this.value, this.label);
 
-  static ModemPreset fromValue(int v) =>
-      ModemPreset.values.firstWhere((e) => e.value == v,
-          orElse: () => ModemPreset.longFast);
+  static ModemPreset fromValue(int v) => ModemPreset.values.firstWhere((e) => e.value == v, orElse: () => ModemPreset.longFast);
 }
 
 /// Config.LoRaConfig.RegionCode
@@ -118,9 +110,7 @@ enum RegionCode {
   final String label;
   const RegionCode(this.value, this.label);
 
-  static RegionCode fromValue(int v) =>
-      RegionCode.values.firstWhere((e) => e.value == v,
-          orElse: () => RegionCode.unset);
+  static RegionCode fromValue(int v) => RegionCode.values.firstWhere((e) => e.value == v, orElse: () => RegionCode.unset);
 }
 
 /// Config.BluetoothConfig.PairingMode
@@ -133,9 +123,7 @@ enum BlePairingMode {
   final String label;
   const BlePairingMode(this.value, this.label);
 
-  static BlePairingMode fromValue(int v) =>
-      BlePairingMode.values.firstWhere((e) => e.value == v,
-          orElse: () => BlePairingMode.randomPin);
+  static BlePairingMode fromValue(int v) => BlePairingMode.values.firstWhere((e) => e.value == v, orElse: () => BlePairingMode.randomPin);
 }
 
 /// Config.NetworkConfig.AddressMode
@@ -147,9 +135,7 @@ enum AddressMode {
   final String label;
   const AddressMode(this.value, this.label);
 
-  static AddressMode fromValue(int v) =>
-      AddressMode.values.firstWhere((e) => e.value == v,
-          orElse: () => AddressMode.dhcp);
+  static AddressMode fromValue(int v) => AddressMode.values.firstWhere((e) => e.value == v, orElse: () => AddressMode.dhcp);
 }
 
 /// Position flags bitmask.
@@ -384,124 +370,162 @@ class ProfileConfig {
   }
 
   Map<String, dynamic> toJson() => {
-    // Device
-    'role': _roleToString(role),
-    'rebroadcast_mode': _rebroadcastToString(rebroadcastMode),
-    'node_info_broadcast_secs': nodeInfoBroadcastSecs,
-    'serial_enabled': serialEnabled,
-    // Position
-    'gps_mode': _gpsModeToString(gpsMode),
-    'gps_update_interval': gpsUpdateInterval,
-    'position_broadcast_secs': positionBroadcastSecs,
-    'smart_position_enabled': smartPositionEnabled,
-    'smart_min_distance': smartMinDistance,
-    'smart_min_interval': smartMinInterval,
-    'position_flags': positionFlags,
-    // LoRa (region intentionally omitted — set per device on the phone)
-    'modem_preset': _modemToString(modemPreset),
-    'hop_limit': hopLimit,
-    'tx_power': txPower,
-    'tx_enabled': txEnabled,
-    'sx126x_rx_boosted_gain': sx126xRxBoostedGain,
-    // Power
-    'power_saving': powerSaving,
-    'on_battery_shutdown_after_secs': onBatteryShutdownAfterSecs,
-    'ls_secs': lsSecs,
-    'wait_bluetooth_secs': waitBluetoothSecs,
-    // Bluetooth
-    'bluetooth_enabled': bluetoothEnabled,
-    'bluetooth_mode': _blePairingToString(bluetoothMode),
-    'bluetooth_fixed_pin': bluetoothFixedPin,
-    // Network
-    'wifi_enabled': wifiEnabled,
-    'eth_enabled': ethEnabled,
-    // Display
-    'display_timeout_secs': displayTimeoutSecs,
-    'auto_screen_carousel_secs': autoScreenCarouselSecs,
-    'wake_on_tap_or_motion': wakeOnTapOrMotion,
-    // Modules
-    'telemetry_interval_secs': telemetryIntervalSecs,
-    'device_telemetry_enabled': deviceTelemetryEnabled,
-    'environment_telemetry_enabled': environmentTelemetryEnabled,
-    'neighbor_info_enabled': neighborInfoEnabled,
-    'neighbor_info_interval_secs': neighborInfoIntervalSecs,
-    'store_forward_enabled': storeForwardEnabled,
-    'store_forward_is_server': storeForwardIsServer,
-  };
+        // Device
+        'role': _roleToString(role),
+        'rebroadcast_mode': _rebroadcastToString(rebroadcastMode),
+        'node_info_broadcast_secs': nodeInfoBroadcastSecs,
+        'serial_enabled': serialEnabled,
+        // Position
+        'gps_mode': _gpsModeToString(gpsMode),
+        'gps_update_interval': gpsUpdateInterval,
+        'position_broadcast_secs': positionBroadcastSecs,
+        'smart_position_enabled': smartPositionEnabled,
+        'smart_min_distance': smartMinDistance,
+        'smart_min_interval': smartMinInterval,
+        'position_flags': positionFlags,
+        // LoRa (region intentionally omitted — set per device on the phone)
+        'modem_preset': _modemToString(modemPreset),
+        'hop_limit': hopLimit,
+        'tx_power': txPower,
+        'tx_enabled': txEnabled,
+        'sx126x_rx_boosted_gain': sx126xRxBoostedGain,
+        // Power
+        'power_saving': powerSaving,
+        'on_battery_shutdown_after_secs': onBatteryShutdownAfterSecs,
+        'ls_secs': lsSecs,
+        'wait_bluetooth_secs': waitBluetoothSecs,
+        // Bluetooth
+        'bluetooth_enabled': bluetoothEnabled,
+        'bluetooth_mode': _blePairingToString(bluetoothMode),
+        'bluetooth_fixed_pin': bluetoothFixedPin,
+        // Network
+        'wifi_enabled': wifiEnabled,
+        'eth_enabled': ethEnabled,
+        // Display
+        'display_timeout_secs': displayTimeoutSecs,
+        'auto_screen_carousel_secs': autoScreenCarouselSecs,
+        'wake_on_tap_or_motion': wakeOnTapOrMotion,
+        // Modules
+        'telemetry_interval_secs': telemetryIntervalSecs,
+        'device_telemetry_enabled': deviceTelemetryEnabled,
+        'environment_telemetry_enabled': environmentTelemetryEnabled,
+        'neighbor_info_enabled': neighborInfoEnabled,
+        'neighbor_info_interval_secs': neighborInfoIntervalSecs,
+        'store_forward_enabled': storeForwardEnabled,
+        'store_forward_is_server': storeForwardIsServer,
+      };
 
   // ── String ↔ enum helpers ──
 
-  static DeviceRole _roleFromString(String s) => const {
-    'client': DeviceRole.client, 'tracker': DeviceRole.tracker,
-    'router': DeviceRole.router, 'client_mute': DeviceRole.clientMute,
-    'repeater': DeviceRole.repeater, 'sensor': DeviceRole.sensor,
-  }[s] ?? DeviceRole.client;
+  static DeviceRole _roleFromString(String s) =>
+      const {
+        'client': DeviceRole.client,
+        'tracker': DeviceRole.tracker,
+        'router': DeviceRole.router,
+        'client_mute': DeviceRole.clientMute,
+        'repeater': DeviceRole.repeater,
+        'sensor': DeviceRole.sensor,
+      }[s] ??
+      DeviceRole.client;
 
-  static String _roleToString(DeviceRole r) => const {
-    DeviceRole.client: 'client', DeviceRole.tracker: 'tracker',
-    DeviceRole.router: 'router', DeviceRole.clientMute: 'client_mute',
-    DeviceRole.repeater: 'repeater', DeviceRole.sensor: 'sensor',
-  }[r] ?? 'client';
+  static String _roleToString(DeviceRole r) =>
+      const {
+        DeviceRole.client: 'client',
+        DeviceRole.tracker: 'tracker',
+        DeviceRole.router: 'router',
+        DeviceRole.clientMute: 'client_mute',
+        DeviceRole.repeater: 'repeater',
+        DeviceRole.sensor: 'sensor',
+      }[r] ??
+      'client';
 
-  static RebroadcastMode _rebroadcastFromString(String s) => const {
-    'all': RebroadcastMode.all,
-    'all_skip_decoding': RebroadcastMode.allSkipDecoding,
-    'local_only': RebroadcastMode.localOnly,
-    'known_only': RebroadcastMode.knownOnly,
-    'none': RebroadcastMode.none,
-    'core_portnums_only': RebroadcastMode.corePortnumsOnly,
-  }[s] ?? RebroadcastMode.all;
+  static RebroadcastMode _rebroadcastFromString(String s) =>
+      const {
+        'all': RebroadcastMode.all,
+        'all_skip_decoding': RebroadcastMode.allSkipDecoding,
+        'local_only': RebroadcastMode.localOnly,
+        'known_only': RebroadcastMode.knownOnly,
+        'none': RebroadcastMode.none,
+        'core_portnums_only': RebroadcastMode.corePortnumsOnly,
+      }[s] ??
+      RebroadcastMode.all;
 
-  static String _rebroadcastToString(RebroadcastMode m) => const {
-    RebroadcastMode.all: 'all',
-    RebroadcastMode.allSkipDecoding: 'all_skip_decoding',
-    RebroadcastMode.localOnly: 'local_only',
-    RebroadcastMode.knownOnly: 'known_only',
-    RebroadcastMode.none: 'none',
-    RebroadcastMode.corePortnumsOnly: 'core_portnums_only',
-  }[m] ?? 'all';
+  static String _rebroadcastToString(RebroadcastMode m) =>
+      const {
+        RebroadcastMode.all: 'all',
+        RebroadcastMode.allSkipDecoding: 'all_skip_decoding',
+        RebroadcastMode.localOnly: 'local_only',
+        RebroadcastMode.knownOnly: 'known_only',
+        RebroadcastMode.none: 'none',
+        RebroadcastMode.corePortnumsOnly: 'core_portnums_only',
+      }[m] ??
+      'all';
 
-  static GpsMode _gpsModeFromString(String s) => const {
-    'disabled': GpsMode.disabled, 'enabled': GpsMode.enabled,
-    'not_present': GpsMode.notPresent,
-  }[s] ?? GpsMode.enabled;
+  static GpsMode _gpsModeFromString(String s) =>
+      const {
+        'disabled': GpsMode.disabled,
+        'enabled': GpsMode.enabled,
+        'not_present': GpsMode.notPresent,
+      }[s] ??
+      GpsMode.enabled;
 
-  static String _gpsModeToString(GpsMode m) => const {
-    GpsMode.disabled: 'disabled', GpsMode.enabled: 'enabled',
-    GpsMode.notPresent: 'not_present',
-  }[m] ?? 'enabled';
+  static String _gpsModeToString(GpsMode m) =>
+      const {
+        GpsMode.disabled: 'disabled',
+        GpsMode.enabled: 'enabled',
+        GpsMode.notPresent: 'not_present',
+      }[m] ??
+      'enabled';
 
-  static ModemPreset _modemFromString(String s) => const {
-    'long_fast': ModemPreset.longFast, 'long_slow': ModemPreset.longSlow,
-    'very_long_slow': ModemPreset.veryLongSlow, 'medium_slow': ModemPreset.mediumSlow,
-    'medium_fast': ModemPreset.mediumFast, 'short_slow': ModemPreset.shortSlow,
-    'short_fast': ModemPreset.shortFast, 'long_moderate': ModemPreset.longModerate,
-    'short_turbo': ModemPreset.shortTurbo, 'long_turbo': ModemPreset.longTurbo,
-  }[s] ?? ModemPreset.longFast;
+  static ModemPreset _modemFromString(String s) =>
+      const {
+        'long_fast': ModemPreset.longFast,
+        'long_slow': ModemPreset.longSlow,
+        'very_long_slow': ModemPreset.veryLongSlow,
+        'medium_slow': ModemPreset.mediumSlow,
+        'medium_fast': ModemPreset.mediumFast,
+        'short_slow': ModemPreset.shortSlow,
+        'short_fast': ModemPreset.shortFast,
+        'long_moderate': ModemPreset.longModerate,
+        'short_turbo': ModemPreset.shortTurbo,
+        'long_turbo': ModemPreset.longTurbo,
+      }[s] ??
+      ModemPreset.longFast;
 
-  static String _modemToString(ModemPreset m) => const {
-    ModemPreset.longFast: 'long_fast', ModemPreset.longSlow: 'long_slow',
-    ModemPreset.veryLongSlow: 'very_long_slow', ModemPreset.mediumSlow: 'medium_slow',
-    ModemPreset.mediumFast: 'medium_fast', ModemPreset.shortSlow: 'short_slow',
-    ModemPreset.shortFast: 'short_fast', ModemPreset.longModerate: 'long_moderate',
-    ModemPreset.shortTurbo: 'short_turbo', ModemPreset.longTurbo: 'long_turbo',
-  }[m] ?? 'long_fast';
+  static String _modemToString(ModemPreset m) =>
+      const {
+        ModemPreset.longFast: 'long_fast',
+        ModemPreset.longSlow: 'long_slow',
+        ModemPreset.veryLongSlow: 'very_long_slow',
+        ModemPreset.mediumSlow: 'medium_slow',
+        ModemPreset.mediumFast: 'medium_fast',
+        ModemPreset.shortSlow: 'short_slow',
+        ModemPreset.shortFast: 'short_fast',
+        ModemPreset.longModerate: 'long_moderate',
+        ModemPreset.shortTurbo: 'short_turbo',
+        ModemPreset.longTurbo: 'long_turbo',
+      }[m] ??
+      'long_fast';
 
   // _regionFromString / _regionToString removed: region is no longer carried
   // by the profile JSON. The RegionCode enum itself is still used elsewhere
   // (BleService.deviceState.region, the Meshtastic settings dropdown).
 
-  static BlePairingMode _blePairingFromString(String s) => const {
-    'random_pin': BlePairingMode.randomPin,
-    'fixed_pin': BlePairingMode.fixedPin,
-    'no_pin': BlePairingMode.noPin,
-  }[s] ?? BlePairingMode.randomPin;
+  static BlePairingMode _blePairingFromString(String s) =>
+      const {
+        'random_pin': BlePairingMode.randomPin,
+        'fixed_pin': BlePairingMode.fixedPin,
+        'no_pin': BlePairingMode.noPin,
+      }[s] ??
+      BlePairingMode.randomPin;
 
-  static String _blePairingToString(BlePairingMode m) => const {
-    BlePairingMode.randomPin: 'random_pin',
-    BlePairingMode.fixedPin: 'fixed_pin',
-    BlePairingMode.noPin: 'no_pin',
-  }[m] ?? 'random_pin';
+  static String _blePairingToString(BlePairingMode m) =>
+      const {
+        BlePairingMode.randomPin: 'random_pin',
+        BlePairingMode.fixedPin: 'fixed_pin',
+        BlePairingMode.noPin: 'no_pin',
+      }[m] ??
+      'random_pin';
 
   // ── Mutable presets (defaults overwritten by server sync) ──
 
@@ -722,22 +746,19 @@ class ProtoReader {
   }
 
   int readFixed32() {
-    final v = ByteData.sublistView(_data, _pos, _pos + 4)
-        .getUint32(0, Endian.little);
+    final v = ByteData.sublistView(_data, _pos, _pos + 4).getUint32(0, Endian.little);
     _pos += 4;
     return v;
   }
 
   int readSfixed32() {
-    final v = ByteData.sublistView(_data, _pos, _pos + 4)
-        .getInt32(0, Endian.little);
+    final v = ByteData.sublistView(_data, _pos, _pos + 4).getInt32(0, Endian.little);
     _pos += 4;
     return v;
   }
 
   double readFloat() {
-    final v = ByteData.sublistView(_data, _pos, _pos + 4)
-        .getFloat32(0, Endian.little);
+    final v = ByteData.sublistView(_data, _pos, _pos + 4).getFloat32(0, Endian.little);
     _pos += 4;
     return v;
   }
@@ -796,6 +817,84 @@ Uint8List buildToRadioPacket(Uint8List meshPacketBytes) {
   final w = ProtoWriter();
   // ToRadio field 1 = packet (MeshPacket)
   w.writeBytes(1, meshPacketBytes);
+  return w.toBytes();
+}
+
+/// MQTT client proxy payload carried between a radio and a phone/client.
+class MqttClientProxyMessage {
+  final String topic;
+  final Uint8List? data;
+  final String? text;
+  final bool retained;
+
+  const MqttClientProxyMessage({
+    required this.topic,
+    this.data,
+    this.text,
+    this.retained = false,
+  });
+
+  Uint8List get payloadBytes => data ?? Uint8List.fromList(utf8.encode(text ?? ''));
+
+  bool get hasPayload => data != null || text != null;
+
+  Uint8List toBytes() {
+    final w = ProtoWriter();
+    w.writeString(1, topic);
+    if (data != null) {
+      w.writeBytes(2, data!);
+    } else if (text != null) {
+      w.writeString(3, text!);
+    }
+    w.writeBool(4, retained);
+    return w.toBytes();
+  }
+
+  factory MqttClientProxyMessage.fromBytes(Uint8List bytes) {
+    final reader = ProtoReader(bytes);
+    var topic = '';
+    Uint8List? data;
+    String? text;
+    var retained = false;
+
+    while (reader.hasMore) {
+      final (field, wireType) = reader.readTag();
+      switch (field) {
+        case 1:
+          topic = reader.readString();
+          break;
+        case 2:
+          data = Uint8List.fromList(reader.readBytes());
+          text = null;
+          break;
+        case 3:
+          text = reader.readString();
+          data = null;
+          break;
+        case 4:
+          retained = reader.readBool();
+          break;
+        default:
+          reader.skip(wireType);
+      }
+    }
+
+    return MqttClientProxyMessage(
+      topic: topic,
+      data: data,
+      text: text,
+      retained: retained,
+    );
+  }
+}
+
+/// Build a ToRadio message containing an MQTT client proxy message.
+Uint8List buildToRadioMqttClientProxyMessage(
+  MqttClientProxyMessage message,
+) {
+  final w = ProtoWriter();
+  // ToRadio field 6 = mqttClientProxyMessage.
+  w.writeBytes(6, message.toBytes());
   return w.toBytes();
 }
 

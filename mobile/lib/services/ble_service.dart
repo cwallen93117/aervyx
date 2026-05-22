@@ -13,6 +13,7 @@ import '../config/api_config.dart';
 import '../models/meshtastic_protobufs.dart';
 import 'api_service.dart';
 import 'mesh_transport.dart';
+import 'mqtt_client_proxy_service.dart';
 import 'transports/ble_transport.dart';
 import 'transports/tcp_transport.dart';
 import 'transports/serial_transport.dart';
@@ -97,6 +98,7 @@ class BleService extends ChangeNotifier {
   // ── Mesh position relay ──
   StreamSubscription<void>? _dataAvailableSubscription;
   Timer? _meshPollTimer;
+  final MqttClientProxyService _mqttClientProxy = MqttClientProxyService();
 
   // ── Device GPS state (from own mesh position packets) ──
   double? _deviceGpsLat;
@@ -145,12 +147,10 @@ class BleService extends ChangeNotifier {
   String get connectionLabel => _transport?.connectionLabel ?? '';
 
   /// True if the device has a GPS module (not GpsMode.notPresent).
-  bool get deviceHasGps =>
-      _configLoaded && _deviceState.gpsMode != GpsMode.notPresent;
+  bool get deviceHasGps => _configLoaded && _deviceState.gpsMode != GpsMode.notPresent;
 
   /// True if the device's GPS is enabled and active.
-  bool get deviceGpsEnabled =>
-      _configLoaded && _deviceState.gpsMode == GpsMode.enabled;
+  bool get deviceGpsEnabled => _configLoaded && _deviceState.gpsMode == GpsMode.enabled;
 
   /// True if the device has produced at least one GPS fix.
   bool get deviceHasGpsFix => _deviceGpsLastFix != null;
@@ -282,8 +282,7 @@ class BleService extends ChangeNotifier {
     }
   }
 
-  Future<void> _saveCachedConfig(
-      Map<String, dynamic> mqtt, dynamic profiles) async {
+  Future<void> _saveCachedConfig(Map<String, dynamic> mqtt, dynamic profiles) async {
     try {
       final file = await _cacheFile;
       await file.writeAsString(jsonEncode({
@@ -375,9 +374,7 @@ class BleService extends ChangeNotifier {
   Future<void> _registerMeshDeviceInventory(String purpose) async {
     final deviceId = _currentMeshDeviceId();
     if (deviceId == null) return;
-    final label = _deviceState.longName.trim().isNotEmpty
-        ? _deviceState.longName.trim()
-        : deviceDisplayName;
+    final label = _deviceState.longName.trim().isNotEmpty ? _deviceState.longName.trim() : deviceDisplayName;
     try {
       await _api.post(
         ApiConfig.meshDevicesPath,
@@ -465,8 +462,7 @@ class BleService extends ChangeNotifier {
   // Scanning
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<void> startScan(
-      {Duration timeout = const Duration(seconds: 10)}) async {
+  Future<void> startScan({Duration timeout = const Duration(seconds: 10)}) async {
     if (_isScanning) return;
 
     _isScanning = true;
@@ -476,8 +472,7 @@ class BleService extends ChangeNotifier {
 
     try {
       // Ensure Bluetooth is on
-      if (await FlutterBluePlus.adapterState.first !=
-          BluetoothAdapterState.on) {
+      if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
         await FlutterBluePlus.turnOn();
       }
 
@@ -493,8 +488,7 @@ class BleService extends ChangeNotifier {
         }
       }
       if (permission == LocationPermission.deniedForever) {
-        _error =
-            'Location permission permanently denied. Enable in Settings.';
+        _error = 'Location permission permanently denied. Enable in Settings.';
         _isScanning = false;
         notifyListeners();
         return;
@@ -656,6 +650,7 @@ class BleService extends ChangeNotifier {
 
     // Start mesh position relay (always — captures all mesh traffic)
     _startMeshPositionRelay();
+    _startMqttClientProxy();
 
     // Only share phone GPS to the device if it lacks its own GPS.
     if (_deviceState.gpsMode == GpsMode.notPresent) {
@@ -724,8 +719,7 @@ class BleService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   /// Discover Meshtastic devices advertising `_meshtastic._tcp` via mDNS.
-  Future<void> startNetworkScan(
-      {Duration timeout = const Duration(seconds: 10)}) async {
+  Future<void> startNetworkScan({Duration timeout = const Duration(seconds: 10)}) async {
     if (_isNetworkScanning) return;
 
     _isNetworkScanning = true;
@@ -744,13 +738,9 @@ class BleService extends ChangeNotifier {
           if (rawHost == null || rawPort == null) return;
 
           // Strip trailing dot that some mDNS implementations include.
-          final host = rawHost.endsWith('.')
-              ? rawHost.substring(0, rawHost.length - 1)
-              : rawHost;
+          final host = rawHost.endsWith('.') ? rawHost.substring(0, rawHost.length - 1) : rawHost;
 
-          final name = service.name?.isNotEmpty == true
-              ? service.name!
-              : host;
+          final name = service.name?.isNotEmpty == true ? service.name! : host;
 
           // Deduplicate by host:port.
           final alreadyKnown = _discoveredNetworkDevices.any(
@@ -837,6 +827,7 @@ class BleService extends ChangeNotifier {
     _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
+    _stopMqttClientProxy();
     if (_transport != null) {
       try {
         await _transport!.disconnect();
@@ -874,6 +865,7 @@ class BleService extends ChangeNotifier {
     // Clean up connection state
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
+    _stopMqttClientProxy();
     if (_transport is BleTransport) {
       (_transport as BleTransport).markDisconnected();
     }
@@ -888,17 +880,14 @@ class BleService extends ChangeNotifier {
     final device = _connectedDevice;
     _connectedDevice = null;
 
-    if (device != null &&
-        _reconnectAttempts < _maxReconnectAttempts) {
+    if (device != null && _reconnectAttempts < _maxReconnectAttempts) {
       _isReconnecting = true;
       _statusMessage = 'Connection lost. Reconnecting to ${device.name}...';
       notifyListeners();
       _scheduleReconnect(device);
     } else {
       _isReconnecting = false;
-      _error = _reconnectAttempts >= _maxReconnectAttempts
-          ? 'Reconnection failed after $_maxReconnectAttempts attempts'
-          : 'Device disconnected';
+      _error = _reconnectAttempts >= _maxReconnectAttempts ? 'Reconnection failed after $_maxReconnectAttempts attempts' : 'Device disconnected';
       _statusMessage = null;
       notifyListeners();
     }
@@ -920,8 +909,7 @@ class BleService extends ChangeNotifier {
     }
 
     _reconnectAttempts++;
-    _statusMessage =
-        'Reconnecting to ${device.name} (attempt $_reconnectAttempts/$_maxReconnectAttempts)...';
+    _statusMessage = 'Reconnecting to ${device.name} (attempt $_reconnectAttempts/$_maxReconnectAttempts)...';
     notifyListeners();
 
     try {
@@ -985,6 +973,7 @@ class BleService extends ChangeNotifier {
       // Restart GPS sharing and mesh relay
       _startPhoneGpsSharing();
       _startMeshPositionRelay();
+      _startMqttClientProxy();
 
       _isReconnecting = false;
       _reconnectAttempts = 0;
@@ -1191,8 +1180,7 @@ class BleService extends ChangeNotifier {
           _deviceState.role = DeviceRole.fromValue(r.readVarint());
           break;
         case 6:
-          _deviceState.rebroadcastMode =
-              RebroadcastMode.fromValue(r.readVarint());
+          _deviceState.rebroadcastMode = RebroadcastMode.fromValue(r.readVarint());
           break;
         default:
           r.skip(wt);
@@ -1303,8 +1291,7 @@ class BleService extends ChangeNotifier {
           _deviceState.bluetoothEnabled = r.readBool();
           break;
         case 2:
-          _deviceState.blePairingMode =
-              BlePairingMode.fromValue(r.readVarint());
+          _deviceState.blePairingMode = BlePairingMode.fromValue(r.readVarint());
           break;
         case 3: // fixed_pin (uint32)
           if (wt == 0) {
@@ -1517,9 +1504,7 @@ class BleService extends ChangeNotifier {
   /// [wifiSsid] and [wifiPsk] are included in the batched NetworkConfig write
   /// so that Wi-Fi credentials survive the commit (a standalone setWifi before
   /// the batch would be overwritten).
-  Future<void> applyProfile(MeshtasticProfile profile,
-      {ProfileConfig? customConfig, String? wifiSsid, String? wifiPsk,
-       String? longName, String? shortName, RegionCode? region}) async {
+  Future<void> applyProfile(MeshtasticProfile profile, {ProfileConfig? customConfig, String? wifiSsid, String? wifiPsk, String? longName, String? shortName, RegionCode? region}) async {
     if (_transport == null) {
       _error = 'No device connected';
       notifyListeners();
@@ -1550,86 +1535,106 @@ class BleService extends ChangeNotifier {
 
       writes.add(MapEntry('Begin edit', buildBeginEditSettings()));
 
-      if (longName != null && longName.isNotEmpty ||
-          shortName != null && shortName.isNotEmpty) {
-        writes.add(MapEntry('Device name', buildSetOwner(
-          longName: longName ?? '',
-          shortName: shortName ?? '',
-        )));
+      if (longName != null && longName.isNotEmpty || shortName != null && shortName.isNotEmpty) {
+        writes.add(MapEntry(
+            'Device name',
+            buildSetOwner(
+              longName: longName ?? '',
+              shortName: shortName ?? '',
+            )));
       }
 
-      writes.add(MapEntry('Device config', buildSetDeviceConfig(
-        role: config.role,
-        rebroadcastMode: config.rebroadcastMode,
-        serialEnabled: config.serialEnabled,
-        nodeInfoBroadcastSecs: config.nodeInfoBroadcastSecs,
-      )));
+      writes.add(MapEntry(
+          'Device config',
+          buildSetDeviceConfig(
+            role: config.role,
+            rebroadcastMode: config.rebroadcastMode,
+            serialEnabled: config.serialEnabled,
+            nodeInfoBroadcastSecs: config.nodeInfoBroadcastSecs,
+          )));
 
-      writes.add(MapEntry('Position config', buildSetPositionConfig(
-        positionBroadcastSecs: config.positionBroadcastSecs,
-        smartEnabled: config.smartPositionEnabled,
-        smartMinDistance: config.smartMinDistance,
-        smartMinInterval: config.smartMinInterval,
-        gpsMode: config.gpsMode,
-        positionFlags: config.positionFlags,
-        gpsUpdateInterval: config.gpsUpdateInterval,
-      )));
+      writes.add(MapEntry(
+          'Position config',
+          buildSetPositionConfig(
+            positionBroadcastSecs: config.positionBroadcastSecs,
+            smartEnabled: config.smartPositionEnabled,
+            smartMinDistance: config.smartMinDistance,
+            smartMinInterval: config.smartMinInterval,
+            gpsMode: config.gpsMode,
+            positionFlags: config.positionFlags,
+            gpsUpdateInterval: config.gpsUpdateInterval,
+          )));
 
       final loraRegion = region ?? _deviceState.region;
-      writes.add(MapEntry('LoRa radio', buildSetLoraConfig(
-        modemPreset: config.modemPreset,
-        region: loraRegion,
-        hopLimit: config.hopLimit,
-        txEnabled: config.txEnabled,
-        txPower: config.txPower,
-        sx126xRxBoostedGain: config.sx126xRxBoostedGain,
-      )));
+      writes.add(MapEntry(
+          'LoRa radio',
+          buildSetLoraConfig(
+            modemPreset: config.modemPreset,
+            region: loraRegion,
+            hopLimit: config.hopLimit,
+            txEnabled: config.txEnabled,
+            txPower: config.txPower,
+            sx126xRxBoostedGain: config.sx126xRxBoostedGain,
+          )));
 
-      writes.add(MapEntry('Power config', buildSetPowerConfig(
-        isPowerSaving: config.powerSaving,
-        onBatteryShutdownAfterSecs: config.onBatteryShutdownAfterSecs,
-        waitBluetoothSecs: config.waitBluetoothSecs,
-        lsSecs: config.lsSecs,
-      )));
+      writes.add(MapEntry(
+          'Power config',
+          buildSetPowerConfig(
+            isPowerSaving: config.powerSaving,
+            onBatteryShutdownAfterSecs: config.onBatteryShutdownAfterSecs,
+            waitBluetoothSecs: config.waitBluetoothSecs,
+            lsSecs: config.lsSecs,
+          )));
 
-      writes.add(MapEntry('Display config', buildSetDisplayConfig(
-        screenOnSecs: config.displayTimeoutSecs,
-        autoScreenCarouselSecs: config.autoScreenCarouselSecs,
-        wakeOnTapOrMotion: config.wakeOnTapOrMotion,
-      )));
+      writes.add(MapEntry(
+          'Display config',
+          buildSetDisplayConfig(
+            screenOnSecs: config.displayTimeoutSecs,
+            autoScreenCarouselSecs: config.autoScreenCarouselSecs,
+            wakeOnTapOrMotion: config.wakeOnTapOrMotion,
+          )));
 
-      writes.add(MapEntry('Network config', buildSetNetworkConfig(
-        wifiEnabled: config.wifiEnabled,
-        ethEnabled: config.ethEnabled,
-        wifiSsid: wifiSsid,
-        wifiPsk: wifiPsk,
-      )));
+      writes.add(MapEntry(
+          'Network config',
+          buildSetNetworkConfig(
+            wifiEnabled: config.wifiEnabled,
+            ethEnabled: config.ethEnabled,
+            wifiSsid: wifiSsid,
+            wifiPsk: wifiPsk,
+          )));
 
-      writes.add(MapEntry('MQTT config', buildSetMqttConfig(
-        address: _platformMqttAddressForRadio(),
-        username: _platformMqttUsername,
-        password: _platformMqttPassword,
-        rootTopic: _platformMqttTopicPrefix,
-        encryptionEnabled: false,
-        tlsEnabled: _platformMqttTlsEnabled,
-        proxyToClientEnabled: config.bluetoothEnabled,
-      )));
+      writes.add(MapEntry(
+          'MQTT config',
+          buildSetMqttConfig(
+            address: _platformMqttAddressForRadio(),
+            username: _platformMqttUsername,
+            password: _platformMqttPassword,
+            rootTopic: _platformMqttTopicPrefix,
+            encryptionEnabled: false,
+            tlsEnabled: _platformMqttTlsEnabled,
+            proxyToClientEnabled: config.bluetoothEnabled,
+          )));
 
-      writes.add(MapEntry('Telemetry', buildSetTelemetryConfig(
-        deviceUpdateInterval:
-            config.deviceTelemetryEnabled ? config.telemetryIntervalSecs : 0,
-        environmentMeasurementEnabled: config.environmentTelemetryEnabled,
-      )));
+      writes.add(MapEntry(
+          'Telemetry',
+          buildSetTelemetryConfig(
+            deviceUpdateInterval: config.deviceTelemetryEnabled ? config.telemetryIntervalSecs : 0,
+            environmentMeasurementEnabled: config.environmentTelemetryEnabled,
+          )));
 
-      writes.add(MapEntry('Neighbor info', buildSetNeighborInfoConfig(
-        enabled: config.neighborInfoEnabled,
-        updateIntervalSecs: config.neighborInfoIntervalSecs,
-      )));
+      writes.add(MapEntry(
+          'Neighbor info',
+          buildSetNeighborInfoConfig(
+            enabled: config.neighborInfoEnabled,
+            updateIntervalSecs: config.neighborInfoIntervalSecs,
+          )));
 
-      writes.add(MapEntry('Store & forward', buildSetStoreForwardConfig(
-        enabled: config.storeForwardEnabled,
-        isServer: config.storeForwardIsServer,
-      )));
+      writes.add(MapEntry(
+          'Store & forward',
+          buildSetStoreForwardConfig(
+            enabled: config.storeForwardEnabled,
+            isServer: config.storeForwardIsServer,
+          )));
 
       Uint8List channelPsk;
       if (_platformMqttPsk != null && _platformMqttPsk!.isNotEmpty) {
@@ -1641,21 +1646,23 @@ class BleService extends ChangeNotifier {
       } else {
         channelPsk = Uint8List.fromList([1]);
       }
-      writes.add(MapEntry('Channel 0', buildSetChannel(
-        index: 0,
-        role: 1,
-        psk: channelPsk,
-        uplinkEnabled: true,
-        downlinkEnabled: true,
-      )));
+      writes.add(MapEntry(
+          'Channel 0',
+          buildSetChannel(
+            index: 0,
+            role: 1,
+            psk: channelPsk,
+            uplinkEnabled: true,
+            downlinkEnabled: true,
+          )));
 
-      writes.add(MapEntry('Bluetooth config', buildSetBluetoothConfig(
-        enabled: config.bluetoothEnabled,
-        mode: config.bluetoothMode,
-        fixedPin: config.bluetoothMode == BlePairingMode.fixedPin
-            ? config.bluetoothFixedPin
-            : null,
-      )));
+      writes.add(MapEntry(
+          'Bluetooth config',
+          buildSetBluetoothConfig(
+            enabled: config.bluetoothEnabled,
+            mode: config.bluetoothMode,
+            fixedPin: config.bluetoothMode == BlePairingMode.fixedPin ? config.bluetoothFixedPin : null,
+          )));
 
       // ── Write loop ──
       // Send all admin messages sequentially with 1500ms delays.
@@ -1715,6 +1722,7 @@ class BleService extends ChangeNotifier {
     if (_userDisconnected) {
       _stopPhoneGpsSharing();
       _stopMeshPositionRelay();
+      _stopMqttClientProxy();
       if (_transport is BleTransport) {
         (_transport as BleTransport).markDisconnected();
       }
@@ -1855,6 +1863,9 @@ class BleService extends ChangeNotifier {
       _deviceState.mqttRootTopic = rootTopic;
       _deviceState.mqttEncryptionEnabled = encryptionEnabled;
       _deviceState.mqttTlsEnabled = tlsEnabled;
+      _deviceState.mqttEnabled = true;
+      _deviceState.mqttProxyToClient = _deviceState.bluetoothEnabled;
+      _startMqttClientProxy();
       _statusMessage = 'MQTT configured';
     } catch (e) {
       _error = 'MQTT config failed: $e';
@@ -1886,9 +1897,7 @@ class BleService extends ChangeNotifier {
       distanceFilter: 10,
     );
 
-    _phoneGpsSubscription =
-        Geolocator.getPositionStream(locationSettings: settings)
-            .listen(_onPhoneGpsUpdate);
+    _phoneGpsSubscription = Geolocator.getPositionStream(locationSettings: settings).listen(_onPhoneGpsUpdate);
 
     // Also send position every 30 seconds even if stationary
     _phoneGpsTimer = Timer.periodic(
@@ -1942,6 +1951,23 @@ class BleService extends ChangeNotifier {
     _meshPollTimer = null;
   }
 
+  void _startMqttClientProxy() {
+    final transport = _transport;
+    if (transport == null || !_deviceState.mqttEnabled || !_deviceState.mqttProxyToClient) {
+      _stopMqttClientProxy();
+      return;
+    }
+
+    unawaited(_mqttClientProxy.start(
+      deviceState: _deviceState,
+      writeToRadio: transport.writeToRadio,
+    ));
+  }
+
+  void _stopMqttClientProxy() {
+    unawaited(_mqttClientProxy.stop());
+  }
+
   Future<void> _drainFromRadio() async {
     if (_transport == null) return;
 
@@ -1970,6 +1996,12 @@ class BleService extends ChangeNotifier {
           // MeshPacket (field 2 in FromRadio)
           final packetBytes = reader.readBytes();
           _handleMeshPacket(Uint8List.fromList(packetBytes));
+        } else if (field == 14) {
+          // MQTT Client Proxy Message (device to client/phone)
+          final proxyBytes = reader.readBytes();
+          _mqttClientProxy.publishFromRadio(
+            MqttClientProxyMessage.fromBytes(Uint8List.fromList(proxyBytes)),
+          );
         } else {
           reader.skip(wireType);
         }
@@ -2129,9 +2161,7 @@ class BleService extends ChangeNotifier {
         _deviceGpsLat = lat;
         _deviceGpsLon = lon;
         _deviceGpsAlt = alt?.toDouble();
-        _deviceGpsLastFix = time != null
-            ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
-            : DateTime.now().toUtc();
+        _deviceGpsLastFix = time != null ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true) : DateTime.now().toUtc();
         _deviceGpsSats = satsInView;
         _deviceGpsPdop = pdop != null ? pdop / 100.0 : null;
         notifyListeners();
@@ -2145,9 +2175,7 @@ class BleService extends ChangeNotifier {
         speed: speed?.toDouble(),
         heading: heading != null ? heading / 1e5 : null,
         deviceId: deviceId,
-        timestamp: time != null
-            ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
-            : null,
+        timestamp: time != null ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true) : null,
       );
     } catch (e) {
       debugPrint('[BLE] mesh position parse error: $e');
@@ -2299,6 +2327,7 @@ class BleService extends ChangeNotifier {
     _connectionStateSubscription = null;
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
+    _stopMqttClientProxy();
     stopScan();
     stopNetworkScan();
     disconnect();
