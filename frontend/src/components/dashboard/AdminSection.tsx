@@ -429,6 +429,8 @@ export default function AdminSection(props: AdminSectionProps) {
   const [faaClientSecret, setFaaClientSecret] = useState("");
   const [faaFeedback, setFaaFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [faaLoading, setFaaLoading] = useState(false);
+  const [cloudflareDdnsFeedback, setCloudflareDdnsFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
+  const [cloudflareDdnsLoading, setCloudflareDdnsLoading] = useState(false);
   const mqttBrokerMode = normalizeMqttBrokerMode(siteSettings.mqtt_broker_mode);
 
   const toggleUserSort = useCallback((field: UserSortField) => {
@@ -610,6 +612,35 @@ export default function AdminSection(props: AdminSectionProps) {
       setFaaFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not test FAA credentials." });
     } finally {
       setFaaLoading(false);
+    }
+  }
+
+  async function checkCloudflareDdns() {
+    setCloudflareDdnsLoading(true);
+    setCloudflareDdnsFeedback({ type: "pending", text: "Checking Cloudflare DNS..." });
+    try {
+      const res = await fetch(`${apiBase}/api/site-settings/cloudflare-ddns/check`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      const next = (await res.json()) as SiteSettingsRecord;
+      setSiteSettings({
+        ...next,
+        cloudflare_ddns_api_token: null,
+        cloudflare_ddns_clear_api_token: false,
+      });
+      setCloudflareDdnsFeedback({
+        type: next.cloudflare_ddns_last_error ? "error" : "success",
+        text: next.cloudflare_ddns_last_error ?? next.cloudflare_ddns_last_update_result ?? "Cloudflare DNS check completed.",
+      });
+    } catch (caught) {
+      setCloudflareDdnsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not check Cloudflare DNS." });
+    } finally {
+      setCloudflareDdnsLoading(false);
     }
   }
 
@@ -1371,6 +1402,106 @@ export default function AdminSection(props: AdminSectionProps) {
                     }
                   />
                 </label>
+              </div>
+            </fieldset>
+            <fieldset className="fieldset-cluster">
+              <legend>Cloudflare MQTT DNS Sync</legend>
+              <div className="cluster-stack">
+                <label className="stack compact">
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={siteSettings.cloudflare_ddns_enabled ?? false}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          cloudflare_ddns_enabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    Enabled
+                  </span>
+                </label>
+                <label className="stack compact">
+                  <span>Cloudflare zone ID</span>
+                  <input
+                    type="text"
+                    placeholder="Zone ID for aervyx.net"
+                    value={siteSettings.cloudflare_ddns_zone_id ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        cloudflare_ddns_zone_id: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>API token</span>
+                  <input
+                    type="password"
+                    placeholder={siteSettings.cloudflare_ddns_api_token_configured ? "Token saved; enter a new token to replace" : "Cloudflare DNS Edit token"}
+                    value={siteSettings.cloudflare_ddns_api_token ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        cloudflare_ddns_api_token: event.target.value || null,
+                        cloudflare_ddns_clear_api_token: false,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>DNS records</span>
+                  <textarea
+                    rows={3}
+                    value={(siteSettings.cloudflare_ddns_record_names ?? []).join("\n")}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        cloudflare_ddns_record_names: event.target.value
+                          .split(/[\n,]/)
+                          .map((entry) => entry.trim())
+                          .filter(Boolean),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>Check interval (hours)</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={168}
+                    step={1}
+                    value={siteSettings.cloudflare_ddns_check_interval_hours ?? 12}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        cloudflare_ddns_check_interval_hours: Number(event.target.value || 12),
+                      }))
+                    }
+                  />
+                </label>
+                <div className="stack compact">
+                  <span>Last check</span>
+                  <strong>{formatOptionalDateTime(siteSettings.cloudflare_ddns_last_checked_at)}</strong>
+                </div>
+                <div className="stack compact">
+                  <span>Current public IP</span>
+                  <strong>{siteSettings.cloudflare_ddns_last_public_ip ?? "Unknown"}</strong>
+                </div>
+                <div className="stack compact">
+                  <span>Status</span>
+                  <strong>{siteSettings.cloudflare_ddns_last_error ?? siteSettings.cloudflare_ddns_last_update_result ?? "Not checked yet"}</strong>
+                </div>
+                <div className="button-row" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                  <button type="button" className="ghost-button" disabled={cloudflareDdnsLoading} onClick={() => void checkCloudflareDdns()}>
+                    {cloudflareDdnsLoading ? "Checking..." : "Check now"}
+                  </button>
+                  {siteSettings.cloudflare_ddns_api_token_configured ? <span className="status-chip success">API token saved</span> : <span className="status-chip pending">API token not saved</span>}
+                  {cloudflareDdnsFeedback ? <div className={`status-chip ${cloudflareDdnsFeedback.type}`}>{cloudflareDdnsFeedback.text}</div> : null}
+                </div>
               </div>
             </fieldset>
             <div className="button-row" style={{ display: "flex", alignItems: "center", gap: "12px" }}>

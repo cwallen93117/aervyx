@@ -6,6 +6,8 @@ from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import SiteSettings, User
 from app.schemas import SiteSettingsResponse, SiteSettingsUpdate
+from app.services.cloudflare_ddns import normalize_cloudflare_ddns_settings, normalize_cloudflare_record_names, run_cloudflare_ddns_check
+from app.services.integration_credentials import IntegrationSecretError, encrypt_secret
 from app.services.mqtt_config import (
     LOCAL_MOSQUITTO,
     clear_legacy_public_mqtt_values,
@@ -232,6 +234,8 @@ def _get_site_settings(session: Session) -> SiteSettings:
             mqtt_port=1883,
             mqtt_tls_enabled=False,
             mqtt_topic_prefix="msh",
+            cloudflare_ddns_record_names=normalize_cloudflare_record_names(None),
+            cloudflare_ddns_check_interval_hours=12,
             mesh_profiles=DEFAULT_MESH_PROFILES,
         )
         session.add(settings)
@@ -242,6 +246,7 @@ def _get_site_settings(session: Session) -> SiteSettings:
         changed = settings.mqtt_broker_mode != broker_mode
         settings.mqtt_broker_mode = broker_mode
         changed = clear_legacy_public_mqtt_values(settings) or changed
+        changed = normalize_cloudflare_ddns_settings(settings) or changed
         if changed:
             session.add(settings)
             session.commit()
@@ -264,6 +269,7 @@ def update_site_settings(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported MQTT broker mode.")
 
     broker_mode = normalize_mqtt_broker_mode(payload.mqtt_broker_mode)
+    cloudflare_record_names = normalize_cloudflare_record_names(payload.cloudflare_ddns_record_names)
     if payload.mqtt_enabled:
         if not payload.mqtt_host:
             raise HTTPException(
@@ -295,6 +301,24 @@ def update_site_settings(
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     settings = _get_site_settings(session)
+    encrypted_cloudflare_token = settings.cloudflare_ddns_encrypted_api_token
+    token_value = (payload.cloudflare_ddns_api_token or "").strip()
+    if payload.cloudflare_ddns_clear_api_token:
+        encrypted_cloudflare_token = None
+    elif token_value:
+        try:
+            encrypted_cloudflare_token = encrypt_secret(token_value)
+        except IntegrationSecretError as exc:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+    if payload.cloudflare_ddns_enabled:
+        if not (payload.cloudflare_ddns_zone_id or "").strip():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cloudflare DDNS requires a zone ID.")
+        if not encrypted_cloudflare_token:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cloudflare DDNS requires an API token.")
+        if not cloudflare_record_names:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cloudflare DDNS requires at least one DNS record.")
+
     settings.telemetry_vario_smoothing_seconds = payload.telemetry_vario_smoothing_seconds
     settings.telemetry_altitude_smoothing_seconds = payload.telemetry_altitude_smoothing_seconds
     settings.telemetry_speed_smoothing_seconds = payload.telemetry_speed_smoothing_seconds
@@ -310,6 +334,11 @@ def update_site_settings(
     settings.mqtt_password = payload.mqtt_password
     settings.mqtt_topic_prefix = payload.mqtt_topic_prefix
     settings.mqtt_channel_psk = payload.mqtt_channel_psk
+    settings.cloudflare_ddns_enabled = payload.cloudflare_ddns_enabled
+    settings.cloudflare_ddns_zone_id = (payload.cloudflare_ddns_zone_id or "").strip() or None
+    settings.cloudflare_ddns_encrypted_api_token = encrypted_cloudflare_token
+    settings.cloudflare_ddns_record_names = cloudflare_record_names
+    settings.cloudflare_ddns_check_interval_hours = payload.cloudflare_ddns_check_interval_hours
     if payload.mesh_profiles is not None:
         settings.mesh_profiles = payload.mesh_profiles
     session.add(settings)
@@ -320,4 +349,13 @@ def update_site_settings(
     from app.services.mqtt_subscriber import request_mqtt_reconnect
     request_mqtt_reconnect()
 
+    return SiteSettingsResponse.model_validate(settings)
+
+
+@router.post("/cloudflare-ddns/check", response_model=SiteSettingsResponse)
+async def check_cloudflare_ddns(
+    _: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> SiteSettingsResponse:
+    settings = await run_cloudflare_ddns_check(session)
     return SiteSettingsResponse.model_validate(settings)

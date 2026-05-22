@@ -108,6 +108,17 @@ export type SiteSettingsRecord = {
   mqtt_password: string | null;
   mqtt_topic_prefix: string;
   mqtt_channel_psk: string | null;
+  cloudflare_ddns_enabled: boolean;
+  cloudflare_ddns_zone_id: string | null;
+  cloudflare_ddns_api_token_configured: boolean;
+  cloudflare_ddns_api_token?: string | null;
+  cloudflare_ddns_clear_api_token?: boolean;
+  cloudflare_ddns_record_names: string[];
+  cloudflare_ddns_check_interval_hours: number;
+  cloudflare_ddns_last_checked_at: string | null;
+  cloudflare_ddns_last_public_ip: string | null;
+  cloudflare_ddns_last_update_result: string | null;
+  cloudflare_ddns_last_error: string | null;
   mesh_profiles: Record<string, Record<string, unknown>> | null;
   updated_at?: string | null;
 };

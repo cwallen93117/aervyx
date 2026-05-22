@@ -77,6 +77,11 @@ except ImportError:
     start_raster_scheduler = None
 
 try:
+    from app.services.cloudflare_ddns import start_cloudflare_ddns_sync
+except ImportError:
+    start_cloudflare_ddns_sync = None
+
+try:
     from app.services.demand_tracker import prune_stale_demands
 except ImportError:
     prune_stale_demands = None
@@ -130,6 +135,7 @@ async def lifespan(app: FastAPI):
     live_position_prune_task = await start_live_position_pruner() if start_live_position_pruner is not None else None
     faa_task = await start_faa_airspace_refresh() if start_faa_airspace_refresh is not None else None
     raster_task = await start_raster_scheduler() if start_raster_scheduler is not None else None
+    cloudflare_ddns_task = await start_cloudflare_ddns_sync() if start_cloudflare_ddns_sync is not None else None
     yield
     if mqtt_task is not None:
         mqtt_task.cancel()
@@ -139,6 +145,8 @@ async def lifespan(app: FastAPI):
         faa_task.cancel()
     if raster_task is not None:
         raster_task.cancel()
+    if cloudflare_ddns_task is not None:
+        cloudflare_ddns_task.cancel()
 
 
 settings = get_settings()

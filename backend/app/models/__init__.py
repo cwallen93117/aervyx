@@ -102,9 +102,22 @@ class SiteSettings(Base):
     mqtt_password: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mqtt_topic_prefix: Mapped[str] = mapped_column(String(80), default="msh")
     mqtt_channel_psk: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cloudflare_ddns_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    cloudflare_ddns_zone_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    cloudflare_ddns_encrypted_api_token: Mapped[str | None] = mapped_column(Text, nullable=True)
+    cloudflare_ddns_record_names: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    cloudflare_ddns_check_interval_hours: Mapped[int] = mapped_column(Integer, default=12)
+    cloudflare_ddns_last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cloudflare_ddns_last_public_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    cloudflare_ddns_last_update_result: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    cloudflare_ddns_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Meshtastic device profiles (JSON blob)
     mesh_profiles: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    @property
+    def cloudflare_ddns_api_token_configured(self) -> bool:
+        return bool(self.cloudflare_ddns_encrypted_api_token)
 
 
 class IntegrationCredential(Base):

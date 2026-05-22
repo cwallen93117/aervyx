@@ -33,6 +33,15 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_password VARCHAR(255),
                       mqtt_topic_prefix VARCHAR(80) NOT NULL DEFAULT 'msh',
                       mqtt_channel_psk VARCHAR(255),
+                      cloudflare_ddns_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                      cloudflare_ddns_zone_id VARCHAR(120),
+                      cloudflare_ddns_encrypted_api_token TEXT,
+                      cloudflare_ddns_record_names JSON,
+                      cloudflare_ddns_check_interval_hours INTEGER NOT NULL DEFAULT 12,
+                      cloudflare_ddns_last_checked_at TIMESTAMP,
+                      cloudflare_ddns_last_public_ip VARCHAR(45),
+                      cloudflare_ddns_last_update_result VARCHAR(255),
+                      cloudflare_ddns_last_error TEXT,
                       mesh_profiles JSON,
                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -90,6 +99,24 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_topic_prefix VARCHAR(80) NOT NULL DEFAULT 'msh'"))
             if "mqtt_channel_psk" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_channel_psk VARCHAR(255)"))
+            if "cloudflare_ddns_enabled" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_enabled BOOLEAN NOT NULL DEFAULT FALSE"))
+            if "cloudflare_ddns_zone_id" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_zone_id VARCHAR(120)"))
+            if "cloudflare_ddns_encrypted_api_token" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_encrypted_api_token TEXT"))
+            if "cloudflare_ddns_record_names" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_record_names JSON"))
+            if "cloudflare_ddns_check_interval_hours" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_check_interval_hours INTEGER NOT NULL DEFAULT 12"))
+            if "cloudflare_ddns_last_checked_at" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_last_checked_at TIMESTAMP"))
+            if "cloudflare_ddns_last_public_ip" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_last_public_ip VARCHAR(45)"))
+            if "cloudflare_ddns_last_update_result" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_last_update_result VARCHAR(255)"))
+            if "cloudflare_ddns_last_error" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_last_error TEXT"))
             if "mesh_profiles" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mesh_profiles JSON"))
             if "updated_at" not in site_settings_columns:
@@ -138,6 +165,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_host = CASE WHEN mqtt_host = 'mqtt.meshtastic.org' THEN NULL ELSE mqtt_host END,
                       mqtt_username = CASE WHEN mqtt_username = 'meshdev' THEN NULL ELSE mqtt_username END,
                       mqtt_password = CASE WHEN mqtt_password = 'large4cats' THEN NULL ELSE mqtt_password END,
+                      cloudflare_ddns_enabled = COALESCE(cloudflare_ddns_enabled, FALSE),
+                      cloudflare_ddns_check_interval_hours = COALESCE(cloudflare_ddns_check_interval_hours, 12),
                       updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
                     WHERE id = 1
                     """

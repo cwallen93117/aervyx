@@ -139,3 +139,55 @@ def test_mqtt_settings_require_broker_credentials(monkeypatch, field: str, value
 
     assert exc_info.value.status_code == 400
     assert exc_info.value.detail == message
+
+
+def test_cloudflare_ddns_settings_encrypt_token_and_do_not_return_it(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.routers.site_settings.get_settings",
+        lambda: SimpleNamespace(mosquitto_password_file=None),
+    )
+    monkeypatch.setattr("app.routers.site_settings.encrypt_secret", lambda value: f"encrypted:{value}")
+    factory = _session_factory()
+
+    with factory() as session:
+        response = update_site_settings(
+            payload=_payload(
+                cloudflare_ddns_enabled=True,
+                cloudflare_ddns_zone_id="zone123",
+                cloudflare_ddns_api_token="cf-token",
+                cloudflare_ddns_record_names=["MQTT.AERVYX.NET", "mqtt-staging.aervyx.net"],
+                cloudflare_ddns_check_interval_hours=12,
+            ),
+            _=_admin(),
+            session=session,
+        )
+        row = session.get(SiteSettings, 1)
+
+    assert row is not None
+    assert row.cloudflare_ddns_encrypted_api_token == "encrypted:cf-token"
+    assert response.cloudflare_ddns_api_token_configured is True
+    assert response.cloudflare_ddns_record_names == ["mqtt.aervyx.net", "mqtt-staging.aervyx.net"]
+    assert "cloudflare_ddns_api_token" not in response.model_dump()
+
+
+def test_cloudflare_ddns_requires_token_when_enabled(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.routers.site_settings.get_settings",
+        lambda: SimpleNamespace(mosquitto_password_file=None),
+    )
+    factory = _session_factory()
+
+    with factory() as session:
+        with pytest.raises(HTTPException) as exc_info:
+            update_site_settings(
+                payload=_payload(
+                    cloudflare_ddns_enabled=True,
+                    cloudflare_ddns_zone_id="zone123",
+                    cloudflare_ddns_api_token=None,
+                ),
+                _=_admin(),
+                session=session,
+            )
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Cloudflare DDNS requires an API token."

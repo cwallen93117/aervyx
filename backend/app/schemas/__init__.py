@@ -218,6 +218,15 @@ class SiteSettingsResponse(BaseModel):
     mqtt_password: str | None = None
     mqtt_topic_prefix: str = "msh"
     mqtt_channel_psk: str | None = None
+    cloudflare_ddns_enabled: bool = False
+    cloudflare_ddns_zone_id: str | None = None
+    cloudflare_ddns_api_token_configured: bool = False
+    cloudflare_ddns_record_names: list[str] = Field(default_factory=lambda: ["mqtt.aervyx.net", "mqtt-staging.aervyx.net"])
+    cloudflare_ddns_check_interval_hours: int = Field(default=12, ge=1, le=168)
+    cloudflare_ddns_last_checked_at: datetime | None = None
+    cloudflare_ddns_last_public_ip: str | None = None
+    cloudflare_ddns_last_update_result: str | None = None
+    cloudflare_ddns_last_error: str | None = None
     mesh_profiles: dict | None = None
     updated_at: datetime | None = None
 
@@ -240,6 +249,12 @@ class SiteSettingsUpdate(BaseModel):
     mqtt_password: str | None = None
     mqtt_topic_prefix: str = "msh"
     mqtt_channel_psk: str | None = None
+    cloudflare_ddns_enabled: bool = False
+    cloudflare_ddns_zone_id: str | None = None
+    cloudflare_ddns_api_token: str | None = None
+    cloudflare_ddns_clear_api_token: bool = False
+    cloudflare_ddns_record_names: list[str] = Field(default_factory=lambda: ["mqtt.aervyx.net", "mqtt-staging.aervyx.net"])
+    cloudflare_ddns_check_interval_hours: int = Field(default=12, ge=1, le=168)
     mesh_profiles: dict | None = None
 
 

@@ -41,6 +41,15 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
         "mqtt_password",
         "mqtt_topic_prefix",
         "mqtt_channel_psk",
+        "cloudflare_ddns_enabled",
+        "cloudflare_ddns_zone_id",
+        "cloudflare_ddns_encrypted_api_token",
+        "cloudflare_ddns_record_names",
+        "cloudflare_ddns_check_interval_hours",
+        "cloudflare_ddns_last_checked_at",
+        "cloudflare_ddns_last_public_ip",
+        "cloudflare_ddns_last_update_result",
+        "cloudflare_ddns_last_error",
         "mesh_profiles",
     }.issubset(columns)
 
@@ -48,7 +57,8 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
         row = connection.execute(
             text(
                 """
-                SELECT mqtt_enabled, mqtt_broker_mode, mqtt_port, mqtt_tls_enabled, mqtt_topic_prefix
+                SELECT mqtt_enabled, mqtt_broker_mode, mqtt_port, mqtt_tls_enabled, mqtt_topic_prefix,
+                       cloudflare_ddns_enabled, cloudflare_ddns_check_interval_hours
                 FROM site_settings
                 WHERE id = 1
                 """
@@ -60,6 +70,8 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
     assert row.mqtt_port == 1883
     assert bool(row.mqtt_tls_enabled) is False
     assert row.mqtt_topic_prefix == "msh"
+    assert bool(row.cloudflare_ddns_enabled) is False
+    assert row.cloudflare_ddns_check_interval_hours == 12
 
 
 def test_runtime_schema_normalizes_legacy_public_mqtt_values() -> None:
