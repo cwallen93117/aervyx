@@ -121,8 +121,6 @@ def admin_debug_status(
             .order_by(LivePosition.timestamp.desc())
             .limit(1)
         )
-        if latest_app_pos is None:
-            continue
 
         # Count phone-app positions for this session.
         phone_position_count = session.scalar(
@@ -154,10 +152,10 @@ def admin_debug_status(
             "lon": latest_app_pos.lon,
             "alt": latest_app_pos.alt,
             "speed": latest_app_pos.speed,
-        }
+        } if latest_app_pos is not None else None
 
         # Online = received a position in the last 60 seconds
-        is_online = _is_recent(now, latest_app_pos.timestamp)
+        is_online = _is_recent(now, latest_app_pos.timestamp) if latest_app_pos is not None else False
 
         active_sessions.append({
             "pilot_id": ts.pilot_id,
@@ -166,11 +164,11 @@ def admin_debug_status(
             "task_name": task_name or ("Free Flight" if ts.task_id is None else None),
             "device_id": None,
             "source": PHONE_APP_POSITION_SOURCE,
-            "battery_level": latest_app_pos.battery_level,
+            "battery_level": latest_app_pos.battery_level if latest_app_pos is not None else None,
             "position_count": phone_position_count,
             "positions_last_60s": positions_last_60s,
             "started_at": ts.started_at.isoformat() if ts.started_at else None,
-            "last_seen_at": latest_app_pos.timestamp.isoformat(),
+            "last_seen_at": latest_app_pos.timestamp.isoformat() if latest_app_pos is not None else None,
             "last_position": last_position,
             "is_online": is_online,
             "has_mesh": has_mesh > 0,

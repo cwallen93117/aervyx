@@ -400,8 +400,8 @@ export type DebugActiveSession = {
   battery_level: number | null;
   position_count: number;
   positions_last_60s: number;
-  started_at: string;
-  last_seen_at: string;
+  started_at: string | null;
+  last_seen_at: string | null;
   last_position: { lat: number; lon: number; alt: number | null; speed: number | null } | null;
   is_online: boolean;
   has_mesh: boolean;
