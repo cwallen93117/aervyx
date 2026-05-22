@@ -50,7 +50,6 @@ services:
     environment:
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
-      MQTT_SUBSCRIBER_USE_ENV: "${MQTT_SUBSCRIBER_USE_ENV:-false}"
       MOSQUITTO_PASSWORD_FILE: /mosquitto/secrets/passwords
     restart: unless-stopped
     expose:

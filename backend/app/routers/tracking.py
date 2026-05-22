@@ -17,6 +17,7 @@ from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, MeshNodeStatus, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.mesh_ids import resolve_mesh_device_display_names
+from app.services.mqtt_config import clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
     get_all_active_positions,
     get_live_positions,
@@ -472,15 +473,21 @@ def get_mesh_config(
             mqtt_password=getattr(settings, "mqtt_password", None),
             topic_prefix=getattr(settings, "mesh_mqtt_topic_prefix", "aervyx"),
         )
-    is_public = site.mqtt_broker_mode == "public"
-    mqtt_host = "mqtt.meshtastic.org" if is_public else site.mqtt_host
+    broker_mode = normalize_mqtt_broker_mode(site.mqtt_broker_mode)
+    changed = site.mqtt_broker_mode != broker_mode
+    site.mqtt_broker_mode = broker_mode
+    changed = clear_legacy_public_mqtt_values(site) or changed
+    if changed:
+        session.add(site)
+        session.commit()
+        session.refresh(site)
     return MeshConfigResponse(
         channel_psk=site.mqtt_channel_psk,
-        mqtt_host=mqtt_host,
+        mqtt_host=site.mqtt_host,
         mqtt_port=site.mqtt_port,
-        mqtt_tls_enabled=False if is_public else site.mqtt_tls_enabled,
-        mqtt_username="meshdev" if is_public else site.mqtt_username,
-        mqtt_password="large4cats" if is_public else site.mqtt_password,
+        mqtt_tls_enabled=site.mqtt_tls_enabled,
+        mqtt_username=site.mqtt_username,
+        mqtt_password=site.mqtt_password,
         topic_prefix=site.mqtt_topic_prefix,
     )
 

@@ -1157,7 +1157,7 @@ class _DeviceSettingsCard extends StatelessWidget {
     final theme = Theme.of(context);
 
     final broker =
-        ds.mqttAddress.isNotEmpty ? ds.mqttAddress : 'mqtt.meshtastic.org';
+        ds.mqttAddress.isNotEmpty ? ds.mqttAddress : 'Not configured';
 
     return Card(
       clipBehavior: Clip.antiAlias,

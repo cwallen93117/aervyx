@@ -210,7 +210,7 @@ class SiteSettingsResponse(BaseModel):
     max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
     mqtt_enabled: bool = True
-    mqtt_broker_mode: str = "public"
+    mqtt_broker_mode: str = "local_mosquitto"
     mqtt_host: str | None = None
     mqtt_port: int = 1883
     mqtt_tls_enabled: bool = False
@@ -232,7 +232,7 @@ class SiteSettingsUpdate(BaseModel):
     max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
     mqtt_enabled: bool = True
-    mqtt_broker_mode: str = "public"
+    mqtt_broker_mode: str = "local_mosquitto"
     mqtt_host: str | None = None
     mqtt_port: int = 1883
     mqtt_tls_enabled: bool = False

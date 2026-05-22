@@ -31,14 +31,10 @@ flowchart TB
             GW_DEV["Meshtastic Device\nWiFi + MQTT enabled"]
         end
 
-        subgraph wild["Public Mesh Node"]
-            W_DEV["Stranger's device\nwith MQTT uplink"]
-        end
     end
 
     A_DEV <--->|"LoRa radio\nhop_limit=3"| B_DEV
     A_DEV <--->|"LoRa"| GW_DEV
-    A_DEV <--->|"LoRa"| W_DEV
     B_DEV <--->|"LoRa"| GW_DEV
 
     A_DEV <-->|"BLE"| A_PH
@@ -47,13 +43,10 @@ flowchart TB
     B_PH -->|"PATH 1: Phone Direct\nHTTP POST source=app\n(phone's own location)"| API
     B_PH -->|"PATH 2: BLE Relay\nHTTP POST source=mesh_relay\nforwards ALL heard packets"| API
 
-    GW_DEV -->|"MQTT publish"| PUB
-    W_DEV  -->|"MQTT publish"| PUB
-    GW_DEV -.->|"MQTT publish\nif private configured"| PRIV
+    GW_DEV -->|"MQTT publish"| PRIV
 
     subgraph brokers["MQTT Brokers"]
-        PUB["mqtt.meshtastic.org\nPublic broker"]
-        PRIV["Private broker\nyour-broker.example.com"]
+        PRIV["Private broker\nlocal Mosquitto or cloud VM"]
     end
 
     subgraph aervyx["Aervyx Backend"]
@@ -66,8 +59,7 @@ flowchart TB
         DB   --> SSE["SSE fan-out"]
     end
 
-    PUB  -->|"PATH 3a: subscribe\n{topic_prefix}/#"| MSUB
-    PRIV -.->|"PATH 3b: subscribe"| MSUB
+    PRIV -->|"PATH 3: subscribe\n{topic_prefix}/#"| MSUB
 
     SSE --> MAP["Live Tracking Map"]
 ```
@@ -135,10 +127,10 @@ The Aervyx backend subscribes to that broker.
 | task_id lookup | Active task resolution from event registration |
 | Store + broadcast | Position saved, SSE pushed to live map |
 
-**Gateway topic rule:** On the public broker, Aervyx subscribes to registered mesh
-device IDs. If an Ethernet/Wi-Fi gateway is publishing packets heard from trackers,
-the gateway ID must be registered too; trackers appear inside the MeshPacket `from`
-field, not necessarily in the MQTT topic suffix.
+**Gateway topic rule:** On a private broker, Aervyx subscribes to `msh/#`. If an
+Ethernet/Wi-Fi gateway is publishing packets heard from trackers, the gateway ID
+proves which node delivered the MQTT packet; trackers appear inside the
+MeshPacket `from` field, not necessarily in the MQTT topic suffix.
 
 **MQTT encryption:** Our profiles set `encryption_enabled=false` on the MQTT config
 so that channel packets arrive in plaintext on the broker. If a device publishes an
@@ -148,22 +140,7 @@ missing keys still prove the gateway/sender were heard, but no position is store
 
 ---
 
-## Public vs Private MQTT
-
-### Public broker (mqtt.meshtastic.org)
-
-```
-Your devices --> mesh --> ANY node with MQTT uplink --> broker
-                          (yours OR a stranger's)
-```
-
-- Broader coverage: random hikers, other pilots, and public gateways all relay
-  your positions for free
-- Zero infrastructure: Meshtastic runs the broker
-- Your positions are visible to anyone subscribing to the public broker
-- You share bandwidth with all Meshtastic traffic worldwide
-
-### Private broker (self-hosted)
+## Private MQTT Broker Modes
 
 ```
 Your devices --> mesh --> only YOUR configured nodes --> your broker
@@ -171,11 +148,11 @@ Your devices --> mesh --> only YOUR configured nodes --> your broker
 
 - Private: only you see the data
 - Dedicated bandwidth, no shared noise
-- No benefit from public nodes -- strangers cannot relay to your broker because
+- No benefit from unconfigured nodes -- strangers cannot relay to your broker because
   they do not have your credentials
 - You must run and maintain the broker infrastructure
-- Aervyx's Docker stack includes Mosquitto for this path; see
-  `docs/private-mqtt-broker.md` for the VM listener and credential setup.
+- Aervyx supports either its bundled local Mosquitto container or an external
+  cloud VM broker such as Oracle Mosquitto.
 
 ---
 

@@ -94,7 +94,7 @@ class SiteSettings(Base):
     site_match_radius_m: Mapped[int] = mapped_column(Integer, default=1000)
     # MQTT broker settings
     mqtt_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
-    mqtt_broker_mode: Mapped[str] = mapped_column(String(20), default="public")
+    mqtt_broker_mode: Mapped[str] = mapped_column(String(20), default="local_mosquitto")
     mqtt_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mqtt_port: Mapped[int] = mapped_column(Integer, default=1883)
     mqtt_tls_enabled: Mapped[bool] = mapped_column(Boolean, default=False)

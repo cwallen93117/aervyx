@@ -25,7 +25,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       max_map_pitch_degrees INTEGER NOT NULL DEFAULT 75,
                       site_match_radius_m INTEGER NOT NULL DEFAULT 1000,
                       mqtt_enabled BOOLEAN NOT NULL DEFAULT TRUE,
-                      mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'public',
+                      mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'local_mosquitto',
                       mqtt_host VARCHAR(255),
                       mqtt_port INTEGER NOT NULL DEFAULT 1883,
                       mqtt_tls_enabled BOOLEAN NOT NULL DEFAULT FALSE,
@@ -54,7 +54,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_broker_mode,
                       mqtt_port,
                       mqtt_topic_prefix
-                    ) VALUES (1, 5, 3, 3, 5, 75, 1000, TRUE, 'public', 1883, 'msh')
+                    ) VALUES (1, 5, 3, 3, 5, 75, 1000, TRUE, 'local_mosquitto', 1883, 'msh')
                     """
                 )
             )
@@ -75,7 +75,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
             if "mqtt_enabled" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
             if "mqtt_broker_mode" not in site_settings_columns:
-                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'public'"))
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'local_mosquitto'"))
             if "mqtt_host" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mqtt_host VARCHAR(255)"))
             if "mqtt_port" not in site_settings_columns:
@@ -110,7 +110,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_port,
                       mqtt_topic_prefix
                     )
-                    SELECT 1, 5, 3, 3, 5, 75, 1000, TRUE, 'public', 1883, 'msh'
+                    SELECT 1, 5, 3, 3, 5, 75, 1000, TRUE, 'local_mosquitto', 1883, 'msh'
                     WHERE NOT EXISTS (SELECT 1 FROM site_settings WHERE id = 1)
                     """
                 )
@@ -127,10 +127,17 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       max_map_pitch_degrees = COALESCE(max_map_pitch_degrees, 75),
                       site_match_radius_m = COALESCE(site_match_radius_m, 1000),
                       mqtt_enabled = COALESCE(mqtt_enabled, TRUE),
-                      mqtt_broker_mode = COALESCE(mqtt_broker_mode, 'public'),
+                      mqtt_broker_mode = CASE
+                        WHEN mqtt_broker_mode = 'private' THEN 'cloud_vm'
+                        WHEN mqtt_broker_mode = 'cloud_vm' THEN 'cloud_vm'
+                        ELSE 'local_mosquitto'
+                      END,
                       mqtt_port = COALESCE(mqtt_port, 1883),
                       mqtt_tls_enabled = COALESCE(mqtt_tls_enabled, FALSE),
                       mqtt_topic_prefix = COALESCE(mqtt_topic_prefix, 'msh'),
+                      mqtt_host = CASE WHEN mqtt_host = 'mqtt.meshtastic.org' THEN NULL ELSE mqtt_host END,
+                      mqtt_username = CASE WHEN mqtt_username = 'meshdev' THEN NULL ELSE mqtt_username END,
+                      mqtt_password = CASE WHEN mqtt_password = 'large4cats' THEN NULL ELSE mqtt_password END,
                       updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
                     WHERE id = 1
                     """

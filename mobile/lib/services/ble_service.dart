@@ -196,9 +196,9 @@ class BleService extends ChangeNotifier {
   BleService(this._api);
 
   String _platformMqttAddressForRadio() {
-    final host = _platformMqttHost ?? 'mqtt.meshtastic.org';
+    final host = _platformMqttHost ?? '';
     final defaultPort = _platformMqttTlsEnabled ? 8883 : 1883;
-    if (_platformMqttPort > 0 && _platformMqttPort != defaultPort && !host.contains(':')) {
+    if (host.isNotEmpty && _platformMqttPort > 0 && _platformMqttPort != defaultPort && !host.contains(':')) {
       return '$host:$_platformMqttPort';
     }
     return host;

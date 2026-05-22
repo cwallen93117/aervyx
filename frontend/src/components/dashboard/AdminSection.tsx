@@ -4,10 +4,14 @@ import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } fr
 
 import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
-import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, SiteSettingsRecord, User } from "./types";
+import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
 type MeshConnectionStatus = "live" | "stale" | "offline" | "never_seen";
+
+function normalizeMqttBrokerMode(value: string | null | undefined): MqttBrokerMode {
+  return value === "cloud_vm" || value === "private" ? "cloud_vm" : "local_mosquitto";
+}
 
 type MeshNode = {
   device_id: string;
@@ -425,6 +429,7 @@ export default function AdminSection(props: AdminSectionProps) {
   const [faaClientSecret, setFaaClientSecret] = useState("");
   const [faaFeedback, setFaaFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [faaLoading, setFaaLoading] = useState(false);
+  const mqttBrokerMode = normalizeMqttBrokerMode(siteSettings.mqtt_broker_mode);
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -1253,95 +1258,91 @@ export default function AdminSection(props: AdminSectionProps) {
                 <label className="stack compact">
                   <span>Broker mode</span>
                   <select
-                    value={siteSettings.mqtt_broker_mode ?? "public"}
+                    value={mqttBrokerMode}
                     onChange={(event) =>
                       setSiteSettings((current) => ({
                         ...current,
-                        mqtt_broker_mode: event.target.value,
+                        mqtt_broker_mode: event.target.value as MqttBrokerMode,
                       }))
                     }
                   >
-                    <option value="public">Public (mqtt.meshtastic.org)</option>
-                    <option value="private">Private (custom broker)</option>
+                    <option value="local_mosquitto">Local Mosquitto on Aervyx machine</option>
+                    <option value="cloud_vm">Cloud VM broker</option>
                   </select>
                 </label>
-                {(siteSettings.mqtt_broker_mode ?? "public") === "private" && (
-                  <>
-                    <label className="stack compact">
-                      <span>MQTT host</span>
-                      <input
-                        type="text"
-                        placeholder="mqtt.example.com"
-                        value={siteSettings.mqtt_host ?? ""}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_host: event.target.value || null,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="stack compact">
-                      <span>MQTT port</span>
-                      <input
-                        type="number"
-                        min={1}
-                        max={65535}
-                        step={1}
-                        value={siteSettings.mqtt_port ?? 1883}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_port: Number(event.target.value || 1883),
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="stack compact">
-                      <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                        <input
-                          type="checkbox"
-                          checked={siteSettings.mqtt_tls_enabled ?? false}
-                          onChange={(event) =>
-                            setSiteSettings((current) => ({
-                              ...current,
-                              mqtt_tls_enabled: event.target.checked,
-                            }))
-                          }
-                        />
-                        TLS enabled
-                      </span>
-                    </label>
-                    <label className="stack compact">
-                      <span>MQTT username</span>
-                      <input
-                        type="text"
-                        placeholder="Fleet username"
-                        value={siteSettings.mqtt_username ?? ""}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_username: event.target.value || null,
-                          }))
-                        }
-                      />
-                    </label>
-                    <label className="stack compact">
-                      <span>MQTT password</span>
-                      <input
-                        type="password"
-                        placeholder="Fleet password"
-                        value={siteSettings.mqtt_password ?? ""}
-                        onChange={(event) =>
-                          setSiteSettings((current) => ({
-                            ...current,
-                            mqtt_password: event.target.value || null,
-                          }))
-                        }
-                      />
-                    </label>
-                  </>
-                )}
+                <label className="stack compact">
+                  <span>MQTT host</span>
+                  <input
+                    type="text"
+                    placeholder={mqttBrokerMode === "local_mosquitto" ? "LAN IP or DNS radios can reach" : "mqtt.example.com"}
+                    value={siteSettings.mqtt_host ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_host: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>MQTT port</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={65535}
+                    step={1}
+                    value={siteSettings.mqtt_port ?? 1883}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_port: Number(event.target.value || 1883),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <input
+                      type="checkbox"
+                      checked={siteSettings.mqtt_tls_enabled ?? false}
+                      onChange={(event) =>
+                        setSiteSettings((current) => ({
+                          ...current,
+                          mqtt_tls_enabled: event.target.checked,
+                        }))
+                      }
+                    />
+                    TLS enabled
+                  </span>
+                </label>
+                <label className="stack compact">
+                  <span>MQTT username</span>
+                  <input
+                    type="text"
+                    placeholder="Fleet username"
+                    value={siteSettings.mqtt_username ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_username: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
+                <label className="stack compact">
+                  <span>MQTT password</span>
+                  <input
+                    type="password"
+                    placeholder="Fleet password"
+                    value={siteSettings.mqtt_password ?? ""}
+                    onChange={(event) =>
+                      setSiteSettings((current) => ({
+                        ...current,
+                        mqtt_password: event.target.value || null,
+                      }))
+                    }
+                  />
+                </label>
                 <label className="stack compact">
                   <span>Topic prefix</span>
                   <input

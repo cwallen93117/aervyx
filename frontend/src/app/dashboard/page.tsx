@@ -520,7 +520,7 @@ function blankSiteSettingsForm(): SiteSettingsRecord {
     max_map_pitch_degrees: 75,
     site_match_radius_m: 1000,
     mqtt_enabled: false,
-    mqtt_broker_mode: "public",
+    mqtt_broker_mode: "local_mosquitto",
     mqtt_host: null,
     mqtt_port: 1883,
     mqtt_tls_enabled: false,

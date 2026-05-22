@@ -1,8 +1,8 @@
 # Oracle MQTT Broker
 
-Use this when Aervyx needs a public Meshtastic MQTT broker without opening
-ports through the home Verizon/Google Wi-Fi routers. The Oracle VM runs only
-Mosquitto; Aervyx and Meshtastic radios connect outbound to it.
+Use this when Aervyx needs a publicly reachable private MQTT broker without
+opening ports through the home Verizon/Google Wi-Fi routers. The Oracle VM runs
+only Mosquitto; Aervyx and Meshtastic radios connect outbound to it.
 
 ## Oracle VM
 
@@ -70,9 +70,9 @@ MQTT password: <fleet-password>
 Topic prefix: msh
 ```
 
-Keep `MQTT_SUBSCRIBER_USE_ENV=false` on the Aervyx backend. That makes the
-backend subscribe to the Admin-configured Oracle broker instead of forcing the
-internal Docker `mosquitto` service.
+Set Broker mode to `Cloud VM broker`. That makes the backend subscribe to the
+Admin-configured Oracle broker instead of the internal Docker `mosquitto`
+service.
 
 ## Tahoe Supreme
 

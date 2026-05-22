@@ -6,6 +6,12 @@ from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import SiteSettings, User
 from app.schemas import SiteSettingsResponse, SiteSettingsUpdate
+from app.services.mqtt_config import (
+    LOCAL_MOSQUITTO,
+    clear_legacy_public_mqtt_values,
+    is_known_mqtt_broker_mode,
+    normalize_mqtt_broker_mode,
+)
 from app.services.mosquitto_passwords import write_mosquitto_password_file
 
 router = APIRouter(prefix="/api/site-settings", tags=["site-settings"])
@@ -222,7 +228,7 @@ def _get_site_settings(session: Session) -> SiteSettings:
             max_map_pitch_degrees=75,
             site_match_radius_m=1000,
             mqtt_enabled=True,
-            mqtt_broker_mode="public",
+            mqtt_broker_mode=LOCAL_MOSQUITTO,
             mqtt_port=1883,
             mqtt_tls_enabled=False,
             mqtt_topic_prefix="msh",
@@ -231,6 +237,15 @@ def _get_site_settings(session: Session) -> SiteSettings:
         session.add(settings)
         session.commit()
         session.refresh(settings)
+    else:
+        broker_mode = normalize_mqtt_broker_mode(settings.mqtt_broker_mode)
+        changed = settings.mqtt_broker_mode != broker_mode
+        settings.mqtt_broker_mode = broker_mode
+        changed = clear_legacy_public_mqtt_values(settings) or changed
+        if changed:
+            session.add(settings)
+            session.commit()
+            session.refresh(settings)
     return settings
 
 
@@ -245,20 +260,26 @@ def update_site_settings(
     _: User = Depends(require_admin),
     session: Session = Depends(get_session),
 ) -> SiteSettingsResponse:
-    if payload.mqtt_broker_mode == "private":
+    if not is_known_mqtt_broker_mode(payload.mqtt_broker_mode):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported MQTT broker mode.")
+
+    broker_mode = normalize_mqtt_broker_mode(payload.mqtt_broker_mode)
+    if payload.mqtt_enabled:
         if not payload.mqtt_host:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Private MQTT mode requires an MQTT host.",
+                detail="MQTT requires an MQTT host.",
             )
+        if payload.mqtt_port < 1 or payload.mqtt_port > 65535:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="MQTT port must be between 1 and 65535.")
         if not payload.mqtt_username or not payload.mqtt_password:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Private MQTT mode requires an MQTT username and password.",
+                detail="MQTT requires an MQTT username and password.",
             )
 
         password_file = get_settings().mosquitto_password_file
-        if password_file:
+        if broker_mode == LOCAL_MOSQUITTO and password_file:
             try:
                 write_mosquitto_password_file(
                     password_file,
@@ -281,7 +302,7 @@ def update_site_settings(
     settings.max_map_pitch_degrees = payload.max_map_pitch_degrees
     settings.site_match_radius_m = payload.site_match_radius_m
     settings.mqtt_enabled = payload.mqtt_enabled
-    settings.mqtt_broker_mode = payload.mqtt_broker_mode
+    settings.mqtt_broker_mode = broker_mode
     settings.mqtt_host = payload.mqtt_host
     settings.mqtt_port = payload.mqtt_port
     settings.mqtt_tls_enabled = payload.mqtt_tls_enabled

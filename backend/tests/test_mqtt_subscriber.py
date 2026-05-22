@@ -300,14 +300,14 @@ def test_mqtt_records_nodeinfo_status_without_position(monkeypatch) -> None:
         assert status.packet_count == 1
 
 
-def test_private_mqtt_subscriber_uses_admin_broker_by_default(monkeypatch) -> None:
+def test_cloud_vm_mqtt_subscriber_uses_admin_broker(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     with factory() as session:
         session.add(
             SiteSettings(
                 id=1,
                 mqtt_enabled=True,
-                mqtt_broker_mode="private",
+                mqtt_broker_mode="cloud_vm",
                 mqtt_host="mqtt-staging.aervyx.net",
                 mqtt_port=8883,
                 mqtt_tls_enabled=True,
@@ -321,7 +321,7 @@ def test_private_mqtt_subscriber_uses_admin_broker_by_default(monkeypatch) -> No
     monkeypatch.setattr(
         mqtt_subscriber,
         "get_settings",
-        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883, mqtt_subscriber_use_env=False),
+        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883),
     )
 
     assert mqtt_subscriber._read_mqtt_config_from_db() == (
@@ -334,7 +334,7 @@ def test_private_mqtt_subscriber_uses_admin_broker_by_default(monkeypatch) -> No
     )
 
 
-def test_private_mqtt_subscriber_can_use_env_broker_override(monkeypatch) -> None:
+def test_legacy_private_mqtt_subscriber_maps_to_cloud_vm(monkeypatch) -> None:
     factory = _session_factory(monkeypatch)
     with factory() as session:
         session.add(
@@ -355,14 +355,72 @@ def test_private_mqtt_subscriber_can_use_env_broker_override(monkeypatch) -> Non
     monkeypatch.setattr(
         mqtt_subscriber,
         "get_settings",
-        lambda: SimpleNamespace(
-            mqtt_host="mosquitto",
-            mqtt_port=1883,
-            mqtt_username=None,
-            mqtt_password=None,
-            mqtt_tls_enabled=False,
-            mqtt_subscriber_use_env=True,
-        ),
+        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883),
+    )
+
+    assert mqtt_subscriber._read_mqtt_config_from_db() == (
+        "mqtt-staging.aervyx.net",
+        8883,
+        "msh",
+        "fleet",
+        "secret",
+        True,
+    )
+
+
+def test_local_mosquitto_subscriber_uses_internal_broker(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        session.add(
+            SiteSettings(
+                id=1,
+                mqtt_enabled=True,
+                mqtt_broker_mode="local_mosquitto",
+                mqtt_host="192.168.87.51",
+                mqtt_port=1883,
+                mqtt_tls_enabled=False,
+                mqtt_username="fleet",
+                mqtt_password="secret",
+                mqtt_topic_prefix="msh",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        mqtt_subscriber,
+        "get_settings",
+        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883),
+    )
+
+    assert mqtt_subscriber._read_mqtt_config_from_db() == (
+        "mosquitto",
+        1883,
+        "msh",
+        None,
+        None,
+        False,
+    )
+
+
+def test_legacy_public_mqtt_subscriber_maps_to_local_mosquitto(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    with factory() as session:
+        session.add(
+            SiteSettings(
+                id=1,
+                mqtt_enabled=True,
+                mqtt_broker_mode="public",
+                mqtt_host=None,
+                mqtt_port=1883,
+                mqtt_topic_prefix="msh",
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        mqtt_subscriber,
+        "get_settings",
+        lambda: SimpleNamespace(mqtt_host="mosquitto", mqtt_port=1883),
     )
 
     assert mqtt_subscriber._read_mqtt_config_from_db() == (
@@ -605,42 +663,6 @@ def test_mqtt_decrypts_configured_psk_encrypted_position(monkeypatch) -> None:
         assert sender is not None
         assert sender.last_packet_type == "POSITION_APP"
         assert sender.last_gateway_id == gateway_id
-
-
-def test_registered_mesh_device_reader_returns_only_active_assignments(monkeypatch) -> None:
-    factory = _session_factory(monkeypatch)
-    with factory() as session:
-        active = User(username="active", full_name="Active", role="pilot", mesh_device_id="!active")
-        bare_hex = User(username="bare", full_name="Bare Hex", role="pilot", mesh_device_id="435a8b00")
-        inactive = User(username="inactive", full_name="Inactive", role="pilot", mesh_device_id="!inactive", is_active=False)
-        owner = User(username="owner", full_name="Owner", role="pilot")
-        session.add_all(
-            [
-                active,
-                bare_hex,
-                inactive,
-                User(username="empty", full_name="Empty", role="pilot", mesh_device_id=""),
-                User(username="none", full_name="None", role="pilot"),
-                owner,
-            ]
-        )
-        session.flush()
-        session.add_all(
-            [
-                MeshDevice(owner_user_id=owner.id, device_id="!base", label="Base", purpose="base_station"),
-                MeshDevice(owner_user_id=owner.id, device_id="89abcdef", label="Bare Base", purpose="base_station"),
-                MeshDevice(owner_user_id=inactive.id, device_id="!inactive-device", label="Inactive", purpose="driver_wifi"),
-                MeshDevice(owner_user_id=owner.id, device_id="!disabled", label="Disabled", purpose="relay", is_active=False),
-            ]
-        )
-        session.commit()
-
-    assert mqtt_subscriber._read_registered_mesh_device_ids_from_db() == [
-        "!435a8b00",
-        "!89abcdef",
-        "!active",
-        "!base",
-    ]
 
 
 def test_json_position_matches_legacy_bare_hex_mesh_registration(monkeypatch) -> None:

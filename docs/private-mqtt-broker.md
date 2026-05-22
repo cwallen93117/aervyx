@@ -53,10 +53,10 @@ on TLS port `8883`.
 In Admin → Meshtastic Configuration → MQTT / Mesh:
 
 - MQTT enabled: on
-- Broker mode: Private
-- MQTT host: `mqtt-staging.aervyx.net`
-- MQTT port: `8883`
-- TLS enabled: on
+- Broker mode: Local Mosquitto on Aervyx machine
+- MQTT host: LAN IP or DNS name that radios can reach
+- MQTT port: `1883` for LAN testing, or `8883` when exposing TLS
+- TLS enabled: match the listener radios use
 - MQTT username/password: match the fleet credential
 - Topic prefix: `msh`
 - Channel PSK: blank/default unless using a custom channel PSK

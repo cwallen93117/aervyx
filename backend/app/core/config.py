@@ -44,7 +44,6 @@ class Settings(BaseSettings):
     mqtt_tls_enabled: bool = False
     mqtt_username: str | None = None
     mqtt_password: str | None = None
-    mqtt_subscriber_use_env: bool = False
     mosquitto_password_file: str | None = None
     mesh_mqtt_topic_prefix: str = "aervyx"
     valhalla_url: str = "http://valhalla:8002"

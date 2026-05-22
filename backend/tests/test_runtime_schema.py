@@ -56,7 +56,68 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
         ).one()
 
     assert bool(row.mqtt_enabled) is True
-    assert row.mqtt_broker_mode == "public"
+    assert row.mqtt_broker_mode == "local_mosquitto"
     assert row.mqtt_port == 1883
     assert bool(row.mqtt_tls_enabled) is False
     assert row.mqtt_topic_prefix == "msh"
+
+
+def test_runtime_schema_normalizes_legacy_public_mqtt_values() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE site_settings (
+                  id INTEGER PRIMARY KEY,
+                  telemetry_vario_smoothing_seconds INTEGER NOT NULL DEFAULT 5,
+                  telemetry_altitude_smoothing_seconds INTEGER NOT NULL DEFAULT 3,
+                  telemetry_speed_smoothing_seconds INTEGER NOT NULL DEFAULT 3,
+                  telemetry_glide_ratio_smoothing_seconds INTEGER NOT NULL DEFAULT 5,
+                  max_map_pitch_degrees INTEGER NOT NULL DEFAULT 75,
+                  site_match_radius_m INTEGER NOT NULL DEFAULT 1000,
+                  mqtt_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                  mqtt_broker_mode VARCHAR(20) NOT NULL DEFAULT 'public',
+                  mqtt_host VARCHAR(255),
+                  mqtt_port INTEGER NOT NULL DEFAULT 1883,
+                  mqtt_tls_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+                  mqtt_username VARCHAR(255),
+                  mqtt_password VARCHAR(255),
+                  mqtt_topic_prefix VARCHAR(64) NOT NULL DEFAULT 'msh',
+                  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO site_settings (
+                  id,
+                  mqtt_broker_mode,
+                  mqtt_host,
+                  mqtt_username,
+                  mqtt_password
+                )
+                VALUES (1, 'public', 'mqtt.meshtastic.org', 'meshdev', 'large4cats')
+                """
+            )
+        )
+
+    ensure_runtime_schema(engine)
+
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT mqtt_broker_mode, mqtt_host, mqtt_username, mqtt_password
+                FROM site_settings
+                WHERE id = 1
+                """
+            )
+        ).one()
+
+    assert row.mqtt_broker_mode == "local_mosquitto"
+    assert row.mqtt_host is None
+    assert row.mqtt_username is None
+    assert row.mqtt_password is None

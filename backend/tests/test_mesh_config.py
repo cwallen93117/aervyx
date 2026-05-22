@@ -26,13 +26,13 @@ def _user() -> User:
     return User(username="pilot", full_name="Pilot", role="user")
 
 
-def test_mesh_config_returns_private_broker_credentials() -> None:
+def test_mesh_config_returns_cloud_vm_broker_credentials() -> None:
     factory = _session_factory()
     with factory() as session:
         session.add(
             SiteSettings(
                 id=1,
-                mqtt_broker_mode="private",
+                mqtt_broker_mode="cloud_vm",
                 mqtt_host="mqtt-staging.aervyx.net",
                 mqtt_port=8883,
                 mqtt_tls_enabled=True,
@@ -55,17 +55,52 @@ def test_mesh_config_returns_private_broker_credentials() -> None:
     assert response.channel_psk == "AQ=="
 
 
-def test_mesh_config_keeps_public_broker_defaults() -> None:
+def test_mesh_config_returns_local_mosquitto_radio_credentials() -> None:
     factory = _session_factory()
     with factory() as session:
-        session.add(SiteSettings(id=1, mqtt_broker_mode="public", mqtt_port=1883, mqtt_topic_prefix="msh"))
+        session.add(
+            SiteSettings(
+                id=1,
+                mqtt_broker_mode="local_mosquitto",
+                mqtt_host="192.168.87.51",
+                mqtt_port=1883,
+                mqtt_tls_enabled=False,
+                mqtt_username="fleet",
+                mqtt_password="secret",
+                mqtt_topic_prefix="msh",
+            )
+        )
         session.commit()
 
         response = get_mesh_config(user=_user(), session=session)
 
-    assert response.mqtt_host == "mqtt.meshtastic.org"
+    assert response.mqtt_host == "192.168.87.51"
     assert response.mqtt_port == 1883
     assert response.mqtt_tls_enabled is False
-    assert response.mqtt_username == "meshdev"
-    assert response.mqtt_password == "large4cats"
+    assert response.mqtt_username == "fleet"
+    assert response.mqtt_password == "secret"
+    assert response.topic_prefix == "msh"
+
+
+def test_mesh_config_legacy_public_never_returns_public_credentials() -> None:
+    factory = _session_factory()
+    with factory() as session:
+        session.add(
+            SiteSettings(
+                id=1,
+                mqtt_broker_mode="public",
+                mqtt_host="mqtt.meshtastic.org",
+                mqtt_port=1883,
+                mqtt_username="meshdev",
+                mqtt_password="large4cats",
+                mqtt_topic_prefix="msh",
+            )
+        )
+        session.commit()
+
+        response = get_mesh_config(user=_user(), session=session)
+
+    assert response.mqtt_host != "mqtt.meshtastic.org"
+    assert response.mqtt_username != "meshdev"
+    assert response.mqtt_password != "large4cats"
     assert response.topic_prefix == "msh"

@@ -45,8 +45,9 @@ from sqlalchemy import select
 
 from app.core.config import get_settings
 from app.db import SessionLocal
-from app.models import MeshDevice, MeshNodeStatus, SiteSettings, User
+from app.models import MeshNodeStatus, SiteSettings, User
 from app.services.mesh_ids import normalize_mesh_device_id
+from app.services.mqtt_config import LOCAL_MOSQUITTO, clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
     LIVE_POSITION_RETENTION_DAYS,
     prune_old_live_positions,
@@ -678,42 +679,6 @@ def _resolve_mesh_user(session, device_id: str | None) -> User | None:
     return user
 
 
-def _read_registered_mesh_device_ids_from_db() -> list[str]:
-    """Return active platform mesh device IDs for targeted public MQTT subscriptions."""
-    session = SessionLocal()
-    try:
-        raw_device_ids = set(
-            session.scalars(
-                select(MeshDevice.device_id)
-                .join(User, User.id == MeshDevice.owner_user_id)
-                .where(
-                    MeshDevice.is_active.is_(True),
-                    MeshDevice.device_id.isnot(None),
-                    MeshDevice.device_id != "",
-                    User.is_active.is_(True),
-                )
-            ).all()
-        )
-        raw_device_ids.update(
-            session.scalars(
-                select(User.mesh_device_id)
-                .where(
-                    User.is_active.is_(True),
-                    User.mesh_device_id.isnot(None),
-                    User.mesh_device_id != "",
-                )
-            ).all()
-        )
-        device_ids = {
-            normalized
-            for raw_device_id in raw_device_ids
-            if (normalized := normalize_mesh_device_id(raw_device_id)) is not None
-        }
-        return sorted(device_ids)
-    finally:
-        session.close()
-
-
 def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str | None, bool]:
     """Read MQTT broker settings from the site_settings DB row.
 
@@ -725,20 +690,23 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
         site = session.get(SiteSettings, 1)
         if site is None or not site.mqtt_enabled:
             return None, 1883, "msh", None, None, False
-        is_public = site.mqtt_broker_mode == "public"
-        if is_public:
-            # Public Meshtastic broker requires well-known credentials.
-            return "mqtt.meshtastic.org", site.mqtt_port, site.mqtt_topic_prefix, "meshdev", "large4cats", False
-
+        broker_mode = normalize_mqtt_broker_mode(site.mqtt_broker_mode)
+        changed = site.mqtt_broker_mode != broker_mode
+        site.mqtt_broker_mode = broker_mode
+        changed = clear_legacy_public_mqtt_values(site) or changed
+        if changed:
+            session.add(site)
+            session.commit()
+            session.refresh(site)
         settings = get_settings()
-        if getattr(settings, "mqtt_subscriber_use_env", False):
+        if broker_mode == LOCAL_MOSQUITTO:
             return (
-                getattr(settings, "mqtt_host", None),
+                getattr(settings, "mqtt_host", None) or "mosquitto",
                 getattr(settings, "mqtt_port", 1883),
                 site.mqtt_topic_prefix,
-                getattr(settings, "mqtt_username", None),
-                getattr(settings, "mqtt_password", None),
-                getattr(settings, "mqtt_tls_enabled", False),
+                None,
+                None,
+                False,
             )
 
         return (
@@ -850,20 +818,8 @@ def _paho_subscribe_loop() -> None:
             time.sleep(30)
             continue
 
-        # For the public Meshtastic broker, avoid the full LongFast firehose:
-        # subscribe directly to each registered device's topic.
-        if host == "mqtt.meshtastic.org":
-            registered_device_ids = _read_registered_mesh_device_ids_from_db()
-            if not registered_device_ids:
-                print("[MQTT] Public broker enabled, but no registered mesh devices - sleeping 30s", flush=True)
-                mqtt_connected = False
-                time.sleep(30)
-                continue
-            topics = [(f"{topic_prefix}/US/2/e/LongFast/{device_id}", 0) for device_id in registered_device_ids]
-            topic_description = f"{len(topics)} registered device topic(s)"
-        else:
-            topics = [(f"{topic_prefix}/#", 0)]
-            topic_description = f"{topic_prefix}/#"
+        topics = [(f"{topic_prefix}/#", 0)]
+        topic_description = f"{topic_prefix}/#"
         print(f"[MQTT] Connecting to {host}:{port} topic={topic_description} user={username}", flush=True)
 
         # Explicit VERSION1 callback API for paho-mqtt 2.x compatibility
@@ -957,8 +913,8 @@ def _paho_subscribe_loop() -> None:
 async def start_mqtt_subscriber() -> None:
     """Launch the MQTT subscriber as a background daemon thread.
 
-    Uses paho-mqtt directly for reliable connections to the public
-    Meshtastic broker.
+    Uses paho-mqtt directly for reliable connections to the configured
+    private Meshtastic MQTT broker.
     """
     global mqtt_reconnect_event
     mqtt_reconnect_event = threading.Event()

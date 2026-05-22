@@ -91,6 +91,7 @@ export type MapOverlayConfigRecord = {
   config: MapOverlayConfigShape;
   updated_at?: string | null;
 };
+export type MqttBrokerMode = "local_mosquitto" | "cloud_vm";
 export type SiteSettingsRecord = {
   telemetry_vario_smoothing_seconds: number;
   telemetry_altitude_smoothing_seconds: number;
@@ -99,7 +100,7 @@ export type SiteSettingsRecord = {
   max_map_pitch_degrees: number;
   site_match_radius_m: number;
   mqtt_enabled: boolean;
-  mqtt_broker_mode: string;
+  mqtt_broker_mode: MqttBrokerMode;
   mqtt_host: string | null;
   mqtt_port: number;
   mqtt_tls_enabled: boolean;
