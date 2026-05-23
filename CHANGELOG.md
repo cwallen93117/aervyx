@@ -16,6 +16,11 @@ production release.
 ## [2026.05.23]
 
 ### Added
+- **Mobile v0.4.22+39** adds an always-on Android foreground runtime that starts
+  when the app opens, keeps Aervyx alive through screen-off / waiting-for-takeoff
+  states, and stops only from an explicit in-app shutdown action. The Android
+  app now declares the required foreground-service, notification, wake-lock, and
+  connected-device permissions for the persistent runtime.
 - **Meshtastic Provisioner v0.1.0** adds a Windows desktop GUI for scanning all
   COM ports, identifying connected Meshtastic radios, and provisioning devices
   from complete bundled Aervyx profiles. Operators enter only the device name
