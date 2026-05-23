@@ -1820,8 +1820,9 @@ function meshStatusLabel(status: MeshConnectionStatus | null | undefined): strin
   }
 }
 
-function meshSourcePillLabel(status: MeshConnectionStatus | null | undefined): string {
+function meshSourcePillLabel(status: MeshConnectionStatus | null | undefined, source?: string | null): string {
   if (status === "never_seen" || !status) return "Never seen";
+  if (source === "mesh_relay") return `${meshStatusLabel(status)} app relay`;
   return `${meshStatusLabel(status)} MQTT`;
 }
 
@@ -1856,6 +1857,11 @@ function meshDiagnostic(device: MeshDeviceStatus): string {
   const packet = packetTypeLabel(device.lastPacketType);
   if (!packet) return device.lastSeenAt ? "Packet heard" : "No MQTT packets heard";
   const gateway = meshGatewayDisplayLabel(device);
+  if (device.source === "mesh_relay") {
+    if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `App relayed own ${packet}`;
+    if (device.lastGatewayId) return `${packet} relayed by ${gateway} app`;
+    return `App relayed ${packet}`;
+  }
   if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `Published ${packet} to MQTT`;
   if (device.lastGatewayId) return `${packet} via ${gateway}`;
   return packet;
@@ -2238,7 +2244,7 @@ function LiveTrackingTab({
                                 <td>
                                   <span
                                     style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: meshDotColor, marginRight: "4px" }}
-                                    title={meshSourcePillLabel(meshDevice.meshStatus)}
+                                    title={meshSourcePillLabel(meshDevice.meshStatus, meshDevice.source)}
                                   />
                                 </td>
                                 <td>
@@ -2247,7 +2253,7 @@ function LiveTrackingTab({
                                 <td>{meshPurposeLabel(meshDevice.purpose)}</td>
                                 <td>
                                   <span className={`tracking-source-pill mesh${meshStatusClass(meshDevice.meshStatus)}`}>
-                                    {meshSourcePillLabel(meshDevice.meshStatus)}
+                                    {meshSourcePillLabel(meshDevice.meshStatus, meshDevice.source)}
                                   </span>
                                 </td>
                                 <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{meshDevice.deviceId}</td>

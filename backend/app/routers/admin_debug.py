@@ -225,10 +225,26 @@ def admin_debug_status(
         node_status = next((status_by_device[lookup_id] for lookup_id in lookup_ids if lookup_id in status_by_device), None)
         status_ts = node_status.last_seen_at if node_status is not None else None
         latest_pos_ts = getattr(latest_pos, "timestamp", None)
+        latest_position_is_newer = False
         latest_ts = status_ts
         if latest_pos_ts is not None and _timestamp_value(latest_pos_ts) > _timestamp_value(latest_ts):
             latest_ts = latest_pos_ts
+            latest_position_is_newer = True
         mesh_status = mesh_status_for_seen_at(now, latest_ts)
+        source = (
+            getattr(latest_pos, "source", None)
+            if latest_position_is_newer and getattr(latest_pos, "source", None) is not None
+            else node_status.last_source if node_status is not None and node_status.last_source is not None
+            else getattr(latest_pos, "source", None) if latest_pos is not None else None
+        )
+        last_packet_type = (
+            "POSITION_APP"
+            if latest_position_is_newer and latest_pos is not None
+            else node_status.last_packet_type if node_status is not None
+            else "POSITION_APP" if latest_pos is not None
+            else None
+        )
+        last_gateway_id = node_status.last_gateway_id if node_status is not None and not latest_position_is_newer else None
         registered_mesh_devices.append({
             "owner_user_id": owner_user_id,
             "owner_name": owner_name,
@@ -240,11 +256,11 @@ def admin_debug_status(
             "is_connected": mesh_status == "live",
             "mesh_status": mesh_status,
             "last_seen_at": latest_ts.isoformat() if latest_ts else None,
-            "last_packet_type": node_status.last_packet_type if node_status is not None else ("POSITION_APP" if latest_pos is not None else None),
-            "last_gateway_id": node_status.last_gateway_id if node_status is not None else None,
+            "last_packet_type": last_packet_type,
+            "last_gateway_id": last_gateway_id,
             "last_gateway_display_name": (
-                gateway_display_names.get(node_status.last_gateway_id)
-                if node_status is not None and node_status.last_gateway_id is not None
+                gateway_display_names.get(last_gateway_id)
+                if last_gateway_id is not None
                 else None
             ),
             "last_topic": node_status.last_topic if node_status is not None else None,
@@ -256,11 +272,7 @@ def admin_debug_status(
                 if node_status is not None and node_status.battery_level is not None
                 else getattr(latest_pos, "battery_level", None) if latest_pos is not None else None
             ),
-            "source": (
-                node_status.last_source
-                if node_status is not None and node_status.last_source is not None
-                else getattr(latest_pos, "source", None) if latest_pos is not None else None
-            ),
+            "source": source,
             "last_position": (
                 {
                     "lat": latest_pos.lat,

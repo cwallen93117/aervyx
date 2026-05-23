@@ -16,7 +16,7 @@ from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
 from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, MeshNodeStatus, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
-from app.services.mesh_ids import resolve_mesh_device_display_names
+from app.services.mesh_ids import normalize_mesh_device_id, resolve_mesh_device_display_names
 from app.services.mqtt_config import clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
     get_all_active_positions,
@@ -53,6 +53,40 @@ def mesh_status_for_seen_at(now: datetime, value: datetime | None) -> str:
         return "stale"
     return "offline"
 logger = logging.getLogger("aervyx.tracking")
+
+
+def _upsert_mesh_position_status(
+    session: Session,
+    *,
+    device_id: str | None,
+    seen_at: datetime,
+    source: str,
+    gateway_id: str | None,
+    battery_level: int | None = None,
+) -> MeshNodeStatus | None:
+    normalized_device_id = normalize_mesh_device_id(device_id)
+    if normalized_device_id is None:
+        return None
+    normalized_gateway_id = normalize_mesh_device_id(gateway_id)
+    status_row = session.scalar(
+        select(MeshNodeStatus).where(MeshNodeStatus.device_id == normalized_device_id)
+    )
+    if status_row is None:
+        status_row = MeshNodeStatus(
+            device_id=normalized_device_id,
+            last_seen_at=seen_at,
+            packet_count=0,
+        )
+        session.add(status_row)
+    status_row.last_seen_at = seen_at
+    status_row.last_packet_type = "POSITION_APP"
+    status_row.last_source = source
+    status_row.last_gateway_id = normalized_gateway_id
+    status_row.last_topic = "api:/api/track/position" if source == "mesh_relay" else status_row.last_topic
+    status_row.packet_count = (status_row.packet_count or 0) + 1
+    if battery_level is not None:
+        status_row.battery_level = battery_level
+    return status_row
 
 
 # ---------------------------------------------------------------------------
@@ -245,6 +279,24 @@ def post_position(
         battery_level=payload.battery_level,
         pilot_id=pilot_id,
     )
+    if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
+        gateway_id = user.mesh_device_id if source == "mesh_relay" else payload.device_id
+        _upsert_mesh_position_status(
+            session,
+            device_id=payload.device_id,
+            seen_at=pos.timestamp,
+            source=source,
+            gateway_id=gateway_id,
+            battery_level=payload.battery_level,
+        )
+        if gateway_id and normalize_mesh_device_id(gateway_id) != normalize_mesh_device_id(payload.device_id):
+            _upsert_mesh_position_status(
+                session,
+                device_id=gateway_id,
+                seen_at=pos.timestamp,
+                source=source,
+                gateway_id=gateway_id,
+            )
     session.commit()
 
     return PositionResponse(
@@ -915,9 +967,25 @@ def get_mesh_nodes(
             else bat_backfill.get(device_id)
         )
         latest_ts = node_status.last_seen_at if node_status is not None else None
+        latest_position_is_newer = False
         if row is not None and _ts_value(row.timestamp) > _ts_value(latest_ts):
             latest_ts = row.timestamp
+            latest_position_is_newer = True
         mesh_status = mesh_status_for_seen_at(now, latest_ts)
+        source = (
+            row.source
+            if latest_position_is_newer and row is not None and row.source is not None
+            else node_status.last_source if node_status is not None and node_status.last_source
+            else row.source if row is not None else None
+        )
+        last_packet_type = (
+            "POSITION_APP"
+            if latest_position_is_newer and row is not None
+            else node_status.last_packet_type if node_status is not None
+            else "POSITION_APP" if row is not None
+            else None
+        )
+        last_gateway_id = node_status.last_gateway_id if node_status is not None and not latest_position_is_newer else None
         results.append(
             MeshNodeResponse(
                 device_id=device_id,
@@ -935,14 +1003,14 @@ def get_mesh_nodes(
                 heading=row.heading if row is not None else None,
                 battery_level=battery,
                 timestamp=latest_ts.isoformat() if latest_ts else now.isoformat(),
-                source=node_status.last_source if node_status is not None and node_status.last_source else (row.source if row is not None else None),
+                source=source,
                 position_source=normalize_position_source(row.source if row is not None else None),
                 mesh_status=mesh_status,
-                last_packet_type=node_status.last_packet_type if node_status is not None else ("POSITION_APP" if row is not None else None),
-                last_gateway_id=node_status.last_gateway_id if node_status is not None else None,
+                last_packet_type=last_packet_type,
+                last_gateway_id=last_gateway_id,
                 last_gateway_display_name=(
-                    gateway_display_names.get(node_status.last_gateway_id)
-                    if node_status is not None and node_status.last_gateway_id is not None
+                    gateway_display_names.get(last_gateway_id)
+                    if last_gateway_id is not None
                     else None
                 ),
                 last_topic=node_status.last_topic if node_status is not None else None,
