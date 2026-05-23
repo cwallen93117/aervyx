@@ -211,16 +211,16 @@ function normalizeAircraftIcon(value: unknown): AircraftIconType {
   }
 }
 
-function firstNameFromPilotName(name: string) {
+function mapLabelFromPilotName(name: string) {
   const trimmed = name.trim();
   if (!trimmed) {
     return "Pilot";
   }
-  return trimmed.split(/\s+/)[0] ?? trimmed;
+  return trimmed;
 }
 
 function aircraftPilotLabel(_kind: AircraftIconType, pilotName: string) {
-  return firstNameFromPilotName(pilotName);
+  return mapLabelFromPilotName(pilotName);
 }
 
 function buildCircle(point: MapTaskPoint) {
