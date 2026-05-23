@@ -181,8 +181,7 @@ class _ConnectionSectionState extends State<_ConnectionSection> {
               ipController: _ipController,
               portController: _portController,
             ),
-          if (_selectedTab == ConnectionType.serial && showSerial)
-            _SerialTab(),
+          if (_selectedTab == ConnectionType.serial && showSerial) _SerialTab(),
         ],
       ],
     );
@@ -230,8 +229,8 @@ class _ConnectedDeviceCard extends StatelessWidget {
                     Text(
                       '${ble.connectionType?.name.toUpperCase() ?? "BLE"}: ${ble.connectionLabel}',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onPrimaryContainer
-                            .withAlpha(150),
+                        color:
+                            theme.colorScheme.onPrimaryContainer.withAlpha(150),
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -239,8 +238,8 @@ class _ConnectedDeviceCard extends StatelessWidget {
                     Text(
                       'FW: ${ble.deviceState.firmwareVersion}',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onPrimaryContainer
-                            .withAlpha(150),
+                        color:
+                            theme.colorScheme.onPrimaryContainer.withAlpha(150),
                       ),
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -356,9 +355,8 @@ class _NetworkTab extends StatelessWidget {
           children: [
             Expanded(
               child: FilledButton.tonal(
-                onPressed: ble.isNetworkScanning
-                    ? null
-                    : () => ble.startNetworkScan(),
+                onPressed:
+                    ble.isNetworkScanning ? null : () => ble.startNetworkScan(),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
@@ -415,8 +413,7 @@ class _NetworkTab extends StatelessWidget {
                 child: Text(
                   'No devices found.\nTap Scan to search for Meshtastic\ndevices on your local network.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
-                      color: theme.colorScheme.onSurfaceVariant),
+                  style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
                 ),
               ),
             ),
@@ -514,13 +511,11 @@ class _SerialTab extends StatelessWidget {
 
         if (ble.discoveredUsbDevices.isNotEmpty)
           ...ble.discoveredUsbDevices.map((usbDevice) {
-            final label =
-                usbDevice.productName ?? 'USB #${usbDevice.deviceId}';
+            final label = usbDevice.productName ?? 'USB #${usbDevice.deviceId}';
             return ListTile(
               leading: const Icon(Icons.usb),
               title: Text(label),
-              subtitle: Text(
-                  'VID: ${usbDevice.vid}  PID: ${usbDevice.pid}'),
+              subtitle: Text('VID: ${usbDevice.vid}  PID: ${usbDevice.pid}'),
               trailing: OutlinedButton(
                 onPressed: ble.isConnecting
                     ? null
@@ -692,9 +687,9 @@ class _SettingsCardState extends State<_SettingsCard> {
             : 'Save settings?'),
         content: Text(profileChanged
             ? 'This will overwrite all device settings with the '
-              '${_selectedProfile.label} profile and reboot the device.'
+                '${_selectedProfile.label} profile and reboot the device.'
             : 'This will sync all admin profile settings to the device '
-              'and reboot it.'),
+                'and reboot it.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -858,9 +853,10 @@ class _SettingsCardState extends State<_SettingsCard> {
             ],
 
             // ── Profile ──
-            Text('Profile', style: theme.textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-            )),
+            Text('Profile',
+                style: theme.textTheme.labelMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                )),
             const SizedBox(height: 8),
             InputDecorator(
               decoration: const InputDecoration(
@@ -988,9 +984,10 @@ class _SettingsCardState extends State<_SettingsCard> {
             // ── Wi-Fi (only when admin has wifi_enabled for this profile) ──
             if (_profileHasWifi) ...[
               const Divider(height: 32),
-              Text('Wi-Fi', style: theme.textTheme.labelMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              )),
+              Text('Wi-Fi',
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  )),
               const SizedBox(height: 12),
 
               // Scan button
@@ -998,9 +995,8 @@ class _SettingsCardState extends State<_SettingsCard> {
                 children: [
                   Expanded(
                     child: FilledButton.icon(
-                      onPressed: disabled || _wifiScanning
-                          ? null
-                          : _scanNetworks,
+                      onPressed:
+                          disabled || _wifiScanning ? null : _scanNetworks,
                       icon: _wifiScanning
                           ? const SizedBox(
                               width: 16,
@@ -1009,8 +1005,8 @@ class _SettingsCardState extends State<_SettingsCard> {
                                   strokeWidth: 2, color: Colors.white),
                             )
                           : const Icon(Icons.wifi_find, size: 18),
-                      label: Text(
-                          _wifiScanning ? 'Scanning...' : 'Scan Networks'),
+                      label:
+                          Text(_wifiScanning ? 'Scanning...' : 'Scan Networks'),
                     ),
                   ),
                 ],
@@ -1034,8 +1030,7 @@ class _SettingsCardState extends State<_SettingsCard> {
                 Container(
                   constraints: const BoxConstraints(maxHeight: 200),
                   decoration: BoxDecoration(
-                    border:
-                        Border.all(color: theme.colorScheme.outlineVariant),
+                    border: Border.all(color: theme.colorScheme.outlineVariant),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: ListView.separated(
@@ -1050,9 +1045,7 @@ class _SettingsCardState extends State<_SettingsCard> {
                         leading: Icon(
                           _signalIcon(ap.level),
                           size: 20,
-                          color: isSelected
-                              ? theme.colorScheme.primary
-                              : null,
+                          color: isSelected ? theme.colorScheme.primary : null,
                         ),
                         title: Text(
                           ap.ssid,
@@ -1104,8 +1097,8 @@ class _SettingsCardState extends State<_SettingsCard> {
                     icon: Icon(_obscurePassword
                         ? Icons.visibility_off
                         : Icons.visibility),
-                    onPressed: () => setState(
-                        () => _obscurePassword = !_obscurePassword),
+                    onPressed: () =>
+                        setState(() => _obscurePassword = !_obscurePassword),
                   ),
                 ),
               ),
@@ -1131,13 +1124,13 @@ class _SettingsCardState extends State<_SettingsCard> {
   static String _profileDescription(MeshtasticProfile p) {
     switch (p) {
       case MeshtasticProfile.pilot:
-        return 'Optimised for position tracking (pilots in the air)';
+        return 'Position tracker using the Aervyx app as backhaul';
       case MeshtasticProfile.driver:
-        return 'Ground support relay via Bluetooth mesh';
+        return 'Ground support relay using the Aervyx app as backhaul';
       case MeshtasticProfile.driverWifi:
-        return 'Ground support relay via Bluetooth + Wi-Fi uplink';
+        return 'Fixed gateway relay using private MQTT over Wi-Fi';
       case MeshtasticProfile.repeater:
-        return 'Always-on relay / base station for mesh coverage';
+        return 'Always-on relay / base station with private MQTT';
     }
   }
 }
@@ -1190,8 +1183,7 @@ class _DeviceSettingsCard extends StatelessWidget {
 
           // ── Position ──
           _GroupHeader(label: 'Position', theme: theme),
-          _ConfigRow(
-              label: 'GPS mode', value: ds.gpsMode.label, theme: theme),
+          _ConfigRow(label: 'GPS mode', value: ds.gpsMode.label, theme: theme),
           _ConfigRow(
               label: 'Broadcast interval',
               value: '${ds.positionBroadcastSecs}s',
@@ -1219,14 +1211,10 @@ class _DeviceSettingsCard extends StatelessWidget {
 
           // ── LoRa ──
           _GroupHeader(label: 'LoRa', theme: theme),
+          _ConfigRow(label: 'Region', value: ds.region.label, theme: theme),
           _ConfigRow(
-              label: 'Region', value: ds.region.label, theme: theme),
-          _ConfigRow(
-              label: 'Modem preset',
-              value: ds.modemPreset.label,
-              theme: theme),
-          _ConfigRow(
-              label: 'Hop limit', value: '${ds.hopLimit}', theme: theme),
+              label: 'Modem preset', value: ds.modemPreset.label, theme: theme),
+          _ConfigRow(label: 'Hop limit', value: '${ds.hopLimit}', theme: theme),
           _ConfigRow(
               label: 'TX enabled',
               value: ds.txEnabled ? 'Yes' : 'No',
@@ -1263,8 +1251,7 @@ class _DeviceSettingsCard extends StatelessWidget {
               value: ds.wifiEnabled ? 'On' : 'Off',
               theme: theme),
           if (ds.wifiEnabled && ds.wifiSsid.isNotEmpty)
-            _ConfigRow(
-                label: '  SSID', value: ds.wifiSsid, theme: theme),
+            _ConfigRow(label: '  SSID', value: ds.wifiSsid, theme: theme),
 
           const Divider(height: 24),
 
@@ -1272,25 +1259,22 @@ class _DeviceSettingsCard extends StatelessWidget {
           _GroupHeader(label: 'Display', theme: theme),
           _ConfigRow(
               label: 'Display timeout',
-              value: ds.screenOnSecs == 0
-                  ? 'Always on'
-                  : '${ds.screenOnSecs}s',
+              value: ds.screenOnSecs == 0 ? 'Always on' : '${ds.screenOnSecs}s',
               theme: theme),
 
           const Divider(height: 24),
 
-          // ── MQTT ──
-          _GroupHeader(label: 'MQTT', theme: theme),
+          // ── MQTT Gateway ──
+          _GroupHeader(label: 'MQTT Gateway', theme: theme),
           _ConfigRow(
-              label: 'MQTT enabled',
+              label: 'Gateway MQTT',
               value: ds.mqttEnabled ? 'Yes' : 'No',
               theme: theme),
           if (ds.mqttEnabled) ...[
             _ConfigRow(label: 'Broker', value: broker, theme: theme),
             _ConfigRow(
                 label: 'Topic prefix',
-                value:
-                    ds.mqttRootTopic.isNotEmpty ? ds.mqttRootTopic : 'msh',
+                value: ds.mqttRootTopic.isNotEmpty ? ds.mqttRootTopic : 'msh',
                 theme: theme),
           ],
 
@@ -1313,7 +1297,7 @@ class _DeviceSettingsCard extends StatelessWidget {
               value: ds.neighborInfoEnabled ? 'On' : 'Off',
               theme: theme),
           _ConfigRow(
-              label: 'Channel uplink',
+              label: 'MQTT uplink',
               value: ds.channelUplinkEnabled ? 'On' : 'Off',
               theme: theme),
 

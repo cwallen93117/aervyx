@@ -16,6 +16,10 @@ production release.
 ## [2026.05.23]
 
 ### Added
+- **Mobile v0.4.24+41** makes the Aervyx app mesh relay the default backhaul
+  for pilot and driver radios. Pilot/driver profile pushes now turn radio MQTT
+  and MQTT client proxy off, while fixed gateway profiles keep private MQTT for
+  Tahoe/RAK-style internet gateways.
 - **Mobile v0.4.23+40** adds a Runtime critical-battery shutdown setting
   (default 5%) so the persistent Android runtime can stop Aervyx when the phone
   falls below the configured battery level while not charging. The existing

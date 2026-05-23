@@ -435,6 +435,71 @@ void main() {
     });
   });
 
+  group('MQTT gateway profile policy', () {
+    test('uses MQTT only for fixed gateway profiles', () {
+      expect(
+        meshtasticProfileUsesMqttGatewayBackhaul(MeshtasticProfile.pilot),
+        false,
+      );
+      expect(
+        meshtasticProfileUsesMqttGatewayBackhaul(MeshtasticProfile.driver),
+        false,
+      );
+      expect(
+        meshtasticProfileUsesMqttGatewayBackhaul(MeshtasticProfile.driverWifi),
+        true,
+      );
+      expect(
+        meshtasticProfileUsesMqttGatewayBackhaul(MeshtasticProfile.repeater),
+        true,
+      );
+    });
+
+    test('can disable radio MQTT and client proxy for app-relay trackers', () {
+      final mqtt = _readSetMqttConfig(buildSetMqttConfig(
+        enabled: false,
+        address: '',
+        username: '',
+        password: '',
+        rootTopic: 'msh',
+        encryptionEnabled: false,
+        tlsEnabled: false,
+        proxyToClientEnabled: false,
+      ));
+
+      expect(mqtt[1], false); // enabled
+      expect(mqtt[2], ''); // address
+      expect(mqtt[3], ''); // username
+      expect(mqtt[4], ''); // password
+      expect(mqtt[5], false); // encryption_enabled
+      expect(mqtt[7], false); // tls_enabled
+      expect(mqtt[8], 'msh'); // root
+      expect(mqtt[9], false); // proxy_to_client_enabled
+    });
+
+    test('keeps private MQTT enabled for fixed gateway profiles', () {
+      final mqtt = _readSetMqttConfig(buildSetMqttConfig(
+        enabled: true,
+        address: 'mqtt-staging.aervyx.net',
+        username: 'fleet',
+        password: 'secret',
+        rootTopic: 'msh/US',
+        encryptionEnabled: false,
+        tlsEnabled: true,
+        proxyToClientEnabled: false,
+      ));
+
+      expect(mqtt[1], true);
+      expect(mqtt[2], 'mqtt-staging.aervyx.net');
+      expect(mqtt[3], 'fleet');
+      expect(mqtt[4], 'secret');
+      expect(mqtt[5], false);
+      expect(mqtt[7], true);
+      expect(mqtt[8], 'msh/US');
+      expect(mqtt[9], false);
+    });
+  });
+
   group('buildPositionPacket', () {
     test('encodes lat/lon as sfixed32 (wire type 5)', () {
       final bytes = buildPositionPacket(
@@ -495,7 +560,8 @@ void main() {
       expect(lonI, (-122.3321 * 1e7).round());
     });
 
-    test('position lat/lon survive round-trip for southern/western hemispheres', () {
+    test('position lat/lon survive round-trip for southern/western hemispheres',
+        () {
       // Use a location in South America: Buenos Aires
       const lat = -34.6037;
       const lon = -58.3816;
@@ -560,7 +626,8 @@ void main() {
       expect(recoveredLon, closeTo(lon, 0.00001));
     });
 
-    test('position lat/lon survive round-trip for northern/eastern hemispheres', () {
+    test('position lat/lon survive round-trip for northern/eastern hemispheres',
+        () {
       // Sydney, Australia (southern, but eastern)
       const lat = 37.7749;
       const lon = 127.4194;
@@ -620,4 +687,51 @@ void main() {
       expect(recoveredLon, closeTo(lon, 0.00001));
     });
   });
+}
+
+Map<int, Object?> _readSetMqttConfig(Uint8List bytes) {
+  final admin = ProtoReader(bytes);
+  Uint8List? moduleBytes;
+  while (admin.hasMore) {
+    final (field, wireType) = admin.readTag();
+    if (field == 35 && wireType == 2) {
+      moduleBytes = Uint8List.fromList(admin.readBytes());
+    } else {
+      admin.skip(wireType);
+    }
+  }
+
+  final module = ProtoReader(moduleBytes!);
+  Uint8List? mqttBytes;
+  while (module.hasMore) {
+    final (field, wireType) = module.readTag();
+    if (field == 1 && wireType == 2) {
+      mqttBytes = Uint8List.fromList(module.readBytes());
+    } else {
+      module.skip(wireType);
+    }
+  }
+
+  final mqtt = ProtoReader(mqttBytes!);
+  final values = <int, Object?>{};
+  while (mqtt.hasMore) {
+    final (field, wireType) = mqtt.readTag();
+    switch (field) {
+      case 1:
+      case 5:
+      case 7:
+      case 9:
+        values[field] = mqtt.readBool();
+        break;
+      case 2:
+      case 3:
+      case 4:
+      case 8:
+        values[field] = mqtt.readString();
+        break;
+      default:
+        mqtt.skip(wireType);
+    }
+  }
+  return values;
 }

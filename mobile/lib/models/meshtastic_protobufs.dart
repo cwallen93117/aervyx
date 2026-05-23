@@ -35,7 +35,8 @@ enum DeviceRole {
   final String label;
   const DeviceRole(this.value, this.label);
 
-  static DeviceRole fromValue(int v) => DeviceRole.values.firstWhere((e) => e.value == v, orElse: () => DeviceRole.client);
+  static DeviceRole fromValue(int v) => DeviceRole.values
+      .firstWhere((e) => e.value == v, orElse: () => DeviceRole.client);
 }
 
 /// Config.DeviceConfig.RebroadcastMode
@@ -51,7 +52,8 @@ enum RebroadcastMode {
   final String label;
   const RebroadcastMode(this.value, this.label);
 
-  static RebroadcastMode fromValue(int v) => RebroadcastMode.values.firstWhere((e) => e.value == v, orElse: () => RebroadcastMode.all);
+  static RebroadcastMode fromValue(int v) => RebroadcastMode.values
+      .firstWhere((e) => e.value == v, orElse: () => RebroadcastMode.all);
 }
 
 /// Config.PositionConfig.GpsMode
@@ -64,7 +66,8 @@ enum GpsMode {
   final String label;
   const GpsMode(this.value, this.label);
 
-  static GpsMode fromValue(int v) => GpsMode.values.firstWhere((e) => e.value == v, orElse: () => GpsMode.enabled);
+  static GpsMode fromValue(int v) => GpsMode.values
+      .firstWhere((e) => e.value == v, orElse: () => GpsMode.enabled);
 }
 
 /// Config.LoRaConfig.ModemPreset
@@ -84,7 +87,8 @@ enum ModemPreset {
   final String label;
   const ModemPreset(this.value, this.label);
 
-  static ModemPreset fromValue(int v) => ModemPreset.values.firstWhere((e) => e.value == v, orElse: () => ModemPreset.longFast);
+  static ModemPreset fromValue(int v) => ModemPreset.values
+      .firstWhere((e) => e.value == v, orElse: () => ModemPreset.longFast);
 }
 
 /// Config.LoRaConfig.RegionCode
@@ -110,7 +114,8 @@ enum RegionCode {
   final String label;
   const RegionCode(this.value, this.label);
 
-  static RegionCode fromValue(int v) => RegionCode.values.firstWhere((e) => e.value == v, orElse: () => RegionCode.unset);
+  static RegionCode fromValue(int v) => RegionCode.values
+      .firstWhere((e) => e.value == v, orElse: () => RegionCode.unset);
 }
 
 /// Config.BluetoothConfig.PairingMode
@@ -123,7 +128,8 @@ enum BlePairingMode {
   final String label;
   const BlePairingMode(this.value, this.label);
 
-  static BlePairingMode fromValue(int v) => BlePairingMode.values.firstWhere((e) => e.value == v, orElse: () => BlePairingMode.randomPin);
+  static BlePairingMode fromValue(int v) => BlePairingMode.values
+      .firstWhere((e) => e.value == v, orElse: () => BlePairingMode.randomPin);
 }
 
 /// Config.NetworkConfig.AddressMode
@@ -135,7 +141,8 @@ enum AddressMode {
   final String label;
   const AddressMode(this.value, this.label);
 
-  static AddressMode fromValue(int v) => AddressMode.values.firstWhere((e) => e.value == v, orElse: () => AddressMode.dhcp);
+  static AddressMode fromValue(int v) => AddressMode.values
+      .firstWhere((e) => e.value == v, orElse: () => AddressMode.dhcp);
 }
 
 /// Position flags bitmask.
@@ -217,6 +224,17 @@ enum MeshtasticProfile {
 
   final String label;
   const MeshtasticProfile(this.label);
+}
+
+bool meshtasticProfileUsesMqttGatewayBackhaul(MeshtasticProfile profile) {
+  switch (profile) {
+    case MeshtasticProfile.driverWifi:
+    case MeshtasticProfile.repeater:
+      return true;
+    case MeshtasticProfile.pilot:
+    case MeshtasticProfile.driver:
+      return false;
+  }
 }
 
 /// Preset config values for each profile.
@@ -325,7 +343,8 @@ class ProfileConfig {
     return ProfileConfig(
       // Device
       role: _roleFromString(json['role'] as String? ?? 'client'),
-      rebroadcastMode: _rebroadcastFromString(json['rebroadcast_mode'] as String? ?? 'all'),
+      rebroadcastMode:
+          _rebroadcastFromString(json['rebroadcast_mode'] as String? ?? 'all'),
       nodeInfoBroadcastSecs: json['node_info_broadcast_secs'] as int? ?? 10800,
       serialEnabled: json['serial_enabled'] as bool? ?? true,
       // Position
@@ -337,19 +356,22 @@ class ProfileConfig {
       smartMinInterval: json['smart_min_interval'] as int? ?? 30,
       positionFlags: json['position_flags'] as int? ?? PositionFlags.altitude,
       // LoRa (region is device-specific and not carried in profile JSON)
-      modemPreset: _modemFromString(json['modem_preset'] as String? ?? 'long_fast'),
+      modemPreset:
+          _modemFromString(json['modem_preset'] as String? ?? 'long_fast'),
       hopLimit: json['hop_limit'] as int? ?? 3,
       txPower: json['tx_power'] as int? ?? 0,
       txEnabled: json['tx_enabled'] as bool? ?? true,
       sx126xRxBoostedGain: json['sx126x_rx_boosted_gain'] as bool? ?? true,
       // Power
       powerSaving: json['power_saving'] as bool? ?? false,
-      onBatteryShutdownAfterSecs: json['on_battery_shutdown_after_secs'] as int? ?? 0,
+      onBatteryShutdownAfterSecs:
+          json['on_battery_shutdown_after_secs'] as int? ?? 0,
       lsSecs: json['ls_secs'] as int? ?? 300,
       waitBluetoothSecs: json['wait_bluetooth_secs'] as int? ?? 60,
       // Bluetooth
       bluetoothEnabled: json['bluetooth_enabled'] as bool? ?? true,
-      bluetoothMode: _blePairingFromString(json['bluetooth_mode'] as String? ?? 'fixed_pin'),
+      bluetoothMode: _blePairingFromString(
+          json['bluetooth_mode'] as String? ?? 'fixed_pin'),
       bluetoothFixedPin: json['bluetooth_fixed_pin'] as int? ?? 123456,
       // Network
       wifiEnabled: json['wifi_enabled'] as bool? ?? false,
@@ -361,9 +383,11 @@ class ProfileConfig {
       // Modules
       telemetryIntervalSecs: json['telemetry_interval_secs'] as int? ?? 86400,
       deviceTelemetryEnabled: json['device_telemetry_enabled'] as bool? ?? true,
-      environmentTelemetryEnabled: json['environment_telemetry_enabled'] as bool? ?? false,
+      environmentTelemetryEnabled:
+          json['environment_telemetry_enabled'] as bool? ?? false,
       neighborInfoEnabled: json['neighbor_info_enabled'] as bool? ?? false,
-      neighborInfoIntervalSecs: json['neighbor_info_interval_secs'] as int? ?? 14400,
+      neighborInfoIntervalSecs:
+          json['neighbor_info_interval_secs'] as int? ?? 14400,
       storeForwardEnabled: json['store_forward_enabled'] as bool? ?? false,
       storeForwardIsServer: json['store_forward_is_server'] as bool? ?? false,
     );
@@ -668,12 +692,14 @@ class ProtoWriter {
 
   void writeFixed32(int fieldNumber, int value) {
     _writeTag(fieldNumber, 5); // wire type 5 = 32-bit
-    _buf.add(Uint8List(4)..buffer.asByteData().setUint32(0, value, Endian.little));
+    _buf.add(
+        Uint8List(4)..buffer.asByteData().setUint32(0, value, Endian.little));
   }
 
   void writeSfixed32(int fieldNumber, int value) {
     _writeTag(fieldNumber, 5); // wire type 5 = 32-bit
-    _buf.add(Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.little));
+    _buf.add(
+        Uint8List(4)..buffer.asByteData().setInt32(0, value, Endian.little));
   }
 
   void writeFloat(int fieldNumber, double value) {
@@ -746,19 +772,22 @@ class ProtoReader {
   }
 
   int readFixed32() {
-    final v = ByteData.sublistView(_data, _pos, _pos + 4).getUint32(0, Endian.little);
+    final v =
+        ByteData.sublistView(_data, _pos, _pos + 4).getUint32(0, Endian.little);
     _pos += 4;
     return v;
   }
 
   int readSfixed32() {
-    final v = ByteData.sublistView(_data, _pos, _pos + 4).getInt32(0, Endian.little);
+    final v =
+        ByteData.sublistView(_data, _pos, _pos + 4).getInt32(0, Endian.little);
     _pos += 4;
     return v;
   }
 
   double readFloat() {
-    final v = ByteData.sublistView(_data, _pos, _pos + 4).getFloat32(0, Endian.little);
+    final v = ByteData.sublistView(_data, _pos, _pos + 4)
+        .getFloat32(0, Endian.little);
     _pos += 4;
     return v;
   }
@@ -834,7 +863,8 @@ class MqttClientProxyMessage {
     this.retained = false,
   });
 
-  Uint8List get payloadBytes => data ?? Uint8List.fromList(utf8.encode(text ?? ''));
+  Uint8List get payloadBytes =>
+      data ?? Uint8List.fromList(utf8.encode(text ?? ''));
 
   bool get hasPayload => data != null || text != null;
 
@@ -1010,7 +1040,8 @@ Uint8List buildSetDeviceConfig({
 }) {
   final device = ProtoWriter();
   device.writeVarint(1, role.value); // role
-  if (serialEnabled != null) device.writeBool(2, serialEnabled); // serial_enabled
+  if (serialEnabled != null)
+    device.writeBool(2, serialEnabled); // serial_enabled
   device.writeVarint(6, rebroadcastMode.value); // rebroadcast_mode
   if (nodeInfoBroadcastSecs != null) {
     device.writeVarint(7, nodeInfoBroadcastSecs); // node_info_broadcast_secs
@@ -1042,7 +1073,8 @@ Uint8List buildSetPositionConfig({
   }
   pos.writeVarint(7, positionFlags); // position_flags
   pos.writeVarint(10, smartMinDistance); // broadcast_smart_minimum_distance
-  pos.writeVarint(11, smartMinInterval); // broadcast_smart_minimum_interval_secs
+  pos.writeVarint(
+      11, smartMinInterval); // broadcast_smart_minimum_interval_secs
   pos.writeVarint(13, gpsMode.value); // gps_mode
 
   final config = ProtoWriter();
@@ -1063,7 +1095,8 @@ Uint8List buildSetPowerConfig({
   final power = ProtoWriter();
   power.writeBool(1, isPowerSaving); // is_power_saving
   if (onBatteryShutdownAfterSecs != null) {
-    power.writeVarint(2, onBatteryShutdownAfterSecs); // on_battery_shutdown_after_secs
+    power.writeVarint(
+        2, onBatteryShutdownAfterSecs); // on_battery_shutdown_after_secs
   }
   if (waitBluetoothSecs != null) {
     power.writeVarint(4, waitBluetoothSecs); // wait_bluetooth_secs
@@ -1172,8 +1205,8 @@ Uint8List buildSetBluetoothConfig({
 }
 
 /// AdminMessage: set_module_config with MQTTConfig (ModuleConfig field 1).
-/// MQTT is always enabled — not user-configurable.
 Uint8List buildSetMqttConfig({
+  bool enabled = true,
   required String address,
   String? username,
   String? password,
@@ -1183,7 +1216,7 @@ Uint8List buildSetMqttConfig({
   bool proxyToClientEnabled = false,
 }) {
   final mqtt = ProtoWriter();
-  mqtt.writeBool(1, true); // enabled — always on
+  mqtt.writeBool(1, enabled); // enabled
   mqtt.writeString(2, address); // address
   if (username != null) mqtt.writeString(3, username); // username
   if (password != null) mqtt.writeString(4, password); // password
@@ -1208,7 +1241,8 @@ Uint8List buildSetTelemetryConfig({
   final tel = ProtoWriter();
   tel.writeVarint(1, deviceUpdateInterval); // device_update_interval
   if (environmentMeasurementEnabled != null) {
-    tel.writeBool(3, environmentMeasurementEnabled); // environment_measurement_enabled
+    tel.writeBool(
+        3, environmentMeasurementEnabled); // environment_measurement_enabled
   }
 
   final module = ProtoWriter();
@@ -1220,7 +1254,8 @@ Uint8List buildSetTelemetryConfig({
 }
 
 /// AdminMessage: set_module_config with StoreForwardConfig (ModuleConfig field 4).
-Uint8List buildSetStoreForwardConfig({required bool enabled, bool isServer = false}) {
+Uint8List buildSetStoreForwardConfig(
+    {required bool enabled, bool isServer = false}) {
   final sf = ProtoWriter();
   sf.writeBool(1, enabled); // enabled
   if (isServer) sf.writeBool(6, true); // is_server (field 6)
@@ -1263,7 +1298,8 @@ Uint8List buildSetChannel({
 }) {
   final settings = ProtoWriter();
   if (psk != null) settings.writeBytes(2, psk); // psk (ChannelSettings field 2)
-  if (name != null) settings.writeString(3, name); // name (ChannelSettings field 3)
+  if (name != null)
+    settings.writeString(3, name); // name (ChannelSettings field 3)
   if (uplinkEnabled != null) settings.writeBool(5, uplinkEnabled);
   if (downlinkEnabled != null) settings.writeBool(6, downlinkEnabled);
 
@@ -1287,7 +1323,8 @@ Uint8List buildGetConfigRequest(ConfigType type) {
 /// AdminMessage: get_module_config_request (field 7).
 Uint8List buildGetModuleConfigRequest(ModuleConfigType type) {
   final w = ProtoWriter();
-  w.writeVarint(7, type.value); // get_module_config_request (AdminMessage field 7)
+  w.writeVarint(
+      7, type.value); // get_module_config_request (AdminMessage field 7)
   return w.toBytes();
 }
 

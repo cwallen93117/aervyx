@@ -1269,7 +1269,7 @@ export default function AdminSection(props: AdminSectionProps) {
           <div className="stack form-block compact-clusters">
             <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
             <fieldset className="fieldset-cluster">
-              <legend>MQTT / Mesh</legend>
+              <legend>Fixed Gateway MQTT</legend>
               <div className="cluster-stack">
                 <label className="stack compact">
                   <span style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -1283,11 +1283,11 @@ export default function AdminSection(props: AdminSectionProps) {
                         }))
                       }
                     />
-                    MQTT enabled
+                    Enable fixed gateway MQTT
                   </span>
                 </label>
                 <label className="stack compact">
-                  <span>Broker mode</span>
+                  <span>Gateway broker mode</span>
                   <select
                     value={mqttBrokerMode}
                     onChange={(event) =>
@@ -1302,7 +1302,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   </select>
                 </label>
                 <label className="stack compact">
-                  <span>MQTT host</span>
+                  <span>Gateway MQTT host</span>
                   <input
                     type="text"
                     placeholder={mqttBrokerMode === "local_mosquitto" ? "LAN IP or DNS radios can reach" : "mqtt.example.com"}
@@ -1316,7 +1316,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   />
                 </label>
                 <label className="stack compact">
-                  <span>MQTT port</span>
+                  <span>Gateway MQTT port</span>
                   <input
                     type="number"
                     min={1}
@@ -1347,7 +1347,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   </span>
                 </label>
                 <label className="stack compact">
-                  <span>MQTT username</span>
+                  <span>Gateway MQTT username</span>
                   <input
                     type="text"
                     placeholder="Fleet username"
@@ -1361,7 +1361,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   />
                 </label>
                 <label className="stack compact">
-                  <span>MQTT password</span>
+                  <span>Gateway MQTT password</span>
                   <input
                     type="password"
                     placeholder="Fleet password"
@@ -1823,7 +1823,7 @@ function meshStatusLabel(status: MeshConnectionStatus | null | undefined): strin
 function meshSourcePillLabel(status: MeshConnectionStatus | null | undefined, source?: string | null): string {
   if (status === "never_seen" || !status) return "Never seen";
   if (source === "mesh_relay") return `${meshStatusLabel(status)} app relay`;
-  return `${meshStatusLabel(status)} MQTT`;
+  return `${meshStatusLabel(status)} MQTT gateway`;
 }
 
 function meshStatusClass(status: MeshConnectionStatus | null | undefined): string {
@@ -1855,11 +1855,11 @@ function packetTypeLabel(packetType: string | null | undefined): string | null {
 
 function meshDiagnostic(device: MeshDeviceStatus): string {
   const packet = packetTypeLabel(device.lastPacketType);
-  if (!packet) return device.lastSeenAt ? "Packet heard" : "No MQTT packets heard";
+  if (!packet) return device.lastSeenAt ? "Packet heard" : "No mesh packets heard";
   const gateway = meshGatewayDisplayLabel(device);
   if (device.source === "mesh_relay") {
     if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `App relayed own ${packet}`;
-    if (device.lastGatewayId) return `${packet} relayed by ${gateway} app`;
+    if (device.lastGatewayId) return `App relayed ${packet} via ${gateway}`;
     return `App relayed ${packet}`;
   }
   if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `Published ${packet} to MQTT`;
@@ -2506,7 +2506,7 @@ const PROFILE_ROW_GROUPS: { group: string; readonly?: boolean; rows: ProfileRowD
   {
     group: "Network",
     rows: [
-      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. When enabled, the device can connect to a Wi-Fi network for direct MQTT over the internet (bypassing phone proxy). Wi-Fi SSID / password are device-specific — set them per device from the mobile app." },
+      { key: "wifi_enabled", label: "Wi-Fi", kind: "boolean", description: "Whether Wi-Fi is active on the device. Use this for fixed gateway profiles that publish to the private MQTT broker; normal pilot trackers should rely on the Aervyx app relay. Wi-Fi SSID / password are device-specific — set them per device from the mobile app." },
       { key: "eth_enabled", label: "Ethernet", kind: "boolean", description: "Enable wired Ethernet on devices that support it. No-op on devices without an Ethernet port." },
     ],
   },

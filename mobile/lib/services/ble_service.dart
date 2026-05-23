@@ -1551,6 +1551,8 @@ class BleService extends ChangeNotifier {
     }
 
     final config = customConfig ?? ProfileConfig.presets[profile]!;
+    final usesMqttGatewayBackhaul =
+        meshtasticProfileUsesMqttGatewayBackhaul(profile);
     debugPrint('applyProfile: ${profile.label}');
     debugPrint('  role=${config.role}, rebroadcast=${config.rebroadcastMode}');
     debugPrint(
@@ -1647,13 +1649,15 @@ class BleService extends ChangeNotifier {
       writes.add(MapEntry(
           'MQTT config',
           buildSetMqttConfig(
-            address: _platformMqttAddressForRadio(),
-            username: _platformMqttUsername,
-            password: _platformMqttPassword,
+            enabled: usesMqttGatewayBackhaul,
+            address:
+                usesMqttGatewayBackhaul ? _platformMqttAddressForRadio() : '',
+            username: usesMqttGatewayBackhaul ? _platformMqttUsername : '',
+            password: usesMqttGatewayBackhaul ? _platformMqttPassword : '',
             rootTopic: _platformMqttTopicPrefix,
             encryptionEnabled: false,
-            tlsEnabled: _platformMqttTlsEnabled,
-            proxyToClientEnabled: config.bluetoothEnabled,
+            tlsEnabled: usesMqttGatewayBackhaul && _platformMqttTlsEnabled,
+            proxyToClientEnabled: false,
           )));
 
       writes.add(MapEntry(
@@ -1695,8 +1699,8 @@ class BleService extends ChangeNotifier {
             index: 0,
             role: 1,
             psk: channelPsk,
-            uplinkEnabled: true,
-            downlinkEnabled: true,
+            uplinkEnabled: usesMqttGatewayBackhaul,
+            downlinkEnabled: usesMqttGatewayBackhaul,
           )));
 
       writes.add(MapEntry(
@@ -1754,6 +1758,20 @@ class BleService extends ChangeNotifier {
       _deviceState.positionFlags = config.positionFlags;
       _deviceState.screenOnSecs = config.displayTimeoutSecs;
       _deviceState.telemetryDeviceInterval = config.telemetryIntervalSecs;
+      _deviceState.mqttEnabled = usesMqttGatewayBackhaul;
+      _deviceState.mqttAddress =
+          usesMqttGatewayBackhaul ? _platformMqttAddressForRadio() : '';
+      _deviceState.mqttUsername =
+          usesMqttGatewayBackhaul ? (_platformMqttUsername ?? '') : '';
+      _deviceState.mqttPassword =
+          usesMqttGatewayBackhaul ? (_platformMqttPassword ?? '') : '';
+      _deviceState.mqttRootTopic = _platformMqttTopicPrefix;
+      _deviceState.mqttEncryptionEnabled = false;
+      _deviceState.mqttTlsEnabled =
+          usesMqttGatewayBackhaul && _platformMqttTlsEnabled;
+      _deviceState.mqttProxyToClient = false;
+      _deviceState.channelUplinkEnabled = usesMqttGatewayBackhaul;
+      _deviceState.channelDownlinkEnabled = usesMqttGatewayBackhaul;
 
       _statusMessage = '${profile.label} profile applied. Device rebooting...';
     } catch (e) {
@@ -1895,13 +1913,14 @@ class BleService extends ChangeNotifier {
 
     try {
       await _writeAdmin(buildSetMqttConfig(
+        enabled: true,
         address: address,
         username: username,
         password: password,
         rootTopic: rootTopic,
         encryptionEnabled: encryptionEnabled,
         tlsEnabled: tlsEnabled,
-        proxyToClientEnabled: _deviceState.bluetoothEnabled,
+        proxyToClientEnabled: false,
       ));
       _deviceState.mqttAddress = address;
       if (username != null) _deviceState.mqttUsername = username;
@@ -1909,7 +1928,7 @@ class BleService extends ChangeNotifier {
       _deviceState.mqttEncryptionEnabled = encryptionEnabled;
       _deviceState.mqttTlsEnabled = tlsEnabled;
       _deviceState.mqttEnabled = true;
-      _deviceState.mqttProxyToClient = _deviceState.bluetoothEnabled;
+      _deviceState.mqttProxyToClient = false;
       _startMqttClientProxy();
       _statusMessage = 'MQTT configured';
     } catch (e) {

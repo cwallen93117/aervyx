@@ -555,12 +555,12 @@
       <div class="track-card tc-mesh">
         <div class="tc-icon tci-p">🔗</div>
         <h3>Meshtastic Mesh Networking</h3>
-        <p>Off-the-shelf Meshtastic LoRa devices form a self-healing ground relay network. Ground nodes pipe pilot positions back to the Aervyx cloud via any internet-connected node.</p>
+        <p>Off-the-shelf Meshtastic LoRa devices form a self-healing ground relay network. The Aervyx app relays heard mesh positions over HTTPS, with private MQTT available for fixed gateways.</p>
         <ul class="spec-list">
           <li><span class="sp spp"></span>LoRa range: 10–50 km per node in open terrain</li>
           <li><span class="sp spp"></span>Self-healing mesh — nodes relay for each other</li>
           <li><span class="sp spp"></span>Works with off-the-shelf Meshtastic hardware</li>
-          <li><span class="sp spp"></span>MQTT ingest pipeline to Aervyx cloud</li>
+          <li><span class="sp spp"></span>App relay plus optional fixed MQTT gateways</li>
           <li><span class="sp spp"></span>Ideal for remote ridge and alpine sites</li>
         </ul>
       </div>
@@ -608,7 +608,7 @@
     </div>
     <div class="mesh-how reveal">
       <div class="eyebrow" style="margin-bottom:.5rem">How it works</div>
-      <p class="section-body" style="max-width:52rem">Each pilot carries a small LoRa radio that broadcasts GPS positions. Nearby nodes relay the signal hop-by-hop until it reaches any internet-connected node, which bridges positions to the Aervyx cloud via MQTT. The mesh is self-healing — add or remove nodes and coverage adapts automatically.</p>
+      <p class="section-body" style="max-width:52rem">Each pilot carries a small LoRa radio that broadcasts GPS positions. Nearby nodes relay the signal hop-by-hop until it reaches a paired Aervyx phone app or a fixed MQTT gateway, which forwards positions to the Aervyx cloud. The mesh is self-healing — add or remove nodes and coverage adapts automatically.</p>
     </div>
   </div>
 </section>
@@ -666,7 +666,7 @@
       <div class="driver-info">
         <div>
           <div class="eyebrow ey-green" style="margin-bottom:.42rem">How the mesh works</div>
-          <p style="font-size:.86rem;color:var(--muted);line-height:1.75">Each Meshtastic node broadcasts GPS positions over LoRa radio. Nearby nodes automatically relay the signal hop-by-hop until it reaches an internet-connected gateway, which bridges everything to the Aervyx cloud.</p>
+          <p style="font-size:.86rem;color:var(--muted);line-height:1.75">Each Meshtastic node broadcasts GPS positions over LoRa radio. Nearby nodes automatically relay the signal hop-by-hop until a paired Aervyx phone app or fixed gateway forwards the position to the Aervyx cloud.</p>
         </div>
         <div class="rk"><div class="rk-lbl">SOS alerting</div><div class="rk-val" style="color:#ff3b30">Instant <em style="color:#ff3b30">relay</em></div><div class="rk-sub">Emergency alerts propagate through every node in range</div></div>
         <div class="rk"><div class="rk-lbl">Node-to-node range</div><div class="rk-val"><em>10–50</em> km</div><div class="rk-sub">Line-of-sight LoRa in open mountain terrain</div></div>
