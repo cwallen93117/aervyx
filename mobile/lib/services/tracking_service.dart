@@ -15,6 +15,7 @@ import 'api_service.dart';
 import 'auth_service.dart';
 import 'background_service.dart';
 import 'igc_service.dart';
+import 'persistent_runtime_service.dart';
 
 /// GPS tracking zones — determines polling rate near course points.
 enum TrackingZone {
@@ -142,8 +143,7 @@ class TrackingService extends ChangeNotifier {
   _TakeoffThresholds? _adminTakeoffThresholds;
 
   _TakeoffThresholds get _takeoffThresholds =>
-      _adminTakeoffThresholds ??
-      _defaultTakeoffThresholds[_sportType]!;
+      _adminTakeoffThresholds ?? _defaultTakeoffThresholds[_sportType]!;
 
   // ── Landing detection settings (overridable from admin) ──
   double _landingSpeedMs = 4.47; // 10 mph
@@ -169,14 +169,10 @@ class TrackingService extends ChangeNotifier {
   int _flightNumberToday = 0;
 
   // ── Getters ──
-  bool get isTracking =>
-      _trackingState != TrackingState.idle;
-  bool get isInFlight =>
-      _trackingState == TrackingState.inFlight;
-  bool get isPreFlight =>
-      _trackingState == TrackingState.preFlight;
-  bool get isMonitoring =>
-      _trackingState == TrackingState.monitoring;
+  bool get isTracking => _trackingState != TrackingState.idle;
+  bool get isInFlight => _trackingState == TrackingState.inFlight;
+  bool get isPreFlight => _trackingState == TrackingState.preFlight;
+  bool get isMonitoring => _trackingState == TrackingState.monitoring;
   TrackingState get trackingState => _trackingState;
   model.Position? get lastPosition => _lastPosition;
   int get positionCount => _positionCount;
@@ -196,13 +192,15 @@ class TrackingService extends ChangeNotifier {
   bool get debugMode => _debugMode;
   int get bufferedPositionCount => _positionBuffer.length;
   bool get landingCountdownActive => _landingCountdownActive;
+
   /// True when landing conditions are detected but not yet confirmed.
   bool get landingDetected =>
       _landingDetectionStart != null &&
       _trackingState == TrackingState.inFlight;
   int get landingCountdownRemaining {
     if (!_landingCountdownActive || _landingCountdownStart == null) return 0;
-    final elapsed = DateTime.now().difference(_landingCountdownStart!).inSeconds;
+    final elapsed =
+        DateTime.now().difference(_landingCountdownStart!).inSeconds;
     return max(0, _landingCountdownSeconds - elapsed);
   }
 
@@ -300,14 +298,16 @@ class TrackingService extends ChangeNotifier {
     }
     // Landing thresholds
     if (config.containsKey('landing_speed_mph')) {
-      _landingSpeedMs = (config['landing_speed_mph'] as num).toDouble() * 0.44704;
+      _landingSpeedMs =
+          (config['landing_speed_mph'] as num).toDouble() * 0.44704;
     }
     if (config.containsKey('landing_alt_tolerance_ft')) {
       _landingAltToleranceM =
           (config['landing_alt_tolerance_ft'] as num).toDouble() * 0.3048;
     }
     if (config.containsKey('landing_confirm_seconds')) {
-      _landingConfirmSeconds = (config['landing_confirm_seconds'] as num).toInt();
+      _landingConfirmSeconds =
+          (config['landing_confirm_seconds'] as num).toInt();
     }
     if (config.containsKey('landing_countdown_seconds')) {
       _landingCountdownSeconds =
@@ -392,6 +392,7 @@ class TrackingService extends ChangeNotifier {
       );
     }
 
+    unawaited(PersistentRuntimeService.setLocationActive(true));
     notifyListeners();
 
     // Fetch settings from backend
@@ -460,6 +461,7 @@ class TrackingService extends ChangeNotifier {
     }
 
     _trackingState = TrackingState.idle;
+    unawaited(PersistentRuntimeService.setLocationActive(false));
     _backendConnected = false;
     _activeTask = null;
     _currentZone = TrackingZone.stationary;
@@ -563,9 +565,8 @@ class TrackingService extends ChangeNotifier {
   /// This guarantees a continuous flow for pipeline testing.
   void _startPositionHeartbeat() {
     _positionHeartbeatTimer?.cancel();
-    final interval = _debugMode
-        ? const Duration(seconds: 1)
-        : const Duration(seconds: 5);
+    final interval =
+        _debugMode ? const Duration(seconds: 1) : const Duration(seconds: 5);
     _positionHeartbeatTimer = Timer.periodic(interval, (_) async {
       if (_trackingState != TrackingState.preFlight &&
           _trackingState != TrackingState.inFlight) {
@@ -920,12 +921,12 @@ class TrackingService extends ChangeNotifier {
     }
 
     // Must be within 1km of takeoff
-    if (_takeoffLat != null &&
-        _takeoffLon != null &&
-        _lastPosition != null) {
+    if (_takeoffLat != null && _takeoffLon != null && _lastPosition != null) {
       final dist = _haversineDistance(
-        _takeoffLat!, _takeoffLon!,
-        _lastPosition!.lat, _lastPosition!.lon,
+        _takeoffLat!,
+        _takeoffLon!,
+        _lastPosition!.lat,
+        _lastPosition!.lon,
       );
       if (dist > 1000) return false;
     }
@@ -1000,12 +1001,12 @@ class TrackingService extends ChangeNotifier {
     }
 
     // Distance > 1km from takeoff
-    if (_takeoffLat != null &&
-        _takeoffLon != null &&
-        _lastPosition != null) {
+    if (_takeoffLat != null && _takeoffLon != null && _lastPosition != null) {
       final dist = _haversineDistance(
-        _takeoffLat!, _takeoffLon!,
-        _lastPosition!.lat, _lastPosition!.lon,
+        _takeoffLat!,
+        _takeoffLon!,
+        _lastPosition!.lat,
+        _lastPosition!.lon,
       );
       if (dist > 1000) shouldExit = true;
     }
@@ -1152,7 +1153,8 @@ class TrackingService extends ChangeNotifier {
   /// Attempt a single upload. Returns true on success.
   Future<bool> _attemptUpload(String filePath, int? taskId) async {
     try {
-      if (!File(filePath).existsSync()) return true; // file gone, nothing to upload
+      if (!File(filePath).existsSync())
+        return true; // file gone, nothing to upload
       if (taskId != null) {
         await _api.uploadFile(
           ApiConfig.taskUploadPath(taskId),
@@ -1269,8 +1271,7 @@ class TrackingService extends ChangeNotifier {
     final dLat = _toRad(lat2 - lat1);
     final dLon = _toRad(lon2 - lon1);
     final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRad(lat1)) * cos(_toRad(lat2)) *
-        sin(dLon / 2) * sin(dLon / 2);
+        cos(_toRad(lat1)) * cos(_toRad(lat2)) * sin(dLon / 2) * sin(dLon / 2);
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return earthRadius * c;
   }
@@ -1284,17 +1285,14 @@ class TrackingService extends ChangeNotifier {
   void _startFlightTimer() {
     _flightTimer?.cancel();
     _flightTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_trackingStartTime != null &&
-          _landingDetectionStart == null) {
+      if (_trackingStartTime != null && _landingDetectionStart == null) {
         _flightDuration = DateTime.now().difference(_trackingStartTime!);
 
         // Update the foreground service notification with flight stats
         final h = _flightDuration.inHours;
         final m = _flightDuration.inMinutes % 60;
         final s = _flightDuration.inSeconds % 60;
-        final timeStr = h > 0
-            ? '${h}h ${m}m ${s}s'
-            : '${m}m ${s}s';
+        final timeStr = h > 0 ? '${h}h ${m}m ${s}s' : '${m}m ${s}s';
         final altStr = _lastPosition?.alt != null
             ? '${_lastPosition!.alt!.toStringAsFixed(0)} m'
             : '--';

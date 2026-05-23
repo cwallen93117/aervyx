@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
+import '../utils/app_shutdown.dart';
 import '../widgets/aervyx_logo.dart';
 import 'register_screen.dart';
 
@@ -28,7 +29,8 @@ String _friendlyError(Object e) {
   if (e is ApiException) {
     if (e.statusCode == 401) return 'Invalid email or password.';
     if (e.statusCode == 403) return 'Your account is not authorized.';
-    if (e.statusCode >= 500) return 'Server error (${e.statusCode}). Please try again.';
+    if (e.statusCode >= 500)
+      return 'Server error (${e.statusCode}). Please try again.';
     return 'Request failed (${e.statusCode}).';
   }
   return 'Login failed. Please try again.';
@@ -68,7 +70,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _fetchGoogleClientId() async {
     try {
       final api = context.read<ApiService>();
-      final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 5));
+      final json = await api
+          .get(ApiConfig.googleClientIdPath)
+          .timeout(const Duration(seconds: 5));
       if (mounted && json['client_id'] != null) {
         setState(() => _googleClientId = json['client_id'] as String);
       }
@@ -133,7 +137,9 @@ class _LoginScreenState extends State<LoginScreen> {
       var clientId = _googleClientId;
       if (clientId == null) {
         // Initial fetch failed (e.g. network hiccup) — retry once now.
-        final json = await api.get(ApiConfig.googleClientIdPath).timeout(const Duration(seconds: 5));
+        final json = await api
+            .get(ApiConfig.googleClientIdPath)
+            .timeout(const Duration(seconds: 5));
         clientId = json['client_id'] as String?;
         if (mounted && clientId != null) {
           setState(() => _googleClientId = clientId);
@@ -257,7 +263,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         _showPassword ? Icons.visibility_off : Icons.visibility,
                         color: Colors.grey[500],
                       ),
-                      onPressed: () => setState(() => _showPassword = !_showPassword),
+                      onPressed: () =>
+                          setState(() => _showPassword = !_showPassword),
                     ),
                   ),
                   obscureText: !_showPassword,
@@ -266,7 +273,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: Colors.redAccent)),
+                  Text(_error!,
+                      style: const TextStyle(color: Colors.redAccent)),
                 ],
                 const SizedBox(height: 24),
                 SizedBox(
@@ -297,7 +305,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       const Expanded(child: Divider()),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text('or', style: TextStyle(color: Colors.grey[500], fontSize: 13)),
+                        child: Text('or',
+                            style: TextStyle(
+                                color: Colors.grey[500], fontSize: 13)),
                       ),
                       const Expanded(child: Divider()),
                     ],
@@ -311,7 +321,8 @@ class _LoginScreenState extends State<LoginScreen> {
                         'https://developers.google.com/identity/images/g-logo.png',
                         height: 18,
                         width: 18,
-                        errorBuilder: (_, __, ___) => const Icon(Icons.login, size: 18),
+                        errorBuilder: (_, __, ___) =>
+                            const Icon(Icons.login, size: 18),
                       ),
                       label: const Text('Continue with Google'),
                     ),
@@ -329,6 +340,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: Text(
                     'Create Account',
                     style: TextStyle(color: Colors.grey[500]),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _busy ? null : () => confirmAppShutdown(context),
+                  icon: Icon(Icons.power_settings_new, color: Colors.grey[600]),
+                  label: Text(
+                    'Shut Down App',
+                    style: TextStyle(color: Colors.grey[600]),
                   ),
                 ),
                 const SizedBox(height: 16),

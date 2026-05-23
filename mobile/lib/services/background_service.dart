@@ -39,7 +39,8 @@ class BackgroundTrackingService {
     await _service.configure(
       androidConfiguration: AndroidConfiguration(
         onStart: _onStart,
-        autoStart: false, // We start manually when user presses Start
+        autoStart: false,
+        autoStartOnBoot: false,
         isForegroundMode: true,
         foregroundServiceNotificationId: _notificationId,
         initialNotificationTitle: 'Aervyx',

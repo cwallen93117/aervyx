@@ -7,6 +7,7 @@ import '../models/meshtastic_protobufs.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
 import '../services/tracking_service.dart';
+import '../utils/app_shutdown.dart';
 import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
 import 'flights_screen.dart';
@@ -100,6 +101,11 @@ class HomeScreen extends StatelessWidget {
               MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
           ),
+          IconButton(
+            icon: const Icon(Icons.power_settings_new),
+            tooltip: 'Shut Down App',
+            onPressed: () => confirmAppShutdown(context),
+          ),
         ],
       ),
       body: SafeArea(
@@ -180,19 +186,15 @@ class HomeScreen extends StatelessWidget {
                     ? _trackingStateLabel(tracking.trackingState)
                     : 'Off',
                 ledColor: tracking.isTracking ? Colors.green : Colors.grey,
-                expandedContent:
-                    _GpsDetails(tracking: tracking, auth: auth),
+                expandedContent: _GpsDetails(tracking: tracking, auth: auth),
               ),
               const SizedBox(height: 4),
               _StatusRow(
                 icon: Icons.cloud,
                 label: 'Server',
-                statusText: tracking.backendConnected
-                    ? 'Connected'
-                    : 'Disconnected',
-                ledColor: tracking.backendConnected
-                    ? Colors.green
-                    : Colors.red,
+                statusText:
+                    tracking.backendConnected ? 'Connected' : 'Disconnected',
+                ledColor: tracking.backendConnected ? Colors.green : Colors.red,
                 expandedContent: _ServerDetails(tracking: tracking),
               ),
               const SizedBox(height: 4),
@@ -475,12 +477,10 @@ class _StatusRowState extends State<_StatusRow> {
           InkWell(
             onTap: () => setState(() => _expanded = !_expanded),
             child: Padding(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               child: Row(
                 children: [
-                  Icon(widget.icon,
-                      size: 20, color: theme.colorScheme.primary),
+                  Icon(widget.icon, size: 20, color: theme.colorScheme.primary),
                   const SizedBox(width: 12),
                   Text(
                     widget.label,
@@ -687,8 +687,7 @@ class _ServerDetails extends StatelessWidget {
                     ? Icons.cloud_done
                     : Icons.cloud_off,
                 label: 'Status',
-                value:
-                    tracking.backendConnected ? 'Connected' : 'Disconnected',
+                value: tracking.backendConnected ? 'Connected' : 'Disconnected',
               ),
             ),
             Padding(
@@ -718,9 +717,8 @@ class _ServerDetails extends StatelessWidget {
                     ? Icons.emoji_events
                     : Icons.paragliding,
                 label: 'Mode',
-                value: tracking.inCompetitionMode
-                    ? 'Competition'
-                    : 'Free Flight',
+                value:
+                    tracking.inCompetitionMode ? 'Competition' : 'Free Flight',
               ),
             ),
           ],
@@ -1049,7 +1047,8 @@ String _formatDeviceGps(BleService ble, MeshtasticDeviceState ds) {
 }
 
 /// Format the device altitude from its GPS using the user's preferred unit.
-String _formatDeviceAltitude(BleService ble, MeshtasticDeviceState ds, String altUnit) {
+String _formatDeviceAltitude(
+    BleService ble, MeshtasticDeviceState ds, String altUnit) {
   if (ds.gpsMode == GpsMode.notPresent) return 'N/A';
   if (!ble.deviceHasGpsFix) return '--';
   return UnitConverter.formatAltitude(ble.deviceGpsAlt, altUnit);

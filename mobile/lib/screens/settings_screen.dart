@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
+import '../services/persistent_runtime_service.dart';
 import '../services/tracking_service.dart';
 import 'meshtastic_settings_screen.dart';
 
@@ -180,8 +181,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Text('Stop at:',
-                            style: theme.textTheme.bodySmall),
+                        Text('Stop at:', style: theme.textTheme.bodySmall),
                         Expanded(
                           child: Slider(
                             value: tracking.batteryThreshold!.toDouble(),
@@ -218,6 +218,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ],
               ),
+            ),
+          ),
+
+          const SizedBox(height: 32),
+
+          Text('Runtime',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.primary,
+              )),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: Icon(Icons.battery_charging_full,
+                  color: theme.colorScheme.primary),
+              title: const Text('Battery optimization'),
+              subtitle: const Text('Allow unrestricted background runtime'),
+              trailing: const Icon(Icons.open_in_new),
+              onTap: () =>
+                  PersistentRuntimeService.openBatteryOptimizationSettings(),
             ),
           ),
 
@@ -442,7 +461,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(width: 6),
                         Text(
                           'Download latest app',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(
                                 color: Theme.of(context).colorScheme.primary,
                                 decoration: TextDecoration.underline,
                               ),
@@ -538,7 +560,8 @@ class _SosMessageEditorState extends State<_SosMessageEditor> {
                 hintText: 'Enter your SOS message...',
                 suffixIcon: _dirty
                     ? IconButton(
-                        icon: const Icon(Icons.check_circle, color: Colors.green),
+                        icon:
+                            const Icon(Icons.check_circle, color: Colors.green),
                         tooltip: 'Save',
                         onPressed: _save,
                       )

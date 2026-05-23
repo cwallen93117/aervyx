@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/driver_service.dart';
+import '../utils/app_shutdown.dart';
 import '../widgets/map_scale_bar.dart';
 import 'driver_navigation_screen.dart';
 
@@ -94,6 +95,11 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               driver.disconnect();
               auth.logout();
             },
+          ),
+          IconButton(
+            icon: const Icon(Icons.power_settings_new),
+            tooltip: 'Shut Down App',
+            onPressed: () => confirmAppShutdown(context),
           ),
         ],
       ),

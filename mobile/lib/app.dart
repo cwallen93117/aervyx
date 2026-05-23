@@ -6,10 +6,57 @@ import 'screens/driver_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
+import 'services/persistent_runtime_service.dart';
 import 'widgets/aervyx_logo.dart';
 
-class AervyxApp extends StatelessWidget {
+class AervyxApp extends StatefulWidget {
   const AervyxApp({super.key});
+
+  @override
+  State<AervyxApp> createState() => _AervyxAppState();
+}
+
+class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
+  bool _runtimeStartRequested = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureRuntime());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _ensureRuntime();
+    }
+  }
+
+  Future<void> _ensureRuntime() async {
+    if (_runtimeStartRequested) return;
+    _runtimeStartRequested = true;
+    try {
+      await PersistentRuntimeService.requestNotificationPermission()
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      // The runtime can still run as a foreground service if this request fails.
+    }
+    try {
+      await PersistentRuntimeService.start()
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // If Android blocks startup, opening the app again retries from a visible state.
+    } finally {
+      _runtimeStartRequested = false;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
