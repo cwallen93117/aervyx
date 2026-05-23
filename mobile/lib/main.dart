@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -36,7 +38,8 @@ void main() async {
   final bleService = BleService(apiService);
   if (authService.isLoggedIn) {
     // Don't await — let it run in background so app opens immediately
-    bleService.syncPlatformConfig();
+    unawaited(bleService.syncPlatformConfig());
+    unawaited(bleService.restoreAutoReconnect());
   }
 
   runApp(

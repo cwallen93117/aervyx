@@ -8,6 +8,7 @@ import 'screens/driver_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
+import 'services/ble_service.dart';
 import 'services/persistent_runtime_service.dart';
 import 'utils/app_shutdown.dart';
 import 'widgets/aervyx_logo.dart';
@@ -49,6 +50,10 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _ensureRuntime();
+      final auth = context.read<AuthService>();
+      if (auth.isLoggedIn) {
+        unawaited(context.read<BleService>().restoreAutoReconnect());
+      }
     }
   }
 
@@ -64,6 +69,9 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
     try {
       await PersistentRuntimeService.start()
           .timeout(const Duration(seconds: 5));
+      if (mounted && context.read<AuthService>().isLoggedIn) {
+        unawaited(context.read<BleService>().restoreAutoReconnect());
+      }
     } catch (_) {
       // If Android blocks startup, opening the app again retries from a visible state.
     } finally {

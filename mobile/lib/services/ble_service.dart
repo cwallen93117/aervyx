@@ -45,6 +45,52 @@ class NetworkDevice {
   });
 }
 
+class _SavedBleDevice {
+  final String remoteId;
+  final String name;
+  final bool autoReconnectEnabled;
+  final DateTime lastConnectedAt;
+
+  const _SavedBleDevice({
+    required this.remoteId,
+    required this.name,
+    required this.autoReconnectEnabled,
+    required this.lastConnectedAt,
+  });
+
+  factory _SavedBleDevice.fromJson(Map<String, dynamic> json) {
+    return _SavedBleDevice(
+      remoteId: json['remote_id'] as String? ?? '',
+      name: json['name'] as String? ?? 'Meshtastic device',
+      autoReconnectEnabled: json['auto_reconnect_enabled'] as bool? ?? true,
+      lastConnectedAt:
+          DateTime.tryParse(json['last_connected_at'] as String? ?? '') ??
+              DateTime.fromMillisecondsSinceEpoch(0, isUtc: true),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'remote_id': remoteId,
+        'name': name,
+        'auto_reconnect_enabled': autoReconnectEnabled,
+        'last_connected_at': lastConnectedAt.toUtc().toIso8601String(),
+      };
+
+  _SavedBleDevice copyWith({
+    String? remoteId,
+    String? name,
+    bool? autoReconnectEnabled,
+    DateTime? lastConnectedAt,
+  }) {
+    return _SavedBleDevice(
+      remoteId: remoteId ?? this.remoteId,
+      name: name ?? this.name,
+      autoReconnectEnabled: autoReconnectEnabled ?? this.autoReconnectEnabled,
+      lastConnectedAt: lastConnectedAt ?? this.lastConnectedAt,
+    );
+  }
+}
+
 /// BLE service for scanning, connecting, reading config from, and writing
 /// config to Meshtastic radios using the protobuf BLE API.
 class BleService extends ChangeNotifier {
@@ -92,9 +138,11 @@ class BleService extends ChangeNotifier {
   bool _userDisconnected = false;
   bool _isReconnecting = false;
   int _reconnectAttempts = 0;
-  static const int _maxReconnectAttempts = 10;
   Timer? _reconnectTimer;
+  Timer? _bleHealthTimer;
+  _SavedBleDevice? _lastBleDevice;
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
+  StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
 
   // ── Mesh position relay ──
   StreamSubscription<void>? _dataAvailableSubscription;
@@ -136,6 +184,10 @@ class BleService extends ChangeNotifier {
   String get sosMessage => _sosMessage;
   bool get isSendingSos => _isSendingSos;
   bool get reconnecting => _isReconnecting;
+  String? get savedBleDeviceName => _lastBleDevice?.name;
+  bool get hasSavedBleDevice => _lastBleDevice != null;
+  bool get savedBleAutoReconnectEnabled =>
+      _lastBleDevice?.autoReconnectEnabled == true;
 
   /// Display name — prefer the Meshtastic long name, fall back to transport label.
   String get deviceDisplayName {
@@ -264,6 +316,11 @@ class BleService extends ChangeNotifier {
     return File('${dir.path}/platform_config.json');
   }
 
+  Future<File> get _lastBleDeviceFile async {
+    final dir = await getApplicationDocumentsDirectory();
+    return File('${dir.path}/last_ble_device.json');
+  }
+
   Future<void> _loadCachedConfig() async {
     try {
       final file = await _cacheFile;
@@ -304,6 +361,74 @@ class BleService extends ChangeNotifier {
     } catch (_) {
       // Cache write failed — non-critical
     }
+  }
+
+  Future<_SavedBleDevice?> _loadSavedBleDevice() async {
+    if (_lastBleDevice != null) return _lastBleDevice;
+    try {
+      final file = await _lastBleDeviceFile;
+      if (!await file.exists()) return null;
+      final data = jsonDecode(await file.readAsString());
+      if (data is! Map<String, dynamic>) return null;
+      final saved = _SavedBleDevice.fromJson(data);
+      if (saved.remoteId.isEmpty) return null;
+      _lastBleDevice = saved;
+      notifyListeners();
+      return saved;
+    } catch (e) {
+      debugPrint('Saved BLE device load failed: $e');
+      return null;
+    }
+  }
+
+  Future<void> _saveBleReconnectTarget(
+    MeshtasticDevice meshDevice, {
+    bool autoReconnectEnabled = true,
+  }) async {
+    final saved = _SavedBleDevice(
+      remoteId: meshDevice.device.remoteId.toString(),
+      name: meshDevice.name.isNotEmpty
+          ? meshDevice.name
+          : meshDevice.device.remoteId.toString(),
+      autoReconnectEnabled: autoReconnectEnabled,
+      lastConnectedAt: DateTime.now().toUtc(),
+    );
+    _lastBleDevice = saved;
+    try {
+      final file = await _lastBleDeviceFile;
+      await file.writeAsString(jsonEncode(saved.toJson()));
+    } catch (e) {
+      debugPrint('Saved BLE device write failed: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> _setSavedBleAutoReconnectEnabled(bool enabled) async {
+    final saved = await _loadSavedBleDevice();
+    if (saved == null) return;
+    _lastBleDevice = saved.copyWith(autoReconnectEnabled: enabled);
+    try {
+      final file = await _lastBleDeviceFile;
+      await file.writeAsString(jsonEncode(_lastBleDevice!.toJson()));
+    } catch (e) {
+      debugPrint('Saved BLE device update failed: $e');
+    }
+    notifyListeners();
+  }
+
+  Future<void> forgetSavedBleDevice() async {
+    await disconnect();
+    try {
+      final file = await _lastBleDeviceFile;
+      if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (e) {
+      debugPrint('Saved BLE device delete failed: $e');
+    }
+    _lastBleDevice = null;
+    _statusMessage = 'Saved Bluetooth device forgotten';
+    notifyListeners();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -564,84 +689,19 @@ class BleService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await meshDevice.device.connect(timeout: const Duration(seconds: 15));
-      _connectedDevice = meshDevice;
-
-      // Listen for unexpected disconnects
-      _connectionStateSubscription?.cancel();
-      _connectionStateSubscription = meshDevice.device.connectionState.listen(
-        (state) {
-          if (state == BluetoothConnectionState.disconnected) {
-            _onUnexpectedDisconnect();
-          }
-        },
+      await _establishBleSession(
+        meshDevice,
+        autoConnect: false,
+        saveReconnectTarget: true,
       );
-
-      // Discover BLE services and cache characteristics
-      _statusMessage = 'Discovering services...';
-      notifyListeners();
-
-      final services = await meshDevice.device.discoverServices();
-      final meshService = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase() == meshServiceUuid,
-        orElse: () => throw Exception('Meshtastic service not found'),
-      );
-
-      _toRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == toRadioCharUuid,
-        orElse: () => throw Exception('toRadio not found'),
-      );
-      _fromRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == fromRadioCharUuid,
-        orElse: () => throw Exception('fromRadio not found'),
-      );
-      try {
-        _fromNum = meshService.characteristics.firstWhere(
-          (c) => c.uuid.toString().toLowerCase() == fromNumCharUuid,
-        );
-      } catch (_) {
-        _fromNum = null; // Not all devices expose fromNum
-      }
-
-      // Request high connection priority for stable bulk writes.
-      try {
-        await meshDevice.device.requestConnectionPriority(
-          connectionPriorityRequest: ConnectionPriority.high,
-        );
-      } catch (_) {}
-
-      // Negotiate BLE MTU — official Meshtastic app requests 512.
-      // Default Android MTU is 23 bytes (20 usable) which is too small for
-      // admin packets (33–74 bytes). ESP32 typically negotiates 256-512.
-      try {
-        final mtu = await meshDevice.device.requestMtu(512);
-        debugPrint('BLE MTU negotiated: $mtu');
-      } catch (e) {
-        debugPrint('BLE MTU request failed (using default): $e');
-      }
-
-      // Create BLE transport and assign
-      _transport = BleTransport(
-        device: meshDevice.device,
-        toRadio: _toRadio!,
-        fromRadio: _fromRadio!,
-        fromNum: _fromNum,
-      );
-      _connectionType = ConnectionType.ble;
-      unawaited(PersistentRuntimeService.setBleActive(true));
-
-      // Read config, register, start relays (shared post-connect flow)
-      await _postConnectSetup(meshDevice.name);
     } catch (e) {
       unawaited(PersistentRuntimeService.setBleActive(false));
       _error = 'Connection failed: $e';
       _statusMessage = null;
-      _connectedDevice = null;
-      _transport = null;
-      _connectionType = null;
-      _toRadio = null;
-      _fromRadio = null;
-      _fromNum = null;
+      _clearBleConnectionState(clearConnectedDevice: true);
+      try {
+        await meshDevice.device.disconnect(queue: false);
+      } catch (_) {}
       _connectionStateSubscription?.cancel();
       _connectionStateSubscription = null;
     }
@@ -649,6 +709,102 @@ class BleService extends ChangeNotifier {
     _isConnecting = false;
     _connectingDeviceId = null;
     notifyListeners();
+  }
+
+  Future<void> _establishBleSession(
+    MeshtasticDevice meshDevice, {
+    required bool autoConnect,
+    required bool saveReconnectTarget,
+  }) async {
+    final device = meshDevice.device;
+
+    _connectionStateSubscription?.cancel();
+    _connectionStateSubscription = device.connectionState.listen(
+      (state) {
+        if (state == BluetoothConnectionState.disconnected) {
+          _onUnexpectedDisconnect();
+        }
+      },
+    );
+
+    final alreadyConnected = await _isDeviceConnected(device);
+    if (!alreadyConnected) {
+      if (autoConnect) {
+        unawaited(
+            device.connect(autoConnect: true, mtu: null).catchError((_) {}));
+        await device.connectionState
+            .where((state) => state == BluetoothConnectionState.connected)
+            .first
+            .timeout(const Duration(seconds: 60));
+      } else {
+        await device.connect(timeout: const Duration(seconds: 15));
+      }
+    }
+
+    _connectedDevice = meshDevice;
+
+    _statusMessage = 'Discovering services...';
+    notifyListeners();
+
+    final services = await device.discoverServices();
+    final meshService = services.firstWhere(
+      (s) => s.uuid.toString().toLowerCase() == meshServiceUuid,
+      orElse: () => throw Exception('Meshtastic service not found'),
+    );
+
+    _toRadio = meshService.characteristics.firstWhere(
+      (c) => c.uuid.toString().toLowerCase() == toRadioCharUuid,
+      orElse: () => throw Exception('toRadio not found'),
+    );
+    _fromRadio = meshService.characteristics.firstWhere(
+      (c) => c.uuid.toString().toLowerCase() == fromRadioCharUuid,
+      orElse: () => throw Exception('fromRadio not found'),
+    );
+    try {
+      _fromNum = meshService.characteristics.firstWhere(
+        (c) => c.uuid.toString().toLowerCase() == fromNumCharUuid,
+      );
+    } catch (_) {
+      _fromNum = null; // Not all devices expose fromNum
+    }
+
+    try {
+      await device.requestConnectionPriority(
+        connectionPriorityRequest: ConnectionPriority.high,
+      );
+    } catch (_) {}
+
+    try {
+      final mtu = await device.requestMtu(512);
+      debugPrint('BLE MTU negotiated: $mtu');
+    } catch (e) {
+      debugPrint('BLE MTU request failed (using default): $e');
+    }
+
+    _transport = BleTransport(
+      device: device,
+      toRadio: _toRadio!,
+      fromRadio: _fromRadio!,
+      fromNum: _fromNum,
+    );
+    _connectionType = ConnectionType.ble;
+    unawaited(PersistentRuntimeService.setBleActive(true));
+
+    if (saveReconnectTarget) {
+      await _saveBleReconnectTarget(meshDevice);
+    }
+
+    await _postConnectSetup(meshDevice.name);
+  }
+
+  Future<bool> _isDeviceConnected(BluetoothDevice device) async {
+    try {
+      final state = await device.connectionState.first
+          .timeout(const Duration(seconds: 1));
+      return state == BluetoothConnectionState.connected;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Shared post-connect setup: read config, register device, start relays.
@@ -668,6 +824,11 @@ class BleService extends ChangeNotifier {
     // Start mesh position relay (always — captures all mesh traffic)
     _startMeshPositionRelay();
     _startMqttClientProxy();
+    if (_connectionType == ConnectionType.ble) {
+      _startBleHealthMonitor();
+    } else {
+      _stopBleHealthMonitor();
+    }
 
     // Only share phone GPS to the device if it lacks its own GPS.
     if (_deviceState.gpsMode == GpsMode.notPresent) {
@@ -689,11 +850,12 @@ class BleService extends ChangeNotifier {
     if (_isConnecting) return;
 
     _isConnecting = true;
-    _userDisconnected = false;
+    _userDisconnected = true;
     _reconnectAttempts = 0;
     _isReconnecting = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    unawaited(_setSavedBleAutoReconnectEnabled(false));
     _error = null;
     _statusMessage = 'Connecting to $host:$port...';
     _configLoaded = false;
@@ -810,11 +972,12 @@ class BleService extends ChangeNotifier {
     if (_isConnecting) return;
 
     _isConnecting = true;
-    _userDisconnected = false;
+    _userDisconnected = true;
     _reconnectAttempts = 0;
     _isReconnecting = false;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    unawaited(_setSavedBleAutoReconnectEnabled(false));
     _error = null;
     final label = usbDevice.productName ?? 'USB #${usbDevice.deviceId}';
     _statusMessage = 'Connecting to $label...';
@@ -842,12 +1005,14 @@ class BleService extends ChangeNotifier {
 
   Future<void> disconnect() async {
     _userDisconnected = true;
+    await _setSavedBleAutoReconnectEnabled(false);
     unawaited(PersistentRuntimeService.setBleActive(false));
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _isReconnecting = false;
     _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
+    _stopBleHealthMonitor();
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
     _stopMqttClientProxy();
@@ -863,8 +1028,65 @@ class BleService extends ChangeNotifier {
       _fromNum = null;
       _configLoaded = false;
       _deviceState = MeshtasticDeviceState();
-      _statusMessage = null;
-      notifyListeners();
+    }
+    _statusMessage = null;
+    notifyListeners();
+  }
+
+  void _clearBleConnectionState({required bool clearConnectedDevice}) {
+    _stopBleHealthMonitor();
+    _stopPhoneGpsSharing();
+    _stopMeshPositionRelay();
+    _stopMqttClientProxy();
+    if (_transport is BleTransport) {
+      (_transport as BleTransport).markDisconnected();
+    }
+    _transport = null;
+    _connectionType = null;
+    _toRadio = null;
+    _fromRadio = null;
+    _fromNum = null;
+    _configLoaded = false;
+    _deviceState = MeshtasticDeviceState();
+    if (clearConnectedDevice) {
+      _connectedDevice = null;
+    }
+  }
+
+  void _startBleHealthMonitor() {
+    _stopBleHealthMonitor();
+    _bleHealthTimer = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => _checkBleHealth(),
+    );
+  }
+
+  void _stopBleHealthMonitor() {
+    _bleHealthTimer?.cancel();
+    _bleHealthTimer = null;
+  }
+
+  Future<void> _checkBleHealth() async {
+    final device = _connectedDevice?.device;
+    if (device == null ||
+        _connectionType != ConnectionType.ble ||
+        _isConnecting ||
+        _isReconnecting ||
+        _userDisconnected) {
+      return;
+    }
+
+    try {
+      final state = await device.connectionState.first
+          .timeout(const Duration(seconds: 3));
+      if (state != BluetoothConnectionState.connected) {
+        _onUnexpectedDisconnect();
+        return;
+      }
+      await device.readRssi().timeout(const Duration(seconds: 5));
+    } catch (e) {
+      debugPrint('BLE health check failed: $e');
+      _onUnexpectedDisconnect();
     }
   }
 
@@ -885,141 +1107,158 @@ class BleService extends ChangeNotifier {
       return;
     }
 
-    // Clean up connection state
-    _stopPhoneGpsSharing();
-    _stopMeshPositionRelay();
-    _stopMqttClientProxy();
-    if (_transport is BleTransport) {
-      (_transport as BleTransport).markDisconnected();
-    }
-    _transport = null;
-    _connectionType = null;
-    _toRadio = null;
-    _fromRadio = null;
-    _fromNum = null;
-    _configLoaded = false;
-    _deviceState = MeshtasticDeviceState();
-
     final device = _connectedDevice;
-    _connectedDevice = null;
+    final target = _lastBleDevice ??
+        (device == null
+            ? null
+            : _SavedBleDevice(
+                remoteId: device.device.remoteId.toString(),
+                name: device.name,
+                autoReconnectEnabled: true,
+                lastConnectedAt: DateTime.now().toUtc(),
+              ));
 
-    if (device != null && _reconnectAttempts < _maxReconnectAttempts) {
+    _clearBleConnectionState(clearConnectedDevice: true);
+
+    if (target != null && target.autoReconnectEnabled) {
+      _lastBleDevice = target;
       _isReconnecting = true;
-      _statusMessage = 'Connection lost. Reconnecting to ${device.name}...';
+      _userDisconnected = false;
+      _statusMessage = 'Connection lost. Reconnecting to ${target.name}...';
+      unawaited(PersistentRuntimeService.setBleActive(true));
+      _ensureAdapterReconnectListener();
       notifyListeners();
-      _scheduleReconnect(device);
+      _scheduleReconnect(target, delay: const Duration(seconds: 2));
     } else {
       unawaited(PersistentRuntimeService.setBleActive(false));
       _isReconnecting = false;
-      _error = _reconnectAttempts >= _maxReconnectAttempts
-          ? 'Reconnection failed after $_maxReconnectAttempts attempts'
-          : 'Device disconnected';
+      _error = 'Device disconnected';
       _statusMessage = null;
       notifyListeners();
     }
   }
 
-  void _scheduleReconnect(MeshtasticDevice device) {
+  void _scheduleReconnect(
+    _SavedBleDevice target, {
+    Duration? delay,
+  }) {
     final delaySecs = min(30, 2 * pow(2, _reconnectAttempts)).toInt();
     _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(Duration(seconds: delaySecs), () {
-      _attemptReconnect(device);
+    _reconnectTimer = Timer(delay ?? Duration(seconds: delaySecs), () {
+      unawaited(_attemptReconnect(target));
     });
   }
 
-  Future<void> _attemptReconnect(MeshtasticDevice device) async {
+  Future<void> _attemptReconnect(_SavedBleDevice target) async {
+    _reconnectTimer = null;
     if (_userDisconnected) {
       _isReconnecting = false;
       notifyListeners();
       return;
     }
 
+    final latestTarget = await _loadSavedBleDevice() ?? target;
+    if (!latestTarget.autoReconnectEnabled) {
+      _isReconnecting = false;
+      notifyListeners();
+      return;
+    }
+
+    _ensureAdapterReconnectListener();
+
+    if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+      _statusMessage =
+          'Bluetooth is off. Waiting to reconnect to ${latestTarget.name}...';
+      notifyListeners();
+      _scheduleReconnect(latestTarget, delay: const Duration(seconds: 15));
+      return;
+    }
+
     _reconnectAttempts++;
-    _statusMessage =
-        'Reconnecting to ${device.name} (attempt $_reconnectAttempts/$_maxReconnectAttempts)...';
+    _isReconnecting = true;
+    _isConnecting = true;
+    _connectingDeviceId = latestTarget.remoteId;
+    _statusMessage = 'Reconnecting to ${latestTarget.name} '
+        '(attempt $_reconnectAttempts)...';
     notifyListeners();
 
+    BluetoothDevice? bluetoothDevice;
     try {
-      await device.device.connect(timeout: const Duration(seconds: 15));
-      _connectedDevice = device;
-
-      // Re-subscribe to disconnect events
-      _connectionStateSubscription?.cancel();
-      _connectionStateSubscription = device.device.connectionState.listen(
-        (state) {
-          if (state == BluetoothConnectionState.disconnected) {
-            _onUnexpectedDisconnect();
-          }
-        },
+      bluetoothDevice = BluetoothDevice.fromId(latestTarget.remoteId);
+      final meshDevice = MeshtasticDevice(
+        device: bluetoothDevice,
+        name: latestTarget.name,
+        rssi: 0,
       );
-
-      // Rediscover services
-      final services = await device.device.discoverServices();
-      final meshService = services.firstWhere(
-        (s) => s.uuid.toString().toLowerCase() == meshServiceUuid,
-        orElse: () => throw Exception('Meshtastic service not found'),
+      await _establishBleSession(
+        meshDevice,
+        autoConnect: true,
+        saveReconnectTarget: true,
       );
-
-      _toRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == toRadioCharUuid,
-        orElse: () => throw Exception('toRadio not found'),
-      );
-      _fromRadio = meshService.characteristics.firstWhere(
-        (c) => c.uuid.toString().toLowerCase() == fromRadioCharUuid,
-        orElse: () => throw Exception('fromRadio not found'),
-      );
-      try {
-        _fromNum = meshService.characteristics.firstWhere(
-          (c) => c.uuid.toString().toLowerCase() == fromNumCharUuid,
-        );
-      } catch (_) {
-        _fromNum = null;
-      }
-
-      // Re-negotiate MTU after reconnect (matches official Meshtastic app).
-      try {
-        final mtu = await device.device.requestMtu(512);
-        debugPrint('BLE MTU re-negotiated: $mtu');
-      } catch (e) {
-        debugPrint('BLE MTU request failed on reconnect: $e');
-      }
-
-      // Re-create BLE transport
-      _transport = BleTransport(
-        device: device.device,
-        toRadio: _toRadio!,
-        fromRadio: _fromRadio!,
-        fromNum: _fromNum,
-      );
-      _connectionType = ConnectionType.ble;
-      unawaited(PersistentRuntimeService.setBleActive(true));
-
-      // Re-read config
-      await _readDeviceConfig();
-      _configLoaded = true;
-
-      // Restart GPS sharing and mesh relay
-      _startPhoneGpsSharing();
-      _startMeshPositionRelay();
-      _startMqttClientProxy();
 
       _isReconnecting = false;
       _reconnectAttempts = 0;
       _error = null;
-      _statusMessage = 'Reconnected to ${device.name}';
+      _statusMessage = 'Reconnected to ${latestTarget.name}';
       notifyListeners();
     } catch (e) {
-      _connectedDevice = null;
-      if (_reconnectAttempts < _maxReconnectAttempts && !_userDisconnected) {
-        _scheduleReconnect(device);
+      _clearBleConnectionState(clearConnectedDevice: true);
+      try {
+        await bluetoothDevice?.disconnect(queue: false);
+      } catch (_) {}
+      if (!_userDisconnected) {
+        _isReconnecting = true;
+        _error = null;
+        _statusMessage = 'Still looking for ${latestTarget.name}...';
+        notifyListeners();
+        _scheduleReconnect(latestTarget);
+      }
+    } finally {
+      _isConnecting = false;
+      _connectingDeviceId = null;
+    }
+  }
+
+  void _ensureAdapterReconnectListener() {
+    _adapterStateSubscription ??= FlutterBluePlus.adapterState.listen((state) {
+      if (_userDisconnected || !_isReconnecting) return;
+      final target = _lastBleDevice;
+      if (target == null || !target.autoReconnectEnabled) return;
+
+      if (state == BluetoothAdapterState.on) {
+        if (_reconnectTimer == null && _transport == null && !_isConnecting) {
+          _scheduleReconnect(target, delay: const Duration(seconds: 1));
+        }
       } else {
-        unawaited(PersistentRuntimeService.setBleActive(false));
-        _isReconnecting = false;
-        _error = 'Reconnection failed after $_reconnectAttempts attempts';
-        _statusMessage = null;
+        _statusMessage =
+            'Bluetooth is off. Waiting to reconnect to ${target.name}...';
         notifyListeners();
       }
+    });
+  }
+
+  Future<void> restoreAutoReconnect({bool force = false}) async {
+    if (_transport != null || _isConnecting || _isReconnecting) return;
+
+    final saved = await _loadSavedBleDevice();
+    if (saved == null) return;
+    if (!force && !saved.autoReconnectEnabled) return;
+
+    final target = force ? saved.copyWith(autoReconnectEnabled: true) : saved;
+    _lastBleDevice = target;
+    if (force && !saved.autoReconnectEnabled) {
+      await _setSavedBleAutoReconnectEnabled(true);
     }
+
+    _userDisconnected = false;
+    _isReconnecting = true;
+    _reconnectAttempts = 0;
+    _error = null;
+    _statusMessage = 'Reconnecting to ${target.name}...';
+    unawaited(PersistentRuntimeService.setBleActive(true));
+    _ensureAdapterReconnectListener();
+    notifyListeners();
+    _scheduleReconnect(target, delay: const Duration(milliseconds: 500));
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2397,14 +2636,21 @@ class BleService extends ChangeNotifier {
   void dispose() {
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _stopBleHealthMonitor();
     _connectionStateSubscription?.cancel();
     _connectionStateSubscription = null;
+    _adapterStateSubscription?.cancel();
+    _adapterStateSubscription = null;
+    final transport = _transport;
+    _clearBleConnectionState(clearConnectedDevice: true);
+    if (transport != null) {
+      unawaited(transport.disconnect());
+    }
     _stopPhoneGpsSharing();
     _stopMeshPositionRelay();
     _stopMqttClientProxy();
     stopScan();
     stopNetworkScan();
-    disconnect();
     super.dispose();
   }
 }

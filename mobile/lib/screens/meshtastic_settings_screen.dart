@@ -289,6 +289,63 @@ class _BluetoothTab extends StatelessWidget {
         ),
         const SizedBox(height: 12),
 
+        if (!ble.isConnected && ble.hasSavedBleDevice) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Icon(
+                    ble.savedBleAutoReconnectEnabled
+                        ? Icons.bluetooth_connected
+                        : Icons.bluetooth_disabled,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ble.savedBleDeviceName ?? 'Meshtastic device',
+                          style: theme.textTheme.titleSmall,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        Text(
+                          ble.savedBleAutoReconnectEnabled
+                              ? 'Auto-reconnect target'
+                              : 'Saved Bluetooth device',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (ble.reconnecting)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    IconButton(
+                      onPressed: () => ble.restoreAutoReconnect(force: true),
+                      icon: const Icon(Icons.refresh),
+                      tooltip: 'Reconnect',
+                    ),
+                  IconButton(
+                    onPressed: () => ble.forgetSavedBleDevice(),
+                    icon: const Icon(Icons.link_off),
+                    tooltip: 'Forget',
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+
         // Discovered devices
         if (ble.discoveredDevices.isNotEmpty)
           ...ble.discoveredDevices.map((device) {

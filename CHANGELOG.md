@@ -16,6 +16,10 @@ production release.
 ## [2026.05.23]
 
 ### Added
+- **Mobile v0.4.25+42** keeps the last paired Meshtastic Bluetooth device as
+  the auto-reconnect target, restores it on app launch/resume, and keeps trying
+  to reconnect through range loss, Bluetooth toggles, screen-off, and app
+  runtime recovery until the user explicitly disconnects or forgets the device.
 - **Mobile v0.4.24+41** makes the Aervyx app mesh relay the default backhaul
   for pilot and driver radios. Pilot/driver profile pushes now turn radio MQTT
   and MQTT client proxy off, while fixed gateway profiles keep private MQTT for
