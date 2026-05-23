@@ -12,8 +12,8 @@ python -m provisioner
 ```
 
 The app scans all COM ports, shows connected Meshtastic radios when readable,
-and applies a selected profile after the operator enters only the device name
-and shortname.
+lets you edit and save the profile matrix, and applies a selected profile after
+the operator enters only the device name and shortname.
 
 ## Fleet Secrets
 
@@ -28,6 +28,6 @@ that local overlay into the packaged EXE when present.
 .\build_windows.ps1
 ```
 
-The output is `dist\AervyxMeshtasticProvisioner-0.1.0-win-x64.zip`. If the
+The output is `dist\AervyxMeshtasticProvisioner-0.1.1-win-x64.zip`. If the
 overlay contains fleet secrets, distribute it only through the admin-only
 provisioner release endpoint.

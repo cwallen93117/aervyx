@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .schema import PROFILE_KEYS, get_path
+from .schema import PROFILE_KEYS, format_position_flags, get_path
 
 
 REQUIRED_PREFIX = "__REQUIRED_"
@@ -28,6 +28,15 @@ def _exe_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return Path.cwd()
+
+
+def user_profile_path() -> Path:
+    env_path = os.environ.get("AERVYX_PROVISIONER_PROFILE")
+    if env_path:
+        return Path(env_path)
+    if getattr(sys, "frozen", False):
+        return _exe_dir() / "aervyx_profiles.local.yaml"
+    return Path(__file__).resolve().parents[1] / "profiles" / "aervyx_profiles.local.yaml"
 
 
 def _deep_merge(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
@@ -72,6 +81,18 @@ def load_profile_bundle() -> dict[str, Any]:
     return bundle
 
 
+def save_profile_bundle(bundle: dict[str, Any]) -> Path:
+    path = user_profile_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "version": bundle.get("version", 1),
+        "app_version": bundle.get("app_version"),
+        "profiles": bundle.get("profiles", {}),
+    }
+    path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=False), encoding="utf-8")
+    return path
+
+
 def _validate_bundle_shape(bundle: dict[str, Any]) -> None:
     profiles = bundle.get("profiles")
     if not isinstance(profiles, dict):
@@ -96,13 +117,10 @@ def display_value(bundle: dict[str, Any], profile_key: str, path: str, secret: b
     value = get_path(profile_settings(bundle, profile_key), path, "")
     if value is None:
         return ""
-    if secret:
-        if isinstance(value, str) and value.startswith(REQUIRED_PREFIX):
-            return "<required>"
-        if str(value):
-            return "********"
     if isinstance(value, bool):
         return "Yes" if value else "No"
+    if path.endswith("position_flags"):
+        return format_position_flags(int(value or 0))
     return str(value)
 
 

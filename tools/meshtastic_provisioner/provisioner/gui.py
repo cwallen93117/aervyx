@@ -5,14 +5,15 @@ from __future__ import annotations
 import queue
 import threading
 import tkinter as tk
+from copy import deepcopy
 from dataclasses import dataclass
+from typing import Any
 from tkinter import messagebox, ttk
 
 from . import APP_NAME, APP_VERSION
 from .meshtastic_io import DeviceInfo, apply_target, scan_devices
-from .profiles import build_target_config, load_profile_bundle, required_placeholders
-from .schema import MATRIX_ROWS, PROFILE_KEYS, PROFILE_LABELS
-from .profiles import display_value
+from .profiles import build_target_config, load_profile_bundle, profile_settings, required_placeholders, save_profile_bundle, user_profile_path
+from .schema import MATRIX_ROWS, POSITION_FLAGS, PROFILE_KEYS, PROFILE_LABELS, format_position_flags, get_path, set_path
 
 
 @dataclass
@@ -33,6 +34,8 @@ class ProvisionerApp(tk.Tk):
         self.minsize(1000, 650)
         self.bundle = load_profile_bundle()
         self.rows: list[DeviceRow] = []
+        self.matrix_vars: dict[tuple[str, str], tk.Variable] = {}
+        self.flag_buttons: dict[tuple[str, str], ttk.Button] = {}
         self.log_queue: queue.Queue[str] = queue.Queue()
         self._build_ui()
         self.after(100, self._drain_log_queue)
@@ -81,29 +84,138 @@ class ProvisionerApp(tk.Tk):
 
     def _build_matrix_tab(self) -> None:
         self.matrix_tab.columnconfigure(0, weight=1)
-        self.matrix_tab.rowconfigure(0, weight=1)
-        columns = ("setting", *PROFILE_KEYS)
-        tree = ttk.Treeview(self.matrix_tab, columns=columns, show="headings")
-        tree.heading("setting", text="Setting")
-        tree.column("setting", width=260, anchor="w")
-        for key in PROFILE_KEYS:
-            tree.heading(key, text=PROFILE_LABELS[key])
-            tree.column(key, width=165, anchor="center")
-        vsb = ttk.Scrollbar(self.matrix_tab, orient="vertical", command=tree.yview)
-        hsb = ttk.Scrollbar(self.matrix_tab, orient="horizontal", command=tree.xview)
-        tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        tree.grid(row=0, column=0, sticky="nsew")
-        vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
+        self.matrix_tab.rowconfigure(1, weight=1)
+
+        for child in self.matrix_tab.winfo_children():
+            child.destroy()
+        self.matrix_vars.clear()
+        self.flag_buttons.clear()
+
+        toolbar = ttk.Frame(self.matrix_tab)
+        toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        toolbar.columnconfigure(3, weight=1)
+        ttk.Button(toolbar, text="Save Profile Matrix", command=self._save_matrix).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(toolbar, text="Reload Saved Matrix", command=self._reload_matrix).grid(row=0, column=1, padx=(0, 8))
+        ttk.Label(toolbar, text=f"Saves to: {user_profile_path()}").grid(row=0, column=2, sticky="w")
+
+        canvas = tk.Canvas(self.matrix_tab, highlightthickness=0)
+        vsb = ttk.Scrollbar(self.matrix_tab, orient="vertical", command=canvas.yview)
+        hsb = ttk.Scrollbar(self.matrix_tab, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        canvas.grid(row=1, column=0, sticky="nsew")
+        vsb.grid(row=1, column=1, sticky="ns")
+        hsb.grid(row=2, column=0, sticky="ew")
+
+        grid = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=grid, anchor="nw")
+        grid.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+
+        ttk.Label(grid, text="Setting", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
+        for column, key in enumerate(PROFILE_KEYS, start=1):
+            ttk.Label(grid, text=PROFILE_LABELS[key], font=("Segoe UI", 9, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=3)
+            grid.columnconfigure(column, minsize=170)
+        grid.columnconfigure(0, minsize=245)
+
         last_group = None
+        grid_row = 1
         for row in MATRIX_ROWS:
             if row.group != last_group:
-                tree.insert("", "end", values=(row.group, *[""] * len(PROFILE_KEYS)), tags=("group",))
+                ttk.Label(grid, text=row.group, font=("Segoe UI", 9, "bold"), background="#e8eef7").grid(
+                    row=grid_row,
+                    column=0,
+                    columnspan=len(PROFILE_KEYS) + 1,
+                    sticky="ew",
+                    padx=2,
+                    pady=(8, 2),
+                )
                 last_group = row.group
-            values = [row.label]
-            values.extend(display_value(self.bundle, key, row.path, row.secret) for key in PROFILE_KEYS)
-            tree.insert("", "end", values=values)
-        tree.tag_configure("group", background="#e8eef7", font=("Segoe UI", 9, "bold"))
+                grid_row += 1
+            ttk.Label(grid, text=row.label).grid(row=grid_row, column=0, sticky="w", padx=4, pady=2)
+            for column, profile_key in enumerate(PROFILE_KEYS, start=1):
+                self._make_matrix_cell(grid, grid_row, column, profile_key, row)
+            grid_row += 1
+
+    def _make_matrix_cell(self, parent: ttk.Frame, grid_row: int, column: int, profile_key: str, row) -> None:
+        value = get_path(profile_settings(self.bundle, profile_key), row.path, "")
+        key = (profile_key, row.path)
+        if row.kind == "boolean":
+            var = tk.BooleanVar(value=bool(value))
+            self.matrix_vars[key] = var
+            ttk.Checkbutton(parent, variable=var).grid(row=grid_row, column=column, padx=4, pady=2)
+        elif row.kind == "flags":
+            var = tk.IntVar(value=int(value or 0))
+            self.matrix_vars[key] = var
+            button = ttk.Button(parent, text=format_position_flags(var.get()), command=lambda pk=profile_key, r=row, v=var: self._open_flags_editor(pk, r, v))
+            button.grid(row=grid_row, column=column, sticky="ew", padx=4, pady=2)
+            self.flag_buttons[key] = button
+        else:
+            var = tk.StringVar(value="" if value is None else str(value))
+            self.matrix_vars[key] = var
+            if row.options:
+                ttk.Combobox(parent, textvariable=var, values=list(row.options), state="readonly", width=18).grid(row=grid_row, column=column, sticky="ew", padx=4, pady=2)
+            else:
+                ttk.Entry(parent, textvariable=var, width=22).grid(row=grid_row, column=column, sticky="ew", padx=4, pady=2)
+
+    def _open_flags_editor(self, profile_key: str, row, var: tk.IntVar) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title(f"{PROFILE_LABELS[profile_key]} Position Flags")
+        dialog.transient(self)
+        dialog.grab_set()
+        checks: list[tuple[int, tk.BooleanVar]] = []
+        ttk.Label(dialog, text="Select fields included in outgoing position packets.").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 6))
+        current = int(var.get())
+        for idx, (bit, label) in enumerate(POSITION_FLAGS, start=1):
+            check_var = tk.BooleanVar(value=(current & bit) != 0)
+            checks.append((bit, check_var))
+            ttk.Checkbutton(dialog, text=label, variable=check_var).grid(row=idx, column=0, sticky="w", padx=12, pady=2)
+
+        def save_flags() -> None:
+            mask = 0
+            for bit, check_var in checks:
+                if check_var.get():
+                    mask |= bit
+            var.set(mask)
+            button = self.flag_buttons.get((profile_key, row.path))
+            if button:
+                button.configure(text=format_position_flags(mask))
+            dialog.destroy()
+
+        buttons = ttk.Frame(dialog)
+        buttons.grid(row=len(POSITION_FLAGS) + 1, column=0, sticky="e", padx=12, pady=12)
+        ttk.Button(buttons, text="Cancel", command=dialog.destroy).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text="Save", command=save_flags).grid(row=0, column=1)
+
+    def _save_matrix(self) -> None:
+        try:
+            next_bundle = deepcopy(self.bundle)
+            for profile_key in PROFILE_KEYS:
+                settings = profile_settings(next_bundle, profile_key)
+                for row in MATRIX_ROWS:
+                    var = self.matrix_vars[(profile_key, row.path)]
+                    set_path(settings, row.path, self._matrix_value(row.kind, var.get(), row.path))
+                next_bundle["profiles"][profile_key]["settings"] = settings
+            path = save_profile_bundle(next_bundle)
+            self.bundle = next_bundle
+            self._log(f"Saved profile matrix to {path}")
+            messagebox.showinfo(APP_NAME, f"Saved profile matrix to:\n{path}")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+
+    def _matrix_value(self, kind: str, value: Any, path: str) -> Any:
+        if kind == "boolean":
+            return bool(value)
+        if kind == "number" or kind == "flags":
+            text = str(value).strip()
+            return int(text or 0)
+        return str(value)
+
+    def _reload_matrix(self) -> None:
+        try:
+            self.bundle = load_profile_bundle()
+            self._build_matrix_tab()
+            self._log("Reloaded profile matrix.")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, str(exc))
 
     def _build_log_tab(self) -> None:
         self.log_tab.columnconfigure(0, weight=1)

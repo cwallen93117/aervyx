@@ -21,6 +21,10 @@ production release.
   states, and stops only from an explicit in-app shutdown action. The Android
   app now declares the required foreground-service, notification, wake-lock, and
   connected-device permissions for the persistent runtime.
+- **Meshtastic Provisioner v0.1.1** makes the desktop profile matrix editable
+  and saveable, shows MQTT usernames/passwords in the matrix, adds a Wired Base
+  Station profile, and replaces the opaque position-flags number with a
+  checkbox selector for each position packet field.
 - **Meshtastic Provisioner v0.1.0** adds a Windows desktop GUI for scanning all
   COM ports, identifying connected Meshtastic radios, and provisioning devices
   from complete bundled Aervyx profiles. Operators enter only the device name

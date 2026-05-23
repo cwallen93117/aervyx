@@ -1,8 +1,9 @@
 # Local Fleet Profile Overlay
 
-Create `aervyx_profiles.local.yaml` in this directory before packaging a fleet
-release. This file is intentionally ignored by git because it can contain MQTT,
-Wi-Fi, and channel secrets.
+The desktop app can create and update `aervyx_profiles.local.yaml` from the
+editable Profile Matrix tab. You can also create the file manually before
+packaging a fleet release. This file is intentionally ignored by git because it
+can contain MQTT, Wi-Fi, and channel secrets.
 
 Example shape:
 

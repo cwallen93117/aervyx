@@ -1,4 +1,4 @@
 """Aervyx Meshtastic desktop provisioner."""
 
 APP_NAME = "Aervyx Meshtastic Provisioner"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
