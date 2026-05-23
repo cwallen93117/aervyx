@@ -41,6 +41,29 @@ class PersistentRuntimeService {
     await _channel.invokeMethod<bool>('setLocationActive', {'active': active});
   }
 
+  static Future<void> setAutoExitBatteryThreshold(int? threshold) async {
+    if (!Platform.isAndroid) return;
+    await _channel.invokeMethod<bool>(
+      'setAutoExitBatteryThreshold',
+      {'threshold': threshold},
+    );
+  }
+
+  static Future<int?> getAutoExitBatteryThreshold() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<int>('getAutoExitBatteryThreshold');
+  }
+
+  static Future<int?> getBatteryLevel() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<int>('getBatteryLevel');
+  }
+
+  static Future<bool?> isBatteryCharging() async {
+    if (!Platform.isAndroid) return null;
+    return _channel.invokeMethod<bool>('isBatteryCharging');
+  }
+
   static Future<bool> get isEnabled async {
     if (!Platform.isAndroid) return false;
     return await _channel.invokeMethod<bool>('isEnabled') ?? false;

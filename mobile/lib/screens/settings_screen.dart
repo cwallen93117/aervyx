@@ -18,6 +18,9 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _version = '...';
+  int? _runtimeBatteryThreshold;
+  int? _runtimeBatteryLevel;
+  bool? _runtimeBatteryCharging;
 
   @override
   void initState() {
@@ -26,6 +29,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() => _version = '${info.version}+${info.buildNumber}');
       }
+    });
+    _loadRuntimeBatterySettings();
+  }
+
+  Future<void> _loadRuntimeBatterySettings() async {
+    final threshold =
+        await PersistentRuntimeService.getAutoExitBatteryThreshold();
+    final level = await PersistentRuntimeService.getBatteryLevel();
+    final charging = await PersistentRuntimeService.isBatteryCharging();
+    if (!mounted) return;
+    setState(() {
+      _runtimeBatteryThreshold = threshold;
+      _runtimeBatteryLevel = level;
+      _runtimeBatteryCharging = charging;
+    });
+  }
+
+  Future<void> _setRuntimeBatteryThreshold(int? threshold) async {
+    await PersistentRuntimeService.setAutoExitBatteryThreshold(threshold);
+    final level = await PersistentRuntimeService.getBatteryLevel();
+    final charging = await PersistentRuntimeService.isBatteryCharging();
+    if (!mounted) return;
+    setState(() {
+      _runtimeBatteryThreshold = threshold;
+      _runtimeBatteryLevel = level;
+      _runtimeBatteryCharging = charging;
     });
   }
 
@@ -165,7 +194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Auto-stop tracking when battery is low',
+                          'Tracking low-battery guard',
                           style: theme.textTheme.bodyMedium,
                         ),
                       ),
@@ -209,7 +238,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(
-                          'Current battery: ${tracking.currentBatteryLevel}%',
+                          'Warns in flight and ends post-flight monitoring below ${tracking.batteryThreshold}%. Current battery: ${tracking.currentBatteryLevel}%',
                           style: theme.textTheme.bodySmall?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -229,14 +258,78 @@ class _SettingsScreenState extends State<SettingsScreen> {
               )),
           const SizedBox(height: 8),
           Card(
-            child: ListTile(
-              leading: Icon(Icons.battery_charging_full,
-                  color: theme.colorScheme.primary),
-              title: const Text('Battery optimization'),
-              subtitle: const Text('Allow unrestricted background runtime'),
-              trailing: const Icon(Icons.open_in_new),
-              onTap: () =>
-                  PersistentRuntimeService.openBatteryOptimizationSettings(),
+            child: Column(
+              children: [
+                ListTile(
+                  leading: Icon(Icons.battery_charging_full,
+                      color: theme.colorScheme.primary),
+                  title: const Text('Battery optimization'),
+                  subtitle: const Text('Allow unrestricted background runtime'),
+                  trailing: const Icon(Icons.open_in_new),
+                  onTap: () => PersistentRuntimeService
+                      .openBatteryOptimizationSettings(),
+                ),
+                const Divider(height: 1),
+                SwitchListTile(
+                  secondary: Icon(Icons.power_settings_new,
+                      color: theme.colorScheme.primary),
+                  title: const Text('Critical battery shutdown'),
+                  subtitle: Text(
+                    _runtimeBatteryThreshold == null
+                        ? 'Persistent runtime stays on until manual shutdown'
+                        : 'Shuts down Aervyx below $_runtimeBatteryThreshold% while not charging',
+                  ),
+                  value: _runtimeBatteryThreshold != null,
+                  onChanged: (enabled) {
+                    _setRuntimeBatteryThreshold(enabled ? 5 : null);
+                  },
+                ),
+                if (_runtimeBatteryThreshold != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Text('Exit at:', style: theme.textTheme.bodySmall),
+                            Expanded(
+                              child: Slider(
+                                value: _runtimeBatteryThreshold!.toDouble(),
+                                min: 1,
+                                max: 20,
+                                divisions: 19,
+                                label: '$_runtimeBatteryThreshold%',
+                                onChanged: (value) {
+                                  _setRuntimeBatteryThreshold(value.round());
+                                },
+                              ),
+                            ),
+                            SizedBox(
+                              width: 42,
+                              child: Text(
+                                '$_runtimeBatteryThreshold%',
+                                style: theme.textTheme.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_runtimeBatteryLevel != null)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Current battery: $_runtimeBatteryLevel%'
+                              '${_runtimeBatteryCharging == true ? ' (charging)' : ''}',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
           ),
 

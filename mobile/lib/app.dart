@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -7,6 +9,7 @@ import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/persistent_runtime_service.dart';
+import 'utils/app_shutdown.dart';
 import 'widgets/aervyx_logo.dart';
 
 class AervyxApp extends StatefulWidget {
@@ -18,17 +21,27 @@ class AervyxApp extends StatefulWidget {
 
 class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   bool _runtimeStartRequested = false;
+  bool _runtimeBatteryShutdownStarted = false;
+  Timer? _runtimeBatteryTimer;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureRuntime());
+    _runtimeBatteryTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _checkRuntimeBatteryThreshold(),
+    );
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _checkRuntimeBatteryThreshold(),
+    );
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _runtimeBatteryTimer?.cancel();
     super.dispose();
   }
 
@@ -55,6 +68,25 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
       // If Android blocks startup, opening the app again retries from a visible state.
     } finally {
       _runtimeStartRequested = false;
+    }
+  }
+
+  Future<void> _checkRuntimeBatteryThreshold() async {
+    if (_runtimeBatteryShutdownStarted) return;
+    try {
+      final threshold =
+          await PersistentRuntimeService.getAutoExitBatteryThreshold();
+      if (threshold == null) return;
+      final level = await PersistentRuntimeService.getBatteryLevel();
+      final charging = await PersistentRuntimeService.isBatteryCharging();
+      if (level == null || charging == true || level > threshold || !mounted) {
+        return;
+      }
+
+      _runtimeBatteryShutdownStarted = true;
+      await shutDownApp(context);
+    } catch (_) {
+      // Battery data is best effort; the native service has its own guard too.
     }
   }
 

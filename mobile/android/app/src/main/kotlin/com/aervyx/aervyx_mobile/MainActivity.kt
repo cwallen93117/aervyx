@@ -42,6 +42,24 @@ class MainActivity : FlutterActivity() {
                     result.success(PersistentRuntimeService.isRuntimeEnabled(this))
                 }
 
+                "setAutoExitBatteryThreshold" -> {
+                    val threshold = call.argument<Int>("threshold")
+                    PersistentRuntimeService.setAutoExitBatteryThreshold(this, threshold)
+                    result.success(true)
+                }
+
+                "getAutoExitBatteryThreshold" -> {
+                    result.success(PersistentRuntimeService.getAutoExitBatteryThreshold(this))
+                }
+
+                "getBatteryLevel" -> {
+                    result.success(PersistentRuntimeService.getBatteryLevel(this))
+                }
+
+                "isBatteryCharging" -> {
+                    result.success(PersistentRuntimeService.isBatteryCharging(this))
+                }
+
                 "openBatteryOptimizationSettings" -> {
                     try {
                         startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))

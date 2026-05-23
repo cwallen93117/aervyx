@@ -16,6 +16,11 @@ production release.
 ## [2026.05.23]
 
 ### Added
+- **Mobile v0.4.23+40** adds a Runtime critical-battery shutdown setting
+  (default 5%) so the persistent Android runtime can stop Aervyx when the phone
+  falls below the configured battery level while not charging. The existing
+  tracking battery setting is clarified as a tracking/monitoring guard rather
+  than the app-wide persistent-runtime shutdown.
 - **Mobile v0.4.22+39** adds an always-on Android foreground runtime that starts
   when the app opens, keeps Aervyx alive through screen-off / waiting-for-takeoff
   states, and stops only from an explicit in-app shutdown action. The Android
