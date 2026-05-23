@@ -11,7 +11,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import admin_db, admin_integrations, airspace, app_release, auth, events, logbook, map_overlay_config, pilots, public, results, site_settings, sites, tasks, turnpoints, uploads
+from app.routers import admin_db, admin_integrations, airspace, app_release, auth, events, logbook, map_overlay_config, pilots, provisioner_release, public, results, site_settings, sites, tasks, turnpoints, uploads
 from app.services.pilot_identity import repair_pilot_email_identities
 from app.services.seeding import bootstrap_demo_data
 
@@ -196,6 +196,7 @@ app.include_router(uploads.router)
 app.include_router(results.router)
 app.include_router(logbook.router)
 app.include_router(app_release.router)
+app.include_router(provisioner_release.router)
 if tracking is not None:
     app.include_router(tracking.router)
 if buddies is not None:

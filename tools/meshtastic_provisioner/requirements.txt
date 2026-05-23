@@ -1,0 +1,4 @@
+meshtastic==2.7.8
+pyserial==3.5
+PyYAML==6.0.3
+pyinstaller==6.16.0

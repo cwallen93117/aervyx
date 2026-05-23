@@ -39,3 +39,10 @@ backend/flightcomp.db
 mobile/.metadata
 mobile/releases/
 show_emulator.ps1
+
+# Meshtastic provisioner local secrets / generated app bundles
+tools/meshtastic_provisioner/profiles/*.local.yaml
+tools/meshtastic_provisioner/.build_resources/
+tools/meshtastic_provisioner/build/
+tools/meshtastic_provisioner/dist/
+tools/meshtastic_provisioner/*.spec

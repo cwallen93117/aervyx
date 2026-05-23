@@ -13,6 +13,19 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.23]
+
+### Added
+- **Meshtastic Provisioner v0.1.0** adds a Windows desktop GUI for scanning all
+  COM ports, identifying connected Meshtastic radios, and provisioning devices
+  from complete bundled Aervyx profiles. Operators enter only the device name
+  and shortname; MQTT, primary-channel PSK, proxy, Wi-Fi, Bluetooth, LoRa,
+  position, telemetry, neighbor-info, and store-forward settings come from the
+  profile matrix.
+- **Admin-only provisioner release hosting** adds private backend endpoints for
+  uploading and downloading packaged provisioner builds separately from the
+  public Android APK flow.
+
 ## [2026.05.22]
 
 ### Changed

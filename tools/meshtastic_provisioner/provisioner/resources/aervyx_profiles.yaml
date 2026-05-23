@@ -1,0 +1,299 @@
+version: 1
+app_version: "0.1.0"
+profiles:
+  pilot:
+    label: Pilot
+    settings:
+      config:
+        device:
+          role: TRACKER
+          rebroadcast_mode: ALL
+          serial_enabled: true
+          node_info_broadcast_secs: 10800
+        position:
+          gps_mode: ENABLED
+          gps_update_interval: 10
+          position_broadcast_secs: 30
+          position_broadcast_smart_enabled: true
+          broadcast_smart_minimum_distance: 100
+          broadcast_smart_minimum_interval_secs: 10
+          position_flags: 1
+        lora:
+          region: US
+          use_preset: true
+          modem_preset: LONG_FAST
+          hop_limit: 3
+          tx_power: 0
+          tx_enabled: true
+          sx126x_rx_boosted_gain: true
+        power:
+          is_power_saving: false
+          on_battery_shutdown_after_secs: 0
+          ls_secs: 300
+          wait_bluetooth_secs: 60
+        bluetooth:
+          enabled: true
+          mode: FIXED_PIN
+          fixed_pin: 123456
+        network:
+          wifi_enabled: false
+          wifi_ssid: ""
+          wifi_psk: ""
+          eth_enabled: false
+        display:
+          screen_on_secs: 30
+          auto_screen_carousel_secs: 0
+          wake_on_tap_or_motion: false
+      module_config:
+        mqtt:
+          enabled: true
+          address: mqtt-staging.aervyx.net
+          username: "__REQUIRED_MQTT_USERNAME__"
+          password: "__REQUIRED_MQTT_PASSWORD__"
+          encryption_enabled: false
+          tls_enabled: false
+          root: msh/US
+          proxy_to_client_enabled: true
+          map_reporting_enabled: true
+          map_report_settings:
+            publish_interval_secs: 3600
+            position_precision: 19
+            should_report_location: true
+        telemetry:
+          device_update_interval: 86400
+          device_telemetry_enabled: true
+          environment_measurement_enabled: false
+        neighbor_info:
+          enabled: false
+          update_interval: 14400
+        store_forward:
+          enabled: false
+          is_server: false
+      channel:
+        primary:
+          name: ""
+          psk: default
+          uplink_enabled: true
+          downlink_enabled: true
+  driver:
+    label: Driver
+    settings:
+      config:
+        device:
+          role: CLIENT
+          rebroadcast_mode: ALL
+          serial_enabled: true
+          node_info_broadcast_secs: 10800
+        position:
+          gps_mode: ENABLED
+          gps_update_interval: 30
+          position_broadcast_secs: 120
+          position_broadcast_smart_enabled: true
+          broadcast_smart_minimum_distance: 200
+          broadcast_smart_minimum_interval_secs: 30
+          position_flags: 1
+        lora:
+          region: US
+          use_preset: true
+          modem_preset: LONG_FAST
+          hop_limit: 3
+          tx_power: 0
+          tx_enabled: true
+          sx126x_rx_boosted_gain: true
+        power:
+          is_power_saving: false
+          on_battery_shutdown_after_secs: 0
+          ls_secs: 300
+          wait_bluetooth_secs: 60
+        bluetooth:
+          enabled: true
+          mode: FIXED_PIN
+          fixed_pin: 123456
+        network:
+          wifi_enabled: false
+          wifi_ssid: ""
+          wifi_psk: ""
+          eth_enabled: false
+        display:
+          screen_on_secs: 60
+          auto_screen_carousel_secs: 0
+          wake_on_tap_or_motion: true
+      module_config:
+        mqtt:
+          enabled: true
+          address: mqtt-staging.aervyx.net
+          username: "__REQUIRED_MQTT_USERNAME__"
+          password: "__REQUIRED_MQTT_PASSWORD__"
+          encryption_enabled: false
+          tls_enabled: false
+          root: msh/US
+          proxy_to_client_enabled: true
+          map_reporting_enabled: true
+          map_report_settings:
+            publish_interval_secs: 3600
+            position_precision: 19
+            should_report_location: true
+        telemetry:
+          device_update_interval: 86400
+          device_telemetry_enabled: true
+          environment_measurement_enabled: false
+        neighbor_info:
+          enabled: false
+          update_interval: 14400
+        store_forward:
+          enabled: false
+          is_server: false
+      channel:
+        primary:
+          name: ""
+          psk: default
+          uplink_enabled: true
+          downlink_enabled: true
+  driver_wifi:
+    label: Driver Wi-Fi
+    settings:
+      config:
+        device:
+          role: CLIENT
+          rebroadcast_mode: ALL
+          serial_enabled: true
+          node_info_broadcast_secs: 10800
+        position:
+          gps_mode: ENABLED
+          gps_update_interval: 30
+          position_broadcast_secs: 60
+          position_broadcast_smart_enabled: true
+          broadcast_smart_minimum_distance: 200
+          broadcast_smart_minimum_interval_secs: 30
+          position_flags: 1
+        lora:
+          region: US
+          use_preset: true
+          modem_preset: LONG_FAST
+          hop_limit: 3
+          tx_power: 0
+          tx_enabled: true
+          sx126x_rx_boosted_gain: true
+        power:
+          is_power_saving: false
+          on_battery_shutdown_after_secs: 0
+          ls_secs: 300
+          wait_bluetooth_secs: 60
+        bluetooth:
+          enabled: true
+          mode: FIXED_PIN
+          fixed_pin: 123456
+        network:
+          wifi_enabled: true
+          wifi_ssid: "__REQUIRED_WIFI_SSID__"
+          wifi_psk: "__REQUIRED_WIFI_PASSWORD__"
+          eth_enabled: false
+        display:
+          screen_on_secs: 60
+          auto_screen_carousel_secs: 0
+          wake_on_tap_or_motion: true
+      module_config:
+        mqtt:
+          enabled: true
+          address: mqtt-staging.aervyx.net
+          username: "__REQUIRED_MQTT_USERNAME__"
+          password: "__REQUIRED_MQTT_PASSWORD__"
+          encryption_enabled: false
+          tls_enabled: false
+          root: msh/US
+          proxy_to_client_enabled: true
+          map_reporting_enabled: true
+          map_report_settings:
+            publish_interval_secs: 3600
+            position_precision: 19
+            should_report_location: true
+        telemetry:
+          device_update_interval: 86400
+          device_telemetry_enabled: true
+          environment_measurement_enabled: false
+        neighbor_info:
+          enabled: false
+          update_interval: 14400
+        store_forward:
+          enabled: false
+          is_server: false
+      channel:
+        primary:
+          name: ""
+          psk: default
+          uplink_enabled: true
+          downlink_enabled: true
+  base_station:
+    label: Base Station
+    settings:
+      config:
+        device:
+          role: ROUTER
+          rebroadcast_mode: ALL
+          serial_enabled: true
+          node_info_broadcast_secs: 10800
+        position:
+          gps_mode: ENABLED
+          gps_update_interval: 0
+          position_broadcast_secs: 300
+          position_broadcast_smart_enabled: false
+          broadcast_smart_minimum_distance: 0
+          broadcast_smart_minimum_interval_secs: 0
+          position_flags: 1
+        lora:
+          region: US
+          use_preset: true
+          modem_preset: LONG_FAST
+          hop_limit: 3
+          tx_power: 0
+          tx_enabled: true
+          sx126x_rx_boosted_gain: true
+        power:
+          is_power_saving: false
+          on_battery_shutdown_after_secs: 0
+          ls_secs: 300
+          wait_bluetooth_secs: 60
+        bluetooth:
+          enabled: true
+          mode: FIXED_PIN
+          fixed_pin: 123456
+        network:
+          wifi_enabled: true
+          wifi_ssid: "__REQUIRED_WIFI_SSID__"
+          wifi_psk: "__REQUIRED_WIFI_PASSWORD__"
+          eth_enabled: false
+        display:
+          screen_on_secs: 0
+          auto_screen_carousel_secs: 0
+          wake_on_tap_or_motion: false
+      module_config:
+        mqtt:
+          enabled: true
+          address: mqtt-staging.aervyx.net
+          username: "__REQUIRED_MQTT_USERNAME__"
+          password: "__REQUIRED_MQTT_PASSWORD__"
+          encryption_enabled: false
+          tls_enabled: false
+          root: msh/US
+          proxy_to_client_enabled: true
+          map_reporting_enabled: true
+          map_report_settings:
+            publish_interval_secs: 3600
+            position_precision: 19
+            should_report_location: true
+        telemetry:
+          device_update_interval: 86400
+          device_telemetry_enabled: true
+          environment_measurement_enabled: false
+        neighbor_info:
+          enabled: true
+          update_interval: 14400
+        store_forward:
+          enabled: true
+          is_server: true
+      channel:
+        primary:
+          name: ""
+          psk: default
+          uplink_enabled: true
+          downlink_enabled: true

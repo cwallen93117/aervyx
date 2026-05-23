@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{(Path(__file__).resolve().parents[2] / 'flightcomp.db').as_posix()}"
     upload_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "uploads")
     apk_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "apks")
+    provisioner_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "provisioners")
     access_token_expire_minutes: int = 1440  # 24 hours
     refresh_token_expire_days: int = 30
     max_upload_size_mb: int = 10
@@ -67,6 +68,7 @@ def get_settings() -> Settings:
     settings = Settings()
     Path(settings.upload_root).mkdir(parents=True, exist_ok=True)
     Path(settings.apk_root).mkdir(parents=True, exist_ok=True)
+    Path(settings.provisioner_root).mkdir(parents=True, exist_ok=True)
 
     if settings.app_secret_key == _INSECURE_DEFAULT_KEY:
         if settings.app_env.lower() == "production":
