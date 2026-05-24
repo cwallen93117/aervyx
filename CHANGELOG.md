@@ -16,6 +16,9 @@ production release.
 ## [2026.05.24]
 
 ### Fixed
+- Public Watch Live now opens its live position stream through the direct API
+  hostname and uses thread-safe backend fan-out, so map positions can update
+  without requiring a page refresh.
 - **Mobile v0.4.26+43** removes the signed-in pilot's echoed server marker
   from the mobile live map so only the phone's live GPS dot represents the
   current pilot, and the location button now follows that GPS position until

@@ -116,6 +116,7 @@ Backend env should include:
 Frontend env should include:
 
 - `NEXT_PUBLIC_API_BASE_URL=/backend`
+- `NEXT_PUBLIC_STREAM_API_BASE_URL=https://api-staging.aervyx.net`
 - `BACKEND_INTERNAL_URL=http://backend:8000`
 - `APP_PUBLIC_URL=https://staging.aervyx.net`
 - `API_PUBLIC_URL=https://api-staging.aervyx.net`
@@ -255,6 +256,7 @@ Public staging validation after enabling the tunnel:
 - login and dashboard load after Access
 - `/backend` rewrite works
 - `https://api-staging.aervyx.net/health` works
+- public Watch Live SSE connects through `https://api-staging.aervyx.net`
 - live tracking SSE is not buffered/broken
 - mobile can authenticate against `api-staging.aervyx.net`
 - logbook upload/download/replay works

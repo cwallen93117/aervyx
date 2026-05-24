@@ -13,6 +13,7 @@ import { PilotRoleBadge } from "../../components/PilotRoleBadge";
 import {
   type LivePositionRecord,
   resolveApiBase,
+  resolveStreamApiBase,
   formatRelativeTime,
   convertAltitude,
   convertSpeed,
@@ -108,6 +109,7 @@ export function LiveWatchClient() {
   const sseControllerRef = useRef<AbortController | null>(null);
 
   const apiBase = useMemo(() => resolveApiBase(), []);
+  const streamApiBase = useMemo(() => resolveStreamApiBase(), []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -242,91 +244,77 @@ export function LiveWatchClient() {
         : source.type === "buddies"
           ? `buddies/${source.groupId}`
           : "all";
-    const sseUrl = `${apiBase}/api/public/live/${sourcePath}`;
+    const sseUrl = `${streamApiBase}/api/public/live/${sourcePath}`;
     const historyUrl = `${apiBase}/api/public/live/${sourcePath}/positions?minutes=60&limit=10000`;
+
+    const mergePositions = (positions: LivePositionWithName[]) => {
+      if (controller.signal.aborted || !positions.length) {
+        return;
+      }
+      setPositionsByPilot((current) => mergePositionGroup(current, positions));
+      const names = collectPilotNames(positions);
+      if (names.size) {
+        setPilotNameById((prev) => new Map([...prev, ...names]));
+      }
+    };
 
     fetch(historyUrl, { cache: "no-store", signal: controller.signal })
       .then((r) => (r.ok ? r.json() : []))
-      .then((positions: LivePositionWithName[]) => {
-        if (!controller.signal.aborted && positions.length) {
-          setPositionsByPilot((current) => mergePositionGroup(current, positions));
-          const names = collectPilotNames(positions);
-          if (names.size) {
-            setPilotNameById((prev) => new Map([...prev, ...names]));
-          }
-        }
-      })
+      .then((positions: LivePositionWithName[]) => mergePositions(positions))
       .catch(() => {});
 
-    (async () => {
-      let retryCount = 0;
-      while (!controller.signal.aborted) {
-        try {
-          const response = await fetch(sseUrl, {
-            headers: { Accept: "text/event-stream" },
-            cache: "no-store",
-            signal: controller.signal,
-          });
-          if (!response.ok || !response.body) {
-            throw new Error(`SSE failed: ${response.status}`);
-          }
-          setLoading(false);
-          setError("");
-          retryCount = 0;
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-          let eventType = "";
+    const eventSource = new EventSource(sseUrl);
 
-          while (!controller.signal.aborted) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              if (line.startsWith("event:")) {
-                eventType = line.slice(6).trim();
-              } else if (line.startsWith("data:")) {
-                const data = line.slice(5).trim();
-                if (!data) continue;
-                try {
-                  const parsed = JSON.parse(data);
-                  if (eventType === "snapshot" && Array.isArray(parsed)) {
-                    setPositionsByPilot((current) => mergePositionGroup(current, parsed));
-                    const names = collectPilotNames(parsed);
-                    if (names.size) {
-                      setPilotNameById((prev) => new Map([...prev, ...names]));
-                    }
-                  } else if (eventType === "position" && parsed) {
-                    setPositionsByPilot((current) => mergePositionGroup(current, [parsed]));
-                    const names = collectPilotNames([parsed]);
-                    if (names.size) {
-                      setPilotNameById((prev) => new Map([...prev, ...names]));
-                    }
-                  }
-                } catch {
-                  // Ignore malformed event payloads without breaking the stream.
-                }
-                eventType = "";
-              }
-            }
-          }
-        } catch {
-          if (controller.signal.aborted) break;
-          retryCount++;
-          setLoading(false);
-          setError("Live connection interrupted; retrying...");
-          const delay = Math.min(3000 * retryCount, 15000);
-          await new Promise((resolve) => setTimeout(resolve, delay));
-        }
+    eventSource.onopen = () => {
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        setError("");
       }
-    })();
+    };
+
+    eventSource.onerror = () => {
+      if (!controller.signal.aborted) {
+        setLoading(false);
+        setError("Live connection interrupted; retrying...");
+      }
+    };
+
+    const handleSnapshot = (event: MessageEvent<string>) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(event.data);
+        if (Array.isArray(parsed)) {
+          mergePositions(parsed);
+        }
+      } catch {
+        // Ignore malformed event payloads without breaking the stream.
+      }
+    };
+
+    const handlePosition = (event: MessageEvent<string>) => {
+      if (controller.signal.aborted) {
+        return;
+      }
+      try {
+        const parsed = JSON.parse(event.data);
+        if (parsed) {
+          mergePositions([parsed]);
+        }
+      } catch {
+        // Ignore malformed event payloads without breaking the stream.
+      }
+    };
+
+    eventSource.addEventListener("snapshot", handleSnapshot);
+    eventSource.addEventListener("position", handlePosition);
 
     return () => {
       controller.abort();
+      eventSource.close();
     };
-  }, [apiBase]);
+  }, [apiBase, streamApiBase]);
 
   useEffect(() => {
     if (!sourcesLoaded || hasAppliedInitialEvent || !hasInitialEventParam) {

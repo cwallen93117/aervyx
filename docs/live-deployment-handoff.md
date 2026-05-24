@@ -206,6 +206,11 @@ The VM's untracked production env files were updated to the final public hostnam
   - `APP_PUBLIC_URL=https://aervyx.net`
   - `API_PUBLIC_URL=https://api.aervyx.net`
   - `NEXT_PUBLIC_API_BASE_URL=/backend`
+  - `NEXT_PUBLIC_STREAM_API_BASE_URL=https://api.aervyx.net`
+
+The browser app keeps ordinary REST calls on same-origin `/backend`, but the
+public Watch Live SSE connection uses the direct API hostname so streamed
+position events do not pass through the Next.js rewrite layer.
 
 The repo-tracked env examples still describe earlier staging-oriented shapes in places.
 For the live server, trust the actual VM env files over older draft docs.

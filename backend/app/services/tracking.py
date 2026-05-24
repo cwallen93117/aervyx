@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -18,9 +19,44 @@ from app.services.mesh_ids import mesh_device_id_lookup_variants, normalize_mesh
 # Internal asyncio pub/sub for SSE fan-out
 # ---------------------------------------------------------------------------
 
-_subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
-_pilot_subscribers: dict[int, set[asyncio.Queue[dict[str, Any]]]] = {}
-_global_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
+class LiveSubscriber:
+    def __init__(self, *, maxsize: int = 256) -> None:
+        self.loop = asyncio.get_running_loop()
+        self.queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=maxsize)
+
+    async def get(self) -> dict[str, Any]:
+        return await self.queue.get()
+
+    def enqueue(self, message: dict[str, Any]) -> bool:
+        if self.loop.is_closed():
+            return False
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        if current_loop is self.loop:
+            return self._put_nowait(message)
+        try:
+            self.loop.call_soon_threadsafe(self._put_nowait, message)
+        except RuntimeError:
+            return False
+        return True
+
+    def _put_nowait(self, message: dict[str, Any]) -> bool:
+        try:
+            self.queue.put_nowait(dict(message))
+        except asyncio.QueueFull:
+            return False
+        except Exception:
+            logger.warning("Dropping failed live-tracking subscriber", exc_info=True)
+            return False
+        return True
+
+
+_subscribers: dict[int, set[LiveSubscriber]] = {}
+_pilot_subscribers: dict[int, set[LiveSubscriber]] = {}
+_global_subscribers: set[LiveSubscriber] = set()
+_subscriber_lock = threading.RLock()
 logger = logging.getLogger("aervyx.tracking")
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 VALID_PROFILE_TYPES_ALL = {"pilot", "driver", "stationary_node"}
@@ -231,115 +267,122 @@ def _stationary_node_by_device(session: Session, device_ids: list[str]) -> dict[
     return {canonical_by_lookup.get(user.mesh_device_id, user.mesh_device_id): user for user in users if user.mesh_device_id}
 
 
-def subscribe(task_id: int) -> asyncio.Queue[dict[str, Any]]:
+def subscribe(task_id: int) -> LiveSubscriber:
     """Register a new SSE subscriber for a given task. Returns a queue."""
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
-    _subscribers.setdefault(task_id, set()).add(queue)
-    return queue
+    subscriber = LiveSubscriber(maxsize=256)
+    with _subscriber_lock:
+        _subscribers.setdefault(task_id, set()).add(subscriber)
+    return subscriber
 
 
-def unsubscribe(task_id: int, queue: asyncio.Queue[dict[str, Any]]) -> None:
+def unsubscribe(task_id: int, subscriber: LiveSubscriber) -> None:
     """Remove a subscriber queue for a given task."""
-    task_subs = _subscribers.get(task_id)
-    if task_subs:
-        task_subs.discard(queue)
-        if not task_subs:
-            del _subscribers[task_id]
+    with _subscriber_lock:
+        task_subs = _subscribers.get(task_id)
+        if task_subs:
+            task_subs.discard(subscriber)
+            if not task_subs:
+                del _subscribers[task_id]
 
 
 def _publish(task_id: int, message: dict[str, Any]) -> None:
     """Fan out a message to all SSE subscribers for a task (non-blocking)."""
-    task_subs = _subscribers.get(task_id)
-    if not task_subs:
+    with _subscriber_lock:
+        task_subs = _subscribers.get(task_id)
+        targets = list(task_subs) if task_subs else []
+    if not targets:
         return
-    dead: list[asyncio.Queue[dict[str, Any]]] = []
-    for queue in task_subs:
-        try:
-            queue.put_nowait(message)
-        except asyncio.QueueFull:
-            dead.append(queue)
-        except Exception:
-            logger.warning("Dropping failed live-tracking subscriber for task %s", task_id, exc_info=True)
-            dead.append(queue)
-    for queue in dead:
-        task_subs.discard(queue)
-    if not task_subs:
-        del _subscribers[task_id]
+    dead: list[LiveSubscriber] = []
+    for subscriber in targets:
+        if not subscriber.enqueue(message):
+            dead.append(subscriber)
+    if dead:
+        with _subscriber_lock:
+            task_subs = _subscribers.get(task_id)
+            if task_subs:
+                for subscriber in dead:
+                    task_subs.discard(subscriber)
+                if not task_subs:
+                    del _subscribers[task_id]
 
 
 # ---------------------------------------------------------------------------
 # Pilot-scoped pub/sub (for buddy group tracking)
 # ---------------------------------------------------------------------------
 
-def subscribe_pilots(pilot_ids: list[int]) -> asyncio.Queue[dict[str, Any]]:
+def subscribe_pilots(pilot_ids: list[int]) -> LiveSubscriber:
     """Register a single queue that receives positions for any of the given pilot IDs."""
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=256)
-    for pid in pilot_ids:
-        _pilot_subscribers.setdefault(pid, set()).add(queue)
-    return queue
+    subscriber = LiveSubscriber(maxsize=256)
+    with _subscriber_lock:
+        for pid in pilot_ids:
+            _pilot_subscribers.setdefault(pid, set()).add(subscriber)
+    return subscriber
 
 
-def unsubscribe_pilots(pilot_ids: list[int], queue: asyncio.Queue[dict[str, Any]]) -> None:
+def unsubscribe_pilots(pilot_ids: list[int], subscriber: LiveSubscriber) -> None:
     """Remove a subscriber queue from all specified pilot channels."""
-    for pid in pilot_ids:
-        subs = _pilot_subscribers.get(pid)
-        if subs:
-            subs.discard(queue)
-            if not subs:
-                del _pilot_subscribers[pid]
+    with _subscriber_lock:
+        for pid in pilot_ids:
+            subs = _pilot_subscribers.get(pid)
+            if subs:
+                subs.discard(subscriber)
+                if not subs:
+                    del _pilot_subscribers[pid]
 
 
 def _publish_to_pilot_subscribers(pilot_id: int, message: dict[str, Any]) -> None:
     """Fan out a message to all SSE subscribers watching a specific pilot."""
-    subs = _pilot_subscribers.get(pilot_id)
-    if not subs:
+    with _subscriber_lock:
+        subs = _pilot_subscribers.get(pilot_id)
+        targets = list(subs) if subs else []
+    if not targets:
         return
-    dead: list[asyncio.Queue[dict[str, Any]]] = []
-    for queue in subs:
-        try:
-            queue.put_nowait(message)
-        except asyncio.QueueFull:
-            dead.append(queue)
-        except Exception:
-            logger.warning("Dropping failed pilot subscriber for pilot %s", pilot_id, exc_info=True)
-            dead.append(queue)
-    for queue in dead:
-        subs.discard(queue)
-    if not subs:
-        del _pilot_subscribers[pilot_id]
+    dead: list[LiveSubscriber] = []
+    for subscriber in targets:
+        if not subscriber.enqueue(message):
+            dead.append(subscriber)
+    if dead:
+        with _subscriber_lock:
+            subs = _pilot_subscribers.get(pilot_id)
+            if subs:
+                for subscriber in dead:
+                    subs.discard(subscriber)
+                if not subs:
+                    del _pilot_subscribers[pilot_id]
 
 
 # ---------------------------------------------------------------------------
 # Global pub/sub (debug mode — broadcasts every position to every subscriber)
 # ---------------------------------------------------------------------------
 
-def subscribe_global() -> asyncio.Queue[dict[str, Any]]:
+def subscribe_global() -> LiveSubscriber:
     """Register a new SSE subscriber that receives EVERY incoming position."""
-    queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=512)
-    _global_subscribers.add(queue)
-    return queue
+    subscriber = LiveSubscriber(maxsize=512)
+    with _subscriber_lock:
+        _global_subscribers.add(subscriber)
+    return subscriber
 
 
-def unsubscribe_global(queue: asyncio.Queue[dict[str, Any]]) -> None:
+def unsubscribe_global(subscriber: LiveSubscriber) -> None:
     """Remove a global SSE subscriber queue."""
-    _global_subscribers.discard(queue)
+    with _subscriber_lock:
+        _global_subscribers.discard(subscriber)
 
 
 def _publish_global(message: dict[str, Any]) -> None:
     """Fan out a message to all global SSE subscribers."""
-    if not _global_subscribers:
+    with _subscriber_lock:
+        targets = list(_global_subscribers)
+    if not targets:
         return
-    dead: list[asyncio.Queue[dict[str, Any]]] = []
-    for queue in _global_subscribers:
-        try:
-            queue.put_nowait(message)
-        except asyncio.QueueFull:
-            dead.append(queue)
-        except Exception:
-            logger.warning("Dropping failed global subscriber", exc_info=True)
-            dead.append(queue)
-    for queue in dead:
-        _global_subscribers.discard(queue)
+    dead: list[LiveSubscriber] = []
+    for subscriber in targets:
+        if not subscriber.enqueue(message):
+            dead.append(subscriber)
+    if dead:
+        with _subscriber_lock:
+            for subscriber in dead:
+                _global_subscribers.discard(subscriber)
 
 
 # ---------------------------------------------------------------------------
@@ -418,11 +461,12 @@ def store_position(
     session.flush()
 
     # Build SSE message once for all fan-out paths -----------------------------
-    has_any_subscribers = (
-        (task_id is not None and task_id in _subscribers)
-        or (pilot_id is not None and pilot_id in _pilot_subscribers)
-        or bool(_global_subscribers)
-    )
+    with _subscriber_lock:
+        has_any_subscribers = (
+            (task_id is not None and task_id in _subscribers)
+            or (pilot_id is not None and pilot_id in _pilot_subscribers)
+            or bool(_global_subscribers)
+        )
     if has_any_subscribers:
         # Resolve pilot name for display in "show all" debug view
         pilot_name: str | None = None

@@ -24,8 +24,7 @@ export type LivePositionRecord = {
   position_source?: PositionSource | null;
 };
 
-export function resolveApiBase() {
-  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+function resolveConfiguredBase(configured: string | undefined, fallback: string) {
   if (configured?.startsWith("/")) {
     return configured;
   }
@@ -41,9 +40,29 @@ export function resolveApiBase() {
       }
       return configured;
     }
-    return "/backend";
+    return fallback;
   }
-  return configured ?? "/backend";
+  return configured ?? fallback;
+}
+
+export function resolveApiBase() {
+  return resolveConfiguredBase(process.env.NEXT_PUBLIC_API_BASE_URL?.trim(), "/backend");
+}
+
+export function resolveStreamApiBase() {
+  const configured = process.env.NEXT_PUBLIC_STREAM_API_BASE_URL?.trim();
+  if (configured) {
+    return resolveConfiguredBase(configured, resolveApiBase());
+  }
+  if (typeof window !== "undefined") {
+    if (window.location.hostname === "aervyx.net" || window.location.hostname === "www.aervyx.net") {
+      return `${window.location.protocol}//api.aervyx.net`;
+    }
+    if (window.location.hostname === "staging.aervyx.net") {
+      return `${window.location.protocol}//api-staging.aervyx.net`;
+    }
+  }
+  return resolveApiBase();
 }
 
 export function formatRelativeTime(value: string | null | undefined) {
