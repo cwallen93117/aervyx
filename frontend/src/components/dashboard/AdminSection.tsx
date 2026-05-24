@@ -1892,6 +1892,11 @@ function meshDeliveryPath(device: MeshDeviceStatus): string {
   return `${sender} -> ${transport} -> Aervyx Web`;
 }
 
+function meshDebugDetail(device: MeshDeviceStatus): string {
+  const path = meshDeliveryPath(device);
+  return path === "Path not observed yet" ? meshDiagnostic(device) : `Path: ${path}`;
+}
+
 function normalizedMeshNodeId(value: string | null | undefined): string | null {
   const normalized = (value ?? "").trim().toLowerCase().replace(/^!/, "");
   return normalized || null;
@@ -2287,8 +2292,7 @@ function LiveTrackingTab({
                                 <td>
                                   <div>{meshFixSummary(meshDevice)}</div>
                                   <div className="hint">Packets heard: {meshDevice.packetCount}</div>
-                                  <div className="hint">Path: {meshDeliveryPath(meshDevice)}</div>
-                                  <div className="hint">{meshDiagnostic(meshDevice)}</div>
+                                  <div className="hint">{meshDebugDetail(meshDevice)}</div>
                                 </td>
                                 <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
                               </tr>
