@@ -13,6 +13,14 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.24]
+
+### Fixed
+- **Mobile v0.4.26+43** removes the signed-in pilot's echoed server marker
+  from the mobile live map so only the phone's live GPS dot represents the
+  current pilot, and the location button now follows that GPS position until
+  the map is moved.
+
 ## [2026.05.23]
 
 ### Added

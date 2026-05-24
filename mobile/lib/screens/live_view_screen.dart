@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 
 import '../config/api_config.dart';
 import '../services/api_service.dart';
+import '../services/auth_service.dart';
 import '../services/tracking_service.dart';
 import '../widgets/map_scale_bar.dart';
 
@@ -51,11 +52,13 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   final MapController _mapController = MapController();
   StreamSubscription<String>? _sseSubscription;
   Timer? _pollTimer;
+  TrackingService? _trackingService;
   String? _taskName;
   bool _sseConnected = false;
   bool _hasActiveTask = false;
   bool _initialCenterDone = false;
   bool _userPanned = false;
+  bool _followUser = false;
   LatLng? _userPosition;
 
   @override
@@ -66,10 +69,47 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final tracking = context.read<TrackingService>();
+    if (_trackingService == tracking) return;
+    _trackingService?.removeListener(_handleTrackingUpdate);
+    _trackingService = tracking;
+    _trackingService?.addListener(_handleTrackingUpdate);
+  }
+
+  @override
   void dispose() {
     _sseSubscription?.cancel();
     _pollTimer?.cancel();
+    _trackingService?.removeListener(_handleTrackingUpdate);
     super.dispose();
+  }
+
+  int? get _currentPilotId => context.read<AuthService>().user?.pilotId;
+
+  bool _isCurrentUserPilot(int pilotId) => _currentPilotId == pilotId;
+
+  bool _isManualMapMove(MapEvent event) {
+    return event.source == MapEventSource.onDrag ||
+        event.source == MapEventSource.onMultiFinger ||
+        event.source == MapEventSource.flingAnimationController;
+  }
+
+  double _followZoom() {
+    final currentZoom = _mapController.camera.zoom;
+    return currentZoom < 13 ? 13 : currentZoom;
+  }
+
+  void _moveToFollowTarget(LatLng target) {
+    _mapController.move(target, _followZoom());
+  }
+
+  void _handleTrackingUpdate() {
+    if (!_followUser || !mounted) return;
+    final trackPos = _trackingService?.lastPosition;
+    if (trackPos == null) return;
+    _moveToFollowTarget(LatLng(trackPos.lat, trackPos.lon));
   }
 
   /// Get the user's current GPS position for map centering.
@@ -96,7 +136,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
       if (mounted) {
         setState(() => _userPosition = LatLng(pos!.latitude, pos.longitude));
-        if (!_initialCenterDone && !_userPanned) {
+        if (_followUser && _trackingService?.lastPosition == null) {
+          _moveToFollowTarget(_userPosition!);
+        } else if (!_initialCenterDone && !_userPanned) {
           _initialCenterDone = true;
           _mapController.move(_userPosition!, 13);
         }
@@ -142,11 +184,15 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     try {
       final list = await api.getList(ApiConfig.activePilotsPath);
       if (!mounted) return;
+      final nextPilots = <int, _LivePilot>{};
       setState(() {
         for (final item in list) {
           final json = item as Map<String, dynamic>;
           final pilotId = json['pilot_id'] as int;
-          _pilots[pilotId] = _LivePilot(
+          if (_isCurrentUserPilot(pilotId)) {
+            continue;
+          }
+          nextPilots[pilotId] = _LivePilot(
             pilotId: pilotId,
             name: json['pilot_name'] as String? ?? 'Pilot $pilotId',
             lat: (json['lat'] as num).toDouble(),
@@ -157,6 +203,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             batteryLevel: json['battery_level'] as int?,
           );
         }
+        _pilots
+          ..clear()
+          ..addAll(nextPilots);
       });
 
       // Center map on first data if we haven't centered yet and user hasn't panned
@@ -216,12 +265,22 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         setState(() {
           for (final item in list) {
             final json = item as Map<String, dynamic>;
+            final pilotId = json['pilot_id'] as int;
+            if (_isCurrentUserPilot(pilotId)) {
+              _pilots.remove(pilotId);
+              continue;
+            }
             final pilot = _parseSsePilot(json);
             _pilots[pilot.pilotId] = pilot;
           }
         });
       } else if (event == 'position') {
         final json = jsonDecode(data) as Map<String, dynamic>;
+        final pilotId = json['pilot_id'] as int;
+        if (_isCurrentUserPilot(pilotId)) {
+          setState(() => _pilots.remove(pilotId));
+          return;
+        }
         final pilot = _parseSsePilot(json);
         setState(() => _pilots[pilot.pilotId] = pilot);
       }
@@ -255,6 +314,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     final center = trackPos != null
         ? LatLng(trackPos.lat, trackPos.lon)
         : _userPosition ?? const LatLng(32.7, -117.2); // San Diego default
+    final pilotCount =
+        _pilots.length + (tracking.isInFlight && trackPos != null ? 1 : 0);
+    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -279,12 +341,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               initialCenter: center,
               initialZoom: 13,
               onMapEvent: (event) {
-                if (!_userPanned &&
-                    (event.source == MapEventSource.onDrag ||
-                        event.source == MapEventSource.onMultiFinger ||
-                        event.source ==
-                            MapEventSource.flingAnimationController)) {
-                  _userPanned = true;
+                if (_isManualMapMove(event) && (!_userPanned || _followUser)) {
+                  setState(() {
+                    _userPanned = true;
+                    _followUser = false;
+                  });
                 }
               },
             ),
@@ -337,8 +398,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               children: [
                 _InfoChip(
                   icon: Icons.people,
-                  text:
-                      '${_pilots.length} pilot${_pilots.length == 1 ? '' : 's'} flying',
+                  text: '$pilotCount pilot${pilotCount == 1 ? '' : 's'} flying',
                 ),
                 if (!_hasActiveTask)
                   const _InfoChip(
@@ -365,10 +425,17 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 }
 
                 if (target != null) {
-                  // Re-enable auto-center and jump to current position
-                  setState(() => _userPanned = false);
-                  _mapController.move(target, _mapController.camera.zoom);
+                  // Re-enable follow and jump to the current local GPS fix.
+                  setState(() {
+                    _userPanned = false;
+                    _followUser = true;
+                  });
+                  _moveToFollowTarget(target);
                 } else {
+                  setState(() {
+                    _userPanned = false;
+                    _followUser = true;
+                  });
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('No GPS fix yet — waiting for location'),
@@ -379,6 +446,9 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   _getUserPosition();
                 }
               },
+              tooltip: _followUser ? 'Following GPS' : 'Center on GPS',
+              backgroundColor: _followUser ? theme.colorScheme.primary : null,
+              foregroundColor: _followUser ? theme.colorScheme.onPrimary : null,
               child: const Icon(Icons.my_location),
             ),
           ),
