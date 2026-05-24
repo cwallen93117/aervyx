@@ -102,17 +102,18 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
 }
 
 const PURPOSE_OPTIONS: { value: MeshDevicePurpose; label: string }[] = [
-  { value: "tracking", label: "Pilot" },
-  { value: "driver_mesh", label: "Driver" },
-  { value: "driver_wifi", label: "Driver Wi-Fi" },
-  { value: "base_station", label: "Base Station" },
+  { value: "tracking", label: "Pilot tracker" },
+  { value: "driver_mesh", label: "Driver mesh relay" },
+  { value: "driver_wifi", label: "Driver Wi-Fi gateway" },
+  { value: "base_station", label: "Fixed MQTT gateway" },
+  { value: "relay", label: "Relay-only" },
 ];
 
 const normalizeUserPurpose = (purpose: MeshDevicePurpose): MeshDevicePurpose =>
   PURPOSE_OPTIONS.some((option) => option.value === purpose) ? purpose : "base_station";
 
 const purposeLabel = (purpose: string) =>
-  PURPOSE_OPTIONS.find((option) => option.value === purpose)?.label ?? (purpose === "relay" ? "Base Station" : purpose);
+  PURPOSE_OPTIONS.find((option) => option.value === purpose)?.label ?? purpose;
 
 type MeshDeviceDraft = {
   device_id: string;

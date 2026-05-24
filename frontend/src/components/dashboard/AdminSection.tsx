@@ -117,11 +117,11 @@ const DEFAULT_FAA_CREDENTIALS: FaaCredentialsRecord = {
 
 function meshPurposeLabel(purpose: string | null | undefined) {
   switch (purpose) {
-    case "tracking": return "Pilot";
-    case "base_station": return "Base Station";
-    case "driver_wifi": return "Driver Wi-Fi";
-    case "driver_mesh": return "Driver";
-    case "relay": return "Relay";
+    case "tracking": return "Pilot tracker";
+    case "base_station": return "Fixed MQTT gateway";
+    case "driver_wifi": return "Driver Wi-Fi gateway";
+    case "driver_mesh": return "Driver mesh relay";
+    case "relay": return "Relay-only";
     default: return purpose ?? "Unregistered";
   }
 }
@@ -1822,8 +1822,9 @@ function meshStatusLabel(status: MeshConnectionStatus | null | undefined): strin
 
 function meshSourcePillLabel(status: MeshConnectionStatus | null | undefined, source?: string | null): string {
   if (status === "never_seen" || !status) return "Never seen";
-  if (source === "mesh_relay") return `${meshStatusLabel(status)} app relay`;
-  return `${meshStatusLabel(status)} MQTT gateway`;
+  if (source === "mesh_relay") return `${meshStatusLabel(status)} via app`;
+  if (source === "mqtt_gateway") return `${meshStatusLabel(status)} via MQTT`;
+  return `${meshStatusLabel(status)} mesh`;
 }
 
 function meshStatusClass(status: MeshConnectionStatus | null | undefined): string {
@@ -1867,6 +1868,30 @@ function meshDiagnostic(device: MeshDeviceStatus): string {
   return packet;
 }
 
+function meshDeviceDisplayLabel(device: MeshDeviceStatus): string {
+  return device.label || device.deviceId;
+}
+
+function meshDeliveryTransportLabel(source: string | null | undefined): string | null {
+  if (source === "mesh_relay") return "Aervyx app";
+  if (source === "mqtt_gateway") return "MQTT";
+  if (source === "app") return "Phone app";
+  return null;
+}
+
+function meshDeliveryPath(device: MeshDeviceStatus): string {
+  if (!device.lastSeenAt) return "Path not observed yet";
+
+  const sender = meshDeviceDisplayLabel(device);
+  const transport = meshDeliveryTransportLabel(device.source);
+  if (!transport) return `${sender} -> Aervyx`;
+
+  if (device.lastGatewayId && !isSameMeshNode(device.lastGatewayId, device.deviceId)) {
+    return `${sender} -> ${meshGatewayDisplayLabel(device)} -> ${transport} -> Aervyx`;
+  }
+  return `${sender} -> ${transport} -> Aervyx`;
+}
+
 function normalizedMeshNodeId(value: string | null | undefined): string | null {
   const normalized = (value ?? "").trim().toLowerCase().replace(/^!/, "");
   return normalized || null;
@@ -1880,7 +1905,8 @@ function isSameMeshNode(left: string | null | undefined, right: string | null | 
 
 function meshGatewayDisplayLabel(device: MeshDeviceStatus): string {
   if (device.lastGatewayDisplayName) return device.lastGatewayDisplayName;
-  if (device.lastGatewayId) return `Public Node (${device.lastGatewayId})`;
+  if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return meshDeviceDisplayLabel(device);
+  if (device.lastGatewayId) return `Node ${device.lastGatewayId}`;
   return "Not heard yet";
 }
 
@@ -2158,7 +2184,7 @@ function LiveTrackingTab({
                 <th>Sources</th>
                 <th>Device ID</th>
                 <th>Battery</th>
-                <th>Fix / Packets</th>
+                <th>Fix / Path</th>
                 <th>Last Heard</th>
               </tr>
             </thead>
@@ -2260,7 +2286,8 @@ function LiveTrackingTab({
                                 <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
                                 <td>
                                   <div>{meshFixSummary(meshDevice)}</div>
-                                  <div className="hint">Packets sent: {meshDevice.packetCount}</div>
+                                  <div className="hint">Packets heard: {meshDevice.packetCount}</div>
+                                  <div className="hint">Path: {meshDeliveryPath(meshDevice)}</div>
                                   <div className="hint">{meshDiagnostic(meshDevice)}</div>
                                 </td>
                                 <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
