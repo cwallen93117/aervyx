@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
+import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:geolocator/geolocator.dart';
@@ -93,8 +94,13 @@ class _SavedBleDevice {
 
 /// BLE service for scanning, connecting, reading config from, and writing
 /// config to Meshtastic radios using the protobuf BLE API.
+typedef BatteryThresholdProvider = int? Function();
+typedef BatteryLevelProvider = Future<int?> Function();
+
 class BleService extends ChangeNotifier {
   final ApiService _api;
+  final BatteryThresholdProvider? _batteryThresholdProvider;
+  final BatteryLevelProvider _batteryLevelProvider;
 
   // ── Transport abstraction ──
   MeshTransport? _transport;
@@ -250,7 +256,13 @@ class BleService extends ChangeNotifier {
   String _platformMqttTopicPrefix = 'msh';
   String? _platformMqttPsk;
 
-  BleService(this._api);
+  BleService(
+    this._api, {
+    BatteryThresholdProvider? batteryThresholdProvider,
+    BatteryLevelProvider? batteryLevelProvider,
+  })  : _batteryThresholdProvider = batteryThresholdProvider,
+        _batteryLevelProvider =
+            batteryLevelProvider ?? (() async => Battery().batteryLevel);
 
   String _platformMqttAddressForRadio() {
     final host = _platformMqttHost ?? '';
@@ -2302,7 +2314,7 @@ class BleService extends ChangeNotifier {
         if (field == 2) {
           // MeshPacket (field 2 in FromRadio)
           final packetBytes = reader.readBytes();
-          _handleMeshPacket(Uint8List.fromList(packetBytes));
+          unawaited(_handleMeshPacket(Uint8List.fromList(packetBytes)));
         } else if (field == 14) {
           // MQTT Client Proxy Message (device to client/phone)
           final proxyBytes = reader.readBytes();
@@ -2318,7 +2330,11 @@ class BleService extends ChangeNotifier {
     }
   }
 
-  void _handleMeshPacket(Uint8List packetBytes) {
+  @visibleForTesting
+  Future<void> debugHandleMeshPacket(Uint8List packetBytes) =>
+      _handleMeshPacket(packetBytes);
+
+  Future<void> _handleMeshPacket(Uint8List packetBytes) async {
     try {
       final mp = ProtoReader(packetBytes);
       int? fromNode;
@@ -2465,8 +2481,12 @@ class BleService extends ChangeNotifier {
           ? '!${fromNode.toRadixString(16).padLeft(8, '0')}'
           : null;
 
-      // Track this device's own GPS fix for source priority
-      if (fromNode != null && fromNode == _deviceState.myNodeNum) {
+      final isOwnNode = fromNode != null && fromNode == _deviceState.myNodeNum;
+
+      // Track this device's own GPS fix for source priority, but do not relay
+      // it through the mesh API path. The phone/app tracking path owns this
+      // user's live position uploads.
+      if (isOwnNode) {
         _deviceGpsLat = lat;
         _deviceGpsLon = lon;
         _deviceGpsAlt = alt?.toDouble();
@@ -2476,10 +2496,14 @@ class BleService extends ChangeNotifier {
         _deviceGpsSats = satsInView;
         _deviceGpsPdop = pdop != null ? pdop / 100.0 : null;
         notifyListeners();
+        return;
       }
 
+      if (fromNode == null) return;
+      if (!await _canRelayMeshPosition()) return;
+
       // POST to backend
-      _relayPositionToBackend(
+      await _relayPositionToBackend(
         lat: lat,
         lon: lon,
         alt: alt?.toDouble(),
@@ -2492,6 +2516,21 @@ class BleService extends ChangeNotifier {
       );
     } catch (e) {
       debugPrint('[BLE] mesh position parse error: $e');
+    }
+  }
+
+  Future<bool> _canRelayMeshPosition() async {
+    final threshold = _batteryThresholdProvider?.call();
+    if (threshold == null) return true;
+
+    try {
+      final level = await _batteryLevelProvider();
+      if (level == null) return true;
+      return level > threshold;
+    } catch (_) {
+      // If the platform battery API is unavailable, keep relaying. The guard
+      // should only block mesh positions when we know the battery is low.
+      return true;
     }
   }
 

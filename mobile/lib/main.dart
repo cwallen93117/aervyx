@@ -26,6 +26,7 @@ void main() async {
   final apiService = ApiService();
   final authService = AuthService(apiService);
   final igcService = IgcService();
+  final trackingService = TrackingService(apiService, authService, igcService);
 
   // Restore session with a safety net — app must never hang on startup
   try {
@@ -35,7 +36,10 @@ void main() async {
   }
 
   // Sync platform config (MQTT + device profiles) in background after auth
-  final bleService = BleService(apiService);
+  final bleService = BleService(
+    apiService,
+    batteryThresholdProvider: () => trackingService.batteryThreshold,
+  );
   if (authService.isLoggedIn) {
     // Don't await — let it run in background so app opens immediately
     unawaited(bleService.syncPlatformConfig());
@@ -48,9 +52,7 @@ void main() async {
         Provider<ApiService>.value(value: apiService),
         ChangeNotifierProvider<AuthService>.value(value: authService),
         ChangeNotifierProvider<IgcService>.value(value: igcService),
-        ChangeNotifierProvider<TrackingService>(
-          create: (_) => TrackingService(apiService, authService, igcService),
-        ),
+        ChangeNotifierProvider<TrackingService>.value(value: trackingService),
         ChangeNotifierProvider<BleService>.value(value: bleService),
         ChangeNotifierProvider<DriverService>(
           create: (_) => DriverService(apiService),

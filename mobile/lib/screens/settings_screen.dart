@@ -194,7 +194,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Tracking low-battery guard',
+                          'Tracking and mesh low-battery guard',
                           style: theme.textTheme.bodyMedium,
                         ),
                       ),
@@ -210,7 +210,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 12),
                     Row(
                       children: [
-                        Text('Stop at:', style: theme.textTheme.bodySmall),
+                        Text('Limit:', style: theme.textTheme.bodySmall),
                         Expanded(
                           child: Slider(
                             value: tracking.batteryThreshold!.toDouble(),
@@ -234,16 +234,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                       ],
                     ),
-                    if (tracking.currentBatteryLevel != null)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          'Warns in flight and ends post-flight monitoring below ${tracking.batteryThreshold}%. Current battery: ${tracking.currentBatteryLevel}%',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        'Warns in flight, ends post-flight monitoring, and pauses peer mesh relays at or below ${tracking.batteryThreshold}%.'
+                        '${tracking.currentBatteryLevel != null ? ' Current battery: ${tracking.currentBatteryLevel}%' : ''}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
+                    ),
                   ],
                 ],
               ),
