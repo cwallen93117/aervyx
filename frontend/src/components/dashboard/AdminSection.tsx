@@ -1859,9 +1859,9 @@ function meshDiagnostic(device: MeshDeviceStatus): string {
   if (!packet) return device.lastSeenAt ? "Packet heard" : "No mesh packets heard";
   const gateway = meshGatewayDisplayLabel(device);
   if (device.source === "mesh_relay") {
-    if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `App relayed own ${packet}`;
-    if (device.lastGatewayId) return `App relayed ${packet} via ${gateway}`;
-    return `App relayed ${packet}`;
+    if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `Received own ${packet} through Aervyx mobile app`;
+    if (device.lastGatewayId) return `Received ${packet} through ${gateway}'s Aervyx mobile app`;
+    return `Received ${packet} through Aervyx mobile app`;
   }
   if (isSameMeshNode(device.lastGatewayId, device.deviceId)) return `Published ${packet} to MQTT`;
   if (device.lastGatewayId) return `${packet} via ${gateway}`;
@@ -1873,7 +1873,7 @@ function meshDeviceDisplayLabel(device: MeshDeviceStatus): string {
 }
 
 function meshDeliveryTransportLabel(source: string | null | undefined): string | null {
-  if (source === "mesh_relay") return "Aervyx app";
+  if (source === "mesh_relay") return "Aervyx mobile app";
   if (source === "mqtt_gateway") return "MQTT";
   if (source === "app") return "Phone app";
   return null;
@@ -1884,12 +1884,12 @@ function meshDeliveryPath(device: MeshDeviceStatus): string {
 
   const sender = meshDeviceDisplayLabel(device);
   const transport = meshDeliveryTransportLabel(device.source);
-  if (!transport) return `${sender} -> Aervyx`;
+  if (!transport) return `${sender} -> Aervyx Web`;
 
   if (device.lastGatewayId && !isSameMeshNode(device.lastGatewayId, device.deviceId)) {
-    return `${sender} -> ${meshGatewayDisplayLabel(device)} -> ${transport} -> Aervyx`;
+    return `${sender} -> ${meshGatewayDisplayLabel(device)} -> ${transport} -> Aervyx Web`;
   }
-  return `${sender} -> ${transport} -> Aervyx`;
+  return `${sender} -> ${transport} -> Aervyx Web`;
 }
 
 function normalizedMeshNodeId(value: string | null | undefined): string | null {
