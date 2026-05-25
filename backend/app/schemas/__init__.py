@@ -35,6 +35,10 @@ class UserSummary(BaseModel):
     full_name: str
     role: str
     profile_type: str
+    altitude_unit: str = "ft"
+    speed_unit: str = "kph"
+    distance_unit: str = "km"
+    vario_unit: str = "fpm"
     pilot_id: int | None
 
     model_config = ConfigDict(from_attributes=True)
@@ -91,6 +95,14 @@ class AccountSettingsUpdate(BaseModel):
     nation: str | None = None
     competition_number: str | None = None
     civl_id: str | None = None
+
+
+class AccountPreferencesUpdate(BaseModel):
+    profile_type: str | None = None
+    altitude_unit: str | None = None
+    speed_unit: str | None = None
+    distance_unit: str | None = None
+    vario_unit: str | None = None
 
 
 class PasswordChangeRequest(BaseModel):

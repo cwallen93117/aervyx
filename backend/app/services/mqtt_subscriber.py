@@ -52,6 +52,7 @@ from app.services.tracking import (
     LIVE_POSITION_RETENTION_DAYS,
     prune_old_live_positions,
     resolve_active_task_id,
+    resolve_active_task_id_for_user,
     resolve_mesh_device_assignment,
     store_position,
 )
@@ -793,8 +794,15 @@ def _handle_message(payload: bytes, topic: str | None = None) -> None:
         if parsed is not None:
             mesh_user, mesh_device = resolve_mesh_device_assignment(session, parsed.get("device_id"))
             if mesh_user is not None or mesh_device is not None:
-                parsed["pilot_id"] = mesh_user.pilot_id if mesh_user is not None else None
-                if parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
+                parsed["user_id"] = mesh_user.id if mesh_user is not None else None
+                parsed["pilot_id"] = (
+                    mesh_user.pilot_id
+                    if mesh_user is not None and (mesh_user.profile_type or "pilot").strip().lower() != "driver"
+                    else None
+                )
+                if parsed.get("task_id") is None and mesh_user is not None:
+                    parsed["task_id"] = resolve_active_task_id_for_user(session, mesh_user)
+                elif parsed.get("task_id") is None and parsed.get("pilot_id") is not None:
                     parsed["task_id"] = resolve_active_task_id(session, parsed["pilot_id"])
                 store_position(session, **parsed)
         session.commit()

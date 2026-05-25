@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
@@ -21,6 +23,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int? _runtimeBatteryThreshold;
   int? _runtimeBatteryLevel;
   bool? _runtimeBatteryCharging;
+  bool _profileUpdating = false;
 
   @override
   void initState() {
@@ -31,6 +34,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     });
     _loadRuntimeBatterySettings();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(
+          context.read<AuthService>().refreshUserProfile().catchError((_) {}));
+    });
   }
 
   Future<void> _loadRuntimeBatterySettings() async {
@@ -119,6 +127,55 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
 
           // ── Meshtastic ──
+          Text('Profile',
+              style: theme.textTheme.titleSmall?.copyWith(
+                color: theme.colorScheme.primary,
+              )),
+          const SizedBox(height: 8),
+          Card(
+            child: SwitchListTile(
+              secondary: Icon(
+                user?.profileType == 'driver'
+                    ? Icons.directions_car
+                    : Icons.paragliding,
+                color: theme.colorScheme.primary,
+              ),
+              title: Text(
+                user?.profileType == 'driver' ? 'Driver mode' : 'Pilot mode',
+              ),
+              subtitle: Text(
+                user?.profileType == 'driver'
+                    ? 'Start tracking immediately and relay pilot mesh points'
+                    : 'Use takeoff detection and flight logging',
+              ),
+              value: user?.profileType == 'driver',
+              onChanged: _profileUpdating || user == null
+                  ? null
+                  : (enabled) async {
+                      final messenger = ScaffoldMessenger.of(context);
+                      setState(() => _profileUpdating = true);
+                      try {
+                        await auth
+                            .updateProfileType(enabled ? 'driver' : 'pilot');
+                      } catch (_) {
+                        if (mounted) {
+                          messenger.showSnackBar(
+                            const SnackBar(
+                              content: Text('Profile mode could not be saved'),
+                            ),
+                          );
+                        }
+                      } finally {
+                        if (mounted) {
+                          setState(() => _profileUpdating = false);
+                        }
+                      }
+                    },
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
           Text('Meshtastic',
               style: theme.textTheme.titleSmall?.copyWith(
                 color: theme.colorScheme.primary,

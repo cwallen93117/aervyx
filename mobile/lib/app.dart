@@ -52,6 +52,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
       _ensureRuntime();
       final auth = context.read<AuthService>();
       if (auth.isLoggedIn) {
+        unawaited(auth.refreshUserProfile().catchError((_) {}));
         unawaited(context.read<BleService>().restoreAutoReconnect());
       }
     }

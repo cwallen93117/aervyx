@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -22,6 +23,10 @@ class AuthService extends ChangeNotifier {
 
   AuthService(this._api);
 
+  Future<void> _cacheUser(User user) async {
+    await _storage.write(key: 'cached_user', value: jsonEncode(user.toJson()));
+  }
+
   /// Try to restore a saved session on app start.
   /// Uses a short timeout so the app never hangs on a white screen.
   /// When offline, restores from the cached user profile so the pilot
@@ -40,15 +45,14 @@ class AuthService extends ChangeNotifier {
               .timeout(const Duration(seconds: 3));
           _user = User.fromJson(json);
           // Cache the fresh profile for offline use
-          await _storage.write(
-              key: 'cached_user', value: jsonEncode(_user!.toJson()));
+          await _cacheUser(_user!);
         } catch (_) {
           // Backend unreachable — try cached profile instead of clearing token.
           // The pilot may be at launch with no cell service.
           final cachedJson = await _storage.read(key: 'cached_user');
           if (cachedJson != null) {
-            _user = User.fromJson(
-                jsonDecode(cachedJson) as Map<String, dynamic>);
+            _user =
+                User.fromJson(jsonDecode(cachedJson) as Map<String, dynamic>);
           } else {
             // No cached profile and no backend — clear token, force login
             await _storage.delete(key: 'access_token');
@@ -74,8 +78,7 @@ class AuthService extends ChangeNotifier {
     _api.setToken(auth.accessToken);
     await _storage.write(key: 'access_token', value: auth.accessToken);
     // Cache profile for offline restarts
-    await _storage.write(
-        key: 'cached_user', value: jsonEncode(auth.user.toJson()));
+    await _cacheUser(auth.user);
     _user = auth.user;
     notifyListeners();
   }
@@ -102,6 +105,7 @@ class AuthService extends ChangeNotifier {
     _api.setToken(auth.accessToken);
     await _storage.write(key: 'access_token', value: auth.accessToken);
     _user = auth.user;
+    await _cacheUser(auth.user);
     notifyListeners();
   }
 
@@ -114,6 +118,7 @@ class AuthService extends ChangeNotifier {
     _api.setToken(auth.accessToken);
     await _storage.write(key: 'access_token', value: auth.accessToken);
     _user = auth.user;
+    await _cacheUser(auth.user);
     notifyListeners();
   }
 
@@ -147,21 +152,59 @@ class AuthService extends ChangeNotifier {
       distanceUnit: distanceUnit,
       varioUnit: varioUnit,
     );
+    unawaited(_cacheUser(_user!));
     notifyListeners();
 
     // Try to sync to backend (fire-and-forget)
     _syncUnitsToBackend();
   }
 
+  /// Refresh profile settings from the backend so website changes sync into
+  /// the app while preserving offline tolerance.
+  Future<void> refreshUserProfile() async {
+    if (_user == null || isBleTestMode) return;
+    final json = await _api.get(ApiConfig.mePath);
+    _user = User.fromJson(json);
+    await _cacheUser(_user!);
+    notifyListeners();
+  }
+
+  /// Update pilot/driver mode through the lightweight mobile preferences API.
+  Future<void> updateProfileType(String profileType) async {
+    if (_user == null || isBleTestMode) return;
+    final normalized = profileType.trim().toLowerCase();
+    if (normalized != 'pilot' && normalized != 'driver') {
+      throw ArgumentError('profileType must be pilot or driver');
+    }
+    final previous = _user!;
+    _user = previous.copyWith(profileType: normalized);
+    await _cacheUser(_user!);
+    notifyListeners();
+    try {
+      final json = await _api.patch(ApiConfig.preferencesPath, body: {
+        'profile_type': normalized,
+      });
+      _user = User.fromJson(json);
+      await _cacheUser(_user!);
+      notifyListeners();
+    } catch (_) {
+      _user = previous;
+      await _cacheUser(previous);
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> _syncUnitsToBackend() async {
     if (_user == null || isBleTestMode) return;
     try {
-      await _api.patch('/api/auth/settings', body: {
+      await _api.patch(ApiConfig.preferencesPath, body: {
         'altitude_unit': _user!.altitudeUnit,
         'speed_unit': _user!.speedUnit,
         'distance_unit': _user!.distanceUnit,
         'vario_unit': _user!.varioUnit,
       });
+      await _cacheUser(_user!);
     } catch (_) {
       // Backend unreachable — local change is kept
     }

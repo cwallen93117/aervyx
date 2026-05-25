@@ -54,6 +54,7 @@ class User {
 
   /// Create a copy with updated unit preferences.
   User copyWith({
+    String? profileType,
     String? altitudeUnit,
     String? speedUnit,
     String? distanceUnit,
@@ -64,7 +65,7 @@ class User {
         username: username,
         fullName: fullName,
         role: role,
-        profileType: profileType,
+        profileType: profileType ?? this.profileType,
         pilotId: pilotId,
         altitudeUnit: altitudeUnit ?? this.altitudeUnit,
         speedUnit: speedUnit ?? this.speedUnit,

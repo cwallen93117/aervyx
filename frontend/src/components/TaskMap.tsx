@@ -25,7 +25,9 @@ export type MapLivePositionProfileType = "pilot" | "driver" | "stationary_node";
 export type MapLivePositionSource = "cellular" | "mesh" | "other";
 export type MapLivePosition = {
   id: string;
+  subjectKey?: string | null;
   pilotId: number | null;
+  userId?: number | null;
   pilotName: string;
   latitude: number;
   longitude: number;
@@ -1510,7 +1512,9 @@ export const TaskMap = React.memo(function TaskMap({
       type: "Feature",
       properties: {
         id: position.id,
+        subject_key: position.subjectKey ?? position.id,
         pilot_id: position.pilotId ?? "",
+        user_id: position.userId ?? "",
         name: position.pilotName,
         color: position.color ?? "#0ea5e9",
         aircraft_icon: normalizeAircraftIcon(position.aircraftType),

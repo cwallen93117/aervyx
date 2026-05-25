@@ -17,15 +17,16 @@ import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type { BuddyGroup, TaskPointRecord, TaskRecord } from "./types";
 import {
-  TRACK_COLORS,
   type LivePositionRecord,
   resolveApiBase,
   formatRelativeTime,
   convertAltitude,
   convertSpeed,
-  colorForPilot,
+  colorForSubject,
+  displayNameForSubject,
   buildTrackCollection,
   mergePositionGroup,
+  subjectKeyForPosition,
 } from "../../lib/live-tracking-utils";
 
 type MeshConfigRecord = {
@@ -82,15 +83,15 @@ export default function LiveTrackingSection({
   loadTask,
   overlayConfig,
 }: LiveTrackingSectionProps) {
-  const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
-  const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
-  const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
+  const [positionsByPilot, setPositionsByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
+  const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
+  const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<string, LivePositionRecord>>(new Map());
   const [liveError, setLiveError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [meshConfig, setMeshConfig] = useState<MeshConfigRecord | null>(null);
   const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
   const [trackingSource, setTrackingSource] = useState<TrackingSource>(null);
-  const [allUsersNameById, setAllUsersNameById] = useState<Map<number, string>>(new Map());
+  const [allUsersNameById, setAllUsersNameById] = useState<Map<string, string>>(new Map());
   const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
 
   // Fetch buddy groups on mount
@@ -122,13 +123,14 @@ export default function LiveTrackingSection({
   const activePilotNameById = useMemo(() => {
     if (trackingSource?.type === "buddy_group") {
       const group = buddyGroups.find((g) => g.id === trackingSource.groupId);
-      return new Map((group?.members ?? []).map((m) => [m.pilot_id, `${m.first_name} ${m.last_name}`]));
+      return new Map((group?.members ?? []).map((m) => [`pilot:${m.pilot_id}`, `${m.first_name} ${m.last_name}`]));
     }
+    const pilotSubjectNames = Array.from(pilotNameById.entries()).map(([pilotId, name]) => [`pilot:${pilotId}`, name] as const);
     if (trackingSource?.type === "all_users") {
       // Merge SSE-derived names with any known names from parent context
-      return new Map<number, string>([...pilotNameById, ...allUsersNameById]);
+      return new Map<string, string>([...pilotSubjectNames, ...allUsersNameById]);
     }
-    return pilotNameById;
+    return new Map<string, string>(pilotSubjectNames);
   }, [trackingSource, buddyGroups, pilotNameById, allUsersNameById]);
 
   // Derive active pilot IDs for buddy group
@@ -176,6 +178,7 @@ export default function LiveTrackingSection({
       const timestamps = (feature.properties?.timestamps ?? []) as string[];
       const igcPositions: LivePositionRecord[] = coords.map((coord, i) => ({
         id: `igc-${pilotId}-${i}`,
+        subject_key: `pilot:${pilotId}`,
         pilot_id: pilotId,
         task_id: taskId,
         lat: coord[1],
@@ -192,7 +195,7 @@ export default function LiveTrackingSection({
       }));
       setIgcTracksByPilot((current) => {
         const next = new Map(current);
-        next.set(pilotId, igcPositions);
+        next.set(`pilot:${pilotId}`, igcPositions);
         return next;
       });
     } catch { /* silent */ }
@@ -254,12 +257,11 @@ export default function LiveTrackingSection({
     setIgcTracksByPilot(new Map());
     setAllUsersNameById(new Map());
 
-    const collectNames = (positions: LivePositionWithName[]): Map<number, string> => {
-      const names = new Map<number, string>();
+    const collectNames = (positions: LivePositionWithName[]): Map<string, string> => {
+      const names = new Map<string, string>();
       for (const pos of positions) {
-        const pid = pos.pilot_id;
-        if (pid != null && pos.pilot_name) {
-          names.set(pid, pos.pilot_name);
+        if (pos.pilot_name) {
+          names.set(subjectKeyForPosition(pos), pos.pilot_name);
         }
       }
       return names;
@@ -271,7 +273,7 @@ export default function LiveTrackingSection({
       setLivePositionsByPilot((current) => {
         const next = new Map(current);
         for (const position of positions) {
-          next.set(position.pilot_id ?? 0, position);
+          next.set(subjectKeyForPosition(position), position);
         }
         return next;
       });
@@ -286,7 +288,7 @@ export default function LiveTrackingSection({
       setPositionsByPilot((current) => mergePositionGroup(current, [position]));
       setLivePositionsByPilot((current) => {
         const next = new Map(current);
-        next.set(position.pilot_id ?? 0, position);
+        next.set(subjectKeyForPosition(position), position);
         return next;
       });
       const names = collectNames([position as LivePositionWithName]);
@@ -434,25 +436,30 @@ export default function LiveTrackingSection({
   const liveTrack = useMemo(() => buildTrackCollection(effectivePositionsByPilot, activePilotNameById), [activePilotNameById, effectivePositionsByPilot]);
   const livePositions = useMemo<MapLivePosition[]>(() => {
     const liveValues = Array.from(livePositionsByPilot.values());
-    const pilotIds = liveValues.map((position) => position.pilot_id ?? 0).sort((a, b) => a - b);
-    return liveValues.map((position) => ({
-      id: position.id,
-      pilotId: position.pilot_id,
-      pilotName: activePilotNameById.get(position.pilot_id ?? 0) ?? `Pilot ${position.pilot_id ?? 0}`,
-      latitude: position.lat,
-      longitude: position.lon,
-      altitudeM: position.alt,
-      speedKmh: position.speed,
-      heading: position.heading,
-      timestamp: position.timestamp,
-      batteryLevel: position.battery_level,
-      source: position.source,
-      color: colorForPilot(position.pilot_id, pilotIds),
-      aircraftType: position.aircraft_icon ?? "hang_glider",
-      profileType: position.profile_type ?? "pilot",
-      positionSource: position.position_source ?? "other",
-      deviceId: position.device_id,
-    }));
+    const subjectKeys = liveValues.map((position) => subjectKeyForPosition(position)).sort();
+    return liveValues.map((position) => {
+      const subjectKey = subjectKeyForPosition(position);
+      return {
+        id: position.id,
+        subjectKey,
+        pilotId: position.pilot_id,
+        userId: position.user_id ?? null,
+        pilotName: displayNameForSubject(position, activePilotNameById),
+        latitude: position.lat,
+        longitude: position.lon,
+        altitudeM: position.alt,
+        speedKmh: position.speed,
+        heading: position.heading,
+        timestamp: position.timestamp,
+        batteryLevel: position.battery_level,
+        source: position.source,
+        color: colorForSubject(subjectKey, subjectKeys),
+        aircraftType: position.aircraft_icon ?? "hang_glider",
+        profileType: position.profile_type ?? "pilot",
+        positionSource: position.position_source ?? "other",
+        deviceId: position.device_id,
+      };
+    });
   }, [livePositionsByPilot, activePilotNameById]);
 
   const livePilotRows = useMemo(() => {
@@ -467,7 +474,7 @@ export default function LiveTrackingSection({
   }, [livePositions]);
 
   const handlePilotClick = useCallback((pilot: MapLivePosition) => {
-    setFocusPosition({ lat: pilot.latitude, lon: pilot.longitude, key: `${pilot.pilotId}-${Date.now()}` });
+    setFocusPosition({ lat: pilot.latitude, lon: pilot.longitude, key: `${pilot.subjectKey ?? pilot.id}-${Date.now()}` });
   }, []);
 
   // Status label for the current tracking source
@@ -607,7 +614,7 @@ export default function LiveTrackingSection({
                           </small>
                         </span>
                         <span className="live-tracking-pilot-meta">
-                          {igcTracksByPilot.has(pilot.pilotId ?? 0) ? (
+                          {pilot.subjectKey && igcTracksByPilot.has(pilot.subjectKey) ? (
                             <span className="status-chip success" style={{ fontSize: "0.625rem", padding: "1px 6px" }}>IGC</span>
                           ) : null}
                           <span className="live-tracking-meta-time">{formatRelativeTime(pilot.timestamp)}</span>

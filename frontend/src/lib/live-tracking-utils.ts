@@ -7,7 +7,10 @@ export type PositionSource = "cellular" | "mesh" | "other";
 
 export type LivePositionRecord = {
   id: string;
+  subject_key?: string | null;
   pilot_id: number | null;
+  user_id?: number | null;
+  pilot_name?: string | null;
   task_id: number | null;
   lat: number;
   lon: number;
@@ -98,26 +101,60 @@ export function colorForPilot(pilotId: number | null, pilotIds: number[]): strin
   return TRACK_COLORS[index % TRACK_COLORS.length];
 }
 
+export function subjectKeyForPosition(position: LivePositionRecord): string {
+  if (position.subject_key) return position.subject_key;
+  if (position.pilot_id != null) return `pilot:${position.pilot_id}`;
+  if (position.user_id != null) return `user:${position.user_id}`;
+  if (position.device_id) return `device:${position.device_id}`;
+  return `position:${position.id}`;
+}
+
+export function colorForSubject(subjectKey: string, subjectKeys: string[]): string {
+  const index = Math.max(0, subjectKeys.indexOf(subjectKey));
+  return TRACK_COLORS[index % TRACK_COLORS.length];
+}
+
+export function displayNameForSubject(position: LivePositionRecord, namesBySubject: Map<string, string>): string {
+  const subjectKey = subjectKeyForPosition(position);
+  if (namesBySubject.has(subjectKey)) {
+    return namesBySubject.get(subjectKey) as string;
+  }
+  if (position.pilot_name) {
+    return position.pilot_name;
+  }
+  if (position.profile_type === "driver") {
+    return position.user_id != null ? `Driver ${position.user_id}` : "Driver";
+  }
+  if (position.pilot_id != null) {
+    return `Pilot ${position.pilot_id}`;
+  }
+  return position.device_id ?? "Tracker";
+}
+
 export function buildTrackCollection(
-  positionsByPilot: Map<number, LivePositionRecord[]>,
-  pilotNameById: Map<number, string>,
+  positionsBySubject: Map<string, LivePositionRecord[]>,
+  subjectNameByKey: Map<string, string>,
 ): TrackCollection | null {
-  const pilotIds = Array.from(positionsByPilot.keys()).sort((a, b) => a - b);
-  const features = pilotIds.flatMap((pilotId) => {
-    const positions = [...(positionsByPilot.get(pilotId) ?? [])].sort(
+  const subjectKeys = Array.from(positionsBySubject.keys()).sort();
+  const features = subjectKeys.flatMap((subjectKey) => {
+    const positions = [...(positionsBySubject.get(subjectKey) ?? [])].sort(
       (left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp),
     );
     if (!positions.length) {
       return [];
     }
+    const latest = positions[positions.length - 1];
     return [
       {
         type: "Feature" as const,
         properties: {
-          pilot_id: pilotId,
-          pilot_name: pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`,
-          color: colorForPilot(pilotId, pilotIds),
-          aircraft_icon: positions[positions.length - 1]?.aircraft_icon ?? "hang_glider",
+          subject_key: subjectKey,
+          pilot_id: latest?.pilot_id ?? null,
+          user_id: latest?.user_id ?? null,
+          pilot_name: latest ? displayNameForSubject(latest, subjectNameByKey) : subjectKey,
+          color: colorForSubject(subjectKey, subjectKeys),
+          aircraft_icon: latest?.aircraft_icon ?? "hang_glider",
+          profile_type: latest?.profile_type ?? "pilot",
           timestamps: positions.map((position) => position.timestamp),
         },
         geometry: {
@@ -131,13 +168,13 @@ export function buildTrackCollection(
 }
 
 export function mergePositionGroup(
-  current: Map<number, LivePositionRecord[]>,
+  current: Map<string, LivePositionRecord[]>,
   incoming: LivePositionRecord[],
-): Map<number, LivePositionRecord[]> {
+): Map<string, LivePositionRecord[]> {
   const next = new Map(current);
   for (const position of incoming) {
-    const pilotId = position.pilot_id ?? 0;
-    const existing = [...(next.get(pilotId) ?? [])];
+    const subjectKey = subjectKeyForPosition(position);
+    const existing = [...(next.get(subjectKey) ?? [])];
     const existingIndex = existing.findIndex((item) => item.id === position.id);
     if (existingIndex >= 0) {
       existing[existingIndex] = position;
@@ -145,7 +182,7 @@ export function mergePositionGroup(
       existing.push(position);
     }
     existing.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
-    next.set(pilotId, existing);
+    next.set(subjectKey, existing);
   }
   return next;
 }

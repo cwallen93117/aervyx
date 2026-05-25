@@ -541,10 +541,13 @@ class LivePosition(Base):
         Index("ix_live_positions_task_ts", "task_id", "timestamp"),
         Index("ix_live_positions_task_pilot_ts", "task_id", "pilot_id", "timestamp"),
         Index("ix_live_positions_pilot_ts", "pilot_id", "timestamp"),
+        Index("ix_live_positions_user_ts", "user_id", "timestamp"),
+        Index("ix_live_positions_task_user_ts", "task_id", "user_id", "timestamp"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True)
     lat: Mapped[float] = mapped_column(Double, nullable=False)
     lon: Mapped[float] = mapped_column(Double, nullable=False)
@@ -564,6 +567,7 @@ class TrackingSession(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     pilot_id: Mapped[int | None] = mapped_column(ForeignKey("pilots.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     task_id: Mapped[int | None] = mapped_column(ForeignKey("tasks.id", ondelete="CASCADE"), nullable=True, index=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

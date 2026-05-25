@@ -80,9 +80,8 @@ class DriverService extends ChangeNotifier {
       _pilots.values.where((p) => p.assigned).toList();
 
   /// Visible pilots based on filter.
-  List<DriverPilot> get visiblePilots => _showAllPilots
-      ? _pilots.values.toList()
-      : assignedPilots;
+  List<DriverPilot> get visiblePilots =>
+      _showAllPilots ? _pilots.values.toList() : assignedPilots;
 
   DriverService(this._api);
 
@@ -109,11 +108,11 @@ class DriverService extends ChangeNotifier {
       // Fetch assigned pilots
       try {
         final assignedJson =
-            await _api.get('/api/driver/assigned-pilots/$_taskId');
-        final assigned = (assignedJson['pilots'] as List<dynamic>?)
-                ?.map((e) => (e as num).toInt())
-                .toSet() ??
-            <int>{};
+            await _api.getList(ApiConfig.driverAssignedPilotsPath(_taskId!));
+        final assigned = assignedJson
+            .map((item) => (item as Map<String, dynamic>)['pilot_id'] as int?)
+            .whereType<int>()
+            .toSet();
 
         // Mark assigned pilots
         for (final pilot in _pilots.values) {
@@ -198,12 +197,14 @@ class DriverService extends ChangeNotifier {
         _pilots.clear();
         for (final item in list) {
           final pilot = _parsePilot(item as Map<String, dynamic>);
+          if (pilot == null) continue;
           _pilots[pilot.pilotId] = pilot;
         }
         notifyListeners();
       } else if (event == 'position') {
         final json = jsonDecode(data) as Map<String, dynamic>;
         final pilot = _parsePilot(json);
+        if (pilot == null) return;
         // Preserve landing status from existing pilot data
         final existing = _pilots[pilot.pilotId];
         if (existing != null && existing.needsPickup) {
@@ -242,7 +243,10 @@ class DriverService extends ChangeNotifier {
     }
   }
 
-  DriverPilot _parsePilot(Map<String, dynamic> json) {
+  DriverPilot? _parsePilot(Map<String, dynamic> json) {
+    if (json['profile_type'] == 'driver' || json['pilot_id'] == null) {
+      return null;
+    }
     final pilotId = json['pilot_id'] as int;
     return DriverPilot(
       pilotId: pilotId,

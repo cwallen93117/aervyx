@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -6,9 +8,11 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../services/auth_service.dart';
 import '../services/driver_service.dart';
+import '../services/tracking_service.dart';
 import '../utils/app_shutdown.dart';
 import '../widgets/map_scale_bar.dart';
 import 'driver_navigation_screen.dart';
+import 'settings_screen.dart';
 
 /// Home screen for driver-profile users.
 ///
@@ -62,13 +66,27 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
   Widget build(BuildContext context) {
     final driver = context.watch<DriverService>();
     final auth = context.watch<AuthService>();
+    final tracking = context.watch<TrackingService>();
     final theme = Theme.of(context);
     final pilots = driver.visiblePilots;
+    final driverPosition = tracking.lastPosition;
+    final initialCenter = driverPosition != null
+        ? LatLng(driverPosition.lat, driverPosition.lon)
+        : pilots.isNotEmpty
+            ? LatLng(pilots.first.lat, pilots.first.lon)
+            : const LatLng(46.0, 11.0);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(driver.taskName ?? 'Driver View'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.settings),
+            tooltip: 'Settings',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SettingsScreen()),
+            ),
+          ),
           // Toggle my pilots / all pilots
           IconButton(
             icon: Icon(
@@ -93,6 +111,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             tooltip: 'Logout',
             onPressed: () {
               driver.disconnect();
+              if (tracking.isTracking) {
+                unawaited(tracking.stopTracking());
+              }
               auth.logout();
             },
           ),
@@ -148,9 +169,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   flex: 3,
                   child: FlutterMap(
                     options: MapOptions(
-                      initialCenter: pilots.isNotEmpty
-                          ? LatLng(pilots.first.lat, pilots.first.lon)
-                          : const LatLng(46.0, 11.0),
+                      initialCenter: initialCenter,
                       initialZoom: 12,
                       onTap: (_, __) {
                         setState(() => _selectedPilot = null);
@@ -163,26 +182,69 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                         userAgentPackageName: 'com.aervyx.aervyx_mobile',
                       ),
                       MarkerLayer(
-                        markers: pilots.map((pilot) {
-                          final isSelected =
-                              _selectedPilot?.pilotId == pilot.pilotId;
-                          return Marker(
-                            point: LatLng(pilot.lat, pilot.lon),
-                            width: 44,
-                            height: 50,
-                            child: GestureDetector(
-                              onTap: () =>
-                                  setState(() => _selectedPilot = pilot),
-                              child: _DriverPilotMarker(
-                                pilot: pilot,
-                                isSelected: isSelected,
-                              ),
+                        markers: [
+                          if (driverPosition != null)
+                            Marker(
+                              point: LatLng(
+                                  driverPosition.lat, driverPosition.lon),
+                              width: 52,
+                              height: 54,
+                              child: const _DriverCarMarker(),
                             ),
-                          );
-                        }).toList(),
+                          ...pilots.map((pilot) {
+                            final isSelected =
+                                _selectedPilot?.pilotId == pilot.pilotId;
+                            return Marker(
+                              point: LatLng(pilot.lat, pilot.lon),
+                              width: 44,
+                              height: 50,
+                              child: GestureDetector(
+                                onTap: () =>
+                                    setState(() => _selectedPilot = pilot),
+                                child: _DriverPilotMarker(
+                                  pilot: pilot,
+                                  isSelected: isSelected,
+                                ),
+                              ),
+                            );
+                          }),
+                        ],
                       ),
                       const AppMapScaleBar(),
                     ],
+                  ),
+                ),
+
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      icon: Icon(tracking.isDriverTracking
+                          ? Icons.stop
+                          : Icons.directions_car),
+                      label: Text(tracking.isDriverTracking
+                          ? 'Stop tracking and relaying'
+                          : 'Start tracking and relaying'),
+                      onPressed: () async {
+                        try {
+                          if (tracking.isDriverTracking) {
+                            await tracking.stopTracking();
+                          } else {
+                            await tracking.startDriverTracking();
+                          }
+                        } catch (_) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text('Driver tracking failed to start'),
+                              ),
+                            );
+                          }
+                        }
+                      },
+                    ),
                   ),
                 ),
 
@@ -228,6 +290,40 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 // ═══════════════════════════════════════════════════════════════════════════════
 // Pilot map marker for driver view
 // ═══════════════════════════════════════════════════════════════════════════════
+
+class _DriverCarMarker extends StatelessWidget {
+  const _DriverCarMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            shape: BoxShape.circle,
+            border: Border.all(color: color, width: 2),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withAlpha(45), blurRadius: 4),
+            ],
+          ),
+          child: Icon(Icons.directions_car, size: 22, color: color),
+        ),
+        Text(
+          'You',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 class _DriverPilotMarker extends StatelessWidget {
   final DriverPilot pilot;

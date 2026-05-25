@@ -20,6 +20,7 @@ from app.schemas import (
     AccountSettingsResponse,
     AccountSettingsUpdate,
     AccountSettingsUpdateResponse,
+    AccountPreferencesUpdate,
     GoogleAuthRequest,
     LoginRequest,
     MeshDeviceCreate,
@@ -596,6 +597,45 @@ def update_settings(
     if pilot is not None:
         session.refresh(pilot)
     return _settings_payload(user, pilot, access_token=create_access_token(user.username))
+
+
+@router.patch("/preferences", response_model=UserSummary)
+def update_preferences(
+    payload: AccountPreferencesUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> UserSummary:
+    if payload.profile_type is not None:
+        profile_type = payload.profile_type.strip().lower()
+        if profile_type not in VALID_PROFILE_TYPES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or driver for the current type")
+        user.profile_type = profile_type
+
+    if payload.altitude_unit is not None:
+        altitude_unit = payload.altitude_unit.strip().lower()
+        if altitude_unit not in VALID_ALTITUDE_UNITS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Altitude unit must be ft or m")
+        user.altitude_unit = altitude_unit
+    if payload.speed_unit is not None:
+        speed_unit = payload.speed_unit.strip().lower()
+        if speed_unit not in VALID_SPEED_UNITS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Speed unit must be kph or mph")
+        user.speed_unit = speed_unit
+    if payload.distance_unit is not None:
+        distance_unit = payload.distance_unit.strip().lower()
+        if distance_unit not in VALID_DISTANCE_UNITS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Distance unit must be km or mi")
+        user.distance_unit = distance_unit
+    if payload.vario_unit is not None:
+        vario_unit = payload.vario_unit.strip().lower()
+        if vario_unit not in VALID_VARIO_UNITS:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
+        user.vario_unit = vario_unit
+
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return UserSummary.model_validate(user)
 
 
 @router.post("/change-password")

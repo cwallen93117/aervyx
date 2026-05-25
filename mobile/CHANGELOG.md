@@ -1,5 +1,15 @@
 # Aervyx Mobile Changelog
 
+## 0.4.28+45 - 2026-05-25
+
+### Added
+- Settings now includes a Pilot/Driver profile toggle that syncs with the website profile type.
+- Driver mode can start and stop immediate driver position tracking and mesh relaying from the driver pickup screen.
+
+### Changed
+- Driver positions render as car markers on mobile maps, while pilot markers remain aircraft-specific.
+- Driver tracking skips takeoff and landing detection and does not create IGC flight logs.
+
 ## 0.4.27+44 - 2026-05-24
 
 ### Changed

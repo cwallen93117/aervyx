@@ -13,6 +13,12 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.25]
+
+### Added
+- **Mobile v0.4.28+45** adds a Pilot/Driver toggle in Settings, starts driver-mode tracking immediately from the driver pickup screen, relays peer pilot mesh points while publishing the driver's own phone GPS position, and renders driver subjects as car markers across live maps.
+- Backend live tracking now treats driver users without linked pilot records as first-class map subjects with stable `subject_key` values and mobile-safe profile preference updates.
+
 ## [2026.05.24]
 
 ### Fixed

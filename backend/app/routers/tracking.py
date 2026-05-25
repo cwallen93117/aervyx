@@ -27,8 +27,10 @@ from app.services.tracking import (
     mesh_purpose_to_profile_type,
     normalize_position_source,
     resolve_active_task_id,
+    resolve_active_task_id_for_user,
     resolve_mesh_device_assignment,
     store_position,
+    subject_key_for_position,
     subscribe,
     subscribe_pilots,
     unsubscribe,
@@ -109,7 +111,10 @@ class PositionPayload(BaseModel):
 
 class PositionResponse(BaseModel):
     id: str
+    subject_key: str
     pilot_id: int | None
+    user_id: int | None = None
+    pilot_name: str | None = None
     task_id: int | None
     lat: float
     lon: float
@@ -137,8 +142,11 @@ class MeshConfigResponse(BaseModel):
 
 
 class ActivePilotResponse(BaseModel):
-    pilot_id: int
-    pilot_name: str
+    subject_key: str
+    pilot_id: int | None = None
+    user_id: int | None = None
+    pilot_name: str | None = None
+    task_id: int | None = None
     lat: float
     lon: float
     alt: float | None = None
@@ -249,20 +257,34 @@ def post_position(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
     source = payload.source or "app"
-    pilot_id = user.pilot_id
+    user_id: int | None = user.id
+    pilot_id = None if (user.profile_type or "pilot").strip().lower() == "driver" else user.pilot_id
     task_id = payload.task_id
     response_profile_type = user.profile_type or "pilot"
     response_aircraft_icon = user.aircraft_icon or "hang_glider"
+    response_pilot_name: str | None = user.full_name
     if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
         mesh_user, mesh_device = resolve_mesh_device_assignment(session, payload.device_id)
-        pilot_id = mesh_user.pilot_id if mesh_user is not None else None
+        user_id = mesh_user.id if mesh_user is not None else None
+        pilot_id = (
+            mesh_user.pilot_id
+            if mesh_user is not None and (mesh_user.profile_type or "pilot").strip().lower() != "driver"
+            else None
+        )
         if mesh_user is not None:
             response_profile_type = mesh_user.profile_type or "pilot"
             response_aircraft_icon = mesh_user.aircraft_icon or "hang_glider"
+            response_pilot_name = mesh_user.full_name
         elif mesh_device is not None:
             response_profile_type = mesh_purpose_to_profile_type(mesh_device.purpose)
-        if task_id is None and pilot_id is not None:
-            task_id = resolve_active_task_id(session, pilot_id)
+            response_pilot_name = mesh_device.label
+        if task_id is None:
+            if mesh_user is not None:
+                task_id = resolve_active_task_id_for_user(session, mesh_user)
+            elif pilot_id is not None:
+                task_id = resolve_active_task_id(session, pilot_id)
+    elif task_id is None:
+        task_id = resolve_active_task_id_for_user(session, user)
 
     pos = store_position(
         session,
@@ -278,6 +300,7 @@ def post_position(
         device_id=payload.device_id,
         battery_level=payload.battery_level,
         pilot_id=pilot_id,
+        user_id=user_id,
     )
     if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
         gateway_id = user.mesh_device_id if source == "mesh_relay" else payload.device_id
@@ -301,7 +324,10 @@ def post_position(
 
     return PositionResponse(
         id=str(pos.id),
+        subject_key=subject_key_for_position(pos, profile_type=response_profile_type),
         pilot_id=pos.pilot_id,
+        user_id=pos.user_id,
+        pilot_name=response_pilot_name,
         task_id=pos.task_id,
         lat=pos.lat,
         lon=pos.lon,
@@ -567,26 +593,14 @@ def get_active_task(
     session: Session = Depends(get_session),
 ) -> ActiveTaskResponse | None:
     """Return the user's currently active competition task with turnpoints, or null."""
-    if user.pilot_id is None:
+    task_id = resolve_active_task_id_for_user(session, user)
+    if task_id is None:
         return None
 
-    # Find an active task in an event the pilot is registered for
-    row = session.execute(
-        select(Task)
-        .join(Event, Task.event_id == Event.id)
-        .join(EventPilot, EventPilot.event_id == Event.id)
-        .where(
-            EventPilot.pilot_id == user.pilot_id,
-            Task.status == "active",
-        )
-        .order_by(Task.id.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-
-    if row is None:
+    task = session.get(Task, task_id)
+    if task is None:
         return None
 
-    task: Task = row
     points = session.scalars(
         select(TaskPoint)
         .where(TaskPoint.task_id == task.id)

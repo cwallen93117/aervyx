@@ -16,6 +16,7 @@ from app.db import get_session
 from app.models import (
     BuddyGroup,
     BuddyGroupMember,
+    DriverAssignment,
     Event,
     EventPilot,
     IGCUpload,
@@ -34,14 +35,18 @@ from app.services.tracking import (
     get_all_recent_positions,
     get_live_positions,
     get_live_positions_for_pilots,
+    get_live_positions_for_subjects,
     get_position_history,
     get_position_history_for_pilots,
+    get_position_history_for_subjects,
     subscribe,
     subscribe_global,
     subscribe_pilots,
+    subscribe_subjects,
     unsubscribe,
     unsubscribe_global,
     unsubscribe_pilots,
+    unsubscribe_subjects,
 )
 
 router = APIRouter(prefix="/api/public", tags=["public"])
@@ -83,7 +88,9 @@ class PublicLiveSourcesResponse(BaseModel):
 
 class PublicPositionResponse(BaseModel):
     id: str
+    subject_key: str
     pilot_id: int | None
+    user_id: int | None = None
     pilot_name: str | None = None
     task_id: int | None
     lat: float
@@ -434,6 +441,18 @@ def _public_event_pilot_ids(event_id: int, session: Session) -> list[int]:
     )
 
 
+def _public_event_driver_user_ids(event_id: int, session: Session) -> list[int]:
+    return list(
+        session.scalars(
+            select(DriverAssignment.driver_user_id)
+            .join(Task, Task.id == DriverAssignment.task_id)
+            .where(Task.event_id == event_id)
+            .order_by(DriverAssignment.driver_user_id.asc())
+            .distinct()
+        ).all()
+    )
+
+
 def _get_public_buddy_group(group_id: int, session: Session) -> BuddyGroup:
     """Load a buddy group and verify it is public. Raises 404 otherwise."""
     group = session.get(BuddyGroup, group_id)
@@ -450,12 +469,13 @@ async def public_event_live_sse(
     """SSE stream of live positions for every pilot in a publicly-tracked event."""
     _get_public_event(event_id, session)
     pilot_ids = _public_event_pilot_ids(event_id, session)
+    user_ids = _public_event_driver_user_ids(event_id, session)
 
-    queue = subscribe_pilots(pilot_ids)
+    queue = subscribe_subjects(pilot_ids, user_ids)
 
     async def event_stream():
         try:
-            snapshot = get_live_positions_for_pilots(session, pilot_ids)
+            snapshot = get_live_positions_for_subjects(session, pilot_ids, user_ids)
             yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
 
             while True:
@@ -466,7 +486,7 @@ async def public_event_live_sse(
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         finally:
-            unsubscribe_pilots(pilot_ids, queue)
+            unsubscribe_subjects(pilot_ids, user_ids, queue)
 
     return StreamingResponse(
         event_stream(),
@@ -489,13 +509,14 @@ def public_event_positions(
     """Position history for all pilots in a publicly-tracked event."""
     _get_public_event(event_id, session)
     pilot_ids = _public_event_pilot_ids(event_id, session)
-    if not pilot_ids:
+    user_ids = _public_event_driver_user_ids(event_id, session)
+    if not pilot_ids and not user_ids:
         return []
 
     minutes = max(1, min(minutes, 24 * 60))
     limit = max(1, min(limit, 10000))
     since = datetime.now(UTC) - timedelta(minutes=minutes)
-    rows = get_position_history_for_pilots(session, pilot_ids, since=since, limit=limit)
+    rows = get_position_history_for_subjects(session, pilot_ids, user_ids, since=since, limit=limit)
     return [PublicPositionResponse(**row) for row in rows]
 
 

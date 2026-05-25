@@ -22,6 +22,7 @@ class ApiConfig {
   static const String mePath = '/api/auth/me';
   static const String googleAuthPath = '/api/auth/google';
   static const String googleClientIdPath = '/api/auth/google-client-id';
+  static const String preferencesPath = '/api/auth/preferences';
   static const String meshDeviceRegisterPath = '/api/auth/mesh-device';
   static const String meshDevicesPath = '/api/auth/mesh-devices';
 
@@ -42,7 +43,8 @@ class ApiConfig {
   static const String sosPath = '/api/sos';
 
   // Flight detection settings — admin-configurable takeoff/landing thresholds
-  static const String flightDetectionConfigPath = '/api/config/flight-detection';
+  static const String flightDetectionConfigPath =
+      '/api/config/flight-detection';
 
   // IGC upload — task upload (also syncs to logbook automatically)
   static String taskUploadPath(int taskId) => '/api/tasks/$taskId/uploads';

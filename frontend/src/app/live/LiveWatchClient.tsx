@@ -17,9 +17,11 @@ import {
   formatRelativeTime,
   convertAltitude,
   convertSpeed,
-  colorForPilot,
+  colorForSubject,
+  displayNameForSubject,
   buildTrackCollection,
   mergePositionGroup,
+  subjectKeyForPosition,
 } from "../../lib/live-tracking-utils";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
@@ -79,11 +81,10 @@ function readNumericSearchParam(name: string): number | null {
 }
 
 function collectPilotNames(positions: LivePositionWithName[]) {
-  const names = new Map<number, string>();
+  const names = new Map<string, string>();
   for (const pos of positions) {
-    const pilotId = pos.pilot_id;
-    if (pilotId != null && pos.pilot_name) {
-      names.set(pilotId, pos.pilot_name);
+    if (pos.pilot_name) {
+      names.set(subjectKeyForPosition(pos), pos.pilot_name);
     }
   }
   return names;
@@ -92,9 +93,9 @@ function collectPilotNames(positions: LivePositionWithName[]) {
 export function LiveWatchClient() {
   const [sources, setSources] = useState<PublicSources>({ events: [], buddy_groups: [] });
   const [selected, setSelected] = useState<SelectedSource>(allUsersSource);
-  const [positionsByPilot, setPositionsByPilot] = useState<Map<number, LivePositionRecord[]>>(new Map());
-  const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<number, LivePositionRecord>>(new Map());
-  const [pilotNameById, setPilotNameById] = useState<Map<number, string>>(new Map());
+  const [positionsByPilot, setPositionsByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
+  const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<string, LivePositionRecord>>(new Map());
+  const [pilotNameById, setPilotNameById] = useState<Map<string, string>>(new Map());
   const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
@@ -147,14 +148,16 @@ export function LiveWatchClient() {
   }, [apiBase]);
 
   const activePilotIds = useMemo(() => {
-    return Array.from(positionsByPilot.keys()).sort((a, b) => a - b);
+    return Array.from(positionsByPilot.keys()).sort();
   }, [positionsByPilot]);
 
   const livePositions: MapLivePosition[] = useMemo(() => {
-    return Array.from(livePositionsByPilot.entries()).map(([pilotId, pos]) => ({
+    return Array.from(livePositionsByPilot.entries()).map(([subjectKey, pos]) => ({
       id: pos.id,
-      pilotId,
-      pilotName: pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`,
+      subjectKey,
+      pilotId: pos.pilot_id,
+      userId: pos.user_id ?? null,
+      pilotName: displayNameForSubject(pos, pilotNameById),
       latitude: pos.lat,
       longitude: pos.lon,
       altitudeM: pos.alt,
@@ -163,7 +166,7 @@ export function LiveWatchClient() {
       timestamp: pos.timestamp,
       batteryLevel: pos.battery_level,
       source: pos.source ?? "unknown",
-      color: colorForPilot(pilotId, activePilotIds),
+      color: colorForSubject(subjectKey, activePilotIds),
       aircraftType: pos.aircraft_icon ?? "hang_glider",
       profileType: pos.profile_type ?? "pilot",
       positionSource: pos.position_source ?? "other",
@@ -184,10 +187,10 @@ export function LiveWatchClient() {
   );
 
   useEffect(() => {
-    const latest = new Map<number, LivePositionRecord>();
-    for (const [pilotId, positions] of positionsByPilot) {
+    const latest = new Map<string, LivePositionRecord>();
+    for (const [subjectKey, positions] of positionsByPilot) {
       if (positions.length) {
-        latest.set(pilotId, positions[positions.length - 1]);
+        latest.set(subjectKey, positions[positions.length - 1]);
       }
     }
     setLivePositionsByPilot(latest);
@@ -456,8 +459,8 @@ export function LiveWatchClient() {
         {activePilotIds.length > 0 ? (
           activePilotIds.map((pilotId) => {
             const pos = livePositionsByPilot.get(pilotId);
-            const name = pilotNameById.get(pilotId) ?? `Pilot ${pilotId}`;
-            const color = colorForPilot(pilotId, activePilotIds);
+            const name = pos ? displayNameForSubject(pos, pilotNameById) : pilotNameById.get(pilotId) ?? pilotId;
+            const color = colorForSubject(pilotId, activePilotIds);
             return (
               <div key={pilotId} className="live-pilot-row">
                 <span className="live-pilot-badge" style={{ color }}>

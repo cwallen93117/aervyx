@@ -733,9 +733,17 @@ def ensure_runtime_schema(engine: Engine) -> None:
 
         # Index for pilot-scoped queries (buddy group tracking)
         if "live_positions" in table_names:
+            lp_columns = {col["name"]: col for col in inspector.get_columns("live_positions")}
+            if "user_id" not in lp_columns:
+                connection.execute(text("ALTER TABLE live_positions ADD COLUMN user_id INTEGER REFERENCES users (id) ON DELETE SET NULL"))
+                lp_columns["user_id"] = {"name": "user_id"}
             existing_indexes = {idx["name"] for idx in inspector.get_indexes("live_positions")}
             if "ix_live_positions_pilot_ts" not in existing_indexes:
                 connection.execute(text("CREATE INDEX ix_live_positions_pilot_ts ON live_positions (pilot_id, timestamp)"))
+            if "ix_live_positions_user_ts" not in existing_indexes:
+                connection.execute(text("CREATE INDEX ix_live_positions_user_ts ON live_positions (user_id, timestamp)"))
+            if "ix_live_positions_task_user_ts" not in existing_indexes:
+                connection.execute(text("CREATE INDEX ix_live_positions_task_user_ts ON live_positions (task_id, user_id, timestamp)"))
 
         # Make live_positions.task_id nullable for free-flight recording
         if "live_positions" in table_names and dialect_name != "sqlite":
@@ -745,6 +753,13 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE live_positions ALTER COLUMN task_id DROP NOT NULL"))
 
         # Make tracking_sessions.task_id nullable for free-flight sessions
+        if "tracking_sessions" in table_names:
+            ts_columns = {col["name"]: col for col in inspector.get_columns("tracking_sessions")}
+            if "user_id" not in ts_columns:
+                connection.execute(text("ALTER TABLE tracking_sessions ADD COLUMN user_id INTEGER REFERENCES users (id) ON DELETE SET NULL"))
+            existing_ts_indexes = {idx["name"] for idx in inspector.get_indexes("tracking_sessions")}
+            if "ix_tracking_sessions_user_id" not in existing_ts_indexes:
+                connection.execute(text("CREATE INDEX ix_tracking_sessions_user_id ON tracking_sessions (user_id)"))
         if "tracking_sessions" in table_names and dialect_name != "sqlite":
             ts_columns = {col["name"]: col for col in inspector.get_columns("tracking_sessions")}
             ts_task_id_col = ts_columns.get("task_id")

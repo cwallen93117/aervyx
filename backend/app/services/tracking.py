@@ -7,11 +7,11 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import Event, EventPilot, LivePosition, MeshDevice, Task, TrackingSession, User
+from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Task, TrackingSession, User
 from app.services.mesh_ids import mesh_device_id_lookup_variants, normalize_mesh_device_id
 
 
@@ -55,6 +55,7 @@ class LiveSubscriber:
 
 _subscribers: dict[int, set[LiveSubscriber]] = {}
 _pilot_subscribers: dict[int, set[LiveSubscriber]] = {}
+_user_subscribers: dict[int, set[LiveSubscriber]] = {}
 _global_subscribers: set[LiveSubscriber] = set()
 _subscriber_lock = threading.RLock()
 logger = logging.getLogger("aervyx.tracking")
@@ -153,6 +154,39 @@ def resolve_active_task_id(session: Session, pilot_id: int | None) -> int | None
     return task.id if task else None
 
 
+def resolve_active_task_id_for_user(session: Session, user: User | None) -> int | None:
+    """Resolve the active task relevant to a user.
+
+    Pilot profiles use event participation. Driver profiles first use explicit
+    driver assignments, then fall back to the newest active task so a driver can
+    still publish a vehicle position before assignments are configured.
+    """
+    if user is None:
+        return None
+    profile_type = _normalize_profile_type(user.profile_type)
+    if profile_type == "driver":
+        assigned_task = session.execute(
+            select(Task)
+            .join(DriverAssignment, DriverAssignment.task_id == Task.id)
+            .where(
+                DriverAssignment.driver_user_id == user.id,
+                Task.status == "active",
+            )
+            .order_by(Task.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if assigned_task is not None:
+            return assigned_task.id
+        fallback = session.scalar(
+            select(Task)
+            .where(Task.status == "active")
+            .order_by(Task.id.desc())
+            .limit(1)
+        )
+        return fallback.id if fallback is not None else None
+    return resolve_active_task_id(session, user.pilot_id)
+
+
 def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> tuple[User | None, MeshDevice | None]:
     normalized = normalize_mesh_device_id(device_id)
     if not normalized:
@@ -241,6 +275,144 @@ def _pilot_names_by_pilot(session: Session, pilot_ids: list[int]) -> dict[int, s
         if user.pilot_id is not None and user.pilot_id not in pilot_names:
             pilot_names[user.pilot_id] = user.full_name
     return pilot_names
+
+
+def _users_by_id(session: Session, user_ids: list[int]) -> dict[int, User]:
+    if not user_ids:
+        return {}
+    users = session.scalars(select(User).where(User.id.in_(user_ids)).order_by(User.id.asc())).all()
+    return {user.id: user for user in users}
+
+
+def _users_by_pilot_id(session: Session, pilot_ids: list[int]) -> dict[int, User]:
+    if not pilot_ids:
+        return {}
+    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids)).order_by(User.id.asc())).all()
+    by_pilot: dict[int, User] = {}
+    for user in users:
+        if user.pilot_id is not None and user.pilot_id not in by_pilot:
+            by_pilot[user.pilot_id] = user
+    return by_pilot
+
+
+def _registered_devices_by_device_id(session: Session, device_ids: list[str]) -> dict[str, MeshDevice]:
+    lookup_ids: set[str] = set()
+    for device_id in device_ids:
+        normalized = normalize_mesh_device_id(device_id)
+        if not normalized:
+            continue
+        lookup_ids.update(mesh_device_id_lookup_variants(normalized))
+    if not lookup_ids:
+        return {}
+    devices = session.scalars(
+        select(MeshDevice).where(MeshDevice.device_id.in_(lookup_ids), MeshDevice.is_active.is_(True))
+    ).all()
+    by_id: dict[str, MeshDevice] = {}
+    for device in devices:
+        normalized = normalize_mesh_device_id(device.device_id)
+        candidates = {device.device_id}
+        if normalized:
+            candidates.update(mesh_device_id_lookup_variants(normalized))
+        for candidate in candidates:
+            by_id[candidate] = device
+    return by_id
+
+
+def subject_key_for_position(pos: LivePosition, *, profile_type: str = "pilot") -> str:
+    if pos.user_id is not None and _normalize_profile_type(profile_type) == "driver":
+        return f"user:{pos.user_id}"
+    if pos.pilot_id is not None:
+        return f"pilot:{pos.pilot_id}"
+    if pos.user_id is not None:
+        return f"user:{pos.user_id}"
+    normalized_device = normalize_mesh_device_id(pos.device_id)
+    if normalized_device:
+        return f"device:{normalized_device}"
+    return f"position:{pos.id}"
+
+
+def _position_payload(
+    pos: LivePosition,
+    *,
+    users_by_id: dict[int, User],
+    users_by_pilot: dict[int, User],
+    devices_by_id: dict[str, MeshDevice] | None = None,
+) -> dict[str, Any]:
+    user = users_by_id.get(pos.user_id) if pos.user_id is not None else None
+    pilot_user = users_by_pilot.get(pos.pilot_id) if pos.pilot_id is not None else None
+    profile_user = user or pilot_user
+    profile_type = _normalize_profile_type(profile_user.profile_type) if profile_user is not None else "pilot"
+    aircraft_icon = _normalize_aircraft_icon(profile_user.aircraft_icon) if profile_user is not None else "hang_glider"
+    pilot_name = profile_user.full_name if profile_user is not None else None
+
+    device = None
+    if devices_by_id is not None and pos.device_id:
+        device = devices_by_id.get(pos.device_id)
+        normalized_device = normalize_mesh_device_id(pos.device_id)
+        if device is None and normalized_device:
+            for candidate in mesh_device_id_lookup_variants(normalized_device):
+                device = devices_by_id.get(candidate)
+                if device is not None:
+                    break
+    if device is not None and pos.pilot_id is None and pos.user_id is None:
+        profile_type = mesh_purpose_to_profile_type(device.purpose)
+        pilot_name = device.label
+
+    return {
+        "id": str(pos.id),
+        "subject_key": subject_key_for_position(pos, profile_type=profile_type),
+        "pilot_id": pos.pilot_id,
+        "user_id": pos.user_id,
+        "pilot_name": pilot_name,
+        "task_id": pos.task_id,
+        "lat": pos.lat,
+        "lon": pos.lon,
+        "alt": pos.alt,
+        "speed": pos.speed,
+        "heading": pos.heading,
+        "accuracy": pos.accuracy,
+        "timestamp": pos.timestamp.isoformat(),
+        "source": pos.source,
+        "device_id": pos.device_id,
+        "battery_level": pos.battery_level,
+        "aircraft_icon": aircraft_icon,
+        "profile_type": profile_type,
+        "position_source": normalize_position_source(pos.source),
+    }
+
+
+def _payload_context(session: Session, rows: list[LivePosition]) -> tuple[dict[int, User], dict[int, User], dict[str, MeshDevice]]:
+    user_ids = sorted({pos.user_id for pos in rows if pos.user_id is not None})
+    pilot_ids = sorted({pos.pilot_id for pos in rows if pos.pilot_id is not None})
+    device_ids = sorted({pos.device_id for pos in rows if pos.device_id})
+    return (
+        _users_by_id(session, user_ids),
+        _users_by_pilot_id(session, pilot_ids),
+        _registered_devices_by_device_id(session, device_ids),
+    )
+
+
+def _payloads_for_positions(session: Session, rows: list[LivePosition]) -> list[dict[str, Any]]:
+    users_by_id, users_by_pilot, devices_by_id = _payload_context(session, rows)
+    return [
+        _position_payload(
+            pos,
+            users_by_id=users_by_id,
+            users_by_pilot=users_by_pilot,
+            devices_by_id=devices_by_id,
+        )
+        for pos in rows
+    ]
+
+
+def _latest_payloads_by_subject(session: Session, rows: list[LivePosition]) -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for payload in _payloads_for_positions(session, rows):
+        subject_key = payload["subject_key"]
+        previous = latest.get(subject_key)
+        if previous is None or payload["timestamp"] > previous["timestamp"]:
+            latest[subject_key] = payload
+    return sorted(latest.values(), key=lambda payload: payload["timestamp"], reverse=True)
 
 
 def _stationary_node_by_device(session: Session, device_ids: list[str]) -> dict[str, User]:
@@ -355,6 +527,74 @@ def _publish_to_pilot_subscribers(pilot_id: int, message: dict[str, Any]) -> Non
 # Global pub/sub (debug mode — broadcasts every position to every subscriber)
 # ---------------------------------------------------------------------------
 
+def subscribe_users(user_ids: list[int]) -> LiveSubscriber:
+    """Register a single queue that receives positions for any of the given user IDs."""
+    subscriber = LiveSubscriber(maxsize=256)
+    with _subscriber_lock:
+        for uid in user_ids:
+            _user_subscribers.setdefault(uid, set()).add(subscriber)
+    return subscriber
+
+
+def unsubscribe_users(user_ids: list[int], subscriber: LiveSubscriber) -> None:
+    """Remove a subscriber queue from all specified user channels."""
+    with _subscriber_lock:
+        for uid in user_ids:
+            subs = _user_subscribers.get(uid)
+            if subs:
+                subs.discard(subscriber)
+                if not subs:
+                    del _user_subscribers[uid]
+
+
+def subscribe_subjects(pilot_ids: list[int], user_ids: list[int]) -> LiveSubscriber:
+    """Register one queue for a mix of pilot- and user-scoped subjects."""
+    subscriber = LiveSubscriber(maxsize=512)
+    with _subscriber_lock:
+        for pid in pilot_ids:
+            _pilot_subscribers.setdefault(pid, set()).add(subscriber)
+        for uid in user_ids:
+            _user_subscribers.setdefault(uid, set()).add(subscriber)
+    return subscriber
+
+
+def unsubscribe_subjects(pilot_ids: list[int], user_ids: list[int], subscriber: LiveSubscriber) -> None:
+    with _subscriber_lock:
+        for pid in pilot_ids:
+            subs = _pilot_subscribers.get(pid)
+            if subs:
+                subs.discard(subscriber)
+                if not subs:
+                    del _pilot_subscribers[pid]
+        for uid in user_ids:
+            subs = _user_subscribers.get(uid)
+            if subs:
+                subs.discard(subscriber)
+                if not subs:
+                    del _user_subscribers[uid]
+
+
+def _publish_to_user_subscribers(user_id: int, message: dict[str, Any]) -> None:
+    """Fan out a message to all SSE subscribers watching a specific user."""
+    with _subscriber_lock:
+        subs = _user_subscribers.get(user_id)
+        targets = list(subs) if subs else []
+    if not targets:
+        return
+    dead: list[LiveSubscriber] = []
+    for subscriber in targets:
+        if not subscriber.enqueue(message):
+            dead.append(subscriber)
+    if dead:
+        with _subscriber_lock:
+            subs = _user_subscribers.get(user_id)
+            if subs:
+                for subscriber in dead:
+                    subs.discard(subscriber)
+                if not subs:
+                    del _user_subscribers[user_id]
+
+
 def subscribe_global() -> LiveSubscriber:
     """Register a new SSE subscriber that receives EVERY incoming position."""
     subscriber = LiveSubscriber(maxsize=512)
@@ -404,12 +644,14 @@ def store_position(
     device_id: str | None = None,
     battery_level: int | None = None,
     pilot_id: int | None = None,
+    user_id: int | None = None,
 ) -> LivePosition:
     """Persist a position fix and fan it out to SSE subscribers."""
     ts = timestamp or datetime.now(UTC)
     pos = LivePosition(
         id=uuid.uuid4(),
         pilot_id=pilot_id,
+        user_id=user_id,
         task_id=task_id,
         lat=lat,
         lon=lon,
@@ -424,24 +666,20 @@ def store_position(
     )
     session.add(pos)
 
-    # Upsert tracking session (for all positions, including free-flight) --------
-    if pilot_id is not None:
-        if task_id is not None:
-            tracking = session.scalar(
-                select(TrackingSession).where(
-                    TrackingSession.task_id == task_id,
-                    TrackingSession.pilot_id == pilot_id,
-                    TrackingSession.is_active.is_(True),
-                )
-            )
+    # Upsert tracking session (for all positions, including free-flight). Use a
+    # pilot subject when available; otherwise use the user subject for drivers.
+    if pilot_id is not None or user_id is not None:
+        filters = [TrackingSession.is_active.is_(True)]
+        if task_id is None:
+            filters.append(TrackingSession.task_id.is_(None))
         else:
-            tracking = session.scalar(
-                select(TrackingSession).where(
-                    TrackingSession.task_id.is_(None),
-                    TrackingSession.pilot_id == pilot_id,
-                    TrackingSession.is_active.is_(True),
-                )
-            )
+            filters.append(TrackingSession.task_id == task_id)
+        if pilot_id is not None:
+            filters.append(TrackingSession.pilot_id == pilot_id)
+        else:
+            filters.append(TrackingSession.pilot_id.is_(None))
+            filters.append(TrackingSession.user_id == user_id)
+        tracking = session.scalar(select(TrackingSession).where(*filters))
 
         if tracking is not None:
             tracking.last_seen_at = ts
@@ -450,6 +688,7 @@ def store_position(
             tracking = TrackingSession(
                 id=uuid.uuid4(),
                 pilot_id=pilot_id,
+                user_id=user_id,
                 task_id=task_id,
                 started_at=ts,
                 last_seen_at=ts,
@@ -465,66 +704,23 @@ def store_position(
         has_any_subscribers = (
             (task_id is not None and task_id in _subscribers)
             or (pilot_id is not None and pilot_id in _pilot_subscribers)
+            or (user_id is not None and user_id in _user_subscribers)
             or bool(_global_subscribers)
         )
     if has_any_subscribers:
-        # Resolve pilot name for display in "show all" debug view
-        pilot_name: str | None = None
-        aircraft_icon = "hang_glider"
-        profile_type = "pilot"
-        if pilot_id is not None:
-            user = session.scalar(select(User).where(User.pilot_id == pilot_id))
-            if user is not None:
-                pilot_name = user.full_name
-                aircraft_icon = _normalize_aircraft_icon(user.aircraft_icon)
-                profile_type = _normalize_profile_type(user.profile_type)
-        elif device_id:
-            device_candidates = mesh_device_id_lookup_variants(device_id)
-            registered_device = session.scalar(
-                select(MeshDevice).where(
-                    MeshDevice.device_id.in_(device_candidates),
-                    MeshDevice.is_active.is_(True),
-                )
-            )
-            if registered_device is not None:
-                owner = session.get(User, registered_device.owner_user_id)
-                pilot_name = registered_device.label
-                if owner is not None and owner.full_name:
-                    pilot_name = f"{registered_device.label} - {owner.full_name}"
-                profile_type = mesh_purpose_to_profile_type(registered_device.purpose)
-            else:
-                stationary = session.scalar(
-                    select(User).where(
-                        User.mesh_device_id.in_(device_candidates),
-                        User.profile_type == "stationary_node",
-                    )
-                )
-                if stationary is not None:
-                    pilot_name = stationary.full_name
-                    profile_type = "stationary_node"
-        message = {
-            "id": str(pos.id),
-            "pilot_id": pos.pilot_id,
-            "pilot_name": pilot_name,
-            "task_id": pos.task_id,
-            "lat": pos.lat,
-            "lon": pos.lon,
-            "alt": pos.alt,
-            "speed": pos.speed,
-            "heading": pos.heading,
-            "accuracy": pos.accuracy,
-            "timestamp": ts.isoformat(),
-            "source": pos.source,
-            "device_id": pos.device_id,
-            "battery_level": pos.battery_level,
-            "aircraft_icon": aircraft_icon,
-            "profile_type": profile_type,
-            "position_source": normalize_position_source(pos.source),
-        }
+        users_by_id, users_by_pilot, devices_by_id = _payload_context(session, [pos])
+        message = _position_payload(
+            pos,
+            users_by_id=users_by_id,
+            users_by_pilot=users_by_pilot,
+            devices_by_id=devices_by_id,
+        )
         if task_id is not None:
             _publish(task_id, message)
         if pilot_id is not None:
             _publish_to_pilot_subscribers(pilot_id, message)
+        if user_id is not None:
+            _publish_to_user_subscribers(user_id, message)
         _publish_global(message)
 
     # Server-side landing detection
@@ -551,73 +747,40 @@ def store_position(
 
 
 def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
-    """Return the latest position per pilot for a task (active sessions only).
-
-    Uses a window function to get the latest position per active pilot in one query.
-    """
-    from sqlalchemy import func as sa_func
-
-    active_pilots = session.scalars(
-        select(TrackingSession.pilot_id).where(
+    """Return the latest position per live subject for a task (active sessions only)."""
+    active_sessions = session.scalars(
+        select(TrackingSession).where(
             TrackingSession.task_id == task_id,
             TrackingSession.is_active.is_(True),
         )
     ).all()
 
-    if not active_pilots:
+    if not active_sessions:
         return []
-    pilot_id_list = [pilot_id for pilot_id in active_pilots if pilot_id is not None]
-    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, pilot_id_list)
-    profile_types_by_pilot = _profile_types_by_pilot(session, pilot_id_list)
-    pilot_names_by_pilot = _pilot_names_by_pilot(session, pilot_id_list)
 
-    # Use a subquery with ROW_NUMBER() to get latest position per pilot
-    row_num = sa_func.row_number().over(
-        partition_by=LivePosition.pilot_id,
-        order_by=LivePosition.timestamp.desc(),
-    ).label("rn")
+    pilot_ids = sorted({s.pilot_id for s in active_sessions if s.pilot_id is not None})
+    user_ids = sorted({s.user_id for s in active_sessions if s.pilot_id is None and s.user_id is not None})
+    conditions = []
+    if pilot_ids:
+        conditions.append(LivePosition.pilot_id.in_(pilot_ids))
+    if user_ids:
+        conditions.append(LivePosition.user_id.in_(user_ids))
+    if not conditions:
+        return []
 
-    subq = (
-        select(LivePosition, row_num)
-        .where(
-            LivePosition.task_id == task_id,
-            LivePosition.pilot_id.in_(active_pilots),
-        )
-        .subquery()
-    )
-
-    rows = session.execute(
-        select(subq).where(subq.c.rn == 1)
+    rows = session.scalars(
+        select(LivePosition)
+        .where(LivePosition.task_id == task_id, or_(*conditions))
+        .order_by(LivePosition.timestamp.desc())
+        .limit(max(1000, len(conditions) * 100))
     ).all()
 
-    return [
-        {
-            "id": str(row.id),
-            "pilot_id": row.pilot_id,
-            "pilot_name": pilot_names_by_pilot.get(row.pilot_id),
-            "task_id": row.task_id,
-            "lat": row.lat,
-            "lon": row.lon,
-            "alt": row.alt,
-            "speed": row.speed,
-            "heading": row.heading,
-            "accuracy": row.accuracy,
-            "timestamp": row.timestamp.isoformat(),
-            "source": row.source,
-            "device_id": row.device_id,
-            "battery_level": row.battery_level,
-            "aircraft_icon": aircraft_icons_by_pilot.get(row.pilot_id, "hang_glider"),
-            "profile_type": profile_types_by_pilot.get(row.pilot_id, "pilot"),
-            "position_source": normalize_position_source(row.source),
-        }
-        for row in rows
-    ]
+    return _latest_payloads_by_subject(session, rows)
 
 
 def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[str, Any]]:
-    """Return latest position for every pilot with recent activity (any task or free-flight)."""
+    """Return latest position for every live subject with recent activity."""
     from datetime import timedelta
-    from sqlalchemy import func as sa_func
 
     cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
 
@@ -631,56 +794,24 @@ def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[st
     if not active_sessions:
         return []
 
-    pilot_ids = [s.pilot_id for s in active_sessions if s.pilot_id is not None]
-    if not pilot_ids:
+    pilot_ids = sorted({s.pilot_id for s in active_sessions if s.pilot_id is not None})
+    user_ids = sorted({s.user_id for s in active_sessions if s.pilot_id is None and s.user_id is not None})
+    conditions = []
+    if pilot_ids:
+        conditions.append(LivePosition.pilot_id.in_(pilot_ids))
+    if user_ids:
+        conditions.append(LivePosition.user_id.in_(user_ids))
+    if not conditions:
         return []
 
-    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
-    profile_types = _profile_types_by_pilot(session, pilot_ids)
+    rows = session.scalars(
+        select(LivePosition)
+        .where(or_(*conditions), LivePosition.timestamp >= cutoff)
+        .order_by(LivePosition.timestamp.desc())
+        .limit(max(1000, len(conditions) * 100))
+    ).all()
 
-    # Pilot names via User table
-    users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all()
-    pilot_names: dict[int, str] = {}
-    for u in users:
-        if u.pilot_id is not None and u.pilot_id not in pilot_names:
-            pilot_names[u.pilot_id] = u.full_name
-
-    # Latest position per pilot
-    row_num = sa_func.row_number().over(
-        partition_by=LivePosition.pilot_id,
-        order_by=LivePosition.timestamp.desc(),
-    ).label("rn")
-
-    subq = (
-        select(LivePosition, row_num)
-        .where(
-            LivePosition.pilot_id.in_(pilot_ids),
-            LivePosition.timestamp >= cutoff,
-        )
-        .subquery()
-    )
-
-    rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
-
-    return [
-        {
-            "pilot_id": row.pilot_id,
-            "pilot_name": pilot_names.get(row.pilot_id, f"Pilot {row.pilot_id}"),
-            "lat": row.lat,
-            "lon": row.lon,
-            "alt": row.alt,
-            "speed": row.speed,
-            "heading": row.heading,
-            "accuracy": row.accuracy,
-            "timestamp": row.timestamp.isoformat(),
-            "source": row.source,
-            "battery_level": row.battery_level,
-            "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
-            "profile_type": profile_types.get(row.pilot_id, "pilot"),
-            "position_source": normalize_position_source(row.source),
-        }
-        for row in rows
-    ]
+    return _latest_payloads_by_subject(session, rows)
 
 
 def get_position_history(
@@ -700,32 +831,7 @@ def get_position_history(
     query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
 
     rows = session.scalars(query).all()
-    pilot_id_list = [pos.pilot_id for pos in rows if pos.pilot_id is not None]
-    aircraft_icons_by_pilot = _aircraft_icons_by_pilot(session, pilot_id_list)
-    profile_types_by_pilot = _profile_types_by_pilot(session, pilot_id_list)
-    pilot_names_by_pilot = _pilot_names_by_pilot(session, pilot_id_list)
-    return [
-        {
-            "id": str(pos.id),
-            "pilot_id": pos.pilot_id,
-            "pilot_name": pilot_names_by_pilot.get(pos.pilot_id),
-            "task_id": pos.task_id,
-            "lat": pos.lat,
-            "lon": pos.lon,
-            "alt": pos.alt,
-            "speed": pos.speed,
-            "heading": pos.heading,
-            "accuracy": pos.accuracy,
-            "timestamp": pos.timestamp.isoformat(),
-            "source": pos.source,
-            "device_id": pos.device_id,
-            "battery_level": pos.battery_level,
-            "aircraft_icon": aircraft_icons_by_pilot.get(pos.pilot_id, "hang_glider"),
-            "profile_type": profile_types_by_pilot.get(pos.pilot_id, "pilot"),
-            "position_source": normalize_position_source(pos.source),
-        }
-        for pos in rows
-    ]
+    return _payloads_for_positions(session, rows)
 
 
 # ---------------------------------------------------------------------------
@@ -734,52 +840,40 @@ def get_position_history(
 
 def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> list[dict[str, Any]]:
     """Return the latest position per pilot for a set of pilot IDs."""
-    from sqlalchemy import func as sa_func
-
     if not pilot_ids:
         return []
 
-    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
-    profile_types = _profile_types_by_pilot(session, pilot_ids)
-    pilot_names = _pilot_names_by_pilot(session, pilot_ids)
-
-    row_num = sa_func.row_number().over(
-        partition_by=LivePosition.pilot_id,
-        order_by=LivePosition.timestamp.desc(),
-    ).label("rn")
-
-    subq = (
-        select(LivePosition, row_num)
+    rows = session.scalars(
+        select(LivePosition)
         .where(LivePosition.pilot_id.in_(pilot_ids))
-        .subquery()
-    )
-
-    rows = session.execute(
-        select(subq).where(subq.c.rn == 1)
+        .order_by(LivePosition.timestamp.desc())
+        .limit(max(1000, len(pilot_ids) * 100))
     ).all()
 
-    return [
-        {
-            "id": str(row.id),
-            "pilot_id": row.pilot_id,
-            "pilot_name": pilot_names.get(row.pilot_id),
-            "task_id": row.task_id,
-            "lat": row.lat,
-            "lon": row.lon,
-            "alt": row.alt,
-            "speed": row.speed,
-            "heading": row.heading,
-            "accuracy": row.accuracy,
-            "timestamp": row.timestamp.isoformat(),
-            "source": row.source,
-            "device_id": row.device_id,
-            "battery_level": row.battery_level,
-            "aircraft_icon": aircraft_icons.get(row.pilot_id, "hang_glider"),
-            "profile_type": profile_types.get(row.pilot_id, "pilot"),
-            "position_source": normalize_position_source(row.source),
-        }
-        for row in rows
-    ]
+    return _latest_payloads_by_subject(session, rows)
+
+
+def get_live_positions_for_subjects(
+    session: Session,
+    pilot_ids: list[int],
+    user_ids: list[int],
+) -> list[dict[str, Any]]:
+    """Return the latest position for a mix of pilot and user subjects."""
+    conditions = []
+    if pilot_ids:
+        conditions.append(LivePosition.pilot_id.in_(pilot_ids))
+    if user_ids:
+        conditions.append(LivePosition.user_id.in_(user_ids))
+    if not conditions:
+        return []
+
+    rows = session.scalars(
+        select(LivePosition)
+        .where(or_(*conditions))
+        .order_by(LivePosition.timestamp.desc())
+        .limit(max(1000, (len(pilot_ids) + len(user_ids)) * 100))
+    ).all()
+    return _latest_payloads_by_subject(session, rows)
 
 
 def get_all_recent_positions(
@@ -804,57 +898,7 @@ def get_all_recent_positions(
         .limit(limit)
     ).all()
 
-    pilot_ids = [pos.pilot_id for pos in rows if pos.pilot_id is not None]
-    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
-    profile_types = _profile_types_by_pilot(session, pilot_ids)
-
-    pilot_names: dict[int, str] = {}
-    if pilot_ids:
-        users = session.scalars(select(User).where(User.pilot_id.in_(pilot_ids))).all()
-        for u in users:
-            if u.pilot_id is not None and u.pilot_id not in pilot_names:
-                pilot_names[u.pilot_id] = u.full_name
-
-    # Resolve stationary-node rows by device_id for unassigned positions.
-    orphan_device_ids = {pos.device_id for pos in rows if pos.pilot_id is None and pos.device_id}
-    stationary_by_device = _stationary_node_by_device(session, list(orphan_device_ids))
-
-    def _profile_for(pos: LivePosition) -> str:
-        if pos.pilot_id is not None:
-            return profile_types.get(pos.pilot_id, "pilot")
-        if pos.device_id and pos.device_id in stationary_by_device:
-            return "stationary_node"
-        return "pilot"
-
-    def _name_for(pos: LivePosition) -> str | None:
-        if pos.pilot_id is not None:
-            return pilot_names.get(pos.pilot_id)
-        if pos.device_id and pos.device_id in stationary_by_device:
-            return stationary_by_device[pos.device_id].full_name
-        return None
-
-    return [
-        {
-            "id": str(pos.id),
-            "pilot_id": pos.pilot_id,
-            "pilot_name": _name_for(pos),
-            "task_id": pos.task_id,
-            "lat": pos.lat,
-            "lon": pos.lon,
-            "alt": pos.alt,
-            "speed": pos.speed,
-            "heading": pos.heading,
-            "accuracy": pos.accuracy,
-            "timestamp": pos.timestamp.isoformat(),
-            "source": pos.source,
-            "device_id": pos.device_id,
-            "battery_level": pos.battery_level,
-            "aircraft_icon": aircraft_icons.get(pos.pilot_id, "hang_glider") if pos.pilot_id is not None else "hang_glider",
-            "profile_type": _profile_for(pos),
-            "position_source": normalize_position_source(pos.source),
-        }
-        for pos in rows
-    ]
+    return _payloads_for_positions(session, rows)
 
 
 def get_position_history_for_pilots(
@@ -874,28 +918,30 @@ def get_position_history_for_pilots(
     query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
 
     rows = session.scalars(query).all()
-    aircraft_icons = _aircraft_icons_by_pilot(session, pilot_ids)
-    profile_types = _profile_types_by_pilot(session, pilot_ids)
-    pilot_names = _pilot_names_by_pilot(session, pilot_ids)
-    return [
-        {
-            "id": str(pos.id),
-            "pilot_id": pos.pilot_id,
-            "pilot_name": pilot_names.get(pos.pilot_id),
-            "task_id": pos.task_id,
-            "lat": pos.lat,
-            "lon": pos.lon,
-            "alt": pos.alt,
-            "speed": pos.speed,
-            "heading": pos.heading,
-            "accuracy": pos.accuracy,
-            "timestamp": pos.timestamp.isoformat(),
-            "source": pos.source,
-            "device_id": pos.device_id,
-            "battery_level": pos.battery_level,
-            "aircraft_icon": aircraft_icons.get(pos.pilot_id, "hang_glider"),
-            "profile_type": profile_types.get(pos.pilot_id, "pilot"),
-            "position_source": normalize_position_source(pos.source),
-        }
-        for pos in rows
-    ]
+    return _payloads_for_positions(session, rows)
+
+
+def get_position_history_for_subjects(
+    session: Session,
+    pilot_ids: list[int],
+    user_ids: list[int],
+    *,
+    since: datetime | None = None,
+    limit: int = 10000,
+) -> list[dict[str, Any]]:
+    """Return position history for a mix of pilot and user subjects."""
+    conditions = []
+    if pilot_ids:
+        conditions.append(LivePosition.pilot_id.in_(pilot_ids))
+    if user_ids:
+        conditions.append(LivePosition.user_id.in_(user_ids))
+    if not conditions:
+        return []
+
+    query = select(LivePosition).where(or_(*conditions))
+    if since is not None:
+        query = query.where(LivePosition.timestamp >= since)
+    query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
+
+    rows = session.scalars(query).all()
+    return _payloads_for_positions(session, rows)

@@ -15,24 +15,30 @@ import '../widgets/map_scale_bar.dart';
 
 /// A pilot position received from the backend.
 class _LivePilot {
-  final int pilotId;
+  final String subjectKey;
+  final int? pilotId;
+  final int? userId;
   final String name;
   final double lat;
   final double lon;
   final double? alt;
   final double? speed;
   final String? aircraftIcon;
+  final String profileType;
   final int? batteryLevel;
   DateTime lastSeen;
 
   _LivePilot({
-    required this.pilotId,
+    required this.subjectKey,
+    this.pilotId,
+    this.userId,
     required this.name,
     required this.lat,
     required this.lon,
     this.alt,
     this.speed,
     this.aircraftIcon,
+    this.profileType = 'pilot',
     this.batteryLevel,
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
@@ -48,7 +54,7 @@ class LiveViewScreen extends StatefulWidget {
 }
 
 class _LiveViewScreenState extends State<LiveViewScreen> {
-  final Map<int, _LivePilot> _pilots = {};
+  final Map<String, _LivePilot> _pilots = {};
   final MapController _mapController = MapController();
   StreamSubscription<String>? _sseSubscription;
   Timer? _pollTimer;
@@ -87,8 +93,27 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   }
 
   int? get _currentPilotId => context.read<AuthService>().user?.pilotId;
+  int? get _currentUserId => context.read<AuthService>().user?.id;
 
   bool _isCurrentUserPilot(int pilotId) => _currentPilotId == pilotId;
+
+  bool _isCurrentSubject(String subjectKey, int? pilotId, int? userId) {
+    if (userId != null && userId == _currentUserId) return true;
+    if (pilotId != null && _isCurrentUserPilot(pilotId)) return true;
+    return subjectKey == 'user:$_currentUserId';
+  }
+
+  String _subjectKeyFor(Map<String, dynamic> json) {
+    final subjectKey = json['subject_key'] as String?;
+    if (subjectKey != null && subjectKey.isNotEmpty) return subjectKey;
+    final pilotId = json['pilot_id'] as int?;
+    if (pilotId != null) return 'pilot:$pilotId';
+    final userId = json['user_id'] as int?;
+    if (userId != null) return 'user:$userId';
+    final deviceId = json['device_id'] as String?;
+    if (deviceId != null && deviceId.isNotEmpty) return 'device:$deviceId';
+    return 'position:${json['id'] ?? DateTime.now().microsecondsSinceEpoch}';
+  }
 
   bool _isManualMapMove(MapEvent event) {
     return event.source == MapEventSource.onDrag ||
@@ -184,24 +209,13 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     try {
       final list = await api.getList(ApiConfig.activePilotsPath);
       if (!mounted) return;
-      final nextPilots = <int, _LivePilot>{};
+      final nextPilots = <String, _LivePilot>{};
       setState(() {
         for (final item in list) {
           final json = item as Map<String, dynamic>;
-          final pilotId = json['pilot_id'] as int;
-          if (_isCurrentUserPilot(pilotId)) {
-            continue;
-          }
-          nextPilots[pilotId] = _LivePilot(
-            pilotId: pilotId,
-            name: json['pilot_name'] as String? ?? 'Pilot $pilotId',
-            lat: (json['lat'] as num).toDouble(),
-            lon: (json['lon'] as num).toDouble(),
-            alt: (json['alt'] as num?)?.toDouble(),
-            speed: (json['speed'] as num?)?.toDouble(),
-            aircraftIcon: json['aircraft_icon'] as String?,
-            batteryLevel: json['battery_level'] as int?,
-          );
+          final pilot = _parseSsePilot(json);
+          if (pilot == null) continue;
+          nextPilots[pilot.subjectKey] = pilot;
         }
         _pilots
           ..clear()
@@ -265,42 +279,50 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
         setState(() {
           for (final item in list) {
             final json = item as Map<String, dynamic>;
-            final pilotId = json['pilot_id'] as int;
-            if (_isCurrentUserPilot(pilotId)) {
-              _pilots.remove(pilotId);
-              continue;
-            }
             final pilot = _parseSsePilot(json);
-            _pilots[pilot.pilotId] = pilot;
+            if (pilot == null) continue;
+            _pilots[pilot.subjectKey] = pilot;
           }
         });
       } else if (event == 'position') {
         final json = jsonDecode(data) as Map<String, dynamic>;
-        final pilotId = json['pilot_id'] as int;
-        if (_isCurrentUserPilot(pilotId)) {
-          setState(() => _pilots.remove(pilotId));
-          return;
-        }
         final pilot = _parseSsePilot(json);
-        setState(() => _pilots[pilot.pilotId] = pilot);
+        if (pilot == null) return;
+        setState(() => _pilots[pilot.subjectKey] = pilot);
       }
     } catch (_) {
       // Malformed SSE data — skip
     }
   }
 
-  _LivePilot _parseSsePilot(Map<String, dynamic> json) {
-    final pilotId = json['pilot_id'] as int;
+  _LivePilot? _parseSsePilot(Map<String, dynamic> json) {
+    final subjectKey = _subjectKeyFor(json);
+    final pilotId = json['pilot_id'] as int?;
+    final userId = json['user_id'] as int?;
+    if (_isCurrentSubject(subjectKey, pilotId, userId)) {
+      _pilots.remove(subjectKey);
+      return null;
+    }
     // Preserve name from polling data if SSE doesn't include it
-    final existing = _pilots[pilotId];
+    final existing = _pilots[subjectKey];
+    final profileType = json['profile_type'] as String? ?? 'pilot';
     return _LivePilot(
+      subjectKey: subjectKey,
       pilotId: pilotId,
-      name: json['pilot_name'] as String? ?? existing?.name ?? 'Pilot $pilotId',
+      userId: userId,
+      name: json['pilot_name'] as String? ??
+          existing?.name ??
+          (profileType == 'driver'
+              ? (userId != null ? 'Driver $userId' : 'Driver')
+              : pilotId != null
+                  ? 'Pilot $pilotId'
+                  : 'Tracker'),
       lat: (json['lat'] as num).toDouble(),
       lon: (json['lon'] as num).toDouble(),
       alt: (json['alt'] as num?)?.toDouble(),
       speed: (json['speed'] as num?)?.toDouble(),
       aircraftIcon: json['aircraft_icon'] as String?,
+      profileType: profileType,
       batteryLevel: json['battery_level'] as int?,
     );
   }
@@ -369,19 +391,23 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                       point: LatLng(trackPos.lat, trackPos.lon),
                       width: 24,
                       height: 24,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: Colors.blue,
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withAlpha(60),
-                              blurRadius: 4,
+                      child: context.read<AuthService>().user?.profileType ==
+                              'driver'
+                          ? const _OwnDriverMarker()
+                          : Container(
+                              decoration: BoxDecoration(
+                                color: Colors.blue,
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: Colors.white, width: 3),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withAlpha(60),
+                                    blurRadius: 4,
+                                  ),
+                                ],
+                              ),
                             ),
-                          ],
-                        ),
-                      ),
                     ),
                 ],
               ),
@@ -398,7 +424,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
               children: [
                 _InfoChip(
                   icon: Icons.people,
-                  text: '$pilotCount pilot${pilotCount == 1 ? '' : 's'} flying',
+                  text: '$pilotCount tracker${pilotCount == 1 ? '' : 's'} live',
                 ),
                 if (!_hasActiveTask)
                   const _InfoChip(
@@ -489,12 +515,35 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
+class _OwnDriverMarker extends StatelessWidget {
+  const _OwnDriverMarker();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.green, width: 2),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(60), blurRadius: 4),
+        ],
+      ),
+      child: const Icon(Icons.directions_car, size: 16, color: Colors.green),
+    );
+  }
+}
+
 class _PilotMarker extends StatelessWidget {
   final _LivePilot pilot;
 
   const _PilotMarker({required this.pilot});
 
   IconData _iconForAircraft(String? type) {
+    if (pilot.profileType == 'driver') {
+      return Icons.directions_car;
+    }
     switch (type) {
       case 'hang_glider':
         return Icons.air;
@@ -524,7 +573,7 @@ class _PilotMarker extends StatelessWidget {
           child: Icon(
             _iconForAircraft(pilot.aircraftIcon),
             size: 18,
-            color: Colors.blue,
+            color: pilot.profileType == 'driver' ? Colors.green : Colors.blue,
           ),
         ),
         Container(

@@ -122,6 +122,7 @@ class TrackingService extends ChangeNotifier {
   SportType _sportType = SportType.paraglider;
   bool _multiFlightEnabled = true;
   bool _debugMode = false;
+  bool _driverMode = false;
 
   /// Hardcoded defaults per sport — overridable from admin API.
   static const Map<SportType, _TakeoffThresholds> _defaultTakeoffThresholds = {
@@ -190,6 +191,9 @@ class TrackingService extends ChangeNotifier {
   SportType get sportType => _sportType;
   bool get multiFlightEnabled => _multiFlightEnabled;
   bool get debugMode => _debugMode;
+  bool get driverMode => _driverMode;
+  bool get isDriverTracking =>
+      _driverMode && _trackingState == TrackingState.inFlight;
   int get bufferedPositionCount => _positionBuffer.length;
   bool get landingCountdownActive => _landingCountdownActive;
 
@@ -332,7 +336,9 @@ class TrackingService extends ChangeNotifier {
   /// Start GPS tracking — enters preFlight and waits for takeoff detection.
   Future<void> startTracking() async {
     if (_trackingState != TrackingState.idle &&
-        _trackingState != TrackingState.monitoring) return;
+        _trackingState != TrackingState.monitoring) {
+      return;
+    }
 
     // Check and request permissions
     LocationPermission permission = await Geolocator.checkPermission();
@@ -369,12 +375,22 @@ class TrackingService extends ChangeNotifier {
     _landingCountdownStart = null;
     _recentAltitudes.clear();
     _recentAltitudeTimes.clear();
+    _driverMode = _driverMode || _auth.user?.profileType == 'driver';
 
     if (_flightNumberToday == 0) {
       _flightNumberToday = 1;
     }
 
-    if (_debugMode) {
+    if (_driverMode) {
+      _trackingState = TrackingState.inFlight;
+      _trackingStartTime = DateTime.now();
+      _currentZone = TrackingZone.normalFlight;
+      _startFlightTimer();
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx - Driver Mode',
+        content: 'Relaying driver position...',
+      );
+    } else if (_debugMode) {
       // Debug mode — skip pre-flight, go straight to recording + sending
       _trackingState = TrackingState.inFlight;
       _trackingStartTime = DateTime.now();
@@ -418,6 +434,18 @@ class TrackingService extends ChangeNotifier {
   }
 
   /// Force-start recording immediately — bypass takeoff detection.
+  Future<void> startDriverTracking() async {
+    if (_trackingState != TrackingState.idle &&
+        _trackingState != TrackingState.monitoring) {
+      return;
+    }
+    _driverMode = true;
+    await startTracking();
+    if (_trackingState == TrackingState.idle) {
+      _driverMode = false;
+    }
+  }
+
   Future<void> forceStartRecording() async {
     if (_trackingState == TrackingState.idle) {
       await startTracking();
@@ -439,6 +467,7 @@ class TrackingService extends ChangeNotifier {
   /// Stop GPS tracking completely and save any active flight.
   Future<void> stopTracking() async {
     final wasInFlight = _trackingState == TrackingState.inFlight;
+    final wasDriverMode = _driverMode;
 
     _locationSubscription?.cancel();
     _locationSubscription = null;
@@ -466,6 +495,7 @@ class TrackingService extends ChangeNotifier {
     _activeTask = null;
     _currentZone = TrackingZone.stationary;
     _flightNumberToday = 0;
+    _driverMode = false;
 
     // Stop background foreground service
     try {
@@ -477,7 +507,7 @@ class TrackingService extends ChangeNotifier {
     notifyListeners();
 
     // Save flight if we were recording
-    if (wasInFlight) {
+    if (wasInFlight && !wasDriverMode) {
       await _saveCurrentFlight();
     } else {
       _igc.discardCurrentTrack();
@@ -504,7 +534,15 @@ class TrackingService extends ChangeNotifier {
   void _startGpsStream() {
     _locationSubscription?.cancel();
 
-    if (_activeTask != null) {
+    if (_driverMode) {
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
+      );
+      _locationSubscription =
+          Geolocator.getPositionStream(locationSettings: settings)
+              .listen(_onPositionUpdate, onError: _onLocationError);
+    } else if (_activeTask != null) {
       // Competition mode — high-accuracy, 0 distance filter
       const settings = LocationSettings(
         accuracy: LocationAccuracy.best,
@@ -730,6 +768,13 @@ class TrackingService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
 
   Future<void> _handleInFlight(Position geoPos) async {
+    if (_driverMode) {
+      _currentZone = TrackingZone.normalFlight;
+      await _sendPosition(geoPos, recordIgc: false);
+      notifyListeners();
+      return;
+    }
+
     // Debug mode — send every position at 1Hz, skip landing detection
     if (_debugMode) {
       _currentZone = TrackingZone.normalFlight;
@@ -1038,9 +1083,10 @@ class TrackingService extends ChangeNotifier {
   // Position sending
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<void> _sendPosition(Position geoPos) async {
-    // Record trackpoint for IGC file
-    _igc.addTrackPoint(geoPos);
+  Future<void> _sendPosition(Position geoPos, {bool recordIgc = true}) async {
+    if (recordIgc) {
+      _igc.addTrackPoint(geoPos);
+    }
     _positionCount++;
 
     // Try to send to backend (non-blocking for UI)
