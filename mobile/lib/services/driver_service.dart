@@ -71,6 +71,7 @@ class DriverService extends ChangeNotifier {
   Map<int, DriverPilot> get pilots => Map.unmodifiable(_pilots);
   String? get taskName => _taskName;
   int? get taskId => _taskId;
+  bool get hasActiveTask => _taskId != null;
   String? get error => _error;
   bool get connected => _connected;
   bool get showAllPilots => _showAllPilots;
@@ -96,7 +97,14 @@ class DriverService extends ChangeNotifier {
       // Get active task
       final taskJson = await _api.get(ApiConfig.activeTaskPath);
       if (!taskJson.containsKey('task_id')) {
-        _error = 'No active task found';
+        await _sseSubscription?.cancel();
+        _sseSubscription = null;
+        _taskId = null;
+        _taskName = null;
+        _assignedIds = {};
+        _pilots.clear();
+        _error = null;
+        _connected = false;
         notifyListeners();
         return;
       }

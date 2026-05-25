@@ -70,6 +70,17 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     final theme = Theme.of(context);
     final pilots = driver.visiblePilots;
     final driverPosition = tracking.lastPosition;
+    final hasActiveTask = driver.hasActiveTask;
+    final connectionColor = driver.connected
+        ? Colors.green
+        : hasActiveTask
+            ? Colors.red
+            : Colors.grey;
+    final connectionTooltip = driver.connected
+        ? 'Connected'
+        : hasActiveTask
+            ? 'Disconnected'
+            : 'No active task';
     final initialCenter = driverPosition != null
         ? LatLng(driverPosition.lat, driverPosition.lon)
         : pilots.isNotEmpty
@@ -78,7 +89,7 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(driver.taskName ?? 'Driver View'),
+        title: Text(driver.taskName ?? 'Driver Mode'),
         actions: [
           IconButton(
             icon: const Icon(Icons.settings),
@@ -99,10 +110,13 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           // Connection indicator
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Icon(
-              Icons.circle,
-              size: 12,
-              color: driver.connected ? Colors.green : Colors.red,
+            child: Tooltip(
+              message: connectionTooltip,
+              child: Icon(
+                Icons.circle,
+                size: 12,
+                color: connectionColor,
+              ),
             ),
           ),
           // Logout
@@ -124,7 +138,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: driver.pilotsAwaitingPickup > 0 && driver.connected
+      floatingActionButton: hasActiveTask &&
+              driver.pilotsAwaitingPickup > 0 &&
+              driver.connected
           ? FloatingActionButton.extended(
               icon: const Icon(Icons.route),
               label: Text('Route (${driver.pilotsAwaitingPickup})'),
@@ -254,7 +270,9 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   child: pilots.isEmpty
                       ? Center(
                           child: Text(
-                            'No pilots in view',
+                            hasActiveTask
+                                ? 'No pilots in view'
+                                : 'No active task. Driver tracking is still available.',
                             style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),

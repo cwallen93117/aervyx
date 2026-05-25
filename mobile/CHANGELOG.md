@@ -1,5 +1,10 @@
 # Aervyx Mobile Changelog
 
+## 0.4.29+46 - 2026-05-25
+
+### Fixed
+- Driver mode now stays usable when there is no active task, so drivers can still start tracking and relaying without seeing a blocking error.
+
 ## 0.4.28+45 - 2026-05-25
 
 ### Added
