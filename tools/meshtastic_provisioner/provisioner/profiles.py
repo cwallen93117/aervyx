@@ -58,17 +58,17 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _overlay_candidates() -> list[Path]:
-    candidates: list[Path] = []
     env_path = os.environ.get("AERVYX_PROVISIONER_PROFILE")
     if env_path:
-        candidates.append(Path(env_path))
-    candidates.extend(
-        [
-            _exe_dir() / "aervyx_profiles.local.yaml",
-            _resources_dir() / "aervyx_profiles.local.yaml",
-            Path(__file__).resolve().parents[1] / "profiles" / "aervyx_profiles.local.yaml",
-        ]
-    )
+        return [Path(env_path)]
+
+    candidates: list[Path] = []
+    for candidate in (
+        _resources_dir() / "aervyx_profiles.local.yaml",
+        user_profile_path(),
+    ):
+        if candidate not in candidates:
+            candidates.append(candidate)
     return candidates
 
 
@@ -81,16 +81,41 @@ def load_profile_bundle() -> dict[str, Any]:
     return bundle
 
 
-def save_profile_bundle(bundle: dict[str, Any]) -> Path:
-    path = user_profile_path()
+def load_profile_bundle_from_path(path: Path) -> dict[str, Any]:
+    bundle = _read_yaml(_resources_dir() / "aervyx_profiles.yaml")
+    bundle = _deep_merge(bundle, _read_yaml(path))
+    _validate_bundle_shape(bundle)
+    return bundle
+
+
+def load_saved_profile_bundle(path: Path | None = None) -> dict[str, Any]:
+    saved_path = path or user_profile_path()
+    if not saved_path.exists():
+        raise FileNotFoundError(f"No saved profile matrix found at {saved_path}")
+    return load_profile_bundle_from_path(saved_path)
+
+
+def save_profile_bundle(bundle: dict[str, Any], path: Path | None = None) -> Path:
+    path = path or user_profile_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "version": bundle.get("version", 1),
         "app_version": bundle.get("app_version"),
         "profiles": bundle.get("profiles", {}),
     }
+    if bundle.get("matrix_labels"):
+        data["matrix_labels"] = bundle["matrix_labels"]
     path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=False), encoding="utf-8")
     return path
+
+
+def matrix_label(bundle: dict[str, Any], path: str, default: str) -> str:
+    labels = bundle.get("matrix_labels", {})
+    if isinstance(labels, dict):
+        label = str(labels.get(path, "")).strip()
+        if label:
+            return label
+    return default
 
 
 def _validate_bundle_shape(bundle: dict[str, Any]) -> None:

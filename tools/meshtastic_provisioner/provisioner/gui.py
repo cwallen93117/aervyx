@@ -7,12 +7,13 @@ import threading
 import tkinter as tk
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import APP_NAME, APP_VERSION
 from .meshtastic_io import DeviceInfo, SettingComparison, apply_target, compare_target_changes, evaluate_readback, read_device_snapshot, scan_devices
-from .profiles import build_target_config, load_profile_bundle, profile_settings, required_placeholders, save_profile_bundle, user_profile_path
+from .profiles import build_target_config, load_profile_bundle, load_saved_profile_bundle, matrix_label, profile_settings, required_placeholders, save_profile_bundle, user_profile_path
 from .schema import MATRIX_ROWS, POSITION_FLAGS, PROFILE_KEYS, PROFILE_LABELS, format_position_flags, get_path, set_path
 
 
@@ -58,8 +59,11 @@ class ProvisionerApp(tk.Tk):
         self.geometry("1180x760")
         self.minsize(1000, 650)
         self.bundle = load_profile_bundle()
+        self.matrix_path = user_profile_path()
+        self.matrix_path_var = tk.StringVar(value=f"Saves to: {self.matrix_path}")
         self.rows: list[DeviceRow] = []
         self.matrix_vars: dict[tuple[str, str], tk.Variable] = {}
+        self.matrix_label_vars: dict[str, tk.StringVar] = {}
         self.flag_buttons: dict[tuple[str, str], ttk.Button] = {}
         self.log_queue: queue.Queue[str] = queue.Queue()
         self._build_ui()
@@ -71,7 +75,7 @@ class ProvisionerApp(tk.Tk):
 
         toolbar = ttk.Frame(self, padding=(10, 10, 10, 6))
         toolbar.grid(row=0, column=0, sticky="ew")
-        toolbar.columnconfigure(4, weight=1)
+        toolbar.columnconfigure(3, weight=1)
 
         ttk.Button(toolbar, text="Scan COM Ports", command=self.scan).grid(row=0, column=0, padx=(0, 8))
         ttk.Button(toolbar, text="Apply Selected", command=self.apply_selected).grid(row=0, column=1, padx=(0, 8))
@@ -109,40 +113,52 @@ class ProvisionerApp(tk.Tk):
 
     def _build_matrix_tab(self) -> None:
         self.matrix_tab.columnconfigure(0, weight=1)
-        self.matrix_tab.rowconfigure(1, weight=1)
+        self.matrix_tab.rowconfigure(1, weight=0)
+        self.matrix_tab.rowconfigure(2, weight=1)
 
         for child in self.matrix_tab.winfo_children():
             child.destroy()
         self.matrix_vars.clear()
+        self.matrix_label_vars.clear()
         self.flag_buttons.clear()
 
         toolbar = ttk.Frame(self.matrix_tab)
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        toolbar.columnconfigure(3, weight=1)
+        toolbar.columnconfigure(4, weight=1)
         ttk.Button(toolbar, text="Save Profile Matrix", command=self._save_matrix).grid(row=0, column=0, padx=(0, 8))
         ttk.Button(toolbar, text="Reload Saved Matrix", command=self._reload_matrix).grid(row=0, column=1, padx=(0, 8))
-        ttk.Label(toolbar, text=f"Saves to: {user_profile_path()}").grid(row=0, column=2, sticky="w")
+        ttk.Button(toolbar, text="Load Matrix File...", command=self._load_matrix_file).grid(row=0, column=2, padx=(0, 8))
+        self.matrix_path_var.set(f"Saves to: {self.matrix_path}")
+        ttk.Label(toolbar, textvariable=self.matrix_path_var).grid(row=0, column=3, sticky="w")
 
-        canvas = tk.Canvas(self.matrix_tab, highlightthickness=0)
-        vsb = ttk.Scrollbar(self.matrix_tab, orient="vertical", command=canvas.yview)
-        hsb = ttk.Scrollbar(self.matrix_tab, orient="horizontal", command=canvas.xview)
-        canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        canvas.grid(row=1, column=0, sticky="nsew")
-        vsb.grid(row=1, column=1, sticky="ns")
-        hsb.grid(row=2, column=0, sticky="ew")
+        header_canvas = tk.Canvas(self.matrix_tab, highlightthickness=0, height=30)
+        body_canvas = tk.Canvas(self.matrix_tab, highlightthickness=0)
+        vsb = ttk.Scrollbar(self.matrix_tab, orient="vertical", command=body_canvas.yview)
+        hsb = ttk.Scrollbar(self.matrix_tab, orient="horizontal")
+        hsb.configure(command=lambda *args: self._scroll_matrix_x(header_canvas, body_canvas, *args))
+        body_canvas.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        header_canvas.grid(row=1, column=0, sticky="ew")
+        body_canvas.grid(row=2, column=0, sticky="nsew")
+        vsb.grid(row=2, column=1, sticky="ns")
+        hsb.grid(row=3, column=0, sticky="ew")
 
-        grid = ttk.Frame(canvas)
-        canvas.create_window((0, 0), window=grid, anchor="nw")
-        grid.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        header = ttk.Frame(header_canvas)
+        grid = ttk.Frame(body_canvas)
+        header_canvas.create_window((0, 0), window=header, anchor="nw")
+        body_canvas.create_window((0, 0), window=grid, anchor="nw")
+        header.bind("<Configure>", lambda event: self._configure_matrix_header(header_canvas, event))
+        grid.bind("<Configure>", lambda _event: body_canvas.configure(scrollregion=body_canvas.bbox("all")))
 
-        ttk.Label(grid, text="Setting", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
+        ttk.Label(header, text="Setting", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
         for column, key in enumerate(PROFILE_KEYS, start=1):
-            ttk.Label(grid, text=PROFILE_LABELS[key], font=("Segoe UI", 9, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=3)
+            ttk.Label(header, text=PROFILE_LABELS[key], font=("Segoe UI", 9, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=3)
+            header.columnconfigure(column, minsize=170)
             grid.columnconfigure(column, minsize=170)
+        header.columnconfigure(0, minsize=245)
         grid.columnconfigure(0, minsize=245)
 
         last_group = None
-        grid_row = 1
+        grid_row = 0
         for row in MATRIX_ROWS:
             if row.group != last_group:
                 ttk.Label(grid, text=row.group, font=("Segoe UI", 9, "bold"), background="#e8eef7").grid(
@@ -155,12 +171,23 @@ class ProvisionerApp(tk.Tk):
                 )
                 last_group = row.group
                 grid_row += 1
-            ttk.Label(grid, text=row.label).grid(row=grid_row, column=0, sticky="w", padx=4, pady=2)
+            label_var = tk.StringVar(value=matrix_label(self.bundle, row.path, row.label))
+            self.matrix_label_vars[row.path] = label_var
+            ttk.Entry(grid, textvariable=label_var, width=30).grid(row=grid_row, column=0, sticky="ew", padx=4, pady=2)
             for column, profile_key in enumerate(PROFILE_KEYS, start=1):
                 self._make_matrix_cell(grid, grid_row, column, profile_key, row)
             grid_row += 1
-        self._bind_matrix_mousewheel(canvas, canvas)
-        self._bind_matrix_mousewheel(grid, canvas)
+        self._bind_matrix_mousewheel(header_canvas, body_canvas)
+        self._bind_matrix_mousewheel(header, body_canvas)
+        self._bind_matrix_mousewheel(body_canvas, body_canvas)
+        self._bind_matrix_mousewheel(grid, body_canvas)
+
+    def _configure_matrix_header(self, canvas: tk.Canvas, event: tk.Event) -> None:
+        canvas.configure(scrollregion=canvas.bbox("all"), height=event.height + 2)
+
+    def _scroll_matrix_x(self, header_canvas: tk.Canvas, body_canvas: tk.Canvas, *args: Any) -> None:
+        header_canvas.xview(*args)
+        body_canvas.xview(*args)
 
     def _bind_matrix_mousewheel(self, widget: tk.Widget, canvas: tk.Canvas) -> None:
         widget.bind("<MouseWheel>", lambda event: self._scroll_matrix(canvas, event), add="+")
@@ -236,14 +263,25 @@ class ProvisionerApp(tk.Tk):
     def _save_matrix(self) -> None:
         try:
             next_bundle = deepcopy(self.bundle)
+            label_overrides: dict[str, str] = {}
             for profile_key in PROFILE_KEYS:
                 settings = profile_settings(next_bundle, profile_key)
                 for row in MATRIX_ROWS:
                     var = self.matrix_vars[(profile_key, row.path)]
                     set_path(settings, row.path, self._matrix_value(row.kind, var.get(), row.path))
                 next_bundle["profiles"][profile_key]["settings"] = settings
-            path = save_profile_bundle(next_bundle)
+            for row in MATRIX_ROWS:
+                label = self.matrix_label_vars[row.path].get().strip()
+                if label and label != row.label:
+                    label_overrides[row.path] = label
+            if label_overrides:
+                next_bundle["matrix_labels"] = label_overrides
+            else:
+                next_bundle.pop("matrix_labels", None)
+            path = save_profile_bundle(next_bundle, self.matrix_path)
             self.bundle = next_bundle
+            self.matrix_path = path
+            self.matrix_path_var.set(f"Saves to: {self.matrix_path}")
             self._log(f"Saved profile matrix to {path}")
             messagebox.showinfo(APP_NAME, f"Saved profile matrix to:\n{path}")
         except Exception as exc:
@@ -259,9 +297,26 @@ class ProvisionerApp(tk.Tk):
 
     def _reload_matrix(self) -> None:
         try:
-            self.bundle = load_profile_bundle()
+            self.bundle = load_saved_profile_bundle(self.matrix_path)
             self._build_matrix_tab()
-            self._log("Reloaded profile matrix.")
+            self._log(f"Reloaded saved profile matrix from {self.matrix_path}")
+        except Exception as exc:
+            messagebox.showerror(APP_NAME, str(exc))
+
+    def _load_matrix_file(self) -> None:
+        selected = filedialog.askopenfilename(
+            parent=self,
+            title="Load Saved Profile Matrix",
+            filetypes=(("YAML files", "*.yaml *.yml"), ("All files", "*.*")),
+        )
+        if not selected:
+            return
+        try:
+            path = Path(selected)
+            self.bundle = load_saved_profile_bundle(path)
+            self.matrix_path = path
+            self._build_matrix_tab()
+            self._log(f"Loaded saved profile matrix from {path}")
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
 

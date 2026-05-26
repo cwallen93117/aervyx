@@ -1,4 +1,4 @@
-from provisioner.profiles import build_target_config, decode_psk, display_value, load_profile_bundle, profile_settings, required_placeholders, save_profile_bundle
+from provisioner.profiles import build_target_config, decode_psk, display_value, load_profile_bundle, load_saved_profile_bundle, matrix_label, profile_settings, required_placeholders, save_profile_bundle
 from provisioner.schema import MATRIX_ROWS, PROFILE_KEYS, format_position_flags, get_path
 
 
@@ -58,6 +58,37 @@ def test_save_profile_bundle_persists_editable_matrix_values(monkeypatch, tmp_pa
     assert saved_path == overlay
     assert reloaded["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["username"] == "fleet-user"
     assert reloaded["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["password"] == "fleet-password"
+
+
+def test_save_profile_bundle_persists_matrix_label_overrides(monkeypatch, tmp_path):
+    overlay = tmp_path / "aervyx_profiles.local.yaml"
+    monkeypatch.setenv("AERVYX_PROVISIONER_PROFILE", str(overlay))
+    bundle = load_profile_bundle()
+    bundle["matrix_labels"] = {"config.device.role": "Radio job"}
+
+    save_profile_bundle(bundle)
+    reloaded = load_saved_profile_bundle()
+
+    assert matrix_label(reloaded, "config.device.role", "Role") == "Radio job"
+    assert matrix_label(reloaded, "config.device.serial_enabled", "Serial API") == "Serial API"
+
+
+def test_load_saved_profile_bundle_uses_explicit_file_instead_of_all_candidates(monkeypatch, tmp_path):
+    default_overlay = tmp_path / "default.yaml"
+    selected_overlay = tmp_path / "selected.yaml"
+    monkeypatch.setenv("AERVYX_PROVISIONER_PROFILE", str(default_overlay))
+
+    default_bundle = load_profile_bundle()
+    default_bundle["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["username"] = "default-user"
+    save_profile_bundle(default_bundle, default_overlay)
+
+    selected_bundle = load_profile_bundle()
+    selected_bundle["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["username"] = "selected-user"
+    save_profile_bundle(selected_bundle, selected_overlay)
+
+    reloaded = load_saved_profile_bundle(selected_overlay)
+
+    assert reloaded["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["username"] == "selected-user"
 
 
 def test_wired_base_station_profile_enables_ethernet_not_wifi():
