@@ -1,5 +1,5 @@
 version: 1
-app_version: "0.1.3"
+app_version: "0.1.4"
 profiles:
   pilot:
     label: Pilot

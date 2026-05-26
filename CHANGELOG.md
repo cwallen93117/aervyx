@@ -24,6 +24,7 @@ production release.
 - Pilot live view now shows the active task name as the title and removes the Free flight chip.
 
 ### Fixed
+- **Meshtastic Provisioner v0.1.4** simplifies the Profile Matrix toolbar to Save, Save As, and Load, and makes setting-label edits visible with editable fields.
 - **Meshtastic Provisioner v0.1.3** keeps Profile Matrix column headings visible while scrolling, lets operators rename setting labels, and loads/reloads a specific saved matrix file instead of merging every candidate overlay.
 - **Meshtastic Provisioner v0.1.2** fixes Profile Matrix mouse-wheel scrolling and adds a live current-vs-revised apply review with green OK/red Error readback statuses.
 

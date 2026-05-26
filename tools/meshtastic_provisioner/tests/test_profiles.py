@@ -60,17 +60,19 @@ def test_save_profile_bundle_persists_editable_matrix_values(monkeypatch, tmp_pa
     assert reloaded["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["password"] == "fleet-password"
 
 
-def test_save_profile_bundle_persists_matrix_label_overrides(monkeypatch, tmp_path):
-    overlay = tmp_path / "aervyx_profiles.local.yaml"
-    monkeypatch.setenv("AERVYX_PROVISIONER_PROFILE", str(overlay))
+def test_save_profile_bundle_to_explicit_path_persists_matrix_values_and_labels(tmp_path):
+    overlay = tmp_path / "custom_matrix.yaml"
     bundle = load_profile_bundle()
     bundle["matrix_labels"] = {"config.device.role": "Radio job"}
+    bundle["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["username"] = "explicit-user"
 
-    save_profile_bundle(bundle)
-    reloaded = load_saved_profile_bundle()
+    saved_path = save_profile_bundle(bundle, overlay)
+    reloaded = load_saved_profile_bundle(overlay)
 
+    assert saved_path == overlay
     assert matrix_label(reloaded, "config.device.role", "Role") == "Radio job"
     assert matrix_label(reloaded, "config.device.serial_enabled", "Serial API") == "Serial API"
+    assert reloaded["profiles"]["pilot"]["settings"]["module_config"]["mqtt"]["username"] == "explicit-user"
 
 
 def test_load_saved_profile_bundle_uses_explicit_file_instead_of_all_candidates(monkeypatch, tmp_path):

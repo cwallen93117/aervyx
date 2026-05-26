@@ -124,10 +124,10 @@ class ProvisionerApp(tk.Tk):
 
         toolbar = ttk.Frame(self.matrix_tab)
         toolbar.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        toolbar.columnconfigure(4, weight=1)
-        ttk.Button(toolbar, text="Save Profile Matrix", command=self._save_matrix).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(toolbar, text="Reload Saved Matrix", command=self._reload_matrix).grid(row=0, column=1, padx=(0, 8))
-        ttk.Button(toolbar, text="Load Matrix File...", command=self._load_matrix_file).grid(row=0, column=2, padx=(0, 8))
+        toolbar.columnconfigure(3, weight=1)
+        ttk.Button(toolbar, text="Save", command=self._save_matrix).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(toolbar, text="Save As", command=self._save_matrix_as).grid(row=0, column=1, padx=(0, 8))
+        ttk.Button(toolbar, text="Load", command=self._load_matrix_file).grid(row=0, column=2, padx=(0, 8))
         self.matrix_path_var.set(f"Saves to: {self.matrix_path}")
         ttk.Label(toolbar, textvariable=self.matrix_path_var).grid(row=0, column=3, sticky="w")
 
@@ -149,7 +149,7 @@ class ProvisionerApp(tk.Tk):
         header.bind("<Configure>", lambda event: self._configure_matrix_header(header_canvas, event))
         grid.bind("<Configure>", lambda _event: body_canvas.configure(scrollregion=body_canvas.bbox("all")))
 
-        ttk.Label(header, text="Setting", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
+        ttk.Label(header, text="Setting Label", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
         for column, key in enumerate(PROFILE_KEYS, start=1):
             ttk.Label(header, text=PROFILE_LABELS[key], font=("Segoe UI", 9, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=3)
             header.columnconfigure(column, minsize=170)
@@ -173,7 +173,7 @@ class ProvisionerApp(tk.Tk):
                 grid_row += 1
             label_var = tk.StringVar(value=matrix_label(self.bundle, row.path, row.label))
             self.matrix_label_vars[row.path] = label_var
-            ttk.Entry(grid, textvariable=label_var, width=30).grid(row=grid_row, column=0, sticky="ew", padx=4, pady=2)
+            tk.Entry(grid, textvariable=label_var, width=30, relief="solid", borderwidth=1, background="white").grid(row=grid_row, column=0, sticky="ew", padx=4, pady=2)
             for column, profile_key in enumerate(PROFILE_KEYS, start=1):
                 self._make_matrix_cell(grid, grid_row, column, profile_key, row)
             grid_row += 1
@@ -261,24 +261,24 @@ class ProvisionerApp(tk.Tk):
         ttk.Button(buttons, text="Save", command=save_flags).grid(row=0, column=1)
 
     def _save_matrix(self) -> None:
+        self._save_matrix_to(self.matrix_path)
+
+    def _save_matrix_as(self) -> None:
+        selected = filedialog.asksaveasfilename(
+            parent=self,
+            title="Save Profile Matrix As",
+            initialdir=str(self.matrix_path.parent),
+            initialfile=self.matrix_path.name,
+            defaultextension=".yaml",
+            filetypes=(("YAML files", "*.yaml *.yml"), ("All files", "*.*")),
+        )
+        if selected:
+            self._save_matrix_to(Path(selected))
+
+    def _save_matrix_to(self, path: Path) -> None:
         try:
-            next_bundle = deepcopy(self.bundle)
-            label_overrides: dict[str, str] = {}
-            for profile_key in PROFILE_KEYS:
-                settings = profile_settings(next_bundle, profile_key)
-                for row in MATRIX_ROWS:
-                    var = self.matrix_vars[(profile_key, row.path)]
-                    set_path(settings, row.path, self._matrix_value(row.kind, var.get(), row.path))
-                next_bundle["profiles"][profile_key]["settings"] = settings
-            for row in MATRIX_ROWS:
-                label = self.matrix_label_vars[row.path].get().strip()
-                if label and label != row.label:
-                    label_overrides[row.path] = label
-            if label_overrides:
-                next_bundle["matrix_labels"] = label_overrides
-            else:
-                next_bundle.pop("matrix_labels", None)
-            path = save_profile_bundle(next_bundle, self.matrix_path)
+            next_bundle = self._matrix_bundle_from_ui()
+            path = save_profile_bundle(next_bundle, path)
             self.bundle = next_bundle
             self.matrix_path = path
             self.matrix_path_var.set(f"Saves to: {self.matrix_path}")
@@ -286,6 +286,25 @@ class ProvisionerApp(tk.Tk):
             messagebox.showinfo(APP_NAME, f"Saved profile matrix to:\n{path}")
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
+
+    def _matrix_bundle_from_ui(self) -> dict[str, Any]:
+        next_bundle = deepcopy(self.bundle)
+        label_overrides: dict[str, str] = {}
+        for profile_key in PROFILE_KEYS:
+            settings = profile_settings(next_bundle, profile_key)
+            for row in MATRIX_ROWS:
+                var = self.matrix_vars[(profile_key, row.path)]
+                set_path(settings, row.path, self._matrix_value(row.kind, var.get(), row.path))
+            next_bundle["profiles"][profile_key]["settings"] = settings
+        for row in MATRIX_ROWS:
+            label = self.matrix_label_vars[row.path].get().strip()
+            if label and label != row.label:
+                label_overrides[row.path] = label
+        if label_overrides:
+            next_bundle["matrix_labels"] = label_overrides
+        else:
+            next_bundle.pop("matrix_labels", None)
+        return next_bundle
 
     def _matrix_value(self, kind: str, value: Any, path: str) -> Any:
         if kind == "boolean":
@@ -295,18 +314,10 @@ class ProvisionerApp(tk.Tk):
             return int(text or 0)
         return str(value)
 
-    def _reload_matrix(self) -> None:
-        try:
-            self.bundle = load_saved_profile_bundle(self.matrix_path)
-            self._build_matrix_tab()
-            self._log(f"Reloaded saved profile matrix from {self.matrix_path}")
-        except Exception as exc:
-            messagebox.showerror(APP_NAME, str(exc))
-
     def _load_matrix_file(self) -> None:
         selected = filedialog.askopenfilename(
             parent=self,
-            title="Load Saved Profile Matrix",
+            title="Load Profile Matrix",
             filetypes=(("YAML files", "*.yaml *.yml"), ("All files", "*.*")),
         )
         if not selected:
@@ -316,7 +327,7 @@ class ProvisionerApp(tk.Tk):
             self.bundle = load_saved_profile_bundle(path)
             self.matrix_path = path
             self._build_matrix_tab()
-            self._log(f"Loaded saved profile matrix from {path}")
+            self._log(f"Loaded profile matrix from {path}")
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
 
