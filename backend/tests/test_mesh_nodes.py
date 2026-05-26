@@ -4,7 +4,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import MeshDevice, MeshNodeStatus, User
+from app.models import LivePosition, MeshDevice, MeshNodeStatus, User
 from app.routers.tracking import get_mesh_nodes
 
 
@@ -55,3 +55,56 @@ def test_mesh_nodes_resolves_gateway_display_name_from_registered_device() -> No
     assert tracker.last_gateway_id == "!gateway"
     assert tracker.last_gateway_display_name == "Ethernet Gateway"
     assert tracker.packet_count == 7
+
+
+def test_mesh_nodes_preserves_mqtt_gateway_for_matching_latest_position() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    owner = User(username="owner@example.com", full_name="Tracker Owner", role="pilot")
+    gateway_owner = User(username="gateway@example.com", full_name="Gateway Owner", role="pilot")
+    session.add_all([admin, owner, gateway_owner])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id="!c0ac2c6e",
+                label="Tracker #2",
+                purpose="tracking",
+                is_active=True,
+            ),
+            MeshDevice(
+                owner_user_id=gateway_owner.id,
+                device_id="!8ab252ca",
+                label="Camper Wired",
+                purpose="base_station",
+                is_active=True,
+            ),
+            MeshNodeStatus(
+                device_id="!c0ac2c6e",
+                last_seen_at=now - timedelta(seconds=2),
+                last_packet_type="POSITION_APP",
+                last_source="mqtt_gateway",
+                last_gateway_id="!8ab252ca",
+                last_topic="msh/US/2/e/LongFast/!8ab252ca",
+                packet_count=4028,
+            ),
+            LivePosition(
+                lat=40.0547,
+                lon=-75.3518,
+                timestamp=now,
+                source="mqtt_gateway",
+                device_id="!c0ac2c6e",
+            ),
+        ]
+    )
+    session.commit()
+
+    nodes = get_mesh_nodes(minutes=60, admin=admin, session=session)
+
+    tracker = next(node for node in nodes if node.device_id == "!c0ac2c6e")
+    assert tracker.source == "mqtt_gateway"
+    assert tracker.last_packet_type == "POSITION_APP"
+    assert tracker.last_gateway_id == "!8ab252ca"
+    assert tracker.last_gateway_display_name == "Camper Wired"

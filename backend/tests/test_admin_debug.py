@@ -318,6 +318,59 @@ def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
     assert by_device["!live"]["packet_count"] == 3
 
 
+def test_admin_debug_status_preserves_mqtt_gateway_for_matching_latest_position() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    owner = User(username="owner@example.com", full_name="Tracker Owner", role="pilot")
+    gateway_owner = User(username="gateway@example.com", full_name="Gateway Owner", role="pilot")
+    session.add_all([admin, owner, gateway_owner])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id="!c0ac2c6e",
+                label="Tracker #2",
+                purpose="tracking",
+                is_active=True,
+            ),
+            MeshDevice(
+                owner_user_id=gateway_owner.id,
+                device_id="!8ab252ca",
+                label="Camper Wired",
+                purpose="base_station",
+                is_active=True,
+            ),
+            MeshNodeStatus(
+                device_id="!c0ac2c6e",
+                last_seen_at=now - timedelta(seconds=2),
+                last_packet_type="POSITION_APP",
+                last_source="mqtt_gateway",
+                last_gateway_id="!8ab252ca",
+                last_topic="msh/US/2/e/LongFast/!8ab252ca",
+                packet_count=4028,
+            ),
+            LivePosition(
+                lat=40.0547,
+                lon=-75.3518,
+                timestamp=now,
+                source="mqtt_gateway",
+                device_id="!c0ac2c6e",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+    by_device = {device["device_id"]: device for device in payload["registered_mesh_devices"]}
+
+    assert by_device["!c0ac2c6e"]["source"] == "mqtt_gateway"
+    assert by_device["!c0ac2c6e"]["last_packet_type"] == "POSITION_APP"
+    assert by_device["!c0ac2c6e"]["last_gateway_id"] == "!8ab252ca"
+    assert by_device["!c0ac2c6e"]["last_gateway_display_name"] == "Camper Wired"
+
+
 def test_admin_debug_status_matches_legacy_bare_hex_device_id() -> None:
     session = _session()
     now = datetime.now(UTC)

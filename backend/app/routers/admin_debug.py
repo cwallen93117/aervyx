@@ -21,6 +21,7 @@ router = APIRouter(tags=["admin-debug"])
 
 MESH_STATUS_LIVE_SECONDS = 10 * 60
 MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
+MESH_GATEWAY_METADATA_TOLERANCE_SECONDS = 5 * 60
 PHONE_APP_POSITION_SOURCE = "app"
 
 
@@ -43,6 +44,32 @@ def _timestamp_value(value: datetime | None) -> float:
 def _is_recent(now: datetime, value: datetime | None, *, seconds: int = 60) -> bool:
     age = _age_seconds(now, value)
     return age is not None and age < seconds
+
+
+def _status_gateway_id_for_latest(
+    node_status: MeshNodeStatus | None,
+    *,
+    latest_position_is_newer: bool,
+    latest_position_ts: datetime | None,
+    source: str | None,
+    packet_type: str | None,
+) -> str | None:
+    if node_status is None or node_status.last_gateway_id is None:
+        return None
+    if not latest_position_is_newer:
+        return node_status.last_gateway_id
+    if latest_position_ts is None or node_status.last_seen_at is None:
+        return None
+    if source is not None and node_status.last_source is not None and source != node_status.last_source:
+        return None
+    if packet_type is not None and node_status.last_packet_type is not None and packet_type != node_status.last_packet_type:
+        return None
+    if (
+        abs(_timestamp_value(latest_position_ts) - _timestamp_value(node_status.last_seen_at))
+        <= MESH_GATEWAY_METADATA_TOLERANCE_SECONDS
+    ):
+        return node_status.last_gateway_id
+    return None
 
 
 def mesh_status_for_seen_at(now: datetime, value: datetime | None) -> str:
@@ -244,7 +271,13 @@ def admin_debug_status(
             else "POSITION_APP" if latest_pos is not None
             else None
         )
-        last_gateway_id = node_status.last_gateway_id if node_status is not None and not latest_position_is_newer else None
+        last_gateway_id = _status_gateway_id_for_latest(
+            node_status,
+            latest_position_is_newer=latest_position_is_newer,
+            latest_position_ts=latest_pos_ts,
+            source=source,
+            packet_type=last_packet_type,
+        )
         registered_mesh_devices.append({
             "owner_user_id": owner_user_id,
             "owner_name": owner_name,

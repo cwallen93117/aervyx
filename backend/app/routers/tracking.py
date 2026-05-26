@@ -41,6 +41,41 @@ router = APIRouter(tags=["tracking"])
 
 MESH_STATUS_LIVE_SECONDS = 10 * 60
 MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
+MESH_GATEWAY_METADATA_TOLERANCE_SECONDS = 5 * 60
+
+
+def _timestamp_value(value: datetime | None) -> float:
+    if value is None:
+        return 0
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.timestamp()
+
+
+def _status_gateway_id_for_latest(
+    node_status: MeshNodeStatus | None,
+    *,
+    latest_position_is_newer: bool,
+    latest_position_ts: datetime | None,
+    source: str | None,
+    packet_type: str | None,
+) -> str | None:
+    if node_status is None or node_status.last_gateway_id is None:
+        return None
+    if not latest_position_is_newer:
+        return node_status.last_gateway_id
+    if latest_position_ts is None or node_status.last_seen_at is None:
+        return None
+    if source is not None and node_status.last_source is not None and source != node_status.last_source:
+        return None
+    if packet_type is not None and node_status.last_packet_type is not None and packet_type != node_status.last_packet_type:
+        return None
+    if (
+        abs(_timestamp_value(latest_position_ts) - _timestamp_value(node_status.last_seen_at))
+        <= MESH_GATEWAY_METADATA_TOLERANCE_SECONDS
+    ):
+        return node_status.last_gateway_id
+    return None
 
 
 def mesh_status_for_seen_at(now: datetime, value: datetime | None) -> str:
@@ -999,7 +1034,13 @@ def get_mesh_nodes(
             else "POSITION_APP" if row is not None
             else None
         )
-        last_gateway_id = node_status.last_gateway_id if node_status is not None and not latest_position_is_newer else None
+        last_gateway_id = _status_gateway_id_for_latest(
+            node_status,
+            latest_position_is_newer=latest_position_is_newer,
+            latest_position_ts=row.timestamp if row is not None else None,
+            source=source,
+            packet_type=last_packet_type,
+        )
         results.append(
             MeshNodeResponse(
                 device_id=device_id,
