@@ -24,6 +24,10 @@ production release.
 - Pilot live view now shows the active task name as the title and removes the Free flight chip.
 
 ### Fixed
+- **Mobile v0.4.33+50** fixes Bluetooth auto-reconnect startup when the app has
+  no saved reconnect target yet: after login/session restore it now looks for
+  system-connected, bonded, or nearby Meshtastic BLE devices and starts the
+  reconnect flow without requiring the user to open the Bluetooth pairing list.
 - **Meshtastic Provisioner v0.1.5** restores fixed setting labels and makes the profile headings (Pilot, Driver, Driver Wi-Fi, Base Station, and Wired Base Station) editable instead.
 - **Meshtastic Provisioner v0.1.4** simplifies the Profile Matrix toolbar to Save, Save As, and Load.
 - **Meshtastic Provisioner v0.1.3** keeps Profile Matrix column headings visible while scrolling, lets operators rename setting labels, and loads/reloads a specific saved matrix file instead of merging every candidate overlay.

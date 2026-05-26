@@ -61,6 +61,11 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
 
   void _handleAuthChanged() {
     if (!mounted) return;
+    if (_authService?.isLoggedIn == true) {
+      final ble = context.read<BleService>();
+      unawaited(ble.syncPlatformConfig());
+      unawaited(ble.restoreAutoReconnect());
+    }
     if (_authService?.user?.profileType == 'driver') return;
     final tracking = context.read<TrackingService>();
     if (tracking.isDriverTracking) {
