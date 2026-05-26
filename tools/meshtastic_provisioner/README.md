@@ -28,6 +28,6 @@ that local overlay into the packaged EXE when present.
 .\build_windows.ps1
 ```
 
-The output is `dist\AervyxMeshtasticProvisioner-0.1.4-win-x64.zip`. If the
+The output is `dist\AervyxMeshtasticProvisioner-0.1.5-win-x64.zip`. If the
 overlay contains fleet secrets, distribute it only through the admin-only
 provisioner release endpoint.

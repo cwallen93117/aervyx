@@ -13,7 +13,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import APP_NAME, APP_VERSION
 from .meshtastic_io import DeviceInfo, SettingComparison, apply_target, compare_target_changes, evaluate_readback, read_device_snapshot, scan_devices
-from .profiles import build_target_config, load_profile_bundle, load_saved_profile_bundle, matrix_label, profile_settings, required_placeholders, save_profile_bundle, user_profile_path
+from .profiles import build_target_config, load_profile_bundle, load_saved_profile_bundle, profile_label, profile_settings, required_placeholders, save_profile_bundle, user_profile_path
 from .schema import MATRIX_ROWS, POSITION_FLAGS, PROFILE_KEYS, PROFILE_LABELS, format_position_flags, get_path, set_path
 
 
@@ -63,7 +63,7 @@ class ProvisionerApp(tk.Tk):
         self.matrix_path_var = tk.StringVar(value=f"Saves to: {self.matrix_path}")
         self.rows: list[DeviceRow] = []
         self.matrix_vars: dict[tuple[str, str], tk.Variable] = {}
-        self.matrix_label_vars: dict[str, tk.StringVar] = {}
+        self.profile_label_vars: dict[str, tk.StringVar] = {}
         self.flag_buttons: dict[tuple[str, str], ttk.Button] = {}
         self.log_queue: queue.Queue[str] = queue.Queue()
         self._build_ui()
@@ -119,7 +119,7 @@ class ProvisionerApp(tk.Tk):
         for child in self.matrix_tab.winfo_children():
             child.destroy()
         self.matrix_vars.clear()
-        self.matrix_label_vars.clear()
+        self.profile_label_vars.clear()
         self.flag_buttons.clear()
 
         toolbar = ttk.Frame(self.matrix_tab)
@@ -149,9 +149,11 @@ class ProvisionerApp(tk.Tk):
         header.bind("<Configure>", lambda event: self._configure_matrix_header(header_canvas, event))
         grid.bind("<Configure>", lambda _event: body_canvas.configure(scrollregion=body_canvas.bbox("all")))
 
-        ttk.Label(header, text="Setting Label", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
+        ttk.Label(header, text="Setting", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="ew", padx=4, pady=3)
         for column, key in enumerate(PROFILE_KEYS, start=1):
-            ttk.Label(header, text=PROFILE_LABELS[key], font=("Segoe UI", 9, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=3)
+            label_var = tk.StringVar(value=profile_label(self.bundle, key))
+            self.profile_label_vars[key] = label_var
+            tk.Entry(header, textvariable=label_var, width=22, relief="solid", borderwidth=1, background="white", font=("Segoe UI", 9, "bold")).grid(row=0, column=column, sticky="ew", padx=4, pady=3)
             header.columnconfigure(column, minsize=170)
             grid.columnconfigure(column, minsize=170)
         header.columnconfigure(0, minsize=245)
@@ -171,9 +173,7 @@ class ProvisionerApp(tk.Tk):
                 )
                 last_group = row.group
                 grid_row += 1
-            label_var = tk.StringVar(value=matrix_label(self.bundle, row.path, row.label))
-            self.matrix_label_vars[row.path] = label_var
-            tk.Entry(grid, textvariable=label_var, width=30, relief="solid", borderwidth=1, background="white").grid(row=grid_row, column=0, sticky="ew", padx=4, pady=2)
+            ttk.Label(grid, text=row.label).grid(row=grid_row, column=0, sticky="w", padx=4, pady=2)
             for column, profile_key in enumerate(PROFILE_KEYS, start=1):
                 self._make_matrix_cell(grid, grid_row, column, profile_key, row)
             grid_row += 1
@@ -233,7 +233,7 @@ class ProvisionerApp(tk.Tk):
 
     def _open_flags_editor(self, profile_key: str, row, var: tk.IntVar) -> None:
         dialog = tk.Toplevel(self)
-        dialog.title(f"{PROFILE_LABELS[profile_key]} Position Flags")
+        dialog.title(f"{self._profile_label_for_key(profile_key)} Position Flags")
         dialog.transient(self)
         dialog.grab_set()
         checks: list[tuple[int, tk.BooleanVar]] = []
@@ -289,22 +289,20 @@ class ProvisionerApp(tk.Tk):
 
     def _matrix_bundle_from_ui(self) -> dict[str, Any]:
         next_bundle = deepcopy(self.bundle)
-        label_overrides: dict[str, str] = {}
         for profile_key in PROFILE_KEYS:
+            next_bundle["profiles"][profile_key]["label"] = self._profile_label_for_key(profile_key)
             settings = profile_settings(next_bundle, profile_key)
             for row in MATRIX_ROWS:
                 var = self.matrix_vars[(profile_key, row.path)]
                 set_path(settings, row.path, self._matrix_value(row.kind, var.get(), row.path))
             next_bundle["profiles"][profile_key]["settings"] = settings
-        for row in MATRIX_ROWS:
-            label = self.matrix_label_vars[row.path].get().strip()
-            if label and label != row.label:
-                label_overrides[row.path] = label
-        if label_overrides:
-            next_bundle["matrix_labels"] = label_overrides
-        else:
-            next_bundle.pop("matrix_labels", None)
+        next_bundle.pop("matrix_labels", None)
         return next_bundle
+
+    def _profile_label_for_key(self, profile_key: str) -> str:
+        var = self.profile_label_vars.get(profile_key)
+        label = var.get().strip() if var else ""
+        return label or PROFILE_LABELS[profile_key]
 
     def _matrix_value(self, kind: str, value: Any, path: str) -> Any:
         if kind == "boolean":

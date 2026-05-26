@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .schema import PROFILE_KEYS, format_position_flags, get_path
+from .schema import PROFILE_KEYS, PROFILE_LABELS, format_position_flags, get_path
 
 
 REQUIRED_PREFIX = "__REQUIRED_"
@@ -103,19 +103,17 @@ def save_profile_bundle(bundle: dict[str, Any], path: Path | None = None) -> Pat
         "app_version": bundle.get("app_version"),
         "profiles": bundle.get("profiles", {}),
     }
-    if bundle.get("matrix_labels"):
-        data["matrix_labels"] = bundle["matrix_labels"]
     path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=False), encoding="utf-8")
     return path
 
 
-def matrix_label(bundle: dict[str, Any], path: str, default: str) -> str:
-    labels = bundle.get("matrix_labels", {})
-    if isinstance(labels, dict):
-        label = str(labels.get(path, "")).strip()
+def profile_label(bundle: dict[str, Any], profile_key: str) -> str:
+    profile = bundle.get("profiles", {}).get(profile_key, {})
+    if isinstance(profile, dict):
+        label = str(profile.get("label", "")).strip()
         if label:
             return label
-    return default
+    return PROFILE_LABELS[profile_key]
 
 
 def _validate_bundle_shape(bundle: dict[str, Any]) -> None:
