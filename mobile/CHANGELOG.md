@@ -1,5 +1,15 @@
 # Aervyx Mobile Changelog
 
+## 0.4.31+48 - 2026-05-26
+
+### Added
+- Pilot and driver live maps now include a Map/Satellite selector and visible map scale bar.
+- Driver mode now auto-starts tracking and relaying on entry, with a full-screen map, center-on-GPS control, and pilot pickup details from marker bottom sheets.
+
+### Changed
+- Pilot live view now uses the active task name as the title and no longer shows the Free flight chip.
+- Profile type changes now use timestamp-based offline sync so local driver/pilot changes stay pending instead of rolling back when the device is offline.
+
 ## 0.4.30+47 - 2026-05-25
 
 ### Fixed

@@ -74,6 +74,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final tracking = context.watch<TrackingService>();
     final theme = Theme.of(context);
     final user = auth.user;
+    final profileSubtitle = user?.profileType == 'driver'
+        ? 'Start tracking immediately and relay pilot mesh points'
+        : 'Use takeoff detection and flight logging';
 
     return Scaffold(
       appBar: AppBar(title: const Text('Settings')),
@@ -145,9 +148,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 user?.profileType == 'driver' ? 'Driver mode' : 'Pilot mode',
               ),
               subtitle: Text(
-                user?.profileType == 'driver'
-                    ? 'Start tracking immediately and relay pilot mesh points'
-                    : 'Use takeoff detection and flight logging',
+                auth.profileTypeSyncPending
+                    ? '$profileSubtitle - Pending sync'
+                    : profileSubtitle,
               ),
               value: user?.profileType == 'driver',
               onChanged: _profileUpdating || user == null
@@ -158,6 +161,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       try {
                         await auth
                             .updateProfileType(enabled ? 'driver' : 'pilot');
+                        if (!enabled && tracking.isDriverTracking) {
+                          await tracking.stopTracking();
+                        }
                       } catch (_) {
                         if (mounted) {
                           messenger.showSnackBar(

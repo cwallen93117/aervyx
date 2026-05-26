@@ -62,11 +62,13 @@ class DriverService extends ChangeNotifier {
 
   final Map<int, DriverPilot> _pilots = {};
   StreamSubscription<String>? _sseSubscription;
+  Timer? _reconnectTimer;
   String? _taskName;
   int? _taskId;
   String? _error;
   bool _connected = false;
   bool _showAllPilots = false;
+  bool _closed = false;
 
   Map<int, DriverPilot> get pilots => Map.unmodifiable(_pilots);
   String? get taskName => _taskName;
@@ -93,6 +95,8 @@ class DriverService extends ChangeNotifier {
 
   /// Connect to the live SSE stream and fetch assigned pilots.
   Future<void> connect() async {
+    _closed = false;
+    _reconnectTimer?.cancel();
     try {
       // Get active task
       final taskJson = await _api.get(ApiConfig.activeTaskPath);
@@ -148,6 +152,7 @@ class DriverService extends ChangeNotifier {
   Set<int> _assignedIds = {};
 
   void _connectToSse() {
+    if (_closed || _taskId == null) return;
     _sseSubscription?.cancel();
 
     String? currentEvent;
@@ -178,9 +183,9 @@ class DriverService extends ChangeNotifier {
         _error = 'Connection lost';
         _connected = false;
         notifyListeners();
-        // Reconnect after 5 seconds
-        Future.delayed(const Duration(seconds: 5), () {
-          _connectToSse();
+        _reconnectTimer?.cancel();
+        _reconnectTimer = Timer(const Duration(seconds: 5), () {
+          if (!_closed && _taskId != null) _connectToSse();
         });
       },
       onDone: () {
@@ -270,8 +275,15 @@ class DriverService extends ChangeNotifier {
   }
 
   void disconnect() {
+    _closed = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _sseSubscription?.cancel();
     _sseSubscription = null;
+    _taskId = null;
+    _taskName = null;
+    _error = null;
+    _assignedIds = {};
     _connected = false;
     _pilots.clear();
     notifyListeners();

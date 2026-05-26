@@ -10,6 +10,7 @@ import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/ble_service.dart';
 import 'services/persistent_runtime_service.dart';
+import 'services/tracking_service.dart';
 import 'utils/app_shutdown.dart';
 import 'widgets/aervyx_logo.dart';
 
@@ -23,6 +24,7 @@ class AervyxApp extends StatefulWidget {
 class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   bool _runtimeStartRequested = false;
   bool _runtimeBatteryShutdownStarted = false;
+  AuthService? _authService;
   Timer? _runtimeBatteryTimer;
 
   @override
@@ -40,10 +42,30 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final auth = context.read<AuthService>();
+    if (_authService == auth) return;
+    _authService?.removeListener(_handleAuthChanged);
+    _authService = auth;
+    _authService?.addListener(_handleAuthChanged);
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _authService?.removeListener(_handleAuthChanged);
     _runtimeBatteryTimer?.cancel();
     super.dispose();
+  }
+
+  void _handleAuthChanged() {
+    if (!mounted) return;
+    if (_authService?.user?.profileType == 'driver') return;
+    final tracking = context.read<TrackingService>();
+    if (tracking.isDriverTracking) {
+      unawaited(tracking.stopTracking());
+    }
   }
 
   @override

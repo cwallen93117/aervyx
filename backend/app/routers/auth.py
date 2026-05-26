@@ -1,5 +1,7 @@
 import logging
 
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
@@ -58,6 +60,22 @@ VALID_MESH_DEVICE_PURPOSES = {"tracking", "base_station", "driver_wifi", "driver
 TRACKING_MESH_PURPOSE = "tracking"
 
 
+def _now_utc() -> datetime:
+    return datetime.now(UTC)
+
+
+def _as_utc(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.min.replace(tzinfo=UTC)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def _profile_type_updated_at(user: User) -> datetime:
+    return _as_utc(user.profile_type_updated_at or user.created_at or _now_utc())
+
+
 def _is_valid_email(value: str) -> bool:
     candidate = value.strip()
     if not candidate or "@" not in candidate:
@@ -113,6 +131,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         full_name=user.full_name,
         role=user.role,
         profile_type=user.profile_type,
+        profile_type_updated_at=_profile_type_updated_at(user),
         altitude_unit=user.altitude_unit,
         speed_unit=user.speed_unit,
         distance_unit=user.distance_unit,
@@ -565,6 +584,9 @@ def update_settings(
     if existing_user is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username / email is already in use")
 
+    if user.profile_type != profile_type:
+        user.profile_type_updated_at = _now_utc()
+
     user.username = username
     user.full_name = full_name
     user.profile_type = profile_type
@@ -609,7 +631,11 @@ def update_preferences(
         profile_type = payload.profile_type.strip().lower()
         if profile_type not in VALID_PROFILE_TYPES:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or driver for the current type")
-        user.profile_type = profile_type
+        incoming_updated_at = _as_utc(payload.profile_type_updated_at or _now_utc())
+        current_updated_at = _profile_type_updated_at(user)
+        if incoming_updated_at >= current_updated_at:
+            user.profile_type = profile_type
+            user.profile_type_updated_at = incoming_updated_at
 
     if payload.altitude_unit is not None:
         altitude_unit = payload.altitude_unit.strip().lower()
@@ -1017,6 +1043,7 @@ def list_users(admin: User = Depends(require_admin), session: Session = Depends(
             last_name=pilots[user.pilot_id].last_name if user.pilot_id and user.pilot_id in pilots else None,
             role=user.role,
             profile_type=user.profile_type,
+            profile_type_updated_at=_profile_type_updated_at(user),
             pilot_id=user.pilot_id,
             email=pilots[user.pilot_id].email if user.pilot_id and user.pilot_id in pilots else None,
             pilot_name=(
@@ -1055,6 +1082,8 @@ def update_user_account(
         admin_count = session.scalar(select(func.count()).select_from(User).where(User.role == "admin", User.is_active.is_(True))) or 0
         if admin_count <= 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="At least one active admin account must remain")
+    if target.profile_type != profile_type:
+        target.profile_type_updated_at = _now_utc()
     target.role = role
     target.profile_type = profile_type
     target.is_active = payload.is_active
@@ -1070,6 +1099,7 @@ def update_user_account(
         last_name=pilot.last_name if pilot else None,
         role=target.role,
         profile_type=target.profile_type,
+        profile_type_updated_at=_profile_type_updated_at(target),
         pilot_id=target.pilot_id,
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
@@ -1167,6 +1197,7 @@ def admin_set_user_mesh_device(
         last_name=pilot.last_name if pilot else None,
         role=target.role,
         profile_type=target.profile_type,
+        profile_type_updated_at=_profile_type_updated_at(target),
         pilot_id=target.pilot_id,
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
@@ -1207,6 +1238,7 @@ def update_user_credentials(
         last_name=pilot.last_name if pilot else None,
         role=target.role,
         profile_type=target.profile_type,
+        profile_type_updated_at=_profile_type_updated_at(target),
         pilot_id=target.pilot_id,
         email=pilot.email if pilot else None,
         pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import DriverAssignment, Event, LivePosition, MeshDevice, Pilot, Task, TrackingSession, User
-from app.routers.auth import update_preferences
+from app.routers.auth import me, update_preferences
 from app.routers.public import public_event_positions
 from app.routers.tracking import PositionPayload, get_active_task, post_position
 from app.schemas import AccountPreferencesUpdate
@@ -18,6 +18,12 @@ def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _active_task_with_driver(session: Session) -> tuple[Task, User, Pilot]:
@@ -66,9 +72,89 @@ def test_mobile_preferences_updates_profile_and_units_without_full_settings_form
 
     session.refresh(user)
     assert response.profile_type == "driver"
+    assert response.profile_type_updated_at is not None
     assert response.altitude_unit == "m"
     assert user.profile_type == "driver"
     assert user.altitude_unit == "m"
+
+
+def test_me_response_includes_profile_type_timestamp() -> None:
+    session = _session()
+    updated_at = datetime(2026, 5, 24, 12, 0, tzinfo=UTC)
+    user = User(
+        username="pilot@example.com",
+        full_name="Pilot User",
+        role="pilot",
+        profile_type="pilot",
+        profile_type_updated_at=updated_at,
+    )
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    response = me(user)
+
+    assert _utc(response.profile_type_updated_at) == updated_at
+
+
+def test_mobile_preferences_newer_profile_timestamp_updates_server() -> None:
+    session = _session()
+    stored_at = datetime(2026, 5, 24, 12, 0, tzinfo=UTC)
+    incoming_at = stored_at + timedelta(minutes=5)
+    user = User(
+        username="pilot@example.com",
+        full_name="Pilot User",
+        role="pilot",
+        profile_type="pilot",
+        profile_type_updated_at=stored_at,
+    )
+    session.add(user)
+    session.commit()
+
+    response = update_preferences(
+        AccountPreferencesUpdate(
+            profile_type="driver",
+            profile_type_updated_at=incoming_at,
+        ),
+        user,
+        session,
+    )
+
+    session.refresh(user)
+    assert response.profile_type == "driver"
+    assert _utc(response.profile_type_updated_at) == incoming_at
+    assert user.profile_type == "driver"
+    assert _utc(user.profile_type_updated_at) == incoming_at
+
+
+def test_mobile_preferences_stale_profile_timestamp_is_ignored() -> None:
+    session = _session()
+    stored_at = datetime(2026, 5, 24, 12, 0, tzinfo=UTC)
+    stale_at = stored_at - timedelta(hours=1)
+    user = User(
+        username="driver@example.com",
+        full_name="Driver User",
+        role="pilot",
+        profile_type="driver",
+        profile_type_updated_at=stored_at,
+    )
+    session.add(user)
+    session.commit()
+
+    response = update_preferences(
+        AccountPreferencesUpdate(
+            profile_type="pilot",
+            profile_type_updated_at=stale_at,
+        ),
+        user,
+        session,
+    )
+
+    session.refresh(user)
+    assert response.profile_type == "driver"
+    assert _utc(response.profile_type_updated_at) == stored_at
+    assert user.profile_type == "driver"
+    assert _utc(user.profile_type_updated_at) == stored_at
 
 
 def test_driver_active_task_prefers_driver_assignment_for_non_pilot_account() -> None:

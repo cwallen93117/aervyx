@@ -2,13 +2,14 @@ import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } f
 
 export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
-export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; pilot_id: number | null };
+export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; profile_type_updated_at: string; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
 export type AccountSettingsRecord = {
   username: string;
   full_name: string;
   role: "admin" | "organizer" | "pilot";
   profile_type: "pilot" | "driver";
+  profile_type_updated_at: string;
   altitude_unit: "ft" | "m";
   speed_unit: "kph" | "mph";
   distance_unit: "km" | "mi";
@@ -32,6 +33,7 @@ export type AdminUserRecord = {
   last_name: string | null;
   role: "admin" | "organizer" | "pilot";
   profile_type: "pilot" | "driver";
+  profile_type_updated_at: string;
   pilot_id: number | null;
   email: string | null;
   pilot_name: string | null;

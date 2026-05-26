@@ -4,6 +4,7 @@ class User {
   final String fullName;
   final String role;
   final String profileType;
+  final DateTime profileTypeUpdatedAt;
   final int? pilotId;
 
   // Unit preferences — synced from backend
@@ -12,18 +13,28 @@ class User {
   final String distanceUnit; // 'km' or 'mi'
   final String varioUnit; // 'ms' or 'fpm'
 
-  const User({
+  User({
     required this.id,
     required this.username,
     required this.fullName,
     required this.role,
     required this.profileType,
+    DateTime? profileTypeUpdatedAt,
     this.pilotId,
     this.altitudeUnit = 'ft',
     this.speedUnit = 'kph',
     this.distanceUnit = 'km',
     this.varioUnit = 'fpm',
-  });
+  }) : profileTypeUpdatedAt = profileTypeUpdatedAt ??
+            DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+
+  static DateTime _parseProfileTypeUpdatedAt(Object? value) {
+    if (value is String && value.isNotEmpty) {
+      final parsed = DateTime.tryParse(value);
+      if (parsed != null) return parsed.toUtc();
+    }
+    return DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+  }
 
   factory User.fromJson(Map<String, dynamic> json) => User(
         id: json['id'] as int,
@@ -31,6 +42,8 @@ class User {
         fullName: json['full_name'] as String,
         role: json['role'] as String,
         profileType: json['profile_type'] as String,
+        profileTypeUpdatedAt:
+            _parseProfileTypeUpdatedAt(json['profile_type_updated_at']),
         pilotId: json['pilot_id'] as int?,
         altitudeUnit: json['altitude_unit'] as String? ?? 'ft',
         speedUnit: json['speed_unit'] as String? ?? 'kph',
@@ -45,6 +58,8 @@ class User {
         'full_name': fullName,
         'role': role,
         'profile_type': profileType,
+        'profile_type_updated_at':
+            profileTypeUpdatedAt.toUtc().toIso8601String(),
         if (pilotId != null) 'pilot_id': pilotId,
         'altitude_unit': altitudeUnit,
         'speed_unit': speedUnit,
@@ -55,6 +70,7 @@ class User {
   /// Create a copy with updated unit preferences.
   User copyWith({
     String? profileType,
+    DateTime? profileTypeUpdatedAt,
     String? altitudeUnit,
     String? speedUnit,
     String? distanceUnit,
@@ -66,6 +82,7 @@ class User {
         fullName: fullName,
         role: role,
         profileType: profileType ?? this.profileType,
+        profileTypeUpdatedAt: profileTypeUpdatedAt ?? this.profileTypeUpdatedAt,
         pilotId: pilotId,
         altitudeUnit: altitudeUnit ?? this.altitudeUnit,
         speedUnit: speedUnit ?? this.speedUnit,

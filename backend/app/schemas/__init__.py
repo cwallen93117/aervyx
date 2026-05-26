@@ -35,6 +35,7 @@ class UserSummary(BaseModel):
     full_name: str
     role: str
     profile_type: str
+    profile_type_updated_at: datetime
     altitude_unit: str = "ft"
     speed_unit: str = "kph"
     distance_unit: str = "km"
@@ -60,6 +61,7 @@ class AccountSettingsResponse(BaseModel):
     full_name: str
     role: str
     profile_type: str
+    profile_type_updated_at: datetime
     altitude_unit: str = "ft"
     speed_unit: str = "kph"
     distance_unit: str = "km"
@@ -99,6 +101,7 @@ class AccountSettingsUpdate(BaseModel):
 
 class AccountPreferencesUpdate(BaseModel):
     profile_type: str | None = None
+    profile_type_updated_at: datetime | None = None
     altitude_unit: str | None = None
     speed_unit: str | None = None
     distance_unit: str | None = None
@@ -151,6 +154,7 @@ class AdminUserResponse(BaseModel):
     last_name: str | None = None
     role: str
     profile_type: str
+    profile_type_updated_at: datetime
     pilot_id: int | None
     email: str | None = None
     pilot_name: str | None = None

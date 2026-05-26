@@ -11,6 +11,7 @@ import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/tracking_service.dart';
+import '../widgets/live_map_style.dart';
 import '../widgets/map_scale_bar.dart';
 
 /// A pilot position received from the backend.
@@ -65,6 +66,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   bool _initialCenterDone = false;
   bool _userPanned = false;
   bool _followUser = false;
+  LiveMapStyle _mapStyle = LiveMapStyle.map;
   LatLng? _userPosition;
 
   @override
@@ -373,7 +375,8 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: _mapStyle.urlTemplate,
+                maxZoom: _mapStyle.maxZoom,
                 userAgentPackageName: 'com.aervyx.aervyx_mobile',
               ),
               MarkerLayer(
@@ -411,7 +414,12 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                     ),
                 ],
               ),
-              const AppMapScaleBar(),
+              AppMapScaleBar(
+                padding: EdgeInsets.only(
+                  left: 12,
+                  bottom: 12 + MediaQuery.of(context).padding.bottom,
+                ),
+              ),
             ],
           ),
 
@@ -426,12 +434,16 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   icon: Icons.people,
                   text: '$pilotCount tracker${pilotCount == 1 ? '' : 's'} live',
                 ),
-                if (!_hasActiveTask)
-                  const _InfoChip(
-                    icon: Icons.flight_takeoff,
-                    text: 'Free flight',
-                  ),
               ],
+            ),
+          ),
+
+          Positioned(
+            top: 12,
+            right: 12,
+            child: LiveMapStyleDropdown(
+              value: _mapStyle,
+              onChanged: (style) => setState(() => _mapStyle = style),
             ),
           ),
 

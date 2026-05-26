@@ -495,6 +495,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     full_name: "",
     role: "pilot",
     profile_type: "pilot",
+    profile_type_updated_at: new Date(0).toISOString(),
     altitude_unit: "ft",
     speed_unit: "kph",
     distance_unit: "km",
@@ -1793,6 +1794,7 @@ export default function HomePage() {
         full_name: payload.full_name,
         role: payload.role,
         profile_type: payload.profile_type,
+        profile_type_updated_at: payload.profile_type_updated_at,
         altitude_unit: payload.altitude_unit,
         speed_unit: payload.speed_unit,
         distance_unit: payload.distance_unit,
@@ -1811,7 +1813,7 @@ export default function HomePage() {
         document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=2592000; SameSite=Lax`;
         setToken(payload.access_token);
       }
-      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, role: payload.role, profile_type: payload.profile_type } : current));
+      setUser((current) => (current ? { ...current, username: payload.username, full_name: payload.full_name, role: payload.role, profile_type: payload.profile_type, profile_type_updated_at: payload.profile_type_updated_at } : current));
       setSettingsFeedback((current) => ({ ...current, profile: { type: "success", text: "Account settings saved." } }));
     } catch (caught) {
       setSettingsFeedback((current) => ({

@@ -10,21 +10,118 @@ import 'api_service.dart';
 
 /// Handles login, registration, token persistence, and session state.
 class AuthService extends ChangeNotifier {
+  static const _tokenKey = 'access_token';
+  static const _cachedUserKey = 'cached_user';
+  static const _pendingProfileTypeKey = 'pending_profile_type';
+
   final ApiService _api;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
 
   User? _user;
   bool _loading = true;
+  bool _profileTypeSyncPending = false;
 
   User? get user => _user;
   bool get isLoggedIn => _user != null;
   bool get loading => _loading;
   String? get token => _api.token;
+  bool get profileTypeSyncPending => _profileTypeSyncPending;
 
   AuthService(this._api);
 
   Future<void> _cacheUser(User user) async {
-    await _storage.write(key: 'cached_user', value: jsonEncode(user.toJson()));
+    await _storage.write(key: _cachedUserKey, value: jsonEncode(user.toJson()));
+  }
+
+  Future<User?> _readCachedUser() async {
+    try {
+      final cachedJson = await _storage.read(key: _cachedUserKey);
+      if (cachedJson == null) return null;
+      return User.fromJson(jsonDecode(cachedJson) as Map<String, dynamic>);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<_PendingProfileType?> _readPendingProfileType() async {
+    try {
+      final raw = await _storage.read(key: _pendingProfileTypeKey);
+      if (raw == null) return null;
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      final profileType =
+          (json['profile_type'] as String?)?.trim().toLowerCase();
+      final updatedAtRaw = json['profile_type_updated_at'] as String?;
+      final updatedAt =
+          updatedAtRaw == null ? null : DateTime.tryParse(updatedAtRaw);
+      if ((profileType != 'pilot' && profileType != 'driver') ||
+          updatedAt == null) {
+        await _storage.delete(key: _pendingProfileTypeKey);
+        return null;
+      }
+      return _PendingProfileType(profileType!, updatedAt.toUtc());
+    } catch (_) {
+      await _storage.delete(key: _pendingProfileTypeKey);
+      return null;
+    }
+  }
+
+  Future<void> _writePendingProfileType(
+    String profileType,
+    DateTime updatedAt,
+  ) async {
+    await _storage.write(
+      key: _pendingProfileTypeKey,
+      value: jsonEncode({
+        'profile_type': profileType,
+        'profile_type_updated_at': updatedAt.toUtc().toIso8601String(),
+      }),
+    );
+    _profileTypeSyncPending = true;
+  }
+
+  Future<void> _clearPendingProfileType() async {
+    await _storage.delete(key: _pendingProfileTypeKey);
+    _profileTypeSyncPending = false;
+  }
+
+  Future<void> _refreshPendingProfileFlag() async {
+    _profileTypeSyncPending =
+        await _storage.read(key: _pendingProfileTypeKey) != null;
+  }
+
+  Future<bool> _tryFlushPendingProfileType({
+    bool notify = true,
+    Duration? timeout,
+  }) async {
+    if (_user == null || isBleTestMode) return true;
+    final pending = await _readPendingProfileType();
+    if (pending == null) {
+      final changed = _profileTypeSyncPending;
+      _profileTypeSyncPending = false;
+      if (changed && notify) notifyListeners();
+      return true;
+    }
+
+    _profileTypeSyncPending = true;
+    try {
+      final request = _api.patch(ApiConfig.preferencesPath, body: {
+        'profile_type': pending.profileType,
+        'profile_type_updated_at': pending.updatedAt.toIso8601String(),
+      });
+      final json =
+          timeout == null ? await request : await request.timeout(timeout);
+      final serverUser = User.fromJson(json);
+
+      await _clearPendingProfileType();
+      _user = serverUser;
+      await _cacheUser(serverUser);
+      if (notify) notifyListeners();
+      return true;
+    } catch (_) {
+      _profileTypeSyncPending = true;
+      if (notify) notifyListeners();
+      return false;
+    }
   }
 
   /// Try to restore a saved session on app start.
@@ -36,32 +133,41 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final savedToken = await _storage.read(key: 'access_token');
+      final savedToken = await _storage.read(key: _tokenKey);
+      final cachedUser = await _readCachedUser();
       if (savedToken != null) {
         _api.setToken(savedToken);
+        if (cachedUser != null) {
+          _user = cachedUser;
+        }
+        await _refreshPendingProfileFlag();
+        if (_profileTypeSyncPending && _user != null) {
+          await _tryFlushPendingProfileType(
+            notify: false,
+            timeout: const Duration(seconds: 3),
+          );
+        }
+
         try {
-          final json = await _api
-              .get(ApiConfig.mePath)
-              .timeout(const Duration(seconds: 3));
-          _user = User.fromJson(json);
-          // Cache the fresh profile for offline use
-          await _cacheUser(_user!);
+          if (!_profileTypeSyncPending || _user == null) {
+            final json = await _api
+                .get(ApiConfig.mePath)
+                .timeout(const Duration(seconds: 3));
+            _user = User.fromJson(json);
+            await _cacheUser(_user!);
+          }
         } catch (_) {
-          // Backend unreachable — try cached profile instead of clearing token.
-          // The pilot may be at launch with no cell service.
-          final cachedJson = await _storage.read(key: 'cached_user');
-          if (cachedJson != null) {
-            _user =
-                User.fromJson(jsonDecode(cachedJson) as Map<String, dynamic>);
+          // Backend unreachable: keep cached profile when available.
+          if (cachedUser != null) {
+            _user = cachedUser;
           } else {
-            // No cached profile and no backend — clear token, force login
-            await _storage.delete(key: 'access_token');
+            await _storage.delete(key: _tokenKey);
             _api.setToken(null);
           }
         }
       }
     } catch (_) {
-      // Secure storage or other init failure — proceed to login screen.
+      // Secure storage or other init failure: proceed to login screen.
     }
 
     _loading = false;
@@ -76,8 +182,8 @@ class AuthService extends ChangeNotifier {
     }).timeout(const Duration(seconds: 45));
     final auth = AuthToken.fromJson(json);
     _api.setToken(auth.accessToken);
-    await _storage.write(key: 'access_token', value: auth.accessToken);
-    // Cache profile for offline restarts
+    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    await _clearPendingProfileType();
     await _cacheUser(auth.user);
     _user = auth.user;
     notifyListeners();
@@ -103,7 +209,8 @@ class AuthService extends ChangeNotifier {
     });
     final auth = AuthToken.fromJson(json);
     _api.setToken(auth.accessToken);
-    await _storage.write(key: 'access_token', value: auth.accessToken);
+    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    await _clearPendingProfileType();
     _user = auth.user;
     await _cacheUser(auth.user);
     notifyListeners();
@@ -116,16 +223,17 @@ class AuthService extends ChangeNotifier {
     });
     final auth = AuthToken.fromJson(json);
     _api.setToken(auth.accessToken);
-    await _storage.write(key: 'access_token', value: auth.accessToken);
+    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    await _clearPendingProfileType();
     _user = auth.user;
     await _cacheUser(auth.user);
     notifyListeners();
   }
 
-  /// Enter BLE test mode — bypasses login with a local-only user.
+  /// Enter BLE test mode: bypasses login with a local-only user.
   /// Tracking/backend features won't work, but BLE pairing will.
   void enterBleTestMode() {
-    _user = const User(
+    _user = User(
       id: 0,
       username: 'ble-test',
       fullName: 'BLE Test Mode',
@@ -156,13 +264,15 @@ class AuthService extends ChangeNotifier {
     notifyListeners();
 
     // Try to sync to backend (fire-and-forget)
-    _syncUnitsToBackend();
+    unawaited(_syncUnitsToBackend());
   }
 
   /// Refresh profile settings from the backend so website changes sync into
   /// the app while preserving offline tolerance.
   Future<void> refreshUserProfile() async {
     if (_user == null || isBleTestMode) return;
+    final flushed = await _tryFlushPendingProfileType();
+    if (!flushed) return;
     final json = await _api.get(ApiConfig.mePath);
     _user = User.fromJson(json);
     await _cacheUser(_user!);
@@ -176,23 +286,19 @@ class AuthService extends ChangeNotifier {
     if (normalized != 'pilot' && normalized != 'driver') {
       throw ArgumentError('profileType must be pilot or driver');
     }
-    final previous = _user!;
-    _user = previous.copyWith(profileType: normalized);
+
+    final updatedAt = DateTime.now().toUtc();
+    _user = _user!.copyWith(
+      profileType: normalized,
+      profileTypeUpdatedAt: updatedAt,
+    );
+    await _writePendingProfileType(normalized, updatedAt);
     await _cacheUser(_user!);
     notifyListeners();
-    try {
-      final json = await _api.patch(ApiConfig.preferencesPath, body: {
-        'profile_type': normalized,
-      });
-      _user = User.fromJson(json);
-      await _cacheUser(_user!);
-      notifyListeners();
-    } catch (_) {
-      _user = previous;
-      await _cacheUser(previous);
-      notifyListeners();
-      rethrow;
-    }
+
+    await _tryFlushPendingProfileType(
+      timeout: const Duration(seconds: 5),
+    );
   }
 
   Future<void> _syncUnitsToBackend() async {
@@ -206,7 +312,7 @@ class AuthService extends ChangeNotifier {
       });
       await _cacheUser(_user!);
     } catch (_) {
-      // Backend unreachable — local change is kept
+      // Backend unreachable: local change is kept.
     }
   }
 
@@ -214,8 +320,16 @@ class AuthService extends ChangeNotifier {
   Future<void> logout() async {
     _api.setToken(null);
     _user = null;
-    await _storage.delete(key: 'access_token');
-    await _storage.delete(key: 'cached_user');
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _cachedUserKey);
+    await _clearPendingProfileType();
     notifyListeners();
   }
+}
+
+class _PendingProfileType {
+  final String profileType;
+  final DateTime updatedAt;
+
+  const _PendingProfileType(this.profileType, this.updatedAt);
 }

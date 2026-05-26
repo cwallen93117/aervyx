@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import UTC, date, datetime
 from unittest.mock import patch
 
 from sqlalchemy import select
@@ -31,6 +31,12 @@ def _request() -> Request:
             "client": ("testclient", 50000),
         }
     )
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def test_register_links_existing_pilot_by_email() -> None:
@@ -215,7 +221,15 @@ def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> 
 def test_update_settings_updates_pilot_profile_and_username_email() -> None:
     session = _session()
     pilot = Pilot(first_name="Robin", last_name="Wing", email="robin@example.com", nation="US")
-    user = User(username="robin@example.com", full_name="Robin Wing", role="pilot", password_hash="hash", pilot_id=None)
+    previous_profile_type_updated_at = datetime(2026, 5, 24, 12, 0, tzinfo=UTC)
+    user = User(
+        username="robin@example.com",
+        full_name="Robin Wing",
+        role="pilot",
+        password_hash="hash",
+        pilot_id=None,
+        profile_type_updated_at=previous_profile_type_updated_at,
+    )
     session.add_all([pilot, user])
     session.commit()
     user.pilot_id = pilot.id
@@ -241,8 +255,10 @@ def test_update_settings_updates_pilot_profile_and_username_email() -> None:
     session.refresh(pilot)
     assert response.username == "pilot@example.com"
     assert response.profile_type == "driver"
+    assert _utc(response.profile_type_updated_at) > previous_profile_type_updated_at
     assert user.username == "pilot@example.com"
     assert user.profile_type == "driver"
+    assert _utc(user.profile_type_updated_at) > previous_profile_type_updated_at
     assert pilot.email == "pilot@example.com"
     assert pilot.nation == "USA"
     assert pilot.competition_number == "77"
@@ -384,7 +400,15 @@ def test_change_password_requires_current_password() -> None:
 def test_admin_can_update_user_role_and_profile_type() -> None:
     session = _session()
     admin = User(username="admin", full_name="Admin User", role="admin", profile_type="pilot", password_hash="hash")
-    target = User(username="pilot@example.com", full_name="Pilot User", role="pilot", profile_type="pilot", password_hash="hash")
+    previous_profile_type_updated_at = datetime(2026, 5, 24, 12, 0, tzinfo=UTC)
+    target = User(
+        username="pilot@example.com",
+        full_name="Pilot User",
+        role="pilot",
+        profile_type="pilot",
+        password_hash="hash",
+        profile_type_updated_at=previous_profile_type_updated_at,
+    )
     session.add_all([admin, target])
     session.commit()
 
@@ -399,3 +423,5 @@ def test_admin_can_update_user_role_and_profile_type() -> None:
     assert response.role == "organizer"
     assert target.role == "organizer"
     assert target.profile_type == "driver"
+    assert _utc(target.profile_type_updated_at) > previous_profile_type_updated_at
+    assert _utc(response.profile_type_updated_at) > previous_profile_type_updated_at

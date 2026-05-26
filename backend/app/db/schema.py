@@ -534,6 +534,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
         if "users" in table_names and "profile_type" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN profile_type VARCHAR(20) DEFAULT 'pilot'"))
             connection.execute(text("UPDATE users SET profile_type = 'pilot' WHERE profile_type IS NULL"))
+        if "users" in table_names and "profile_type_updated_at" not in user_columns:
+            if dialect_name == "sqlite":
+                connection.execute(text("ALTER TABLE users ADD COLUMN profile_type_updated_at TIMESTAMP"))
+            else:
+                connection.execute(text("ALTER TABLE users ADD COLUMN profile_type_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
+            connection.execute(text("UPDATE users SET profile_type_updated_at = CURRENT_TIMESTAMP"))
         if "users" in table_names and "altitude_unit" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN altitude_unit VARCHAR(10) DEFAULT 'ft'"))
         if "users" in table_names and "speed_unit" not in user_columns:
@@ -555,6 +561,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("UPDATE users SET distance_unit = 'km' WHERE distance_unit IS NULL"))
             connection.execute(text("UPDATE users SET vario_unit = 'fpm' WHERE vario_unit IS NULL"))
             connection.execute(text("UPDATE users SET aircraft_icon = 'hang_glider' WHERE aircraft_icon IS NULL"))
+            connection.execute(text("UPDATE users SET profile_type_updated_at = CURRENT_TIMESTAMP WHERE profile_type_updated_at IS NULL"))
         for column_name, statement in statements.items():
             if column_name not in event_columns:
                 connection.execute(text(statement))
@@ -851,3 +858,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
             faa_airspace_meta_columns = {column["name"] for column in inspector.get_columns("faa_airspace_meta")}
             if "last_checked_at" not in faa_airspace_meta_columns:
                 connection.execute(text("ALTER TABLE faa_airspace_meta ADD COLUMN last_checked_at TIMESTAMP WITH TIME ZONE"))
+
+        if "users" in table_names:
+            connection.execute(text("UPDATE users SET profile_type_updated_at = CURRENT_TIMESTAMP WHERE profile_type_updated_at IS NULL"))

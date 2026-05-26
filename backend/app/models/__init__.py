@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 
 from sqlalchemy import Boolean, Date, DateTime, Double, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -18,6 +18,11 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(160))
     role: Mapped[str] = mapped_column(String(20), index=True)
     profile_type: Mapped[str] = mapped_column(String(20), default="pilot")
+    profile_type_updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        server_default=func.now(),
+    )
     altitude_unit: Mapped[str] = mapped_column(String(10), default="ft")
     speed_unit: Mapped[str] = mapped_column(String(10), default="kph")
     distance_unit: Mapped[str] = mapped_column(String(10), default="km")

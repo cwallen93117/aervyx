@@ -13,6 +13,15 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.26]
+
+### Added
+- **Mobile v0.4.31+48** adds Map/Satellite selectors and visible scale bars to pilot and driver live maps, makes driver mode a full-screen always-on tracking map, and opens pilot pickup/navigation details from marker bottom sheets.
+
+### Changed
+- Mobile profile type changes now use latest-timestamp-wins offline sync, keeping local Pilot/Driver changes pending until they can be reconciled with website settings.
+- Pilot live view now shows the active task name as the title and removes the Free flight chip.
+
 ## [2026.05.25]
 
 ### Added

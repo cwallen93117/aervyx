@@ -3,6 +3,7 @@ import os
 os.environ.setdefault("APP_SECRET_KEY", "runtime-schema-test-secret-key")
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.pool import StaticPool
 
 from app.db.schema import ensure_runtime_schema
 
@@ -133,3 +134,101 @@ def test_runtime_schema_normalizes_legacy_public_mqtt_values() -> None:
     assert row.mqtt_host is None
     assert row.mqtt_username is None
     assert row.mqtt_password is None
+
+
+def test_runtime_schema_adds_profile_type_timestamp_to_legacy_users() -> None:
+    engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE users (
+                  id INTEGER PRIMARY KEY,
+                  username VARCHAR(255),
+                  full_name VARCHAR(160),
+                  role VARCHAR(20),
+                  profile_type VARCHAR(20),
+                  mesh_device_id VARCHAR(80),
+                  password_hash VARCHAR(255),
+                  is_active BOOLEAN
+                )
+                """
+            )
+        )
+        connection.execute(text("CREATE TABLE events (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE tasks (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE task_points (id INTEGER PRIMARY KEY, point_type VARCHAR(20))"))
+        connection.execute(text("CREATE TABLE score_results (id INTEGER PRIMARY KEY, upload_id INTEGER, score_points FLOAT)"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE faa_airspace_features (
+                  id INTEGER PRIMARY KEY,
+                  source VARCHAR(10),
+                  category VARCHAR(10),
+                  name VARCHAR(200),
+                  min_lat FLOAT,
+                  max_lat FLOAT,
+                  min_lon FLOAT,
+                  max_lon FLOAT,
+                  geometry_json JSON
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE faa_airspace_meta (
+                  id INTEGER PRIMARY KEY,
+                  source VARCHAR(10),
+                  last_edit_date VARCHAR(40),
+                  record_count INTEGER,
+                  last_fetched_at TIMESTAMP
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO users (
+                  username,
+                  full_name,
+                  role,
+                  profile_type,
+                  password_hash,
+                  is_active
+                )
+                VALUES (
+                  'driver@example.com',
+                  'Driver User',
+                  'pilot',
+                  'driver',
+                  'hash',
+                  TRUE
+                )
+                """
+            )
+        )
+
+    ensure_runtime_schema(engine)
+
+    columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    assert "profile_type_updated_at" in columns
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT profile_type_updated_at
+                FROM users
+                WHERE username = 'driver@example.com'
+                """
+            )
+        ).one()
+    assert row.profile_type_updated_at is not None
