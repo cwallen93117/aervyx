@@ -26,12 +26,13 @@ python -m PyInstaller `
   --noconfirm `
   --windowed `
   --name $Name `
+  --specpath $BuildDir `
   --distpath $DistDir `
   --workpath $BuildDir `
   --add-data "$TempResources;provisioner/resources" `
   "$PSScriptRoot\provisioner\__main__.py"
 
-$ZipPath = Join-Path $DistDir "$Name-0.1.1-win-x64.zip"
+$ZipPath = Join-Path $DistDir "$Name-0.1.2-win-x64.zip"
 if (Test-Path $ZipPath) {
   Remove-Item -Force -LiteralPath $ZipPath
 }

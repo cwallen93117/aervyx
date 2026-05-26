@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable, Any
@@ -12,6 +12,7 @@ from google.protobuf.json_format import MessageToDict
 from serial.tools import list_ports
 
 from .profiles import decode_psk, encode_psk, required_placeholders
+from .schema import MATRIX_ROWS, get_path
 
 
 LogCallback = Callable[[str], None]
@@ -45,6 +46,16 @@ class DeviceInfo:
     uplink_enabled: bool
     downlink_enabled: bool
     status: str = "Ready"
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class SettingComparison:
+    path: str
+    current: Any
+    revised: Any
+    actual: Any = None
+    ok: bool | None = None
     error: str = ""
 
 
@@ -161,10 +172,59 @@ def _channel_summary(interface: Any) -> dict[str, Any]:
     settings = channel.settings
     psk = bytes(settings.psk)
     return {
+        "name": str(getattr(settings, "name", "") or ""),
         "psk": encode_psk(psk),
         "uplink_enabled": bool(settings.uplink_enabled),
         "downlink_enabled": bool(settings.downlink_enabled),
     }
+
+
+def read_device_snapshot(port: str, timeout: int = 15) -> dict[str, Any]:
+    import meshtastic.serial_interface
+
+    interface = meshtastic.serial_interface.SerialInterface(devPath=port, noNodes=True, timeout=timeout)
+    try:
+        return device_snapshot(interface)
+    finally:
+        interface.close()
+
+
+def device_snapshot(interface: Any) -> dict[str, Any]:
+    return {
+        "owner": interface.getLongName() or "",
+        "owner_short": interface.getShortName() or "",
+        "config": _message_dict(interface.localNode.localConfig),
+        "module_config": _message_dict(interface.localNode.moduleConfig),
+        "channel": {"primary": _channel_summary(interface)},
+    }
+
+
+def compare_target_changes(current: dict[str, Any], target: dict[str, Any]) -> list[SettingComparison]:
+    changes: list[SettingComparison] = []
+    for path in _review_paths(target):
+        revised = get_path(target, path, None)
+        current_value = get_path(current, path, "")
+        if not _values_match(path, current_value, revised):
+            changes.append(SettingComparison(path=path, current=current_value, revised=revised))
+    return changes
+
+
+def evaluate_readback(comparisons: list[SettingComparison], actual: dict[str, Any]) -> list[SettingComparison]:
+    results: list[SettingComparison] = []
+    for comparison in comparisons:
+        actual_value = get_path(actual, comparison.path, "")
+        ok = _values_match(comparison.path, actual_value, comparison.revised)
+        results.append(replace(comparison, actual=actual_value, ok=ok, error="" if ok else f"got {actual_value!r}"))
+    return results
+
+
+def _review_paths(target: dict[str, Any]) -> list[str]:
+    paths = ["owner", "owner_short"]
+    missing = object()
+    for row in MATRIX_ROWS:
+        if get_path(target, row.path, missing) is not missing:
+            paths.append(row.path)
+    return paths
 
 
 def backup_dir() -> Path:
@@ -259,32 +319,16 @@ def wait_and_verify(port: str, target: dict[str, Any], log: LogCallback | None =
 
 
 def verify_target(port: str, target: dict[str, Any]) -> list[str]:
-    import meshtastic.serial_interface
-
     findings: list[str] = []
-    interface = meshtastic.serial_interface.SerialInterface(devPath=port, noNodes=True, timeout=15)
-    try:
-        if target.get("owner") and interface.getLongName() != target["owner"]:
-            findings.append("owner mismatch")
-        if target.get("owner_short") and interface.getShortName() != target["owner_short"]:
-            findings.append("shortname mismatch")
+    actual = read_device_snapshot(port)
+    if target.get("owner") and not _values_match("owner", actual.get("owner"), target["owner"]):
+        findings.append("owner mismatch")
+    if target.get("owner_short") and not _values_match("owner_short", actual.get("owner_short"), target["owner_short"]):
+        findings.append("shortname mismatch")
 
-        actual_config = _message_dict(interface.localNode.localConfig)
-        actual_module = _message_dict(interface.localNode.moduleConfig)
-        _compare_nested(target.get("config", {}), actual_config, "config", findings)
-        _compare_nested(target.get("module_config", {}), actual_module, "module_config", findings)
-
-        primary = target.get("channel", {}).get("primary")
-        if primary:
-            channel = _channel_summary(interface)
-            if "psk" in primary and encode_psk(decode_psk(primary["psk"])) != channel["psk"]:
-                findings.append("channel.primary.psk mismatch")
-            if "uplink_enabled" in primary and bool(primary["uplink_enabled"]) != channel["uplink_enabled"]:
-                findings.append("channel.primary.uplink_enabled mismatch")
-            if "downlink_enabled" in primary and bool(primary["downlink_enabled"]) != channel["downlink_enabled"]:
-                findings.append("channel.primary.downlink_enabled mismatch")
-    finally:
-        interface.close()
+    _compare_nested(target.get("config", {}), actual.get("config", {}), "config", findings)
+    _compare_nested(target.get("module_config", {}), actual.get("module_config", {}), "module_config", findings)
+    _compare_nested(target.get("channel", {}).get("primary", {}), actual.get("channel", {}).get("primary", {}), "channel.primary", findings)
     return findings
 
 
@@ -299,5 +343,22 @@ def _compare_nested(expected: dict[str, Any], actual: dict[str, Any], path: str,
                 _compare_nested(expected_value, actual_value, current_path, findings)
         else:
             actual_value = actual.get(key)
-            if str(actual_value) != str(expected_value):
+            if not _values_match(current_path, actual_value, expected_value):
                 findings.append(f"{current_path} expected {expected_value!r} got {actual_value!r}")
+
+
+def _values_match(path: str, actual: Any, expected: Any) -> bool:
+    return _normalized_value(path, actual) == _normalized_value(path, expected)
+
+
+def _normalized_value(path: str, value: Any) -> str:
+    if path == "channel.primary.psk":
+        try:
+            return encode_psk(decode_psk(value))
+        except Exception:
+            return "" if value is None else str(value)
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)

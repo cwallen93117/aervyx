@@ -11,7 +11,7 @@ from typing import Any
 from tkinter import messagebox, ttk
 
 from . import APP_NAME, APP_VERSION
-from .meshtastic_io import DeviceInfo, apply_target, scan_devices
+from .meshtastic_io import DeviceInfo, SettingComparison, apply_target, compare_target_changes, evaluate_readback, read_device_snapshot, scan_devices
 from .profiles import build_target_config, load_profile_bundle, profile_settings, required_placeholders, save_profile_bundle, user_profile_path
 from .schema import MATRIX_ROWS, POSITION_FLAGS, PROFILE_KEYS, PROFILE_LABELS, format_position_flags, get_path, set_path
 
@@ -24,6 +24,31 @@ class DeviceRow:
     long_name: tk.StringVar
     short_name: tk.StringVar
     device: DeviceInfo
+
+
+@dataclass
+class ApplyDevicePlan:
+    row: DeviceRow
+    target: dict[str, Any]
+    comparisons: list[SettingComparison]
+
+
+SETTING_LABELS = {"owner": "Name", "owner_short": "Shortname"}
+SETTING_LABELS.update({row.path: row.label for row in MATRIX_ROWS})
+
+
+def setting_label(path: str) -> str:
+    return SETTING_LABELS.get(path, path)
+
+
+def format_review_value(path: str, value: Any) -> str:
+    if value is None:
+        return ""
+    if path.endswith("position_flags"):
+        return format_position_flags(int(value or 0))
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    return str(value)
 
 
 class ProvisionerApp(tk.Tk):
@@ -134,6 +159,29 @@ class ProvisionerApp(tk.Tk):
             for column, profile_key in enumerate(PROFILE_KEYS, start=1):
                 self._make_matrix_cell(grid, grid_row, column, profile_key, row)
             grid_row += 1
+        self._bind_matrix_mousewheel(canvas, canvas)
+        self._bind_matrix_mousewheel(grid, canvas)
+
+    def _bind_matrix_mousewheel(self, widget: tk.Widget, canvas: tk.Canvas) -> None:
+        widget.bind("<MouseWheel>", lambda event: self._scroll_matrix(canvas, event), add="+")
+        widget.bind("<Button-4>", lambda event: self._scroll_matrix(canvas, event), add="+")
+        widget.bind("<Button-5>", lambda event: self._scroll_matrix(canvas, event), add="+")
+        for child in widget.winfo_children():
+            self._bind_matrix_mousewheel(child, canvas)
+
+    def _scroll_matrix(self, canvas: tk.Canvas, event: tk.Event) -> str:
+        if getattr(event, "num", None) == 4:
+            units = -3
+        elif getattr(event, "num", None) == 5:
+            units = 3
+        else:
+            delta = getattr(event, "delta", 0)
+            units = -1 * int(delta / 120) if delta else 0
+            if units == 0 and delta:
+                units = -1 if delta > 0 else 1
+        if units:
+            canvas.yview_scroll(units, "units")
+        return "break"
 
     def _make_matrix_cell(self, parent: ttk.Frame, grid_row: int, column: int, profile_key: str, row) -> None:
         value = get_path(profile_settings(self.bundle, profile_key), row.path, "")
@@ -272,7 +320,10 @@ class ProvisionerApp(tk.Tk):
         if not selected_rows:
             messagebox.showinfo(APP_NAME, "Select at least one ready device.")
             return
+        plans: list[ApplyDevicePlan] = []
         try:
+            self.configure(cursor="watch")
+            self.update_idletasks()
             for row in selected_rows:
                 target = build_target_config(self.bundle, row.profile.get(), row.long_name.get(), row.short_name.get())
                 missing = required_placeholders(target)
@@ -282,24 +333,48 @@ class ProvisionerApp(tk.Tk):
                         "Inject a local aervyx_profiles.local.yaml before applying.\n\n"
                         + "\n".join(missing)
                     )
+                self._log(f"{row.device.port}: reading current settings for review")
+                current = read_device_snapshot(row.device.port)
+                comparisons = compare_target_changes(current, target)
+                plans.append(ApplyDevicePlan(row=row, target=target, comparisons=comparisons))
         except Exception as exc:
             messagebox.showerror(APP_NAME, str(exc))
             return
-        if not messagebox.askyesno(APP_NAME, f"Apply profiles to {len(selected_rows)} device(s)?"):
+        finally:
+            self.configure(cursor="")
+        plans = [plan for plan in plans if plan.comparisons]
+        if not plans:
+            messagebox.showinfo(APP_NAME, "Selected devices already match their revised profile settings.")
             return
-        threading.Thread(target=self._apply_worker, args=(selected_rows,), daemon=True).start()
+        ApplyReviewDialog(self, plans)
 
-    def _apply_worker(self, rows: list[DeviceRow]) -> None:
-        for row in rows:
+    def _start_apply_review(self, dialog: "ApplyReviewDialog") -> None:
+        dialog.set_running()
+        threading.Thread(target=self._apply_review_worker, args=(dialog, dialog.plans), daemon=True).start()
+
+    def _apply_review_worker(self, dialog: "ApplyReviewDialog", plans: list[ApplyDevicePlan]) -> None:
+        for plan in plans:
+            row = plan.row
+            port = row.device.port
+            self.after(0, lambda p=port: dialog.mark_device_pending(p))
             try:
-                target = build_target_config(self.bundle, row.profile.get(), row.long_name.get(), row.short_name.get())
-                self._log_threadsafe(f"{row.device.port}: applying {row.profile.get()} profile")
-                findings = apply_target(row.device.port, target, log=self._log_threadsafe)
+                self._log_threadsafe(f"{port}: applying {row.profile.get()} profile")
+                findings = apply_target(port, plan.target, log=self._log_threadsafe)
                 if findings:
-                    self._log_threadsafe(f"{row.device.port}: verification findings: {findings}")
+                    self._log_threadsafe(f"{port}: verification findings: {findings}")
+                actual = read_device_snapshot(port)
+                results = evaluate_readback(plan.comparisons, actual)
+                self.after(0, lambda p=port, r=results: dialog.update_results(p, r))
             except Exception as exc:
-                self._log_threadsafe(f"{row.device.port}: failed: {exc}")
+                self._log_threadsafe(f"{port}: failed: {exc}")
+                try:
+                    actual = read_device_snapshot(port)
+                    results = evaluate_readback(plan.comparisons, actual)
+                    self.after(0, lambda p=port, r=results, e=str(exc): dialog.update_results(p, r, e))
+                except Exception as read_exc:
+                    self.after(0, lambda p=port, e=f"{exc}; readback failed: {read_exc}": dialog.mark_device_failed(p, e))
         self._log_threadsafe("Apply run complete.")
+        self.after(0, dialog.mark_complete)
 
     def _log(self, message: str) -> None:
         self.log_text.insert("end", message + "\n")
@@ -320,3 +395,144 @@ class ProvisionerApp(tk.Tk):
 def main() -> None:
     app = ProvisionerApp()
     app.mainloop()
+
+
+class ApplyReviewDialog(tk.Toplevel):
+    def __init__(self, parent: ProvisionerApp, plans: list[ApplyDevicePlan]) -> None:
+        super().__init__(parent)
+        self.parent = parent
+        self.plans = plans
+        self.item_ids: dict[tuple[str, str], str] = {}
+        self.running = False
+
+        self.title("Review Settings")
+        self.transient(parent)
+        self.grab_set()
+        self.geometry("1080x560")
+        self.minsize(820, 420)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        device_count = len(plans)
+        change_count = sum(len(plan.comparisons) for plan in plans)
+        self.summary = ttk.Label(self, text=f"Review {change_count} changed setting(s) across {device_count} device(s).")
+        self.summary.grid(row=0, column=0, sticky="w", padx=12, pady=(12, 8))
+
+        table_frame = ttk.Frame(self)
+        table_frame.grid(row=1, column=0, sticky="nsew", padx=12)
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(0, weight=1)
+
+        columns = ("device", "setting", "path", "current", "revised", "status")
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=18)
+        headings = {
+            "device": "Device",
+            "setting": "Setting",
+            "path": "Path",
+            "current": "Current",
+            "revised": "Revised",
+            "status": "Status",
+        }
+        widths = {"device": 100, "setting": 170, "path": 270, "current": 165, "revised": 165, "status": 150}
+        for column in columns:
+            self.tree.heading(column, text=headings[column])
+            self.tree.column(column, width=widths[column], anchor="w", stretch=column in {"path", "current", "revised", "status"})
+        self.tree.tag_configure("ready", foreground="#4b5563")
+        self.tree.tag_configure("pending", foreground="#8a5a00")
+        self.tree.tag_configure("ok", foreground="#0f7a24")
+        self.tree.tag_configure("error", foreground="#b00020")
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vsb = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
+        hsb = ttk.Scrollbar(table_frame, orient="horizontal", command=self.tree.xview)
+        self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+
+        for plan in plans:
+            port = plan.row.device.port
+            for comparison in plan.comparisons:
+                item = self.tree.insert(
+                    "",
+                    "end",
+                    values=(
+                        port,
+                        setting_label(comparison.path),
+                        comparison.path,
+                        format_review_value(comparison.path, comparison.current),
+                        format_review_value(comparison.path, comparison.revised),
+                        "Ready",
+                    ),
+                    tags=("ready",),
+                )
+                self.item_ids[(port, comparison.path)] = item
+
+        buttons = ttk.Frame(self)
+        buttons.grid(row=2, column=0, sticky="e", padx=12, pady=12)
+        self.cancel_button = ttk.Button(buttons, text="Cancel", command=self._close_or_cancel)
+        self.cancel_button.grid(row=0, column=0, padx=(0, 8))
+        self.apply_button = ttk.Button(buttons, text="Apply", command=lambda: parent._start_apply_review(self))
+        self.apply_button.grid(row=0, column=1)
+        self.protocol("WM_DELETE_WINDOW", self._close_or_cancel)
+
+    def set_running(self) -> None:
+        self.running = True
+        self.summary.configure(text="Applying settings and waiting for device readback...")
+        self.apply_button.configure(state="disabled")
+        self.cancel_button.configure(state="disabled")
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+    def mark_device_pending(self, port: str) -> None:
+        if not self.winfo_exists():
+            return
+        for plan in self.plans:
+            if plan.row.device.port != port:
+                continue
+            for comparison in plan.comparisons:
+                item = self.item_ids.get((port, comparison.path))
+                if item:
+                    self._set_status(item, "Applying...", "pending")
+
+    def update_results(self, port: str, results: list[SettingComparison], device_error: str = "") -> None:
+        if not self.winfo_exists():
+            return
+        for result in results:
+            item = self.item_ids.get((port, result.path))
+            if not item:
+                continue
+            if result.ok:
+                self._set_status(item, "OK", "ok")
+            else:
+                status = f"Error: {format_review_value(result.path, result.actual)}"
+                if device_error:
+                    status = f"{status} ({device_error})"
+                self._set_status(item, status, "error")
+
+    def mark_device_failed(self, port: str, error: str) -> None:
+        if not self.winfo_exists():
+            return
+        for plan in self.plans:
+            if plan.row.device.port != port:
+                continue
+            for comparison in plan.comparisons:
+                item = self.item_ids.get((port, comparison.path))
+                if item:
+                    self._set_status(item, f"Error: {error}", "error")
+
+    def mark_complete(self) -> None:
+        if not self.winfo_exists():
+            return
+        self.running = False
+        self.summary.configure(text="Apply run complete. Review the status column before closing.")
+        self.cancel_button.configure(text="Close", state="normal")
+        self.protocol("WM_DELETE_WINDOW", self._close_or_cancel)
+
+    def _set_status(self, item: str, status: str, tag: str) -> None:
+        values = list(self.tree.item(item, "values"))
+        values[-1] = status
+        self.tree.item(item, values=values, tags=(tag,))
+
+    def _close_or_cancel(self) -> None:
+        if self.running:
+            return
+        self.grab_release()
+        self.destroy()

@@ -23,6 +23,9 @@ production release.
 - Mobile profile type changes now use latest-timestamp-wins offline sync, keeping local Pilot/Driver changes pending until they can be reconciled with website settings.
 - Pilot live view now shows the active task name as the title and removes the Free flight chip.
 
+### Fixed
+- **Meshtastic Provisioner v0.1.2** fixes Profile Matrix mouse-wheel scrolling and adds a live current-vs-revised apply review with green OK/red Error readback statuses.
+
 ## [2026.05.25]
 
 ### Added
