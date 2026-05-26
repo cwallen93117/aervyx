@@ -19,6 +19,7 @@ production release.
 - **Mobile v0.4.31+48** adds Map/Satellite selectors and visible scale bars to pilot and driver live maps, makes driver mode a full-screen always-on tracking map, and opens pilot pickup/navigation details from marker bottom sheets.
 
 ### Changed
+- **Mobile v0.4.32+49** groups the Settings battery controls under Battery Settings and clarifies that critical battery shutdown stops flight recording.
 - Mobile profile type changes now use latest-timestamp-wins offline sync, keeping local Pilot/Driver changes pending until they can be reconciled with website settings.
 - Pilot live view now shows the active task name as the title and removes the Free flight chip.
 

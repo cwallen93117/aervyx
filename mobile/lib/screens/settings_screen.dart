@@ -239,8 +239,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 32),
 
-          // ── Battery Threshold ──
-          Text('Battery Protection',
+          // Battery Settings
+          Text('Battery Settings',
               style: theme.textTheme.titleSmall?.copyWith(
                 color: theme.colorScheme.primary,
               )),
@@ -251,6 +251,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.battery_charging_full,
+                        color: theme.colorScheme.primary),
+                    title: const Text('Battery Optimization'),
+                    subtitle:
+                        const Text('Allow unrestricted background runtime'),
+                    trailing: const Icon(Icons.open_in_new),
+                    onTap: () => PersistentRuntimeService
+                        .openBatteryOptimizationSettings(),
+                  ),
+                  const Divider(height: 24),
                   Row(
                     children: [
                       Icon(Icons.battery_saver,
@@ -309,49 +321,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                   ],
-                ],
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          Text('Runtime',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
-          const SizedBox(height: 8),
-          Card(
-            child: Column(
-              children: [
-                ListTile(
-                  leading: Icon(Icons.battery_charging_full,
-                      color: theme.colorScheme.primary),
-                  title: const Text('Battery optimization'),
-                  subtitle: const Text('Allow unrestricted background runtime'),
-                  trailing: const Icon(Icons.open_in_new),
-                  onTap: () => PersistentRuntimeService
-                      .openBatteryOptimizationSettings(),
-                ),
-                const Divider(height: 1),
-                SwitchListTile(
-                  secondary: Icon(Icons.power_settings_new,
-                      color: theme.colorScheme.primary),
-                  title: const Text('Critical battery shutdown'),
-                  subtitle: Text(
-                    _runtimeBatteryThreshold == null
-                        ? 'Persistent runtime stays on until manual shutdown'
-                        : 'Shuts down Aervyx below $_runtimeBatteryThreshold% while not charging',
+                  const Divider(height: 32),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    secondary: Icon(Icons.power_settings_new,
+                        color: theme.colorScheme.primary),
+                    title: const Text('Critical battery shutdown'),
+                    subtitle: Text(
+                      _runtimeBatteryThreshold == null
+                          ? 'Flight recording continues until manual shutdown'
+                          : 'Stops flight recording and shuts down Aervyx below $_runtimeBatteryThreshold% while not charging',
+                    ),
+                    value: _runtimeBatteryThreshold != null,
+                    onChanged: (enabled) {
+                      _setRuntimeBatteryThreshold(enabled ? 5 : null);
+                    },
                   ),
-                  value: _runtimeBatteryThreshold != null,
-                  onChanged: (enabled) {
-                    _setRuntimeBatteryThreshold(enabled ? 5 : null);
-                  },
-                ),
-                if (_runtimeBatteryThreshold != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                    child: Column(
+                  if (_runtimeBatteryThreshold != null)
+                    Column(
                       children: [
                         Row(
                           children: [
@@ -392,8 +379,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           ),
                       ],
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
 

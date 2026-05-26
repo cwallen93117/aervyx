@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.32+49 - 2026-05-26
+
+### Changed
+- Settings now groups Battery Optimization, Tracking and mesh low-battery guard, and Critical battery shutdown under Battery Settings.
+- Critical battery shutdown text now clarifies that flight recording stops when the shutdown threshold is reached.
+
 ## 0.4.31+48 - 2026-05-26
 
 ### Added
