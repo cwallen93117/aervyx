@@ -5,6 +5,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../config/api_config.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
 import '../services/persistent_runtime_service.dart';
@@ -598,7 +599,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const SizedBox(height: 12),
                   GestureDetector(
                     onTap: () => launchUrl(
-                      Uri.parse('https://aervyx.net/app'),
+                      Uri.parse(ApiConfig.appDownloadPageUrl),
                       mode: LaunchMode.externalApplication,
                     ),
                     child: Row(

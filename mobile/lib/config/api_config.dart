@@ -16,6 +16,22 @@ class ApiConfig {
     defaultValue: 'https://api.aervyx.net',
   );
 
+  static String appDownloadPageUrlForBaseUrl(String apiBaseUrl) {
+    final trimmed = apiBaseUrl.replaceFirst(RegExp(r'/+$'), '');
+    final uri = Uri.tryParse(trimmed);
+
+    switch (uri?.host) {
+      case 'api-staging.aervyx.net':
+        return 'https://staging.aervyx.net/app';
+      case 'api.aervyx.net':
+        return 'https://aervyx.net/app';
+      default:
+        return '$trimmed/api/app/download';
+    }
+  }
+
+  static String get appDownloadPageUrl => appDownloadPageUrlForBaseUrl(baseUrl);
+
   // Auth
   static const String loginPath = '/api/auth/login';
   static const String registerPath = '/api/auth/register';

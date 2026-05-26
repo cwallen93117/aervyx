@@ -1,5 +1,10 @@
 # Aervyx Mobile Changelog
 
+## 0.4.30+47 - 2026-05-25
+
+### Fixed
+- The in-app Download latest app link now opens the staging download page for staging builds instead of sending testers to the production website.
+
 ## 0.4.29+46 - 2026-05-25
 
 ### Fixed

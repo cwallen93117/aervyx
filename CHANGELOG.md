@@ -20,6 +20,7 @@ production release.
 - Backend live tracking now treats driver users without linked pilot records as first-class map subjects with stable `subject_key` values and mobile-safe profile preference updates.
 
 ### Fixed
+- **Mobile v0.4.30+47** points staging builds' in-app "Download latest app" link at the staging download page instead of the production website.
 - **Mobile v0.4.29+46** keeps Driver Mode usable when there is no active task, allowing drivers to start tracking and relaying without the pickup screen showing a blocking error.
 
 ## [2026.05.24]
