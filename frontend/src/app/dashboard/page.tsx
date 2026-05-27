@@ -753,7 +753,12 @@ async function tryRefreshToken(): Promise<string | null> {
   }
 }
 
-async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  token: string,
+  init: RequestInit = {},
+  onResponse?: (response: Response) => void,
+): Promise<T> {
   const headers = new Headers(init.headers ?? {});
   headers.set("Authorization", `Bearer ${token}`);
   if (!(init.body instanceof FormData) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
@@ -768,12 +773,14 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
       if (!(init.body instanceof FormData) && !retryHeaders.has("Content-Type")) retryHeaders.set("Content-Type", "application/json");
       const retryResponse = await fetch(`${resolveApiBase()}${path}`, { ...init, headers: retryHeaders, cache: "no-store" });
       if (!retryResponse.ok) throw new Error((await retryResponse.text()) || `Request failed: ${retryResponse.status}`);
+      onResponse?.(retryResponse);
       if (retryResponse.status === 204) return undefined as T;
       const text = await retryResponse.text();
       return (text ? JSON.parse(text) : undefined) as T;
     }
   }
   if (!response.ok) throw new Error((await response.text()) || `Request failed: ${response.status}`);
+  onResponse?.(response);
   if (response.status === 204) return undefined as T;
   const text = await response.text();
   return (text ? JSON.parse(text) : undefined) as T;
@@ -2046,10 +2053,10 @@ export default function HomePage() {
     }
   }
 
-  const refreshDebugStatus = useCallback(async () => {
+  const refreshDebugStatus = useCallback(async (onResponse?: (response: Response) => void) => {
     if (!token) return;
     try {
-      const data = await apiFetch<DebugStatusResponse>("/api/admin/debug/status", token);
+      const data = await apiFetch<DebugStatusResponse>("/api/admin/debug/status", token, {}, onResponse);
       setDebugStatus(data);
     } catch {
       // silently ignore - the tab will show stale data or loading state

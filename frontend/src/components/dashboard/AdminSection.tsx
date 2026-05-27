@@ -434,7 +434,7 @@ export interface AdminSectionProps {
   siteSettingsFeedback: { type: "success" | "error"; text: string } | null;
   saveSiteSettings: () => void;
   debugStatus: DebugStatusResponse | null;
-  refreshDebugStatus: () => void;
+  refreshDebugStatus: (onResponse?: (response: Response) => void) => void;
   mapOverlayConfig: MapOverlayConfigRecord;
   setMapOverlayConfig: (config: MapOverlayConfigRecord | ((current: MapOverlayConfigRecord) => MapOverlayConfigRecord)) => void;
   mapOverlayConfigFeedback: { type: "success" | "error"; text: string } | null;
@@ -494,7 +494,17 @@ export default function AdminSection(props: AdminSectionProps) {
   const [faaLoading, setFaaLoading] = useState(false);
   const [cloudflareDdnsFeedback, setCloudflareDdnsFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [cloudflareDdnsLoading, setCloudflareDdnsLoading] = useState(false);
+  const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
+  const [liveTrackingNowMs, setLiveTrackingNowMs] = useState(() => Date.now());
   const mqttBrokerMode = normalizeMqttBrokerMode(siteSettings.mqtt_broker_mode);
+
+  const captureServerClock = useCallback((response: Response) => {
+    const dateHeader = response.headers.get("Date");
+    if (!dateHeader) return;
+    const serverTimeMs = new Date(dateHeader).getTime();
+    if (Number.isNaN(serverTimeMs)) return;
+    setServerClockOffsetMs(serverTimeMs - Date.now());
+  }, []);
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -713,22 +723,23 @@ export default function AdminSection(props: AdminSectionProps) {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
+      captureServerClock(res);
       if (res.ok) {
         setMeshNodes((await res.json()) as MeshNode[]);
       }
     } catch {
       // Keep the last known mesh-node data visible if an auto-refresh fails.
     }
-  }, [apiBase, token]);
+  }, [apiBase, captureServerClock, token]);
 
   useEffect(() => {
     if (activeTab !== "live_tracking") return;
-    refreshDebugStatus();
+    refreshDebugStatus(captureServerClock);
     const interval = setInterval(() => {
-      refreshDebugStatus();
+      refreshDebugStatus(captureServerClock);
     }, 5000);
     return () => clearInterval(interval);
-  }, [activeTab, refreshDebugStatus]);
+  }, [activeTab, captureServerClock, refreshDebugStatus]);
 
   useEffect(() => {
     if (activeTab !== "live_tracking") return;
@@ -738,6 +749,15 @@ export default function AdminSection(props: AdminSectionProps) {
       clearInterval(interval);
     };
   }, [activeTab, loadMeshNodes]);
+
+  useEffect(() => {
+    if (activeTab !== "live_tracking") return;
+    setLiveTrackingNowMs(Date.now() + serverClockOffsetMs);
+    const interval = setInterval(() => {
+      setLiveTrackingNowMs(Date.now() + serverClockOffsetMs);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [activeTab, serverClockOffsetMs]);
 
   function applyAdminUserUpdate(updatedUser: AdminUserRecord) {
     setAdminUsers((current) =>
@@ -1862,6 +1882,7 @@ export default function AdminSection(props: AdminSectionProps) {
         <LiveTrackingTab
           debugStatus={debugStatus}
           meshNodes={meshNodes}
+          nowMs={liveTrackingNowMs}
           overlayConfig={mapOverlayConfig.config.dashboard_live}
         />
       ) : (
@@ -1996,9 +2017,9 @@ function SortHeader({ field, label, current, dir, toggle }: { field: UserSortFie
 /*  Debugging tab helpers + sub-component                             */
 /* ------------------------------------------------------------------ */
 
-function relativeTime(isoOrNull: string | null | undefined): string {
+function relativeTime(isoOrNull: string | null | undefined, nowMs = Date.now()): string {
   if (!isoOrNull) return "\u2014";
-  const diffMs = Date.now() - new Date(isoOrNull).getTime();
+  const diffMs = nowMs - new Date(isoOrNull).getTime();
   if (diffMs < 0) return "just now";
   const seconds = Math.floor(diffMs / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -2008,9 +2029,9 @@ function relativeTime(isoOrNull: string | null | undefined): string {
   return `${hours}h ago`;
 }
 
-function lastSeenColor(isoOrNull: string | null | undefined): "green" | "orange" | "red" {
+function lastSeenColor(isoOrNull: string | null | undefined, nowMs = Date.now()): "green" | "orange" | "red" {
   if (!isoOrNull) return "red";
-  const diffMs = Date.now() - new Date(isoOrNull).getTime();
+  const diffMs = nowMs - new Date(isoOrNull).getTime();
   if (diffMs <= 10 * 60_000) return "green";
   if (diffMs <= 6 * 60 * 60_000) return "orange";
   return "red";
@@ -2129,16 +2150,16 @@ function meshFixSummary(device: MeshDeviceStatus): string {
   return device.lastSeenAt ? "No GPS fix" : "No fix yet";
 }
 
-function phoneSourcePillClass(session: import("./types").DebugActiveSession | null): string {
+function phoneSourcePillClass(session: import("./types").DebugActiveSession | null, nowMs = Date.now()): string {
   if (session?.is_online) return "tracking-source-pill phone";
-  const freshness = lastSeenColor(session?.last_seen_at);
+  const freshness = lastSeenColor(session?.last_seen_at, nowMs);
   if (freshness === "orange") return "tracking-source-pill phone stale";
   return "tracking-source-pill phone offline";
 }
 
-function phoneStatusColor(session: import("./types").DebugActiveSession | null): string {
+function phoneStatusColor(session: import("./types").DebugActiveSession | null, nowMs = Date.now()): string {
   if (session?.is_online) return "#3b82f6";
-  const freshness = lastSeenColor(session?.last_seen_at);
+  const freshness = lastSeenColor(session?.last_seen_at, nowMs);
   if (freshness === "orange") return "#f59e0b";
   return "#ef4444";
 }
@@ -2258,10 +2279,12 @@ function formatDebugPosition(position: MeshDeviceStatus["lastPosition"] | import
 function LiveTrackingTab({
   debugStatus,
   meshNodes,
+  nowMs,
   overlayConfig,
 }: {
   debugStatus: import("./types").DebugStatusResponse | null;
   meshNodes: MeshNode[];
+  nowMs: number;
   overlayConfig?: MapOverlayConfigRecord["config"]["dashboard_live"];
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
@@ -2468,7 +2491,7 @@ function LiveTrackingTab({
             <tbody>
               {unified.length ? (
                 unified.map((d) => {
-                  const color = lastSeenColor(d.lastSeenAt);
+                  const color = lastSeenColor(d.lastSeenAt, nowMs);
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
                   const isExpanded = expandedKeys.has(d.key);
                   const canExpand = true; // Always expandable for position detail
@@ -2512,23 +2535,23 @@ function LiveTrackingTab({
                               <td></td>
                               <td>
                                 <span
-                                  style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: phoneStatusColor(d.session), marginRight: "4px" }}
+                                  style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: phoneStatusColor(d.session, nowMs), marginRight: "4px" }}
                                   title={d.session?.is_online ? "Phone app live" : "Phone app offline"}
                                 />
                               </td>
                               <td>Phone</td>
                               <td>Phone app</td>
-                              <td><span className={phoneSourcePillClass(d.session)}>Phone app</span></td>
+                              <td><span className={phoneSourcePillClass(d.session, nowMs)}>Phone app</span></td>
                               <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{d.session?.device_id ?? "\u2014"}</td>
                               <td>{d.session?.battery_level != null ? `${d.session?.battery_level}%` : "\u2014"}</td>
                               <td>{formatDebugPosition(d.session?.last_position)}</td>
-                              <td style={{ color: lastSeenColor(d.session?.last_seen_at) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at) === "orange" ? "#f59e0b" : "#ef4444" }}>
-                                {relativeTime(d.session?.last_seen_at)}
+                              <td style={{ color: lastSeenColor(d.session?.last_seen_at, nowMs) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at, nowMs) === "orange" ? "#f59e0b" : "#ef4444" }}>
+                                {relativeTime(d.session?.last_seen_at, nowMs)}
                               </td>
                             </tr>
                           )}
                           {d.meshDevices.map((meshDevice) => {
-                            const meshFixColor = lastSeenColor(meshDevice.lastSeenAt);
+                            const meshFixColor = lastSeenColor(meshDevice.lastSeenAt, nowMs);
                             const meshLastFixColor = meshFixColor === "green" ? "inherit" : meshFixColor === "orange" ? "#f59e0b" : "#ef4444";
                             const meshDotColor = meshStatusColor(meshDevice.meshStatus);
                             return (
@@ -2566,7 +2589,7 @@ function LiveTrackingTab({
                                   <div className="hint">Packets heard: {meshDevice.packetCount}</div>
                                   <div className="hint">{meshDebugDetail(meshDevice)}</div>
                                 </td>
-                                <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt)}</td>
+                                <td style={{ color: meshLastFixColor }}>{relativeTime(meshDevice.lastSeenAt, nowMs)}</td>
                               </tr>
                             );
                           })}
