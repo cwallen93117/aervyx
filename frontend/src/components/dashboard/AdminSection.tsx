@@ -4,7 +4,7 @@ import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } fr
 
 import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
-import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
+import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MeshDevicePurpose, MeshDeviceRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
 type MeshConnectionStatus = "live" | "stale" | "offline" | "never_seen";
@@ -127,6 +127,14 @@ function meshPurposeLabel(purpose: string | null | undefined) {
   }
 }
 
+const MESH_DEVICE_PURPOSE_OPTIONS: { value: MeshDevicePurpose; label: string }[] = [
+  { value: "tracking", label: "Pilot tracker" },
+  { value: "driver_mesh", label: "Driver mesh relay" },
+  { value: "driver_wifi", label: "Driver Wi-Fi gateway" },
+  { value: "base_station", label: "Fixed MQTT gateway" },
+  { value: "relay", label: "Relay-only" },
+];
+
 function formatOptionalDateTime(value: string | null | undefined): string {
   if (!value) return "Never";
   const parsed = new Date(value);
@@ -177,23 +185,28 @@ type MeshDeviceLookupResult = {
 
 interface MeshDeviceEditModalProps {
   user: AdminUserRecord;
+  device: MeshDeviceRecord | null;
   apiBase: string;
   token: string;
   onSaved: (updatedUser: AdminUserRecord) => void;
   onClose: () => void;
 }
 
-function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDeviceEditModalProps) {
-  const [inputValue, setInputValue] = useState(user.mesh_device_id ?? "");
+function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }: MeshDeviceEditModalProps) {
+  const [draft, setDraft] = useState({
+    device_id: device?.device_id ?? user.mesh_device_id ?? "",
+    label: device?.label ?? "",
+    purpose: (device?.purpose ?? "tracking") as MeshDevicePurpose,
+    is_active: device?.is_active ?? true,
+  });
   const [lookupResult, setLookupResult] = useState<MeshDeviceLookupResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Debounced lookup
   useEffect(() => {
-    const trimmed = inputValue.trim();
-    if (!trimmed || trimmed === (user.mesh_device_id ?? "")) {
+    const trimmed = draft.device_id.trim();
+    if (!trimmed || trimmed === (device?.device_id ?? user.mesh_device_id ?? "")) {
       setLookupResult(null);
       return;
     }
@@ -214,10 +227,15 @@ function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDev
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [inputValue, user.mesh_device_id, apiBase, token]);
+  }, [draft.device_id, device?.device_id, user.mesh_device_id, apiBase, token]);
 
-  const trimmedInput = inputValue.trim();
-  const unchanged = trimmedInput === (user.mesh_device_id ?? "");
+  const trimmedInput = draft.device_id.trim();
+  const unchanged = device
+    ? trimmedInput === device.device_id &&
+      draft.label === device.label &&
+      draft.purpose === device.purpose &&
+      draft.is_active === device.is_active
+    : trimmedInput === (user.mesh_device_id ?? "");
   const saveDisabled = saving || unchanged || trimmedInput === "";
 
   const conflictUser =
@@ -230,14 +248,28 @@ function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDev
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-device`, {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ mesh_device_id: trimmedInput || null }),
-      });
+      const res = device
+        ? await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-devices/${encodeURIComponent(device.device_id)}`, {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              device_id: trimmedInput,
+              label: draft.label,
+              purpose: draft.purpose,
+              is_active: draft.is_active,
+            }),
+          })
+        : await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-device`, {
+            method: "PATCH",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ mesh_device_id: trimmedInput || null }),
+          });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(data.detail ?? `Server error ${res.status}`);
@@ -252,22 +284,27 @@ function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDev
     }
   }
 
-  async function handleRemove() {
+  async function handleClearTracker() {
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-device`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-devices/tracking`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mesh_device_id: null }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(data.detail ?? `Server error ${res.status}`);
       }
-      onSaved({ ...user, mesh_device_id: null });
+      const updated = (await res.json()) as AdminUserRecord;
+      onSaved(updated);
       onClose();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not remove device pairing.");
+      setError(caught instanceof Error ? caught.message : "Could not clear pilot tracker.");
     } finally {
       setSaving(false);
     }
@@ -292,8 +329,8 @@ function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDev
         <label className="stack compact">
           <span>Mesh Device ID</span>
           <input
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            value={draft.device_id}
+            onChange={(e) => setDraft((current) => ({ ...current, device_id: e.target.value }))}
             placeholder="!c0ac2c6e"
             style={{ fontFamily: "monospace" }}
             autoFocus
@@ -323,6 +360,37 @@ function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDev
             Not currently assigned to anyone.
           </div>
         ) : null}
+        {device ? (
+          <>
+            <label className="stack compact" style={{ marginTop: "8px" }}>
+              <span>Label</span>
+              <input
+                value={draft.label}
+                onChange={(e) => setDraft((current) => ({ ...current, label: e.target.value }))}
+                placeholder="Pilot tracker"
+              />
+            </label>
+            <label className="stack compact">
+              <span>Purpose</span>
+              <select
+                value={draft.purpose}
+                onChange={(e) => setDraft((current) => ({ ...current, purpose: e.target.value as MeshDevicePurpose }))}
+              >
+                {MESH_DEVICE_PURPOSE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="task-advanced-toggle" title="Controls whether Aervyx treats this registered device as active inventory; it does not turn the radio relay on or off.">
+              <input
+                type="checkbox"
+                checked={draft.is_active}
+                onChange={(e) => setDraft((current) => ({ ...current, is_active: e.target.checked }))}
+              />
+              <span>Aervyx active</span>
+            </label>
+          </>
+        ) : null}
         {error ? <div className="status-chip error" style={{ marginTop: "8px" }}>{error}</div> : null}
         <div className="confirm-actions" style={{ marginTop: "12px" }}>
           <button
@@ -333,14 +401,16 @@ function MeshDeviceEditModal({ user, apiBase, token, onSaved, onClose }: MeshDev
           >
             Cancel
           </button>
-          <button
-            type="button"
-            className="ghost-button danger-button"
-            disabled={saving || !user.mesh_device_id}
-            onClick={() => void handleRemove()}
-          >
-            Remove pairing
-          </button>
+          {user.mesh_device_id && (!device || user.mesh_device_id === device.device_id) ? (
+            <button
+              type="button"
+              className="ghost-button danger-button"
+              disabled={saving}
+              onClick={() => void handleClearTracker()}
+            >
+              Clear tracker
+            </button>
+          ) : null}
           <button
             type="button"
             disabled={saveDisabled}
@@ -424,7 +494,9 @@ export default function AdminSection(props: AdminSectionProps) {
   const [credentialsPassword, setCredentialsPassword] = useState("");
   const [credentialsSaving, setCredentialsSaving] = useState(false);
   const [credentialsError, setCredentialsError] = useState<string | null>(null);
-  const [editingMeshUser, setEditingMeshUser] = useState<AdminUserRecord | null>(null);
+  const [editingMeshDevice, setEditingMeshDevice] = useState<{ user: AdminUserRecord; device: MeshDeviceRecord | null } | null>(null);
+  const [expandedUserIds, setExpandedUserIds] = useState<Record<number, boolean>>({});
+  const [meshActionFeedback, setMeshActionFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [faaCredentials, setFaaCredentials] = useState<FaaCredentialsRecord>(DEFAULT_FAA_CREDENTIALS);
   const [faaClientId, setFaaClientId] = useState("");
   const [faaClientSecret, setFaaClientSecret] = useState("");
@@ -677,6 +749,41 @@ export default function AdminSection(props: AdminSectionProps) {
     };
   }, [activeTab, loadMeshNodes]);
 
+  function applyAdminUserUpdate(updatedUser: AdminUserRecord) {
+    setAdminUsers((current) =>
+      current.map((entry) => (entry.id === updatedUser.id ? updatedUser : entry)),
+    );
+  }
+
+  async function setAdminUserPilotTracker(account: AdminUserRecord, meshDeviceId: string | null) {
+    setMeshActionFeedback(null);
+    try {
+      const res = await fetch(`${apiBase}/api/auth/users/${account.id}/mesh-devices/tracking`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ mesh_device_id: meshDeviceId }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      const updated = (await res.json()) as AdminUserRecord;
+      applyAdminUserUpdate(updated);
+      setMeshActionFeedback({
+        type: "success",
+        text: meshDeviceId ? "Pilot tracker updated." : "Pilot tracker cleared.",
+      });
+    } catch (caught) {
+      setMeshActionFeedback({
+        type: "error",
+        text: caught instanceof Error ? caught.message : "Could not update pilot tracker.",
+      });
+    }
+  }
+
   const selectedSite = useMemo(
     () => adminSites.find((site) => site.id === selectedSiteId) ?? null,
     [adminSites, selectedSiteId],
@@ -802,6 +909,7 @@ export default function AdminSection(props: AdminSectionProps) {
         <SectionCard title="Platform users">
           <div className="stack form-block">
             {adminFeedback ? <div className={`status-chip ${adminFeedback.type}`}>{adminFeedback.text}</div> : null}
+            {meshActionFeedback ? <div className={`status-chip ${meshActionFeedback.type}`}>{meshActionFeedback.text}</div> : null}
             <div className="admin-users-search-row">
               <input
                 type="text"
@@ -870,8 +978,14 @@ export default function AdminSection(props: AdminSectionProps) {
                 </thead>
                 <tbody>
                   {filteredSortedUsers.length ? (
-                    filteredSortedUsers.map((account) => (
-                      <tr key={account.id}>
+                    filteredSortedUsers.map((account) => {
+                      const meshDevices = account.mesh_devices ?? [];
+                      const primaryMeshDevice = meshDevices.find((device) => device.device_id === account.mesh_device_id) ?? meshDevices[0] ?? null;
+                      const hasMultipleMeshDevices = meshDevices.length > 1;
+                      const meshExpanded = expandedUserIds[account.id] ?? false;
+                      return (
+                      <Fragment key={account.id}>
+                      <tr>
                         <td className="admin-users-select-column">
                           <input
                             type="checkbox"
@@ -914,22 +1028,57 @@ export default function AdminSection(props: AdminSectionProps) {
                           </label>
                         </td>
                         <td>
-                          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                            <span
-                              title="Auto-assigned when user pairs via the Aervyx app. BLE pairing always wins."
-                              style={{ fontSize: "0.75rem", fontFamily: "monospace", opacity: account.mesh_device_id ? 1 : 0.4 }}
-                            >
-                              {account.mesh_device_id ?? "—"}
-                            </span>
-                            <button
-                              type="button"
-                              className="ghost-button"
-                              title="Edit mesh device pairing"
-                              style={{ fontSize: "0.65rem", padding: "1px 4px", lineHeight: 1 }}
-                              onClick={() => setEditingMeshUser(account)}
-                            >
-                              Edit
-                            </button>
+                          <div className="admin-mesh-summary">
+                            {hasMultipleMeshDevices ? (
+                              <button
+                                type="button"
+                                className="ghost-button admin-mesh-expand-button"
+                                aria-label={meshExpanded ? `Collapse mesh devices for ${account.full_name}` : `Expand mesh devices for ${account.full_name}`}
+                                aria-expanded={meshExpanded}
+                                onClick={() => setExpandedUserIds((current) => ({ ...current, [account.id]: !meshExpanded }))}
+                              >
+                                {meshExpanded ? "-" : "+"}
+                              </button>
+                            ) : null}
+                            {primaryMeshDevice ? (
+                              <>
+                                <input
+                                  type="checkbox"
+                                  checked={account.mesh_device_id === primaryMeshDevice.device_id}
+                                  title="Pilot tracker"
+                                  aria-label={`Use ${primaryMeshDevice.device_id} as pilot tracker`}
+                                  onChange={(event) => void setAdminUserPilotTracker(account, event.target.checked ? primaryMeshDevice.device_id : null)}
+                                />
+                                <span
+                                  title="Aervyx pilot tracker assignment. Other active mesh devices can still relay packets."
+                                  className="admin-mesh-device-id"
+                                >
+                                  {primaryMeshDevice.device_id}
+                                </span>
+                                <span className="hint">{hasMultipleMeshDevices ? `${meshDevices.length} devices` : meshPurposeLabel(primaryMeshDevice.purpose)}</span>
+                                {!primaryMeshDevice.is_active ? <span className="status-chip pending">Aervyx inactive</span> : null}
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  title="Edit mesh device"
+                                  onClick={() => setEditingMeshDevice({ user: account, device: primaryMeshDevice })}
+                                >
+                                  Edit
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span className="admin-mesh-device-id muted">-</span>
+                                <button
+                                  type="button"
+                                  className="ghost-button"
+                                  title="Add pilot tracker pairing"
+                                  onClick={() => setEditingMeshDevice({ user: account, device: null })}
+                                >
+                                  Add tracker
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                         <td className="participant-table-actions">
@@ -960,10 +1109,57 @@ export default function AdminSection(props: AdminSectionProps) {
                           </div>
                         </td>
                       </tr>
-                    ))
+                      {hasMultipleMeshDevices && meshExpanded ? (
+                        <tr className="admin-mesh-detail-row">
+                          <td colSpan={8}>
+                            <table className="admin-mesh-devices-table">
+                              <thead>
+                                <tr>
+                                  <th>Pilot Tracker</th>
+                                  <th>Mesh Device ID</th>
+                                  <th>Purpose</th>
+                                  <th>Aervyx Active</th>
+                                  <th>Label</th>
+                                  <th>Actions</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {meshDevices.map((device) => (
+                                  <tr key={device.device_id}>
+                                    <td>
+                                      <input
+                                        type="checkbox"
+                                        checked={account.mesh_device_id === device.device_id}
+                                        aria-label={`${account.mesh_device_id === device.device_id ? "Clear" : "Use"} ${device.device_id} as pilot tracker`}
+                                        onChange={(event) => void setAdminUserPilotTracker(account, event.target.checked ? device.device_id : null)}
+                                      />
+                                    </td>
+                                    <td className="admin-mesh-device-id">{device.device_id}</td>
+                                    <td>{meshPurposeLabel(device.purpose)}</td>
+                                    <td>{device.is_active ? "Active" : "Inactive"}</td>
+                                    <td>{device.label}</td>
+                                    <td>
+                                      <button
+                                        type="button"
+                                        className="ghost-button"
+                                        onClick={() => setEditingMeshDevice({ user: account, device })}
+                                      >
+                                        Edit
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </td>
+                        </tr>
+                      ) : null}
+                      </Fragment>
+                      );
+                    })
                   ) : (
                     <tr>
-                      <td colSpan={7} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
+                      <td colSpan={8} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
                     </tr>
                   )}
                 </tbody>
@@ -1015,18 +1211,17 @@ export default function AdminSection(props: AdminSectionProps) {
                 </div>
               </div>
             ) : null}
-            {editingMeshUser ? (
+            {editingMeshDevice ? (
               <MeshDeviceEditModal
-                user={editingMeshUser}
+                user={editingMeshDevice.user}
+                device={editingMeshDevice.device}
                 apiBase={apiBase}
                 token={token}
                 onSaved={(updatedUser) => {
-                  setAdminUsers((current) =>
-                    current.map((u) => (u.id === updatedUser.id ? updatedUser : u)),
-                  );
-                  setEditingMeshUser(null);
+                  applyAdminUserUpdate(updatedUser);
+                  setEditingMeshDevice(null);
                 }}
-                onClose={() => setEditingMeshUser(null)}
+                onClose={() => setEditingMeshDevice(null)}
               />
             ) : null}
           </div>

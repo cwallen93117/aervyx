@@ -8,10 +8,22 @@ from starlette.requests import Request
 
 from app.db import Base
 from app.models import Event, EventPilot, MeshDevice, Pilot, User
-from app.routers.auth import change_password, create_mesh_device, register, register_mesh_device, update_mesh_device, update_settings, update_user_account
+from app.routers.auth import (
+    admin_set_user_tracking_mesh_device,
+    admin_update_user_mesh_device,
+    change_password,
+    create_mesh_device,
+    list_users,
+    register,
+    register_mesh_device,
+    update_mesh_device,
+    update_settings,
+    update_user_account,
+)
 from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, update_pilot
 from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotUpsert, RegisterRequest
+from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import repair_pilot_email_identities
 
 
@@ -380,6 +392,124 @@ def test_mesh_device_update_rejects_duplicate_device_id() -> None:
         assert getattr(exc, "status_code", None) == 409
     else:
         raise AssertionError("Expected duplicate device ID update to be rejected")
+
+
+def test_admin_user_payload_includes_owned_mesh_devices() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id="!tracker")
+    session.add_all([admin, user])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking", is_active=True),
+            MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay", is_active=True),
+        ]
+    )
+    session.commit()
+
+    response = list_users(admin, session)
+    pilot_payload = next(item for item in response if item.id == user.id)
+
+    assert pilot_payload.mesh_device_id == "!tracker"
+    assert [device.device_id for device in pilot_payload.mesh_devices] == ["!relay", "!tracker"]
+    assert {device.device_id: device.is_active for device in pilot_payload.mesh_devices} == {
+        "!relay": True,
+        "!tracker": True,
+    }
+
+
+def test_admin_can_select_switch_and_clear_user_pilot_tracker() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id="!tracker")
+    session.add_all([admin, user])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking", is_active=True),
+            MeshDevice(owner_user_id=user.id, device_id="!backup", label="Backup", purpose="relay", is_active=True),
+        ]
+    )
+    session.commit()
+
+    selected = admin_set_user_tracking_mesh_device(
+        user.id,
+        MeshDeviceRegister(mesh_device_id="!backup"),
+        admin,
+        session,
+    )
+
+    session.refresh(user)
+    old_tracker = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!tracker"))
+    backup = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!backup"))
+    assert selected.mesh_device_id == "!backup"
+    assert user.mesh_device_id == "!backup"
+    assert old_tracker is not None and old_tracker.is_active is False
+    assert backup is not None and backup.purpose == "tracking" and backup.is_active is True
+
+    cleared = admin_set_user_tracking_mesh_device(
+        user.id,
+        MeshDeviceRegister(mesh_device_id=None),
+        admin,
+        session,
+    )
+
+    session.refresh(user)
+    session.refresh(backup)
+    assert cleared.mesh_device_id is None
+    assert user.mesh_device_id is None
+    assert backup.is_active is False
+
+
+def test_admin_can_edit_user_mesh_device_fields() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash")
+    session.add_all([admin, user])
+    session.flush()
+    session.add(MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay", is_active=True))
+    session.commit()
+
+    response = admin_update_user_mesh_device(
+        user.id,
+        "!relay",
+        MeshDeviceUpdate(device_id="!newrelay", label="Roof Relay", purpose="base_station", is_active=False),
+        admin,
+        session,
+    )
+
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!newrelay"))
+    assert device is not None
+    assert device.label == "Roof Relay"
+    assert device.purpose == "base_station"
+    assert device.is_active is False
+    assert response.mesh_devices[0].device_id == "!newrelay"
+    assert response.mesh_devices[0].is_active is False
+
+
+def test_deactivating_tracking_mesh_device_clears_assignment_resolution() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id="!tracker")
+    session.add_all([admin, user])
+    session.flush()
+    session.add(MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking", is_active=True))
+    session.commit()
+
+    admin_update_user_mesh_device(
+        user.id,
+        "!tracker",
+        MeshDeviceUpdate(is_active=False),
+        admin,
+        session,
+    )
+
+    session.refresh(user)
+    resolved_user, resolved_device = resolve_mesh_device_assignment(session, "!tracker")
+    assert user.mesh_device_id is None
+    assert resolved_user is None
+    assert resolved_device is None
 
 
 def test_change_password_requires_current_password() -> None:

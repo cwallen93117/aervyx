@@ -181,6 +181,41 @@ def _mesh_device_response(device: MeshDevice, owner: User | None = None) -> Mesh
     )
 
 
+def _admin_user_response(
+    user: User,
+    session: Session,
+    *,
+    pilot: Pilot | None = None,
+    mesh_devices: list[MeshDevice] | None = None,
+) -> AdminUserResponse:
+    if pilot is None and user.pilot_id:
+        pilot = session.get(Pilot, user.pilot_id)
+    if mesh_devices is None:
+        mesh_devices = session.scalars(
+            select(MeshDevice)
+            .where(MeshDevice.owner_user_id == user.id)
+            .order_by(MeshDevice.purpose.asc(), MeshDevice.label.asc(), MeshDevice.device_id.asc())
+        ).all()
+    return AdminUserResponse(
+        id=user.id,
+        username=user.username,
+        full_name=user.full_name,
+        first_name=pilot.first_name if pilot else None,
+        last_name=pilot.last_name if pilot else None,
+        role=user.role,
+        profile_type=user.profile_type,
+        profile_type_updated_at=_profile_type_updated_at(user),
+        pilot_id=user.pilot_id,
+        email=pilot.email if pilot else None,
+        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
+        competition_number=pilot.competition_number if pilot else None,
+        mesh_device_id=user.mesh_device_id,
+        mesh_devices=[_mesh_device_response(device, user) for device in mesh_devices],
+        is_active=user.is_active,
+        created_at=user.created_at,
+    )
+
+
 def _request_mqtt_refresh() -> None:
     from app.services.mqtt_subscriber import request_mqtt_reconnect
 
@@ -316,6 +351,72 @@ def _upsert_owned_mesh_device(
         device.label = label
         device.purpose = purpose
         device.is_active = payload.is_active
+    session.add(device)
+    return device
+
+
+def _update_owned_mesh_device(
+    device_id: str,
+    payload: MeshDeviceUpdate,
+    user: User,
+    session: Session,
+) -> MeshDevice:
+    normalized = _normalize_mesh_device_id(device_id)
+    if normalized is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+    device = session.scalar(
+        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == user.id)
+    )
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
+
+    next_device_id = normalized
+    if payload.device_id is not None:
+        next_device_id = _normalize_mesh_device_id(payload.device_id)
+        if next_device_id is None:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+        if next_device_id != normalized:
+            existing_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == next_device_id))
+            if existing_device is not None and existing_device.id != device.id:
+                owner = session.get(User, existing_device.owner_user_id)
+                owner_name = owner.full_name if owner else "another user"
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+            legacy_owner = session.scalar(select(User).where(User.mesh_device_id == next_device_id, User.id != user.id))
+            if legacy_owner is not None:
+                owner_name = legacy_owner.full_name or legacy_owner.username or "another user"
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
+            device.device_id = next_device_id
+
+    next_purpose = _normalize_mesh_purpose(payload.purpose) if payload.purpose is not None else device.purpose
+    if payload.label is not None:
+        device.label = payload.label.strip()[:160] or _default_mesh_device_label(user, next_device_id)
+    if payload.is_active is not None:
+        device.is_active = payload.is_active
+    if next_purpose == TRACKING_MESH_PURPOSE:
+        device.purpose = TRACKING_MESH_PURPOSE
+        if payload.is_active is None:
+            device.is_active = True
+        other_tracking_devices = session.scalars(
+            select(MeshDevice).where(
+                MeshDevice.owner_user_id == user.id,
+                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
+                MeshDevice.id != device.id,
+            )
+        ).all()
+        for other in other_tracking_devices:
+            other.is_active = False
+            session.add(other)
+        if device.is_active:
+            user.mesh_device_id = next_device_id
+            session.add(user)
+        elif user.mesh_device_id in {normalized, next_device_id}:
+            user.mesh_device_id = None
+            session.add(user)
+    else:
+        device.purpose = next_purpose
+        if user.mesh_device_id in {normalized, next_device_id}:
+            user.mesh_device_id = None
+            session.add(user)
     session.add(device)
     return device
 
@@ -751,63 +852,7 @@ def update_mesh_device(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> MeshDeviceResponse:
-    normalized = _normalize_mesh_device_id(device_id)
-    if normalized is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
-    device = session.scalar(
-        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == user.id)
-    )
-    if device is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
-
-    next_device_id = normalized
-    if payload.device_id is not None:
-        next_device_id = _normalize_mesh_device_id(payload.device_id)
-        if next_device_id is None:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
-        if next_device_id != normalized:
-            existing_device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == next_device_id))
-            if existing_device is not None and existing_device.id != device.id:
-                owner = session.get(User, existing_device.owner_user_id)
-                owner_name = owner.full_name if owner else "another user"
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
-            legacy_owner = session.scalar(select(User).where(User.mesh_device_id == next_device_id, User.id != user.id))
-            if legacy_owner is not None:
-                owner_name = legacy_owner.full_name or legacy_owner.username or "another user"
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"That device is registered to {owner_name}")
-            device.device_id = next_device_id
-
-    next_purpose = _normalize_mesh_purpose(payload.purpose) if payload.purpose is not None else device.purpose
-    if payload.label is not None:
-        device.label = payload.label.strip()[:160] or _default_mesh_device_label(user, next_device_id)
-    if payload.is_active is not None:
-        device.is_active = payload.is_active
-    if next_purpose == TRACKING_MESH_PURPOSE:
-        device.purpose = TRACKING_MESH_PURPOSE
-        if payload.is_active is None:
-            device.is_active = True
-        other_tracking_devices = session.scalars(
-            select(MeshDevice).where(
-                MeshDevice.owner_user_id == user.id,
-                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
-                MeshDevice.id != device.id,
-            )
-        ).all()
-        for other in other_tracking_devices:
-            other.is_active = False
-            session.add(other)
-        if device.is_active:
-            user.mesh_device_id = next_device_id
-            session.add(user)
-        elif user.mesh_device_id in {normalized, next_device_id}:
-            user.mesh_device_id = None
-            session.add(user)
-    else:
-        device.purpose = next_purpose
-        if user.mesh_device_id in {normalized, next_device_id}:
-            user.mesh_device_id = None
-            session.add(user)
-    session.add(device)
+    device = _update_owned_mesh_device(device_id, payload, user, session)
     session.commit()
     _request_mqtt_refresh()
     session.refresh(device)
@@ -1034,27 +1079,22 @@ def list_users(admin: User = Depends(require_admin), session: Session = Depends(
     pilots = {}
     if pilot_ids:
         pilots = {pilot.id: pilot for pilot in session.scalars(select(Pilot).where(Pilot.id.in_(pilot_ids))).all()}
+    user_ids = [user.id for user in users]
+    devices_by_owner: dict[int, list[MeshDevice]] = {user.id: [] for user in users}
+    if user_ids:
+        devices = session.scalars(
+            select(MeshDevice)
+            .where(MeshDevice.owner_user_id.in_(user_ids))
+            .order_by(MeshDevice.owner_user_id.asc(), MeshDevice.purpose.asc(), MeshDevice.label.asc(), MeshDevice.device_id.asc())
+        ).all()
+        for device in devices:
+            devices_by_owner.setdefault(device.owner_user_id, []).append(device)
     return [
-        AdminUserResponse(
-            id=user.id,
-            username=user.username,
-            full_name=user.full_name,
-            first_name=pilots[user.pilot_id].first_name if user.pilot_id and user.pilot_id in pilots else None,
-            last_name=pilots[user.pilot_id].last_name if user.pilot_id and user.pilot_id in pilots else None,
-            role=user.role,
-            profile_type=user.profile_type,
-            profile_type_updated_at=_profile_type_updated_at(user),
-            pilot_id=user.pilot_id,
-            email=pilots[user.pilot_id].email if user.pilot_id and user.pilot_id in pilots else None,
-            pilot_name=(
-                f"{pilots[user.pilot_id].first_name} {pilots[user.pilot_id].last_name}".strip()
-                if user.pilot_id and user.pilot_id in pilots
-                else None
-            ),
-            competition_number=pilots[user.pilot_id].competition_number if user.pilot_id and user.pilot_id in pilots else None,
-            mesh_device_id=user.mesh_device_id,
-            is_active=user.is_active,
-            created_at=user.created_at,
+        _admin_user_response(
+            user,
+            session,
+            pilot=pilots.get(user.pilot_id) if user.pilot_id else None,
+            mesh_devices=devices_by_owner.get(user.id, []),
         )
         for user in users
     ]
@@ -1090,24 +1130,7 @@ def update_user_account(
     session.add(target)
     session.commit()
     session.refresh(target)
-    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
-    return AdminUserResponse(
-        id=target.id,
-        username=target.username,
-        full_name=target.full_name,
-        first_name=pilot.first_name if pilot else None,
-        last_name=pilot.last_name if pilot else None,
-        role=target.role,
-        profile_type=target.profile_type,
-        profile_type_updated_at=_profile_type_updated_at(target),
-        pilot_id=target.pilot_id,
-        email=pilot.email if pilot else None,
-        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
-        competition_number=pilot.competition_number if pilot else None,
-        mesh_device_id=target.mesh_device_id,
-        is_active=target.is_active,
-        created_at=target.created_at,
-    )
+    return _admin_user_response(target, session)
 
 
 @router.delete("/users/{user_id}/mesh-device", status_code=204)
@@ -1188,24 +1211,63 @@ def admin_set_user_mesh_device(
     mesh_device_id = device.device_id if device else None
     logger.info("Admin %s set mesh_device_id=%s for user %s", admin.username, mesh_device_id, target.username)
 
-    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
-    return AdminUserResponse(
-        id=target.id,
-        username=target.username,
-        full_name=target.full_name,
-        first_name=pilot.first_name if pilot else None,
-        last_name=pilot.last_name if pilot else None,
-        role=target.role,
-        profile_type=target.profile_type,
-        profile_type_updated_at=_profile_type_updated_at(target),
-        pilot_id=target.pilot_id,
-        email=pilot.email if pilot else None,
-        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
-        competition_number=pilot.competition_number if pilot else None,
-        mesh_device_id=target.mesh_device_id,
-        is_active=target.is_active,
-        created_at=target.created_at,
+    return _admin_user_response(target, session)
+
+
+@router.put("/users/{user_id}/mesh-devices/tracking", response_model=AdminUserResponse)
+def admin_set_user_tracking_mesh_device(
+    user_id: int,
+    payload: MeshDeviceRegister,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    """Admin-only: select or clear the user's active pilot-tracker mesh device."""
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    normalized = _normalize_mesh_device_id(payload.mesh_device_id)
+    if normalized is None:
+        _clear_user_tracking_device(target, session)
+        session.commit()
+        _request_mqtt_refresh()
+        session.refresh(target)
+        logger.info("Admin %s cleared tracking mesh device for user %s", admin.username, target.username)
+        return _admin_user_response(target, session)
+
+    device = session.scalar(
+        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == target.id)
     )
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found for that user")
+
+    _set_user_tracking_device(target, normalized, session, label=device.label, allow_transfer=False)
+    session.commit()
+    _request_mqtt_refresh()
+    session.refresh(target)
+    logger.info("Admin %s set tracking mesh device %s for user %s", admin.username, normalized, target.username)
+    return _admin_user_response(target, session)
+
+
+@router.patch("/users/{user_id}/mesh-devices/{device_id}", response_model=AdminUserResponse)
+def admin_update_user_mesh_device(
+    user_id: int,
+    device_id: str,
+    payload: MeshDeviceUpdate,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    """Admin-only: edit an owned mesh device's inventory fields."""
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    device = _update_owned_mesh_device(device_id, payload, target, session)
+    session.commit()
+    _request_mqtt_refresh()
+    session.refresh(target)
+    logger.info("Admin %s updated mesh device %s for user %s", admin.username, device.device_id, target.username)
+    return _admin_user_response(target, session)
 
 
 @router.patch("/users/{user_id}/credentials", response_model=AdminUserResponse)
@@ -1229,24 +1291,7 @@ def update_user_credentials(
     session.add(target)
     session.commit()
     session.refresh(target)
-    pilot = session.get(Pilot, target.pilot_id) if target.pilot_id else None
-    return AdminUserResponse(
-        id=target.id,
-        username=target.username,
-        full_name=target.full_name,
-        first_name=pilot.first_name if pilot else None,
-        last_name=pilot.last_name if pilot else None,
-        role=target.role,
-        profile_type=target.profile_type,
-        profile_type_updated_at=_profile_type_updated_at(target),
-        pilot_id=target.pilot_id,
-        email=pilot.email if pilot else None,
-        pilot_name=f"{pilot.first_name} {pilot.last_name}".strip() if pilot else None,
-        competition_number=pilot.competition_number if pilot else None,
-        mesh_device_id=target.mesh_device_id,
-        is_active=target.is_active,
-        created_at=target.created_at,
-    )
+    return _admin_user_response(target, session)
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

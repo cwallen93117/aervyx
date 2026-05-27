@@ -160,6 +160,7 @@ class AdminUserResponse(BaseModel):
     pilot_name: str | None = None
     competition_number: str | None = None
     mesh_device_id: str | None = None
+    mesh_devices: list[MeshDeviceResponse] = Field(default_factory=list)
     is_active: bool
     created_at: datetime
 

@@ -221,14 +221,14 @@ export default function MeshDevicesManager({ token }: { token: string }) {
     }
   }
 
-  async function setTrackingDevice(device: MeshDeviceRecord) {
+  async function setTrackingDevice(device: MeshDeviceRecord | null) {
     setSaving(true);
     try {
       await apiFetch("/api/auth/mesh-devices/tracking", token, {
         method: "PUT",
-        body: JSON.stringify({ mesh_device_id: device.device_id }),
+        body: JSON.stringify({ mesh_device_id: device?.device_id ?? null }),
       });
-      showFeedback("success", "Tracking device updated.");
+      showFeedback("success", device ? "Tracking device updated." : "Tracking device cleared.");
       await loadDevices();
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Could not update tracking device.");
@@ -285,7 +285,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
               <th>Device ID</th>
               <th>Purpose</th>
               <th>Pilot Tracker</th>
-              <th>Status</th>
+              <th>Aervyx Active</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -340,14 +340,15 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                           checked={isPilotTracker}
                           disabled={saving}
                           aria-label={`Use ${device.label || device.device_id} as pilot tracker`}
-                          onChange={() => {
-                            if (!isPilotTracker) void setTrackingDevice(device);
-                          }}
+                          onChange={(event) => void setTrackingDevice(event.target.checked ? device : null)}
                         />
                       </label>
                     </td>
                     <td>
-                      <label className="checkbox-label">
+                      <label
+                        className="checkbox-label"
+                        title="Controls whether Aervyx treats this registered device as active inventory; it does not turn the Meshtastic radio relay on or off."
+                      >
                         <input
                           type="checkbox"
                           checked={draft.is_active}
@@ -356,7 +357,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                             [device.device_id]: { ...draft, is_active: event.target.checked },
                           }))}
                         />
-                        Active
+                        Enabled
                       </label>
                     </td>
                     <td>

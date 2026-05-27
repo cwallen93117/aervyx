@@ -1687,6 +1687,53 @@ button[type="submit"]:hover,
   width: 15px;
   height: 15px;
 }
+
+.admin-mesh-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 240px;
+}
+
+.admin-mesh-expand-button {
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  font-weight: 700;
+}
+
+.admin-mesh-device-id {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 0.75rem;
+}
+
+.admin-mesh-device-id.muted {
+  opacity: 0.45;
+}
+
+.admin-mesh-detail-row > td {
+  background: var(--wash);
+  padding: 8px 12px 12px;
+}
+
+.admin-mesh-devices-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.admin-mesh-devices-table th,
+.admin-mesh-devices-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.admin-mesh-devices-table th {
+  color: var(--muted);
+  font-weight: 700;
+  text-align: left;
+}
 .sortable-th {
   cursor: pointer;
   user-select: none;
