@@ -7,6 +7,7 @@ import { SectionCard } from "../SectionCard";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MeshDevicePurpose, MeshDeviceRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
+type MeshtasticTab = "profiles" | "mqtt_cloudflare";
 type MeshConnectionStatus = "live" | "stale" | "offline" | "never_seen";
 
 function normalizeMqttBrokerMode(value: string | null | undefined): MqttBrokerMode {
@@ -472,6 +473,7 @@ export default function AdminSection(props: AdminSectionProps) {
     apiBase,
   } = props;
   const [activeTab, setActiveTab] = useState<AdminTab>("platform_users");
+  const [activeMeshtasticTab, setActiveMeshtasticTab] = useState<MeshtasticTab>("profiles");
   const [meshNodes, setMeshNodes] = useState<MeshNode[]>([]);
   const [userSearch, setUserSearch] = useState("");
   const [userSortField, setUserSortField] = useState<UserSortField>("last_name");
@@ -1450,7 +1452,29 @@ export default function AdminSection(props: AdminSectionProps) {
       ) : activeTab === "meshtastic" ? (
         <SectionCard title="Meshtastic Configuration">
           <div className="stack form-block compact-clusters">
-            <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} />
+            <div className="tab-row" role="tablist" aria-label="Meshtastic settings sections">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMeshtasticTab === "profiles"}
+                className={activeMeshtasticTab === "profiles" ? "tab-button active" : "tab-button"}
+                onClick={() => setActiveMeshtasticTab("profiles")}
+              >
+                Meshtastic Profiles
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={activeMeshtasticTab === "mqtt_cloudflare"}
+                className={activeMeshtasticTab === "mqtt_cloudflare" ? "tab-button active" : "tab-button"}
+                onClick={() => setActiveMeshtasticTab("mqtt_cloudflare")}
+              >
+                MQTT and Cloudflare
+              </button>
+            </div>
+            {activeMeshtasticTab === "profiles" ? <MeshProfilesTable siteSettings={siteSettings} setSiteSettings={setSiteSettings} /> : null}
+            {activeMeshtasticTab === "mqtt_cloudflare" ? (
+              <>
             <fieldset className="fieldset-cluster">
               <legend>Fixed Gateway MQTT</legend>
               <div className="cluster-stack">
@@ -1687,6 +1711,8 @@ export default function AdminSection(props: AdminSectionProps) {
                 </div>
               </div>
             </fieldset>
+              </>
+            ) : null}
             <div className="button-row" style={{ display: "flex", alignItems: "center", gap: "12px" }}>
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save Meshtastic settings
