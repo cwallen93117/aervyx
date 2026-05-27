@@ -140,7 +140,7 @@ def test_admin_debug_status_infers_registered_device_pilot_from_latest_position(
     assert device["owner_pilot_id"] == pilot.id
 
 
-def test_admin_debug_status_reports_mqtt_only_activity_as_offline_phone_session() -> None:
+def test_admin_debug_status_omits_mqtt_only_activity_from_phone_sessions() -> None:
     session = _session()
     now = datetime.now(UTC)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
@@ -186,17 +186,7 @@ def test_admin_debug_status_reports_mqtt_only_activity_as_offline_phone_session(
 
     payload = admin_debug_status(admin, session)
 
-    assert len(payload["active_sessions"]) == 1
-    phone = payload["active_sessions"][0]
-    assert phone["device_id"] is None
-    assert phone["source"] == "app"
-    assert phone["battery_level"] is None
-    assert phone["position_count"] == 0
-    assert phone["positions_last_60s"] == 0
-    assert phone["is_online"] is False
-    assert phone["last_seen_at"] is None
-    assert phone["last_position"] is None
-    assert phone["has_mesh"] is True
+    assert payload["active_sessions"] == []
     device = payload["registered_mesh_devices"][0]
     assert device["device_id"] == "!abc123"
     assert device["mesh_status"] == "live"

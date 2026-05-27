@@ -2123,6 +2123,49 @@ function latestTimestamp(left: string | null | undefined, right: string | null |
   return new Date(right).getTime() > new Date(left).getTime() ? right : left;
 }
 
+function normalizedDebugName(value: string | null | undefined): string | null {
+  const normalized = (value ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  return normalized || null;
+}
+
+function rowHasPhoneFix(row: UnifiedDevice): boolean {
+  return row.session?.last_position != null || row.session?.last_seen_at != null;
+}
+
+function shouldMergeDebugRowsByName(left: UnifiedDevice, right: UnifiedDevice): boolean {
+  const leftName = normalizedDebugName(left.pilot_name);
+  const rightName = normalizedDebugName(right.pilot_name);
+  if (!leftName || leftName !== rightName) return false;
+  if (
+    left.pilot_id != null &&
+    right.pilot_id != null &&
+    left.pilot_id !== right.pilot_id
+  ) {
+    return false;
+  }
+  return left.hasMesh || right.hasMesh || !rowHasPhoneFix(left) || !rowHasPhoneFix(right);
+}
+
+function mergeDebugRows(target: UnifiedDevice, source: UnifiedDevice): void {
+  if (target.pilot_id == null && source.pilot_id != null) target.pilot_id = source.pilot_id;
+  if (target.user_id == null && source.user_id != null) target.user_id = source.user_id;
+  if (!target.profile_type && source.profile_type) target.profile_type = source.profile_type;
+  if (!rowHasPhoneFix(target) && source.session != null) target.session = source.session;
+  if (source.session?.last_position != null) target.session = source.session;
+  const existingDeviceIds = new Set(target.meshDevices.map((device) => normalizedMeshNodeId(device.deviceId) ?? device.deviceId));
+  for (const device of source.meshDevices) {
+    const key = normalizedMeshNodeId(device.deviceId) ?? device.deviceId;
+    if (!existingDeviceIds.has(key)) {
+      target.meshDevices.push(device);
+      existingDeviceIds.add(key);
+    }
+  }
+  target.hasPhone = target.hasPhone || source.hasPhone;
+  target.hasMesh = target.hasMesh || source.hasMesh;
+  target.isOnline = target.isOnline || source.isOnline;
+  target.lastSeenAt = latestTimestamp(target.lastSeenAt, source.lastSeenAt);
+}
+
 function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
   return {
     key: `registered-${device.device_id}`,
@@ -2288,7 +2331,17 @@ function LiveTrackingTab({
       row.lastSeenAt = latestTimestamp(row.lastSeenAt, entry.lastSeenAt);
     }
 
-    const list = Array.from(byKey.values());
+    const merged: UnifiedDevice[] = [];
+    for (const row of byKey.values()) {
+      const existing = merged.find((candidate) => shouldMergeDebugRowsByName(candidate, row));
+      if (existing) {
+        mergeDebugRows(existing, row);
+      } else {
+        merged.push(row);
+      }
+    }
+
+    const list = merged;
     for (const row of list) {
       row.meshDevices.sort((a, b) => {
         if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
