@@ -100,14 +100,15 @@ export function LiveWatchClient() {
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
   const [loading, setLoading] = useState(false);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
-  const [error, setError] = useState("");
   const [eventFitRequestId, setEventFitRequestId] = useState(0);
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
   const [hasInitialEventParam, setHasInitialEventParam] = useState(false);
   const [initialEventId, setInitialEventId] = useState<number | null>(null);
   const [returnScoresEventId, setReturnScoresEventId] = useState<number | null>(null);
   const [hasAppliedInitialEvent, setHasAppliedInitialEvent] = useState(false);
+  const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
   const sseControllerRef = useRef<AbortController | null>(null);
+  const focusRequestIdRef = useRef(0);
 
   const apiBase = useMemo(() => resolveApiBase(), []);
   const streamApiBase = useMemo(() => resolveStreamApiBase(), []);
@@ -129,13 +130,9 @@ export function LiveWatchClient() {
         const response = await fetch(`${apiBase}/api/public/live/sources`, { cache: "no-store" });
         if (response.ok && !cancelled) {
           setSources((await response.json()) as PublicSources);
-        } else if (!response.ok && !cancelled) {
-          setError("Unable to load live sources.");
         }
       } catch {
-        if (!cancelled) {
-          setError("Unable to load live sources.");
-        }
+        // Keep the public watch header quiet if sources are temporarily unavailable.
       } finally {
         if (!cancelled) {
           setSourcesLoaded(true);
@@ -230,7 +227,6 @@ export function LiveWatchClient() {
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
     setPilotNameById(new Map());
-    setError("");
 
     if (source.type === "none") {
       setLoading(false);
@@ -271,14 +267,12 @@ export function LiveWatchClient() {
     eventSource.onopen = () => {
       if (!controller.signal.aborted) {
         setLoading(false);
-        setError("");
       }
     };
 
     eventSource.onerror = () => {
       if (!controller.signal.aborted) {
         setLoading(false);
-        setError("Live connection interrupted; retrying...");
       }
     };
 
@@ -444,6 +438,28 @@ export function LiveWatchClient() {
     }
   }, [selected]);
 
+  const latestPositionForSubject = useCallback((subjectKey: string) => {
+    const current = livePositionsByPilot.get(subjectKey);
+    if (current) {
+      return current;
+    }
+    const history = positionsByPilot.get(subjectKey);
+    return history && history.length > 0 ? history[history.length - 1] : null;
+  }, [livePositionsByPilot, positionsByPilot]);
+
+  const focusSubjectOnMap = useCallback((subjectKey: string) => {
+    const position = latestPositionForSubject(subjectKey);
+    if (!position) {
+      return;
+    }
+    focusRequestIdRef.current += 1;
+    setFocusPosition({
+      lat: position.lat,
+      lon: position.lon,
+      key: `${subjectKey}:${position.id}:${focusRequestIdRef.current}`,
+    });
+  }, [latestPositionForSubject]);
+
   const compScoresHref = useMemo(() => {
     const eventId = returnScoresEventId ?? selectedEventId;
     return eventId != null ? `/scores?event_id=${encodeURIComponent(String(eventId))}` : "/scores";
@@ -458,11 +474,18 @@ export function LiveWatchClient() {
       <div className="live-pilot-list">
         {activePilotIds.length > 0 ? (
           activePilotIds.map((pilotId) => {
-            const pos = livePositionsByPilot.get(pilotId);
+            const pos = latestPositionForSubject(pilotId);
             const name = pos ? displayNameForSubject(pos, pilotNameById) : pilotNameById.get(pilotId) ?? pilotId;
             const color = colorForSubject(pilotId, activePilotIds);
             return (
-              <div key={pilotId} className="live-pilot-row">
+              <button
+                key={pilotId}
+                type="button"
+                className="live-pilot-row"
+                onClick={() => focusSubjectOnMap(pilotId)}
+                disabled={!pos}
+                title={pos ? `Center map on ${name}` : undefined}
+              >
                 <span className="live-pilot-badge" style={{ color }}>
                   <PilotRoleBadge
                     profileType={pos?.profile_type}
@@ -479,7 +502,7 @@ export function LiveWatchClient() {
                     {pos?.timestamp ? ` - ${formatRelativeTime(pos.timestamp)}` : ""}
                   </span>
                 </div>
-              </div>
+              </button>
             );
           })
         ) : (
@@ -566,7 +589,6 @@ export function LiveWatchClient() {
           </select>
         </div>
         <a href={compScoresHref} className="public-header-link public-header-link-scores">Comp Scores</a>
-        {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 
       <div className="live-body">
@@ -585,6 +607,7 @@ export function LiveWatchClient() {
             overlayConfig={overlayConfig}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"
+            focusPosition={focusPosition}
             fitKey={sourceDropdownValue}
             fitOnceKey={eventFitOnceKey}
           />
