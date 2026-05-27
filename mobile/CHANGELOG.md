@@ -1,5 +1,15 @@
 # Aervyx Mobile Changelog
 
+## 0.4.34+51 - 2026-05-27
+
+### Changed
+- Production release builds now open the public Aervyx app download page from Settings.
+
+## 0.4.33+50 - 2026-05-26
+
+### Fixed
+- Bluetooth auto-reconnect now starts after login or session restore even when there is no saved reconnect target yet.
+
 ## 0.4.32+49 - 2026-05-26
 
 ### Changed

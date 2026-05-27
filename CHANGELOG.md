@@ -13,6 +13,11 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.27]
+
+### Changed
+- **Mobile v0.4.34+51** is the production APK for the staging-to-main promotion and uses the public Aervyx app download page from Settings.
+
 ## [2026.05.26]
 
 ### Added
