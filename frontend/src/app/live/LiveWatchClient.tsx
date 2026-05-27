@@ -107,6 +107,7 @@ export function LiveWatchClient() {
   const [returnScoresEventId, setReturnScoresEventId] = useState<number | null>(null);
   const [hasAppliedInitialEvent, setHasAppliedInitialEvent] = useState(false);
   const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
+  const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
   const sseControllerRef = useRef<AbortController | null>(null);
   const focusRequestIdRef = useRef(0);
 
@@ -227,6 +228,8 @@ export function LiveWatchClient() {
     setPositionsByPilot(new Map());
     setLivePositionsByPilot(new Map());
     setPilotNameById(new Map());
+    setHighlightedSubjectKey(null);
+    setFocusPosition(null);
 
     if (source.type === "none") {
       setLoading(false);
@@ -458,6 +461,7 @@ export function LiveWatchClient() {
       lon: position.lon,
       key: `${subjectKey}:${position.id}:${focusRequestIdRef.current}`,
     });
+    setHighlightedSubjectKey((current) => current === subjectKey ? null : subjectKey);
   }, [latestPositionForSubject]);
 
   const compScoresHref = useMemo(() => {
@@ -477,14 +481,16 @@ export function LiveWatchClient() {
             const pos = latestPositionForSubject(pilotId);
             const name = pos ? displayNameForSubject(pos, pilotNameById) : pilotNameById.get(pilotId) ?? pilotId;
             const color = colorForSubject(pilotId, activePilotIds);
+            const isHighlighted = highlightedSubjectKey === pilotId;
             return (
               <button
                 key={pilotId}
                 type="button"
-                className="live-pilot-row"
+                className={`live-pilot-row${isHighlighted ? " is-highlighted" : ""}`}
                 onClick={() => focusSubjectOnMap(pilotId)}
+                aria-pressed={isHighlighted}
                 disabled={!pos}
-                title={pos ? `Center map on ${name}` : undefined}
+                title={pos ? `${isHighlighted ? "Hide details for" : "Center map on"} ${name}` : undefined}
               >
                 <span className="live-pilot-badge" style={{ color }}>
                   <PilotRoleBadge
@@ -608,6 +614,7 @@ export function LiveWatchClient() {
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"
             focusPosition={focusPosition}
+            highlightedLiveSubjectKey={highlightedSubjectKey}
             fitKey={sourceDropdownValue}
             fitOnceKey={eventFitOnceKey}
           />
