@@ -1863,6 +1863,11 @@ export default function HomePage() {
     } catch { /* ignore */ }
   }
 
+  async function handleMeshDevicesChanged() {
+    if (!token) return;
+    await refreshAdminUsers(token);
+  }
+
   async function saveAdminUser(userRecord: AdminUserRecord) {
     if (!token) return;
     setAdminFeedback(null);
@@ -3084,6 +3089,7 @@ export default function HomePage() {
               savePasswordSettings={savePasswordSettings}
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
+              onMeshDevicesChanged={handleMeshDevicesChanged}
             />
           );
         case "admin":
@@ -3131,6 +3137,7 @@ export default function HomePage() {
               savePasswordSettings={savePasswordSettings}
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
+              onMeshDevicesChanged={handleMeshDevicesChanged}
             />
           );
       }

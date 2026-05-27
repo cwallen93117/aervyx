@@ -23,6 +23,7 @@ export interface SettingsSectionProps {
   savePasswordSettings: (event: FormEvent<HTMLFormElement>) => void;
   pilotId: number | null;
   onPilotClaimed: () => void;
+  onMeshDevicesChanged?: () => void | Promise<void>;
 }
 
 type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
@@ -51,6 +52,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
     savePasswordSettings,
     pilotId,
     onPilotClaimed,
+    onMeshDevicesChanged,
   } = props;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
@@ -247,7 +249,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
 
       {activeTab === "meshtastic" && (
         <div className="settings-tab-panel">
-          <MeshDevicesManager token={token} />
+          <MeshDevicesManager token={token} onDevicesChanged={onMeshDevicesChanged} />
         </div>
       )}
 

@@ -121,7 +121,12 @@ type MeshDeviceDraft = {
   purpose: MeshDevicePurpose;
 };
 
-export default function MeshDevicesManager({ token }: { token: string }) {
+type MeshDevicesManagerProps = {
+  token: string;
+  onDevicesChanged?: () => void | Promise<void>;
+};
+
+export default function MeshDevicesManager({ token, onDevicesChanged }: MeshDevicesManagerProps) {
   const [devices, setDevices] = useState<MeshDeviceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -153,6 +158,20 @@ export default function MeshDevicesManager({ token }: { token: string }) {
     }
   }, [token, showFeedback]);
 
+  const reloadAfterMutation = useCallback(async () => {
+    await loadDevices();
+    try {
+      await onDevicesChanged?.();
+    } catch (error) {
+      showFeedback(
+        "error",
+        error instanceof Error
+          ? `Device saved, but admin users did not refresh: ${error.message}`
+          : "Device saved, but admin users did not refresh.",
+      );
+    }
+  }, [loadDevices, onDevicesChanged, showFeedback]);
+
   useEffect(() => { void loadDevices(); }, [loadDevices]);
 
   async function addDevice() {
@@ -170,7 +189,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
       });
       setNewDevice({ device_id: "", label: "", purpose: "tracking" });
       showFeedback("success", "Meshtastic device saved.");
-      await loadDevices();
+      await reloadAfterMutation();
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Could not save device.");
     } finally {
@@ -197,7 +216,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
         }),
       });
       showFeedback("success", "Device updated.");
-      await loadDevices();
+      await reloadAfterMutation();
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Could not update device.");
     } finally {
@@ -210,7 +229,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
     try {
       await apiFetch<void>(`/api/auth/mesh-devices/${encodeURIComponent(device.device_id)}`, token, { method: "DELETE" });
       showFeedback("success", "Device removed.");
-      await loadDevices();
+      await reloadAfterMutation();
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Could not remove device.");
     } finally {
@@ -226,7 +245,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
         body: JSON.stringify({ mesh_device_id: device?.device_id ?? null }),
       });
       showFeedback("success", device ? "Tracking device updated." : "Tracking device cleared.");
-      await loadDevices();
+      await reloadAfterMutation();
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Could not update tracking device.");
     } finally {

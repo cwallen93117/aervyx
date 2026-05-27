@@ -13,6 +13,7 @@ from app.routers.auth import (
     admin_update_user_mesh_device,
     change_password,
     create_mesh_device,
+    list_mesh_devices,
     list_users,
     register,
     register_mesh_device,
@@ -417,6 +418,35 @@ def test_admin_user_payload_includes_owned_mesh_devices() -> None:
         "!relay": False,
         "!tracker": True,
     }
+
+
+def test_settings_mesh_device_update_is_reflected_in_admin_user_payload() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id="!tahoe")
+    session.add_all([admin, user])
+    session.flush()
+    session.add(MeshDevice(owner_user_id=user.id, device_id="!tahoe", label="Tahoe Supreme", purpose="tracking"))
+    session.commit()
+
+    update_mesh_device(
+        "!tahoe",
+        MeshDeviceUpdate(device_id="!tahoe", label="Tahoe Supreme", purpose="driver_wifi"),
+        user,
+        session,
+    )
+
+    settings_device = list_mesh_devices(user, session)[0]
+    admin_payload = next(item for item in list_users(admin, session) if item.id == user.id)
+    admin_device = admin_payload.mesh_devices[0]
+
+    assert settings_device.id == admin_device.id
+    assert settings_device.device_id == admin_device.device_id == "!tahoe"
+    assert settings_device.label == admin_device.label == "Tahoe Supreme"
+    assert settings_device.purpose == admin_device.purpose == "driver_wifi"
+    assert settings_device.is_pilot_tracker is False
+    assert admin_device.is_pilot_tracker is False
+    assert admin_payload.mesh_device_id is None
 
 
 def test_admin_can_select_switch_and_clear_user_pilot_tracker() -> None:

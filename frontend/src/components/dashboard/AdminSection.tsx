@@ -968,7 +968,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   {filteredSortedUsers.length ? (
                     filteredSortedUsers.map((account) => {
                       const meshDevices = account.mesh_devices ?? [];
-                      const primaryMeshDevice = meshDevices.find((device) => device.device_id === account.mesh_device_id) ?? meshDevices[0] ?? null;
+                      const primaryMeshDevice = meshDevices.find((device) => device.is_pilot_tracker) ?? meshDevices[0] ?? null;
                       const hasMultipleMeshDevices = meshDevices.length > 1;
                       const meshExpanded = expandedUserIds[account.id] ?? false;
                       return (
@@ -1032,7 +1032,7 @@ export default function AdminSection(props: AdminSectionProps) {
                               <>
                                 <input
                                   type="checkbox"
-                                  checked={account.mesh_device_id === primaryMeshDevice.device_id}
+                                  checked={primaryMeshDevice.is_pilot_tracker}
                                   title="Pilot tracker"
                                   aria-label={`Use ${primaryMeshDevice.device_id} as pilot tracker`}
                                   onChange={(event) => void setAdminUserPilotTracker(account, event.target.checked ? primaryMeshDevice.device_id : null)}
@@ -1044,14 +1044,16 @@ export default function AdminSection(props: AdminSectionProps) {
                                   {primaryMeshDevice.device_id}
                                 </span>
                                 <span className="hint">{hasMultipleMeshDevices ? `${meshDevices.length} devices` : meshPurposeLabel(primaryMeshDevice.purpose)}</span>
-                                <button
-                                  type="button"
-                                  className="ghost-button"
-                                  title="Edit mesh device"
-                                  onClick={() => setEditingMeshDevice({ user: account, device: primaryMeshDevice })}
-                                >
-                                  Edit
-                                </button>
+                                {!hasMultipleMeshDevices ? (
+                                  <button
+                                    type="button"
+                                    className="ghost-button"
+                                    title="Edit mesh device"
+                                    onClick={() => setEditingMeshDevice({ user: account, device: primaryMeshDevice })}
+                                  >
+                                    Edit
+                                  </button>
+                                ) : null}
                               </>
                             ) : (
                               <>
@@ -1115,8 +1117,8 @@ export default function AdminSection(props: AdminSectionProps) {
                                     <td>
                                       <input
                                         type="checkbox"
-                                        checked={account.mesh_device_id === device.device_id}
-                                        aria-label={`${account.mesh_device_id === device.device_id ? "Clear" : "Use"} ${device.device_id} as pilot tracker`}
+                                        checked={device.is_pilot_tracker}
+                                        aria-label={`${device.is_pilot_tracker ? "Clear" : "Use"} ${device.device_id} as pilot tracker`}
                                         onChange={(event) => void setAdminUserPilotTracker(account, event.target.checked ? device.device_id : null)}
                                       />
                                     </td>
