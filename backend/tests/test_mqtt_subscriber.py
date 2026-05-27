@@ -558,6 +558,7 @@ def test_mqtt_decrypts_default_psk_encrypted_position(monkeypatch) -> None:
         session.flush()
         pilot_id = pilot.id
         owner.pilot_id = pilot.id
+        owner.mesh_device_id = sender_id
         session.add_all(
             [
                 MeshDevice(
@@ -623,6 +624,7 @@ def test_mqtt_decrypts_configured_psk_encrypted_position(monkeypatch) -> None:
         session.flush()
         pilot_id = pilot.id
         owner.pilot_id = pilot.id
+        owner.mesh_device_id = sender_id
         session.add_all(
             [
                 MeshDevice(

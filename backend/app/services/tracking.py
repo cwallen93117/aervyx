@@ -195,20 +195,21 @@ def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> t
     device = None
     for candidate in mesh_device_id_lookup_variants(normalized):
         device = session.scalar(
-            select(MeshDevice).where(
-                MeshDevice.device_id == candidate,
-                MeshDevice.is_active.is_(True),
-            )
+            select(MeshDevice).where(MeshDevice.device_id == candidate)
         )
         if device is not None:
             break
     if device is not None:
-        if device.purpose != TRACKING_MESH_PURPOSE:
-            return None, device
         owner = session.get(User, device.owner_user_id)
-        if owner is not None and owner.is_active:
-            return owner, device
-        return None, device
+        owner_tracker_ids = set(mesh_device_id_lookup_variants(owner.mesh_device_id if owner else None))
+        if (
+            device.purpose != TRACKING_MESH_PURPOSE
+            or normalized not in owner_tracker_ids
+            or owner is None
+            or not owner.is_active
+        ):
+            return None, device
+        return owner, device
 
     legacy_owner = None
     for candidate in mesh_device_id_lookup_variants(normalized):
@@ -305,7 +306,7 @@ def _registered_devices_by_device_id(session: Session, device_ids: list[str]) ->
     if not lookup_ids:
         return {}
     devices = session.scalars(
-        select(MeshDevice).where(MeshDevice.device_id.in_(lookup_ids), MeshDevice.is_active.is_(True))
+        select(MeshDevice).where(MeshDevice.device_id.in_(lookup_ids))
     ).all()
     by_id: dict[str, MeshDevice] = {}
     for device in devices:

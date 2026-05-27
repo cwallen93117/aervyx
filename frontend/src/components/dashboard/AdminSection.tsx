@@ -46,7 +46,6 @@ type MeshDeviceStatus = {
   deviceId: string;
   label: string | null;
   purpose: string | null;
-  isActive: boolean;
   isConnected: boolean;
   meshStatus: MeshConnectionStatus;
   registeredOwnerUserId: number | null;
@@ -197,7 +196,6 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
     device_id: device?.device_id ?? user.mesh_device_id ?? "",
     label: device?.label ?? "",
     purpose: (device?.purpose ?? "tracking") as MeshDevicePurpose,
-    is_active: device?.is_active ?? true,
   });
   const [lookupResult, setLookupResult] = useState<MeshDeviceLookupResult | null>(null);
   const [saving, setSaving] = useState(false);
@@ -233,8 +231,7 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
   const unchanged = device
     ? trimmedInput === device.device_id &&
       draft.label === device.label &&
-      draft.purpose === device.purpose &&
-      draft.is_active === device.is_active
+      draft.purpose === device.purpose
     : trimmedInput === (user.mesh_device_id ?? "");
   const saveDisabled = saving || unchanged || trimmedInput === "";
 
@@ -259,7 +256,6 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
               device_id: trimmedInput,
               label: draft.label,
               purpose: draft.purpose,
-              is_active: draft.is_active,
             }),
           })
         : await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-device`, {
@@ -380,14 +376,6 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
                   <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
-            </label>
-            <label className="task-advanced-toggle" title="Controls whether Aervyx treats this registered device as active inventory; it does not turn the radio relay on or off.">
-              <input
-                type="checkbox"
-                checked={draft.is_active}
-                onChange={(e) => setDraft((current) => ({ ...current, is_active: e.target.checked }))}
-              />
-              <span>Aervyx active</span>
             </label>
           </>
         ) : null}
@@ -1050,13 +1038,12 @@ export default function AdminSection(props: AdminSectionProps) {
                                   onChange={(event) => void setAdminUserPilotTracker(account, event.target.checked ? primaryMeshDevice.device_id : null)}
                                 />
                                 <span
-                                  title="Aervyx pilot tracker assignment. Other active mesh devices can still relay packets."
+                                  title="Aervyx pilot tracker assignment. Other mesh devices can still relay packets."
                                   className="admin-mesh-device-id"
                                 >
                                   {primaryMeshDevice.device_id}
                                 </span>
                                 <span className="hint">{hasMultipleMeshDevices ? `${meshDevices.length} devices` : meshPurposeLabel(primaryMeshDevice.purpose)}</span>
-                                {!primaryMeshDevice.is_active ? <span className="status-chip pending">Aervyx inactive</span> : null}
                                 <button
                                   type="button"
                                   className="ghost-button"
@@ -1118,7 +1105,6 @@ export default function AdminSection(props: AdminSectionProps) {
                                   <th>Pilot Tracker</th>
                                   <th>Mesh Device ID</th>
                                   <th>Purpose</th>
-                                  <th>Aervyx Active</th>
                                   <th>Label</th>
                                   <th>Actions</th>
                                 </tr>
@@ -1136,7 +1122,6 @@ export default function AdminSection(props: AdminSectionProps) {
                                     </td>
                                     <td className="admin-mesh-device-id">{device.device_id}</td>
                                     <td>{meshPurposeLabel(device.purpose)}</td>
-                                    <td>{device.is_active ? "Active" : "Inactive"}</td>
                                     <td>{device.label}</td>
                                     <td>
                                       <button
@@ -2142,7 +2127,6 @@ function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
     deviceId: device.device_id,
     label: device.label,
     purpose: device.purpose,
-    isActive: device.is_active,
     isConnected: device.is_connected,
     meshStatus: device.mesh_status,
     registeredOwnerUserId: device.owner_user_id,
@@ -2167,7 +2151,6 @@ function meshDeviceFromNode(node: MeshNode): MeshDeviceStatus {
     deviceId: node.device_id,
     label: node.device_label,
     purpose: node.device_purpose,
-    isActive: true,
     isConnected: node.mesh_status === "live",
     meshStatus: node.mesh_status,
     registeredOwnerUserId: node.registered_owner_user_id,
@@ -2301,7 +2284,6 @@ function LiveTrackingTab({
     for (const row of list) {
       row.meshDevices.sort((a, b) => {
         if (a.isConnected !== b.isConnected) return a.isConnected ? -1 : 1;
-        if (a.isActive !== b.isActive) return a.isActive ? -1 : 1;
         return (a.label ?? a.deviceId).localeCompare(b.label ?? b.deviceId);
       });
     }

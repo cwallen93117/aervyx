@@ -168,14 +168,16 @@ def _default_mesh_device_label(user: User, device_id: str) -> str:
 
 
 def _mesh_device_response(device: MeshDevice, owner: User | None = None) -> MeshDeviceResponse:
+    device_id = _normalize_mesh_device_id(device.device_id) or device.device_id
+    owner_tracker_id = _normalize_mesh_device_id(owner.mesh_device_id) if owner is not None else None
     return MeshDeviceResponse(
         id=device.id,
         owner_user_id=device.owner_user_id,
         owner_name=owner.full_name if owner else None,
-        device_id=device.device_id,
+        device_id=device_id,
         label=device.label,
         purpose=device.purpose,
-        is_active=device.is_active,
+        is_pilot_tracker=owner_tracker_id == device_id,
         created_at=device.created_at,
         updated_at=device.updated_at,
     )
@@ -223,20 +225,8 @@ def _request_mqtt_refresh() -> None:
 
 
 def _clear_user_tracking_device(user: User, session: Session) -> None:
-    old_device_id = user.mesh_device_id
     user.mesh_device_id = None
     session.add(user)
-    if old_device_id:
-        device = session.scalar(
-            select(MeshDevice).where(
-                MeshDevice.owner_user_id == user.id,
-                MeshDevice.device_id == old_device_id,
-                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
-            )
-        )
-        if device is not None:
-            device.is_active = False
-            session.add(device)
 
 
 def _set_user_tracking_device(
@@ -269,24 +259,11 @@ def _set_user_tracking_device(
             device_id=normalized,
             label=(label or _default_mesh_device_label(user, normalized)).strip()[:160],
             purpose=TRACKING_MESH_PURPOSE,
-            is_active=True,
         )
     else:
         device.owner_user_id = user.id
         device.label = (label or device.label or _default_mesh_device_label(user, normalized)).strip()[:160]
         device.purpose = TRACKING_MESH_PURPOSE
-        device.is_active = True
-
-    other_tracking_devices = session.scalars(
-        select(MeshDevice).where(
-            MeshDevice.owner_user_id == user.id,
-            MeshDevice.purpose == TRACKING_MESH_PURPOSE,
-            MeshDevice.device_id != normalized,
-        )
-    ).all()
-    for other in other_tracking_devices:
-        other.is_active = False
-        session.add(other)
 
     user.mesh_device_id = normalized
     session.add_all([user, device])
@@ -315,9 +292,6 @@ def _upsert_owned_mesh_device(
             allow_transfer=allow_transfer,
         )
         assert device is not None
-        device.is_active = payload.is_active
-        if not payload.is_active and user.mesh_device_id == device_id:
-            user.mesh_device_id = None
         session.add_all([user, device])
         return device
 
@@ -344,13 +318,11 @@ def _upsert_owned_mesh_device(
             device_id=device_id,
             label=label,
             purpose=purpose,
-            is_active=payload.is_active,
         )
     else:
         device.owner_user_id = user.id
         device.label = label
         device.purpose = purpose
-        device.is_active = payload.is_active
     session.add(device)
     return device
 
@@ -390,28 +362,10 @@ def _update_owned_mesh_device(
     next_purpose = _normalize_mesh_purpose(payload.purpose) if payload.purpose is not None else device.purpose
     if payload.label is not None:
         device.label = payload.label.strip()[:160] or _default_mesh_device_label(user, next_device_id)
-    if payload.is_active is not None:
-        device.is_active = payload.is_active
     if next_purpose == TRACKING_MESH_PURPOSE:
         device.purpose = TRACKING_MESH_PURPOSE
-        if payload.is_active is None:
-            device.is_active = True
-        other_tracking_devices = session.scalars(
-            select(MeshDevice).where(
-                MeshDevice.owner_user_id == user.id,
-                MeshDevice.purpose == TRACKING_MESH_PURPOSE,
-                MeshDevice.id != device.id,
-            )
-        ).all()
-        for other in other_tracking_devices:
-            other.is_active = False
-            session.add(other)
-        if device.is_active:
-            user.mesh_device_id = next_device_id
-            session.add(user)
-        elif user.mesh_device_id in {normalized, next_device_id}:
-            user.mesh_device_id = None
-            session.add(user)
+        user.mesh_device_id = next_device_id
+        session.add(user)
     else:
         device.purpose = next_purpose
         if user.mesh_device_id in {normalized, next_device_id}:

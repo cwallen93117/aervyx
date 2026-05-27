@@ -51,7 +51,7 @@ export type MeshDeviceRecord = {
   device_id: string;
   label: string;
   purpose: MeshDevicePurpose;
-  is_active: boolean;
+  is_pilot_tracker: boolean;
   created_at: string;
   updated_at: string | null;
 };
@@ -419,7 +419,6 @@ export type DebugMeshDevice = {
   device_id: string;
   label: string;
   purpose: MeshDevicePurpose | string;
-  is_active: boolean;
   is_connected: boolean;
   mesh_status: "live" | "stale" | "offline" | "never_seen";
   last_seen_at: string | null;

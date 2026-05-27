@@ -324,7 +324,6 @@ def admin_debug_status(
             "device_id": canonical_device_id,
             "label": device.label,
             "purpose": device.purpose,
-            "is_active": device.is_active,
             "is_connected": mesh_status == "live",
             "mesh_status": mesh_status,
             "last_seen_at": latest_ts.isoformat() if latest_ts else None,

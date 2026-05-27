@@ -184,14 +184,12 @@ class MeshDeviceCreate(BaseModel):
     device_id: str
     label: str | None = None
     purpose: str = "tracking"
-    is_active: bool = True
 
 
 class MeshDeviceUpdate(BaseModel):
     device_id: str | None = None
     label: str | None = None
     purpose: str | None = None
-    is_active: bool | None = None
 
 
 class MeshDeviceResponse(BaseModel):
@@ -201,7 +199,7 @@ class MeshDeviceResponse(BaseModel):
     device_id: str
     label: str
     purpose: str
-    is_active: bool
+    is_pilot_tracker: bool = False
     created_at: datetime
     updated_at: datetime | None = None
 

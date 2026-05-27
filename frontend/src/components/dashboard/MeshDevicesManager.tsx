@@ -119,7 +119,6 @@ type MeshDeviceDraft = {
   device_id: string;
   label: string;
   purpose: MeshDevicePurpose;
-  is_active: boolean;
 };
 
 export default function MeshDevicesManager({ token }: { token: string }) {
@@ -145,7 +144,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
       setDevices(data);
       setDrafts(Object.fromEntries(data.map((device) => [
         device.device_id,
-        { device_id: device.device_id, label: device.label, purpose: normalizeUserPurpose(device.purpose), is_active: device.is_active },
+        { device_id: device.device_id, label: device.label, purpose: normalizeUserPurpose(device.purpose) },
       ])));
     } catch (error) {
       showFeedback("error", error instanceof Error ? error.message : "Failed to load Meshtastic devices");
@@ -167,7 +166,6 @@ export default function MeshDevicesManager({ token }: { token: string }) {
           device_id: deviceId,
           label: newDevice.label.trim() || null,
           purpose: newDevice.purpose,
-          is_active: true,
         }),
       });
       setNewDevice({ device_id: "", label: "", purpose: "tracking" });
@@ -196,7 +194,6 @@ export default function MeshDevicesManager({ token }: { token: string }) {
           device_id: nextDeviceId,
           label: draft.label,
           purpose: draft.purpose,
-          is_active: draft.is_active,
         }),
       });
       showFeedback("success", "Device updated.");
@@ -285,22 +282,20 @@ export default function MeshDevicesManager({ token }: { token: string }) {
               <th>Device ID</th>
               <th>Purpose</th>
               <th>Pilot Tracker</th>
-              <th>Aervyx Active</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="participant-table-empty">Loading devices...</td></tr>
+              <tr><td colSpan={5} className="participant-table-empty">Loading devices...</td></tr>
             ) : devices.length ? (
               devices.map((device) => {
                 const draft = drafts[device.device_id] ?? {
                   device_id: device.device_id,
                   label: device.label,
                   purpose: normalizeUserPurpose(device.purpose),
-                  is_active: device.is_active,
                 };
-                const isPilotTracker = device.purpose === "tracking" && device.is_active;
+                const isPilotTracker = device.is_pilot_tracker;
                 return (
                   <tr key={device.device_id}>
                     <td>
@@ -345,22 +340,6 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                       </label>
                     </td>
                     <td>
-                      <label
-                        className="checkbox-label"
-                        title="Controls whether Aervyx treats this registered device as active inventory; it does not turn the Meshtastic radio relay on or off."
-                      >
-                        <input
-                          type="checkbox"
-                          checked={draft.is_active}
-                          onChange={(event) => setDrafts((current) => ({
-                            ...current,
-                            [device.device_id]: { ...draft, is_active: event.target.checked },
-                          }))}
-                        />
-                        Enabled
-                      </label>
-                    </td>
-                    <td>
                       <div className="button-row">
                         <button type="button" className="ghost-button" disabled={saving || !draft.device_id.trim()} onClick={() => void saveDevice(device)}>Save</button>
                         <button type="button" className="ghost-button danger-button" disabled={saving} onClick={() => void deleteDevice(device)}>Remove</button>
@@ -371,7 +350,7 @@ export default function MeshDevicesManager({ token }: { token: string }) {
                 );
               })
             ) : (
-              <tr><td colSpan={6} className="participant-table-empty">No Meshtastic devices registered.</td></tr>
+              <tr><td colSpan={5} className="participant-table-empty">No Meshtastic devices registered.</td></tr>
             )}
           </tbody>
         </table>

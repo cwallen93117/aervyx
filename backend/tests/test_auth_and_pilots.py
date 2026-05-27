@@ -402,8 +402,8 @@ def test_admin_user_payload_includes_owned_mesh_devices() -> None:
     session.flush()
     session.add_all(
         [
-            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking", is_active=True),
-            MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay", is_active=True),
+            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking"),
+            MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay"),
         ]
     )
     session.commit()
@@ -413,8 +413,8 @@ def test_admin_user_payload_includes_owned_mesh_devices() -> None:
 
     assert pilot_payload.mesh_device_id == "!tracker"
     assert [device.device_id for device in pilot_payload.mesh_devices] == ["!relay", "!tracker"]
-    assert {device.device_id: device.is_active for device in pilot_payload.mesh_devices} == {
-        "!relay": True,
+    assert {device.device_id: device.is_pilot_tracker for device in pilot_payload.mesh_devices} == {
+        "!relay": False,
         "!tracker": True,
     }
 
@@ -427,8 +427,8 @@ def test_admin_can_select_switch_and_clear_user_pilot_tracker() -> None:
     session.flush()
     session.add_all(
         [
-            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking", is_active=True),
-            MeshDevice(owner_user_id=user.id, device_id="!backup", label="Backup", purpose="relay", is_active=True),
+            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking"),
+            MeshDevice(owner_user_id=user.id, device_id="!backup", label="Backup", purpose="relay"),
         ]
     )
     session.commit()
@@ -445,8 +445,12 @@ def test_admin_can_select_switch_and_clear_user_pilot_tracker() -> None:
     backup = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!backup"))
     assert selected.mesh_device_id == "!backup"
     assert user.mesh_device_id == "!backup"
-    assert old_tracker is not None and old_tracker.is_active is False
-    assert backup is not None and backup.purpose == "tracking" and backup.is_active is True
+    assert old_tracker is not None and old_tracker.purpose == "tracking"
+    assert backup is not None and backup.purpose == "tracking"
+    assert {device.device_id: device.is_pilot_tracker for device in selected.mesh_devices} == {
+        "!backup": True,
+        "!tracker": False,
+    }
 
     cleared = admin_set_user_tracking_mesh_device(
         user.id,
@@ -459,7 +463,10 @@ def test_admin_can_select_switch_and_clear_user_pilot_tracker() -> None:
     session.refresh(backup)
     assert cleared.mesh_device_id is None
     assert user.mesh_device_id is None
-    assert backup.is_active is False
+    assert {device.device_id: device.is_pilot_tracker for device in cleared.mesh_devices} == {
+        "!backup": False,
+        "!tracker": False,
+    }
 
 
 def test_admin_can_edit_user_mesh_device_fields() -> None:
@@ -468,13 +475,13 @@ def test_admin_can_edit_user_mesh_device_fields() -> None:
     user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash")
     session.add_all([admin, user])
     session.flush()
-    session.add(MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay", is_active=True))
+    session.add(MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay"))
     session.commit()
 
     response = admin_update_user_mesh_device(
         user.id,
         "!relay",
-        MeshDeviceUpdate(device_id="!newrelay", label="Roof Relay", purpose="base_station", is_active=False),
+        MeshDeviceUpdate(device_id="!newrelay", label="Roof Relay", purpose="base_station"),
         admin,
         session,
     )
@@ -483,33 +490,23 @@ def test_admin_can_edit_user_mesh_device_fields() -> None:
     assert device is not None
     assert device.label == "Roof Relay"
     assert device.purpose == "base_station"
-    assert device.is_active is False
     assert response.mesh_devices[0].device_id == "!newrelay"
-    assert response.mesh_devices[0].is_active is False
+    assert response.mesh_devices[0].is_pilot_tracker is False
 
 
-def test_deactivating_tracking_mesh_device_clears_assignment_resolution() -> None:
+def test_unselected_tracking_mesh_device_does_not_resolve_as_pilot_assignment() -> None:
     session = _session()
-    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
-    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id="!tracker")
-    session.add_all([admin, user])
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id=None)
+    session.add(user)
     session.flush()
-    session.add(MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking", is_active=True))
+    session.add(MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking"))
     session.commit()
 
-    admin_update_user_mesh_device(
-        user.id,
-        "!tracker",
-        MeshDeviceUpdate(is_active=False),
-        admin,
-        session,
-    )
-
-    session.refresh(user)
     resolved_user, resolved_device = resolve_mesh_device_assignment(session, "!tracker")
-    assert user.mesh_device_id is None
+
     assert resolved_user is None
-    assert resolved_device is None
+    assert resolved_device is not None
+    assert resolved_device.device_id == "!tracker"
 
 
 def test_change_password_requires_current_password() -> None:
