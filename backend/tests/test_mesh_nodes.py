@@ -108,3 +108,46 @@ def test_mesh_nodes_preserves_mqtt_gateway_for_matching_latest_position() -> Non
     assert tracker.last_packet_type == "POSITION_APP"
     assert tracker.last_gateway_id == "!8ab252ca"
     assert tracker.last_gateway_display_name == "Camper Wired"
+
+
+def test_mesh_nodes_ignores_phone_app_device_ids() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    session.add(admin)
+    session.add_all(
+        [
+            LivePosition(
+                lat=35.1,
+                lon=-82.5,
+                timestamp=now,
+                source="app",
+                device_id="Unknown",
+            ),
+            LivePosition(
+                lat=35.15,
+                lon=-82.55,
+                timestamp=now,
+                source="mesh_relay",
+                device_id="Unknown",
+            ),
+            LivePosition(
+                lat=35.2,
+                lon=-82.6,
+                timestamp=now,
+                source="mesh_relay",
+                device_id="!tracker",
+            ),
+            MeshNodeStatus(
+                device_id="Unknown",
+                last_seen_at=now,
+                last_source="mesh_relay",
+                packet_count=1,
+            ),
+        ]
+    )
+    session.commit()
+
+    nodes = get_mesh_nodes(minutes=60, admin=admin, session=session)
+
+    assert [node.device_id for node in nodes] == ["!tracker"]

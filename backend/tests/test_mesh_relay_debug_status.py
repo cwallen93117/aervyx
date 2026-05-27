@@ -1,5 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -75,6 +77,34 @@ def test_mesh_relay_position_updates_sender_and_gateway_status() -> None:
     assert gateway.last_seen_at.replace(tzinfo=UTC) == now
     assert gateway.last_source == "mesh_relay"
     assert gateway.last_gateway_id == "!c684053e"
+
+
+@pytest.mark.parametrize("device_id", [None, "", "Unknown"])
+def test_mesh_relay_position_requires_sender_device_id(device_id: str | None) -> None:
+    session = _session()
+    relay_user = User(
+        username="relay@example.com",
+        full_name="Relay Phone",
+        role="pilot",
+        mesh_device_id="!c684053e",
+    )
+    session.add(relay_user)
+    session.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        post_position(
+            PositionPayload(
+                lat=40.0547,
+                lon=-75.3518,
+                source="mesh_relay",
+                device_id=device_id,
+            ),
+            user=relay_user,
+            session=session,
+        )
+
+    assert exc.value.status_code == 400
+    assert session.scalar(select(LivePosition)) is None
 
 
 def test_debug_payload_prefers_newer_mesh_relay_position_over_stale_mqtt_status() -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -114,11 +114,19 @@ def admin_debug_status(
             TrackingSession,
             Pilot.first_name,
             Pilot.last_name,
+            User.id.label("session_user_id"),
+            User.full_name.label("session_user_name"),
+            User.username.label("session_username"),
+            User.profile_type.label("session_profile_type"),
             Task.name.label("task_name"),
         )
         .outerjoin(Pilot, TrackingSession.pilot_id == Pilot.id)
+        .outerjoin(User, TrackingSession.user_id == User.id)
         .outerjoin(Task, TrackingSession.task_id == Task.id)
-        .where(TrackingSession.is_active.is_(True))
+        .where(
+            TrackingSession.is_active.is_(True),
+            or_(TrackingSession.pilot_id.is_not(None), TrackingSession.user_id.is_not(None)),
+        )
         .order_by(TrackingSession.last_seen_at.desc())
     ).all()
 
@@ -126,17 +134,38 @@ def admin_debug_status(
     sixty_seconds_ago = now - timedelta(seconds=60)
 
     active_sessions = []
-    for ts, first_name, last_name, task_name in active_sessions_rows:
-        pilot_name = f"{first_name or ''} {last_name or ''}".strip() or "Unknown"
+    for (
+        ts,
+        first_name,
+        last_name,
+        session_user_id,
+        session_user_name,
+        session_username,
+        session_profile_type,
+        task_name,
+    ) in active_sessions_rows:
+        pilot_name = (
+            f"{first_name or ''} {last_name or ''}".strip()
+            or (session_user_name or "").strip()
+            or (session_username or "").strip()
+        )
+        if not pilot_name:
+            continue
 
         # Phone rows must reflect only direct app uploads. TrackingSession rows
         # are refreshed by mesh/MQTT positions too, so using the session timestamp
         # or latest position across all sources would make a mesh node look like
         # a live phone.
-        pos_filter = [
-            LivePosition.pilot_id == ts.pilot_id,
-            LivePosition.source == PHONE_APP_POSITION_SOURCE,
-        ]
+        pos_filter = [LivePosition.source == PHONE_APP_POSITION_SOURCE]
+        if ts.pilot_id is not None:
+            pos_filter.append(LivePosition.pilot_id == ts.pilot_id)
+        elif ts.user_id is not None:
+            pos_filter.extend([
+                LivePosition.pilot_id.is_(None),
+                LivePosition.user_id == ts.user_id,
+            ])
+        else:
+            continue
         if ts.task_id is not None:
             pos_filter.append(LivePosition.task_id == ts.task_id)
         else:
@@ -164,12 +193,20 @@ def admin_debug_status(
             )
         ) or 0
 
-        # Check for any mesh-sourced positions from this pilot (ever)
+        # Check for any mesh-sourced positions from this subject (ever)
+        mesh_subject_filter = []
+        if ts.pilot_id is not None:
+            mesh_subject_filter.append(LivePosition.pilot_id == ts.pilot_id)
+        elif ts.user_id is not None:
+            mesh_subject_filter.extend([
+                LivePosition.pilot_id.is_(None),
+                LivePosition.user_id == ts.user_id,
+            ])
         has_mesh = session.scalar(
             select(func.count())
             .select_from(LivePosition)
             .where(
-                LivePosition.pilot_id == ts.pilot_id,
+                *mesh_subject_filter,
                 LivePosition.source.in_(["mqtt_gateway", "mesh_relay"]),
             )
         ) or 0
@@ -186,7 +223,9 @@ def admin_debug_status(
 
         active_sessions.append({
             "pilot_id": ts.pilot_id,
+            "user_id": session_user_id,
             "pilot_name": pilot_name,
+            "profile_type": session_profile_type,
             "task_id": ts.task_id,
             "task_name": task_name or ("Free Flight" if ts.task_id is None else None),
             "device_id": None,

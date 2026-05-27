@@ -42,6 +42,8 @@ router = APIRouter(tags=["tracking"])
 MESH_STATUS_LIVE_SECONDS = 10 * 60
 MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
 MESH_GATEWAY_METADATA_TOLERANCE_SECONDS = 5 * 60
+MESH_POSITION_SOURCES = {"mesh_relay", "mqtt_gateway"}
+MISSING_MESH_DEVICE_ID_SENTINELS = {"unknown", "!unknown", "null", "none", "undefined"}
 
 
 def _timestamp_value(value: datetime | None) -> float:
@@ -124,6 +126,20 @@ def _upsert_mesh_position_status(
     if battery_level is not None:
         status_row.battery_level = battery_level
     return status_row
+
+
+def _normalize_required_mesh_position_device_id(device_id: str | None) -> str:
+    normalized = normalize_mesh_device_id(device_id)
+    if (
+        normalized is None
+        or normalized in MISSING_MESH_DEVICE_ID_SENTINELS
+        or not normalized.replace("!", "").strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="device_id is required for mesh positions",
+        )
+    return normalized
 
 
 # ---------------------------------------------------------------------------
@@ -291,15 +307,21 @@ def post_position(
         if task is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 
-    source = payload.source or "app"
+    source = (payload.source or "app").strip().lower() or "app"
+    payload_device_id = payload.device_id
+    if source in MESH_POSITION_SOURCES:
+        payload_device_id = _normalize_required_mesh_position_device_id(payload.device_id)
+    elif source == "app":
+        payload_device_id = None
+
     user_id: int | None = user.id
     pilot_id = None if (user.profile_type or "pilot").strip().lower() == "driver" else user.pilot_id
     task_id = payload.task_id
     response_profile_type = user.profile_type or "pilot"
     response_aircraft_icon = user.aircraft_icon or "hang_glider"
     response_pilot_name: str | None = user.full_name
-    if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
-        mesh_user, mesh_device = resolve_mesh_device_assignment(session, payload.device_id)
+    if source in MESH_POSITION_SOURCES:
+        mesh_user, mesh_device = resolve_mesh_device_assignment(session, payload_device_id)
         user_id = mesh_user.id if mesh_user is not None else None
         pilot_id = (
             mesh_user.pilot_id
@@ -332,22 +354,22 @@ def post_position(
         accuracy=payload.accuracy,
         timestamp=payload.timestamp,
         source=source,
-        device_id=payload.device_id,
+        device_id=payload_device_id,
         battery_level=payload.battery_level,
         pilot_id=pilot_id,
         user_id=user_id,
     )
-    if source in {"mesh_relay", "mqtt_gateway"} and payload.device_id:
+    if source in MESH_POSITION_SOURCES:
         gateway_id = user.mesh_device_id if source == "mesh_relay" else payload.device_id
         _upsert_mesh_position_status(
             session,
-            device_id=payload.device_id,
+            device_id=payload_device_id,
             seen_at=pos.timestamp,
             source=source,
             gateway_id=gateway_id,
             battery_level=payload.battery_level,
         )
-        if gateway_id and normalize_mesh_device_id(gateway_id) != normalize_mesh_device_id(payload.device_id):
+        if gateway_id and normalize_mesh_device_id(gateway_id) != normalize_mesh_device_id(payload_device_id):
             _upsert_mesh_position_status(
                 session,
                 device_id=gateway_id,
@@ -874,6 +896,9 @@ def get_mesh_nodes(
         .where(
             LivePosition.device_id.isnot(None),
             LivePosition.device_id != "",
+            LivePosition.device_id != "!",
+            sa_func.lower(LivePosition.device_id).notin_(sorted(MISSING_MESH_DEVICE_ID_SENTINELS)),
+            LivePosition.source.in_(sorted(MESH_POSITION_SOURCES)),
             LivePosition.timestamp >= cutoff,
         )
         .subquery()
@@ -882,7 +907,12 @@ def get_mesh_nodes(
     rows = session.execute(select(subq).where(subq.c.rn == 1)).all()
     position_by_device = {r.device_id: r for r in rows if r.device_id}
     status_rows = session.scalars(
-        select(MeshNodeStatus).where(MeshNodeStatus.last_seen_at >= cutoff)
+        select(MeshNodeStatus).where(
+            MeshNodeStatus.last_seen_at >= cutoff,
+            MeshNodeStatus.device_id != "",
+            MeshNodeStatus.device_id != "!",
+            sa_func.lower(MeshNodeStatus.device_id).notin_(sorted(MISSING_MESH_DEVICE_ID_SENTINELS)),
+        )
     ).all()
     status_by_device = {status.device_id: status for status in status_rows}
     gateway_display_names = resolve_mesh_device_display_names(

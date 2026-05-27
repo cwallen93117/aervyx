@@ -393,8 +393,10 @@ export function blankEventForm() {
 }
 
 export type DebugActiveSession = {
-  pilot_id: number;
+  pilot_id: number | null;
+  user_id: number | null;
   pilot_name: string;
+  profile_type: string | null;
   task_id: number | null;
   task_name: string | null;
   device_id: string | null;

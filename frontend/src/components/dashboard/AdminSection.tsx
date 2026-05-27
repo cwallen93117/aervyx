@@ -67,6 +67,7 @@ type MeshDeviceStatus = {
 type UnifiedDevice = {
   key: string;
   pilot_id: number | null;
+  user_id: number | null;
   pilot_name: string;
   profile_type: string | null;
   session: import("./types").DebugActiveSession | null;
@@ -2037,9 +2038,10 @@ function LiveTrackingTab({
   const unified = useMemo<UnifiedDevice[]>(() => {
     const byKey = new Map<string, UnifiedDevice>();
 
-    function ensureRow(key: string, pilotId: number | null, name: string, profileType: string | null): UnifiedDevice {
+    function ensureRow(key: string, pilotId: number | null, userId: number | null, name: string, profileType: string | null): UnifiedDevice {
       const existing = byKey.get(key);
       if (existing) {
+        if (existing.user_id == null && userId != null) existing.user_id = userId;
         if (!existing.profile_type && profileType) existing.profile_type = profileType;
         if (existing.pilot_name === key && name) existing.pilot_name = name;
         return existing;
@@ -2047,6 +2049,7 @@ function LiveTrackingTab({
       const created: UnifiedDevice = {
         key,
         pilot_id: pilotId,
+        user_id: userId,
         pilot_name: name,
         profile_type: profileType,
         session: null,
@@ -2061,7 +2064,12 @@ function LiveTrackingTab({
     }
 
     for (const session of (debugStatus?.active_sessions ?? [])) {
-      const row = ensureRow(`pilot-${session.pilot_id}`, session.pilot_id, session.pilot_name, null);
+      const key = session.pilot_id != null
+        ? `pilot-${session.pilot_id}`
+        : session.user_id != null
+          ? `user-${session.user_id}`
+          : `session-${session.started_at ?? session.pilot_name}`;
+      const row = ensureRow(key, session.pilot_id, session.user_id, session.pilot_name, session.profile_type);
       row.session = session;
       row.hasPhone = true;
       row.isOnline = row.isOnline || session.is_online;
@@ -2072,7 +2080,7 @@ function LiveTrackingTab({
     for (const device of (debugStatus?.registered_mesh_devices ?? [])) {
       const entry = meshDeviceFromDebug(device);
       const key = device.owner_pilot_id != null ? `pilot-${device.owner_pilot_id}` : `user-${device.owner_user_id}`;
-      const row = ensureRow(key, device.owner_pilot_id, device.owner_name ?? device.label ?? device.device_id, null);
+      const row = ensureRow(key, device.owner_pilot_id, device.owner_user_id, device.owner_name ?? device.label ?? device.device_id, null);
       row.meshDevices.push(entry);
       row.hasMesh = true;
       row.isOnline = row.isOnline || entry.isConnected;
@@ -2087,7 +2095,7 @@ function LiveTrackingTab({
         : node.registered_owner_user_id != null
           ? `user-${node.registered_owner_user_id}`
           : `device-${node.device_id}`;
-      const row = ensureRow(key, node.pilot_id, node.registered_owner_name ?? node.pilot_name ?? node.device_id, node.profile_type);
+      const row = ensureRow(key, node.pilot_id, node.registered_owner_user_id, node.registered_owner_name ?? node.pilot_name ?? node.device_id, node.profile_type);
       row.meshDevices.push(entry);
       row.hasMesh = true;
       row.isOnline = row.isOnline || entry.isConnected;

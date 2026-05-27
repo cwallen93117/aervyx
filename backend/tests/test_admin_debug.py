@@ -238,6 +238,99 @@ def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_positio
     assert phone["has_mesh"] is True
 
 
+def test_admin_debug_status_names_user_subject_phone_session() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    driver = User(
+        username="driver@example.com",
+        full_name="Dana Driver",
+        role="pilot",
+        profile_type="driver",
+    )
+    other = User(
+        username="other@example.com",
+        full_name="Other Driver",
+        role="pilot",
+        profile_type="driver",
+    )
+    session.add_all([admin, driver, other])
+    session.flush()
+    session.add(
+        TrackingSession(
+            user_id=driver.id,
+            pilot_id=None,
+            task_id=None,
+            started_at=now - timedelta(minutes=5),
+            last_seen_at=now - timedelta(seconds=5),
+            is_active=True,
+            position_count=1,
+        )
+    )
+    session.add_all(
+        [
+            LivePosition(
+                user_id=driver.id,
+                pilot_id=None,
+                task_id=None,
+                lat=35.1,
+                lon=-82.5,
+                timestamp=now - timedelta(seconds=5),
+                source="app",
+            ),
+            LivePosition(
+                user_id=other.id,
+                pilot_id=None,
+                task_id=None,
+                lat=36.1,
+                lon=-83.5,
+                timestamp=now - timedelta(seconds=4),
+                source="app",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    assert len(payload["active_sessions"]) == 1
+    phone = payload["active_sessions"][0]
+    assert phone["pilot_id"] is None
+    assert phone["user_id"] == driver.id
+    assert phone["pilot_name"] == "Dana Driver"
+    assert phone["profile_type"] == "driver"
+    assert phone["position_count"] == 1
+    assert phone["last_position"] == {
+        "lat": 35.1,
+        "lon": -82.5,
+        "alt": None,
+        "speed": None,
+    }
+
+
+def test_admin_debug_status_omits_orphan_active_session() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    session.add(admin)
+    session.add(
+        TrackingSession(
+            pilot_id=None,
+            user_id=None,
+            task_id=None,
+            started_at=now - timedelta(minutes=5),
+            last_seen_at=now - timedelta(seconds=5),
+            is_active=True,
+            position_count=1,
+        )
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    assert payload["active_sessions"] == []
+
+
 def test_admin_debug_status_classifies_mesh_packet_statuses() -> None:
     session = _session()
     now = datetime.now(UTC)
