@@ -706,45 +706,13 @@ def test_json_position_matches_legacy_bare_hex_mesh_registration(monkeypatch) ->
 
 
 def test_prune_old_mqtt_positions_delegates_to_all_live_position_retention(monkeypatch) -> None:
-    factory = _session_factory(monkeypatch)
-    now = datetime.now(UTC)
-    with factory() as session:
-        session.add_all(
-            [
-                LivePosition(
-                    lat=34.0,
-                    lon=-119.0,
-                    timestamp=now - timedelta(days=3),
-                    source="mqtt_gateway",
-                    device_id="!old-mqtt",
-                ),
-                LivePosition(
-                    lat=34.1,
-                    lon=-119.1,
-                    timestamp=now - timedelta(days=3),
-                    source="mesh_relay",
-                    device_id="!old-relay",
-                ),
-                LivePosition(
-                    lat=34.2,
-                    lon=-119.2,
-                    timestamp=now - timedelta(days=3),
-                    source="app",
-                    device_id="app-device",
-                ),
-                LivePosition(
-                    lat=34.3,
-                    lon=-119.3,
-                    timestamp=now - timedelta(days=1),
-                    source="mqtt_gateway",
-                    device_id="!recent-mqtt",
-                ),
-            ]
-        )
-        session.commit()
+    calls: list[int | None] = []
 
-    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 3
+    def fake_prune_old_live_positions(retention_days: int | None = None) -> int:
+        calls.append(retention_days)
+        return 7
 
-    with factory() as session:
-        remaining = session.scalars(select(LivePosition).order_by(LivePosition.device_id)).all()
-        assert [position.device_id for position in remaining] == ["!recent-mqtt"]
+    monkeypatch.setattr(mqtt_subscriber, "prune_old_live_positions", fake_prune_old_live_positions)
+
+    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 7
+    assert calls == [2]

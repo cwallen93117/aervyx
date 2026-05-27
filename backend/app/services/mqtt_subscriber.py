@@ -49,7 +49,6 @@ from app.models import MeshNodeStatus, SiteSettings, User
 from app.services.mesh_ids import normalize_mesh_device_id
 from app.services.mqtt_config import LOCAL_MOSQUITTO, clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
-    LIVE_POSITION_RETENTION_DAYS,
     prune_old_live_positions,
     resolve_active_task_id,
     resolve_active_task_id_for_user,
@@ -722,7 +721,7 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
         session.close()
 
 
-def prune_old_mqtt_positions(retention_days: int = LIVE_POSITION_RETENTION_DAYS) -> int:
+def prune_old_mqtt_positions(retention_days: int | None = None) -> int:
     """Backward-compatible wrapper for the global live-position retention rule."""
     return prune_old_live_positions(retention_days=retention_days)
 

@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
@@ -447,7 +448,7 @@ def get_positions(
     task_id: int,
     pilot_id: int | None = Query(default=None),
     since: datetime | None = Query(default=None),
-    limit: int = Query(default=5000, le=10000),
+    limit: Annotated[int | None, Query(ge=1)] = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[PositionResponse]:
@@ -510,7 +511,7 @@ async def live_positions_pilots_sse(
 def get_positions_for_pilots(
     ids: str = Query(..., description="Comma-separated pilot IDs"),
     since: datetime | None = Query(default=None),
-    limit: int = Query(default=10000, le=50000),
+    limit: Annotated[int | None, Query(ge=1)] = None,
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> list[PositionResponse]:

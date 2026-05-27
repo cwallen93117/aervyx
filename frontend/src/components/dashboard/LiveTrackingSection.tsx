@@ -305,11 +305,11 @@ export default function LiveTrackingSection({
         let useAuth = true;
 
         if (trackingSource.type === "task") {
-          historyUrl = `${resolveApiBase()}/api/track/positions/${trackingSource.taskId}?limit=10000`;
+          historyUrl = `${resolveApiBase()}/api/track/positions/${trackingSource.taskId}`;
           sseUrl = `${resolveApiBase()}/api/track/live/${trackingSource.taskId}`;
         } else if (trackingSource.type === "all_users") {
           // Reuse the public "show all" endpoints (no auth needed)
-          historyUrl = `${resolveApiBase()}/api/public/live/all/positions?minutes=60&limit=10000`;
+          historyUrl = `${resolveApiBase()}/api/public/live/all/positions`;
           sseUrl = `${resolveApiBase()}/api/public/live/all`;
           useAuth = false;
         } else {
@@ -318,7 +318,7 @@ export default function LiveTrackingSection({
             setLoading(false);
             return;
           }
-          historyUrl = `${resolveApiBase()}/api/track/positions/pilots?ids=${ids}&limit=10000`;
+          historyUrl = `${resolveApiBase()}/api/track/positions/pilots?ids=${ids}`;
           sseUrl = `${resolveApiBase()}/api/track/live/pilots?ids=${ids}`;
         }
 

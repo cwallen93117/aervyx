@@ -4,7 +4,8 @@ import asyncio
 import json
 import logging
 import math
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -502,8 +503,8 @@ async def public_event_live_sse(
 @router.get("/live/events/{event_id}/positions", response_model=list[PublicPositionResponse])
 def public_event_positions(
     event_id: int,
-    minutes: int = Query(60),
-    limit: int = Query(10000),
+    minutes: Annotated[int | None, Query(ge=1, le=24 * 60)] = None,
+    limit: Annotated[int | None, Query(ge=1)] = None,
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
     """Position history for all pilots in a publicly-tracked event."""
@@ -513,10 +514,7 @@ def public_event_positions(
     if not pilot_ids and not user_ids:
         return []
 
-    minutes = max(1, min(minutes, 24 * 60))
-    limit = max(1, min(limit, 10000))
-    since = datetime.now(UTC) - timedelta(minutes=minutes)
-    rows = get_position_history_for_subjects(session, pilot_ids, user_ids, since=since, limit=limit)
+    rows = get_position_history_for_subjects(session, pilot_ids, user_ids, minutes=minutes, limit=limit)
     return [PublicPositionResponse(**row) for row in rows]
 
 
@@ -561,9 +559,9 @@ def public_task_positions(
     task_id: int,
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
-    """Position history for a publicly-tracked task (up to 10 000 records)."""
+    """Current-day position history for a publicly-tracked task."""
     _get_public_task(task_id, session)
-    rows = get_position_history(session, task_id, limit=10000)
+    rows = get_position_history(session, task_id)
     return [PublicPositionResponse(**row) for row in rows]
 
 
@@ -644,11 +642,11 @@ async def public_buddy_group_live_sse(
 @router.get("/live/buddies/{group_id}/positions", response_model=list[PublicPositionResponse])
 def public_buddy_group_positions(
     group_id: int,
-    minutes: int = Query(60),
-    limit: int = Query(10000),
+    minutes: Annotated[int | None, Query(ge=1, le=24 * 60)] = None,
+    limit: Annotated[int | None, Query(ge=1)] = None,
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
-    """Position history for all pilots in a public buddy group (up to 10 000 records)."""
+    """Current-day position history for all pilots in a public buddy group."""
     group = _get_public_buddy_group(group_id, session)
 
     pilot_ids = session.scalars(
@@ -658,10 +656,7 @@ def public_buddy_group_positions(
 
     if not pilot_ids:
         return []
-    minutes = max(1, min(minutes, 24 * 60))
-    limit = max(1, min(limit, 10000))
-    since = datetime.now(UTC) - timedelta(minutes=minutes)
-    rows = get_position_history_for_pilots(session, pilot_ids, since=since, limit=limit)
+    rows = get_position_history_for_pilots(session, pilot_ids, minutes=minutes, limit=limit)
     return [PublicPositionResponse(**row) for row in rows]
 
 
@@ -707,13 +702,10 @@ async def public_all_live_sse() -> StreamingResponse:
 
 @router.get("/live/all/positions", response_model=list[PublicPositionResponse])
 def public_all_positions(
-    minutes: int = 60,
-    limit: int = 10000,
+    minutes: Annotated[int | None, Query(ge=1, le=24 * 60)] = None,
+    limit: Annotated[int | None, Query(ge=1)] = None,
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
-    """Return every position record in the last `minutes` minutes across all pilots/tasks."""
-    # Clamp inputs to sane ranges
-    minutes = max(1, min(minutes, 24 * 60))
-    limit = max(1, min(limit, 10000))
+    """Return every retained current-day position record across all pilots/tasks."""
     rows = get_all_recent_positions(session, minutes=minutes, limit=limit)
     return [PublicPositionResponse(**row) for row in rows]

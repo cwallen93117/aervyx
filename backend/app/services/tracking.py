@@ -6,8 +6,9 @@ import threading
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -64,31 +65,158 @@ VALID_PROFILE_TYPES_ALL = {"pilot", "driver", "stationary_node"}
 TRACKING_MESH_PURPOSE = "tracking"
 DRIVER_MESH_PURPOSES = {"driver_wifi", "driver_mesh"}
 STATIONARY_MESH_PURPOSES = {"base_station", "relay"}
-LIVE_POSITION_RETENTION_DAYS = 2
-LIVE_POSITION_PRUNE_INTERVAL_SECONDS = 3600
+LIVE_POSITION_PRUNE_INTERVAL_SECONDS = 300
+TIMEZONE_ALIASES = {
+    "eastern": "America/New_York",
+    "est": "America/New_York",
+    "edt": "America/New_York",
+    "us/eastern": "America/New_York",
+    "central": "America/Chicago",
+    "cst": "America/Chicago",
+    "cdt": "America/Chicago",
+    "us/central": "America/Chicago",
+    "mountain": "America/Denver",
+    "mst": "America/Denver",
+    "mdt": "America/Denver",
+    "us/mountain": "America/Denver",
+    "pacific": "America/Los_Angeles",
+    "pst": "America/Los_Angeles",
+    "pdt": "America/Los_Angeles",
+    "us/pacific": "America/Los_Angeles",
+    "utc": "UTC",
+}
+
+
+def _as_utc(value: datetime | None) -> datetime:
+    if value is None:
+        return datetime.now(UTC)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
+def resolve_tracking_timezone_name(value: str | None) -> str:
+    if not value:
+        return "UTC"
+    normalized = value.strip()
+    candidate = TIMEZONE_ALIASES.get(normalized.lower(), normalized)
+    try:
+        ZoneInfo(candidate)
+    except ZoneInfoNotFoundError:
+        logger.warning("Invalid live tracking timezone %r; falling back to UTC", value)
+        return "UTC"
+    return candidate
+
+
+def _current_day_window_utc(timezone_name: str, now: datetime | None = None) -> tuple[datetime, datetime]:
+    zone_name = resolve_tracking_timezone_name(timezone_name)
+    zone = ZoneInfo(zone_name)
+    local_now = _as_utc(now).astimezone(zone)
+    local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_end = local_start + timedelta(days=1)
+    return local_start.astimezone(UTC), local_end.astimezone(UTC)
+
+
+def _event_timezone_groups(session: Session) -> dict[str, list[str | None]]:
+    rows = session.scalars(select(Event.timezone).distinct()).all()
+    groups: dict[str, list[str | None]] = {}
+    for raw_timezone in rows:
+        groups.setdefault(resolve_tracking_timezone_name(raw_timezone), []).append(raw_timezone)
+    return groups
+
+
+def _task_ids_for_raw_timezones(raw_timezones: list[str | None]):
+    conditions = []
+    values = [value for value in raw_timezones if value is not None]
+    if values:
+        conditions.append(Event.timezone.in_(values))
+    if any(value is None for value in raw_timezones):
+        conditions.append(Event.timezone.is_(None))
+    if not conditions:
+        return select(Task.id).where(False)
+    return select(Task.id).join(Event, Task.event_id == Event.id).where(or_(*conditions))
+
+
+def _current_day_position_clause(session: Session, *, now: datetime | None = None):
+    reference_time = _as_utc(now)
+    conditions = []
+
+    for timezone_name, raw_timezones in _event_timezone_groups(session).items():
+        start_utc, end_utc = _current_day_window_utc(timezone_name, reference_time)
+        task_ids = _task_ids_for_raw_timezones(raw_timezones)
+        conditions.append(
+            and_(
+                LivePosition.task_id.isnot(None),
+                LivePosition.task_id.in_(task_ids),
+                LivePosition.timestamp >= start_utc,
+                LivePosition.timestamp < end_utc,
+            )
+        )
+
+    utc_start, utc_end = _current_day_window_utc("UTC", reference_time)
+    known_event_task_ids = select(Task.id).join(Event, Task.event_id == Event.id)
+    conditions.append(
+        and_(
+            or_(
+                LivePosition.task_id.is_(None),
+                not_(LivePosition.task_id.in_(known_event_task_ids)),
+            ),
+            LivePosition.timestamp >= utc_start,
+            LivePosition.timestamp < utc_end,
+        )
+    )
+
+    return or_(*conditions)
+
+
+def _optional_since(since: datetime | None, minutes: int | None, now: datetime | None) -> datetime | None:
+    cutoffs = []
+    if since is not None:
+        cutoffs.append(_as_utc(since))
+    if minutes is not None:
+        cutoffs.append(_as_utc(now) - timedelta(minutes=minutes))
+    return max(cutoffs) if cutoffs else None
+
+
+def _apply_live_position_history_window(
+    session: Session,
+    query,
+    *,
+    since: datetime | None = None,
+    minutes: int | None = None,
+    limit: int | None = None,
+    now: datetime | None = None,
+):
+    reference_time = _as_utc(now)
+    query = query.where(_current_day_position_clause(session, now=reference_time))
+    since_cutoff = _optional_since(since, minutes, reference_time)
+    if since_cutoff is not None:
+        query = query.where(LivePosition.timestamp >= since_cutoff)
+    if limit is not None:
+        query = query.limit(limit)
+    return query
 
 
 def prune_old_live_positions(
-    retention_days: int = LIVE_POSITION_RETENTION_DAYS,
+    retention_days: int | None = None,
     *,
     now: datetime | None = None,
 ) -> int:
-    """Delete live tracking fixes older than the retention window."""
-    reference_time = now or datetime.now(UTC)
-    if reference_time.tzinfo is None:
-        reference_time = reference_time.replace(tzinfo=UTC)
-    cutoff = reference_time - timedelta(days=retention_days)
+    """Delete live tracking fixes outside the current day for their event timezone."""
+    reference_time = _as_utc(now)
+    if retention_days is not None:
+        logger.debug("Ignoring deprecated live-position retention_days=%s; using current-day retention", retention_days)
 
     session = SessionLocal()
     try:
         deleted = (
             session.query(LivePosition)
-            .filter(LivePosition.timestamp < cutoff)
+            .filter(not_(_current_day_position_clause(session, now=reference_time)))
             .delete(synchronize_session=False)
         )
         session.commit()
         if deleted:
-            logger.info("Pruned %d live positions older than %d days", deleted, retention_days)
+            logger.info("Pruned %d live positions outside the current local day", deleted)
         return int(deleted)
     except Exception:
         session.rollback()
@@ -99,20 +227,18 @@ def prune_old_live_positions(
 
 
 async def _live_position_prune_loop(
-    retention_days: int = LIVE_POSITION_RETENTION_DAYS,
     interval_seconds: int = LIVE_POSITION_PRUNE_INTERVAL_SECONDS,
 ) -> None:
     while True:
         await asyncio.sleep(interval_seconds)
-        await asyncio.to_thread(prune_old_live_positions, retention_days)
+        await asyncio.to_thread(prune_old_live_positions)
 
 
 async def start_live_position_pruner() -> asyncio.Task[None]:
     """Launch the live-position retention pruner as an asyncio background task."""
     task = asyncio.create_task(_live_position_prune_loop(), name="live-position-pruner")
     logger.info(
-        "Live position pruner started: retention=%d days interval=%d seconds",
-        LIVE_POSITION_RETENTION_DAYS,
+        "Live position pruner started: retention=current local day interval=%d seconds",
         LIVE_POSITION_PRUNE_INTERVAL_SECONDS,
     )
     return task
@@ -771,7 +897,7 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
 
     rows = session.scalars(
         select(LivePosition)
-        .where(LivePosition.task_id == task_id, or_(*conditions))
+        .where(LivePosition.task_id == task_id, or_(*conditions), _current_day_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(conditions) * 100))
     ).all()
@@ -807,7 +933,7 @@ def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[st
 
     rows = session.scalars(
         select(LivePosition)
-        .where(or_(*conditions), LivePosition.timestamp >= cutoff)
+        .where(or_(*conditions), LivePosition.timestamp >= cutoff, _current_day_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(conditions) * 100))
     ).all()
@@ -821,15 +947,23 @@ def get_position_history(
     *,
     pilot_id: int | None = None,
     since: datetime | None = None,
-    limit: int = 5000,
+    minutes: int | None = None,
+    limit: int | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Return historical positions for a task, optionally filtered by pilot and time."""
     query = select(LivePosition).where(LivePosition.task_id == task_id)
     if pilot_id is not None:
         query = query.where(LivePosition.pilot_id == pilot_id)
-    if since is not None:
-        query = query.where(LivePosition.timestamp >= since)
-    query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
+    query = _apply_live_position_history_window(
+        session,
+        query,
+        since=since,
+        minutes=minutes,
+        limit=limit,
+        now=now,
+    )
+    query = query.order_by(LivePosition.timestamp.asc())
 
     rows = session.scalars(query).all()
     return _payloads_for_positions(session, rows)
@@ -846,7 +980,7 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
 
     rows = session.scalars(
         select(LivePosition)
-        .where(LivePosition.pilot_id.in_(pilot_ids))
+        .where(LivePosition.pilot_id.in_(pilot_ids), _current_day_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(pilot_ids) * 100))
     ).all()
@@ -870,7 +1004,7 @@ def get_live_positions_for_subjects(
 
     rows = session.scalars(
         select(LivePosition)
-        .where(or_(*conditions))
+        .where(or_(*conditions), _current_day_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, (len(pilot_ids) + len(user_ids)) * 100))
     ).all()
@@ -880,24 +1014,23 @@ def get_live_positions_for_subjects(
 def get_all_recent_positions(
     session: Session,
     *,
-    minutes: int = 60,
-    limit: int = 10000,
+    minutes: int | None = None,
+    limit: int | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Return every position record from the last `minutes` minutes (all pilots, all tasks).
+    """Return every retained current-day position record, optionally narrowed by minutes.
 
     Used by the debug "show all" live tracking view. Intended to include free-flight
-    positions as well (task_id IS NULL). Returned newest-first, limited to `limit` rows.
+    positions as well (task_id IS NULL). Returned newest-first.
     """
-    from datetime import timedelta
-
-    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
-
-    rows = session.scalars(
-        select(LivePosition)
-        .where(LivePosition.timestamp >= cutoff)
-        .order_by(LivePosition.timestamp.desc())
-        .limit(limit)
-    ).all()
+    query = _apply_live_position_history_window(
+        session,
+        select(LivePosition),
+        minutes=minutes,
+        limit=limit,
+        now=now,
+    ).order_by(LivePosition.timestamp.desc())
+    rows = session.scalars(query).all()
 
     return _payloads_for_positions(session, rows)
 
@@ -907,16 +1040,24 @@ def get_position_history_for_pilots(
     pilot_ids: list[int],
     *,
     since: datetime | None = None,
-    limit: int = 10000,
+    minutes: int | None = None,
+    limit: int | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Return position history for a set of pilots (all tasks + free-flight)."""
     if not pilot_ids:
         return []
 
     query = select(LivePosition).where(LivePosition.pilot_id.in_(pilot_ids))
-    if since is not None:
-        query = query.where(LivePosition.timestamp >= since)
-    query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
+    query = _apply_live_position_history_window(
+        session,
+        query,
+        since=since,
+        minutes=minutes,
+        limit=limit,
+        now=now,
+    )
+    query = query.order_by(LivePosition.timestamp.asc())
 
     rows = session.scalars(query).all()
     return _payloads_for_positions(session, rows)
@@ -928,7 +1069,9 @@ def get_position_history_for_subjects(
     user_ids: list[int],
     *,
     since: datetime | None = None,
-    limit: int = 10000,
+    minutes: int | None = None,
+    limit: int | None = None,
+    now: datetime | None = None,
 ) -> list[dict[str, Any]]:
     """Return position history for a mix of pilot and user subjects."""
     conditions = []
@@ -940,9 +1083,15 @@ def get_position_history_for_subjects(
         return []
 
     query = select(LivePosition).where(or_(*conditions))
-    if since is not None:
-        query = query.where(LivePosition.timestamp >= since)
-    query = query.order_by(LivePosition.timestamp.asc()).limit(limit)
+    query = _apply_live_position_history_window(
+        session,
+        query,
+        since=since,
+        minutes=minutes,
+        limit=limit,
+        now=now,
+    )
+    query = query.order_by(LivePosition.timestamp.asc())
 
     rows = session.scalars(query).all()
     return _payloads_for_positions(session, rows)

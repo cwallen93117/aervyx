@@ -247,7 +247,7 @@ export function LiveWatchClient() {
           ? `buddies/${source.groupId}`
           : "all";
     const sseUrl = `${streamApiBase}/api/public/live/${sourcePath}`;
-    const historyUrl = `${apiBase}/api/public/live/${sourcePath}/positions?minutes=60&limit=10000`;
+    const historyUrl = `${apiBase}/api/public/live/${sourcePath}/positions`;
 
     const mergePositions = (positions: LivePositionWithName[]) => {
       if (controller.signal.aborted || !positions.length) {
