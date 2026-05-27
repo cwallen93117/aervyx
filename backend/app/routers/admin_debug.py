@@ -288,6 +288,8 @@ def admin_debug_status(
         lookup_ids = mesh_device_id_lookup_variants(device.device_id)
         canonical_device_id = normalize_mesh_device_id(device.device_id) or device.device_id
         latest_pos = next((latest_by_device[lookup_id] for lookup_id in lookup_ids if lookup_id in latest_by_device), None)
+        latest_pos_pilot_id = getattr(latest_pos, "pilot_id", None)
+        resolved_owner_pilot_id = owner_pilot_id if owner_pilot_id is not None else latest_pos_pilot_id
         node_status = next((status_by_device[lookup_id] for lookup_id in lookup_ids if lookup_id in status_by_device), None)
         status_ts = node_status.last_seen_at if node_status is not None else None
         latest_pos_ts = getattr(latest_pos, "timestamp", None)
@@ -320,7 +322,7 @@ def admin_debug_status(
         registered_mesh_devices.append({
             "owner_user_id": owner_user_id,
             "owner_name": owner_name,
-            "owner_pilot_id": owner_pilot_id,
+            "owner_pilot_id": resolved_owner_pilot_id,
             "device_id": canonical_device_id,
             "label": device.label,
             "purpose": device.purpose,

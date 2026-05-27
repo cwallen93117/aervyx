@@ -2256,8 +2256,13 @@ function LiveTrackingTab({
       row.lastSeenAt = latestTimestamp(row.lastSeenAt, session.last_seen_at);
     }
 
-    const registeredDeviceIds = new Set((debugStatus?.registered_mesh_devices ?? []).map((device) => device.device_id));
-    for (const device of (debugStatus?.registered_mesh_devices ?? [])) {
+    const registeredMeshDevices = debugStatus?.registered_mesh_devices ?? [];
+    const registeredDeviceIds = new Set<string>();
+    for (const device of registeredMeshDevices) {
+      const normalizedDeviceId = normalizedMeshNodeId(device.device_id);
+      if (normalizedDeviceId) registeredDeviceIds.add(normalizedDeviceId);
+    }
+    for (const device of registeredMeshDevices) {
       const entry = meshDeviceFromDebug(device);
       const key = device.owner_pilot_id != null ? `pilot-${device.owner_pilot_id}` : `user-${device.owner_user_id}`;
       const row = ensureRow(key, device.owner_pilot_id, device.owner_user_id, device.owner_name ?? device.label ?? device.device_id, null);
@@ -2268,7 +2273,8 @@ function LiveTrackingTab({
     }
 
     for (const node of meshNodes) {
-      if (registeredDeviceIds.has(node.device_id)) continue;
+      const normalizedDeviceId = normalizedMeshNodeId(node.device_id);
+      if (normalizedDeviceId && registeredDeviceIds.has(normalizedDeviceId)) continue;
       const entry = meshDeviceFromNode(node);
       const key = node.pilot_id != null
         ? `pilot-${node.pilot_id}`

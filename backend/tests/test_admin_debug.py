@@ -103,6 +103,43 @@ def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
     }
 
 
+def test_admin_debug_status_infers_registered_device_pilot_from_latest_position() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    session.add_all([admin, pilot, owner])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id="!abc123",
+                label="Charles tracker",
+                purpose="tracking",
+                is_active=True,
+            ),
+            LivePosition(
+                pilot_id=pilot.id,
+                task_id=None,
+                lat=35.12345,
+                lon=-82.54321,
+                timestamp=now - timedelta(seconds=10),
+                source="mqtt_gateway",
+                device_id="!abc123",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    device = payload["registered_mesh_devices"][0]
+    assert device["owner_user_id"] == owner.id
+    assert device["owner_pilot_id"] == pilot.id
+
+
 def test_admin_debug_status_reports_mqtt_only_activity_as_offline_phone_session() -> None:
     session = _session()
     now = datetime.now(UTC)
