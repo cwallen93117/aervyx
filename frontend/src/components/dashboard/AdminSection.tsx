@@ -4,6 +4,7 @@ import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } fr
 
 import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
+import { PasswordInput } from "../PasswordInput";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MeshDevicePurpose, MeshDeviceRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
@@ -1164,7 +1165,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                   <label className="stack compact">
                     <span>New password (leave blank to keep current)</span>
-                    <input type="password" value={credentialsPassword} onChange={(event) => setCredentialsPassword(event.target.value)} autoComplete="new-password" />
+                    <PasswordInput value={credentialsPassword} onChange={(event) => setCredentialsPassword(event.target.value)} autoComplete="new-password" />
                   </label>
                   {credentialsError ? <div className="status-chip error">{credentialsError}</div> : null}
                   <div className="confirm-actions">
@@ -1569,8 +1570,7 @@ export default function AdminSection(props: AdminSectionProps) {
                 </label>
                 <label className="stack compact">
                   <span>Gateway MQTT password</span>
-                  <input
-                    type="password"
+                  <PasswordInput
                     placeholder="Fleet password"
                     value={siteSettings.mqtt_password ?? ""}
                     onChange={(event) =>
@@ -1645,8 +1645,7 @@ export default function AdminSection(props: AdminSectionProps) {
                 </label>
                 <label className="stack compact">
                   <span>API token</span>
-                  <input
-                    type="password"
+                  <PasswordInput
                     placeholder={siteSettings.cloudflare_ddns_api_token_configured ? "Token saved; enter a new token to replace" : "Cloudflare DNS Edit token"}
                     value={siteSettings.cloudflare_ddns_api_token ?? ""}
                     onChange={(event) =>
@@ -1795,8 +1794,7 @@ export default function AdminSection(props: AdminSectionProps) {
                 <div className="cluster-stack">
                   <label className="stack compact">
                     <span>Client ID</span>
-                    <input
-                      type="password"
+                    <PasswordInput
                       value={faaClientId}
                       placeholder={faaCredentials.admin_client_id_configured ? "Configured; leave blank to keep current" : "Enter FAA client ID"}
                       onChange={(event) => setFaaClientId(event.target.value)}
@@ -1805,8 +1803,7 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                   <label className="stack compact">
                     <span>Client secret</span>
-                    <input
-                      type="password"
+                    <PasswordInput
                       value={faaClientSecret}
                       placeholder={faaCredentials.admin_client_secret_configured ? "Configured; leave blank to keep current" : "Enter FAA client secret"}
                       onChange={(event) => setFaaClientSecret(event.target.value)}
@@ -3076,13 +3073,22 @@ function MeshProfilesTable({
                                 ))}
                               </select>
                             ) : row.kind === "string" ? (
-                              <input
-                                type={row.secret ? "password" : "text"}
-                                value={String(rawVal ?? "")}
-                                onChange={(e) => updateCell(pk, row.key, e.target.value)}
-                                style={inputStyle}
-                                autoComplete="off"
-                              />
+                              row.secret ? (
+                                <PasswordInput
+                                  value={String(rawVal ?? "")}
+                                  onChange={(e) => updateCell(pk, row.key, e.target.value)}
+                                  inputStyle={inputStyle}
+                                  autoComplete="off"
+                                />
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={String(rawVal ?? "")}
+                                  onChange={(e) => updateCell(pk, row.key, e.target.value)}
+                                  style={inputStyle}
+                                  autoComplete="off"
+                                />
+                              )
                             ) : (
                               <FormattedNumberInput
                                 value={row.displayScale ? Number(rawVal ?? 0) / row.displayScale : Number(rawVal ?? 0)}

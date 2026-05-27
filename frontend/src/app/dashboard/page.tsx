@@ -916,7 +916,6 @@ export default function HomePage() {
   const [adminUploadPilotId, setAdminUploadPilotId] = useState<number | null>(null);
   const [settingsForm, setSettingsForm] = useState<AccountSettingsRecord>(blankSettingsForm());
   const [settingsPasswordForm, setSettingsPasswordForm] = useState({ current_password: "", new_password: "", confirm_password: "" });
-  const [showCurrentSettingsPassword, setShowCurrentSettingsPassword] = useState(false);
   const [settingsFeedback, setSettingsFeedback] = useState<{
     profile: { type: "success" | "error"; text: string } | null;
     password: { type: "success" | "error"; text: string } | null;
@@ -3082,8 +3081,6 @@ export default function HomePage() {
               setSettingsForm={setSettingsForm}
               settingsPasswordForm={settingsPasswordForm}
               setSettingsPasswordForm={setSettingsPasswordForm}
-              showCurrentSettingsPassword={showCurrentSettingsPassword}
-              setShowCurrentSettingsPassword={setShowCurrentSettingsPassword}
               settingsFeedback={settingsFeedback}
               saveAccountSettings={saveAccountSettings}
               savePasswordSettings={savePasswordSettings}
@@ -3130,8 +3127,6 @@ export default function HomePage() {
               setSettingsForm={setSettingsForm}
               settingsPasswordForm={settingsPasswordForm}
               setSettingsPasswordForm={setSettingsPasswordForm}
-              showCurrentSettingsPassword={showCurrentSettingsPassword}
-              setShowCurrentSettingsPassword={setShowCurrentSettingsPassword}
               settingsFeedback={settingsFeedback}
               saveAccountSettings={saveAccountSettings}
               savePasswordSettings={savePasswordSettings}

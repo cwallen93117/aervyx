@@ -5,6 +5,7 @@ import BuddyGroupsManager from "./BuddyGroupsManager";
 import EmailsManager from "./EmailsManager";
 import MeshDevicesManager from "./MeshDevicesManager";
 import PilotClaimSection from "./PilotClaimSection";
+import { PasswordInput } from "../PasswordInput";
 import type { AccountSettingsRecord } from "./types";
 
 export interface SettingsSectionProps {
@@ -13,8 +14,6 @@ export interface SettingsSectionProps {
   setSettingsForm: (form: AccountSettingsRecord | ((current: AccountSettingsRecord) => AccountSettingsRecord)) => void;
   settingsPasswordForm: { current_password: string; new_password: string; confirm_password: string };
   setSettingsPasswordForm: (form: { current_password: string; new_password: string; confirm_password: string } | ((current: { current_password: string; new_password: string; confirm_password: string }) => { current_password: string; new_password: string; confirm_password: string })) => void;
-  showCurrentSettingsPassword: boolean;
-  setShowCurrentSettingsPassword: (show: boolean | ((current: boolean) => boolean)) => void;
   settingsFeedback: {
     profile: { type: "success" | "error"; text: string } | null;
     password: { type: "success" | "error"; text: string } | null;
@@ -45,8 +44,6 @@ export default function SettingsSection(props: SettingsSectionProps) {
     setSettingsForm,
     settingsPasswordForm,
     setSettingsPasswordForm,
-    showCurrentSettingsPassword,
-    setShowCurrentSettingsPassword,
     settingsFeedback,
     saveAccountSettings,
     savePasswordSettings,
@@ -208,29 +205,23 @@ export default function SettingsSection(props: SettingsSectionProps) {
               <>
                 <label className="stack compact">
                   <span>Current password</span>
-                  <input
-                    type={showCurrentSettingsPassword ? "text" : "password"}
+                  <PasswordInput
                     value={settingsPasswordForm.current_password}
                     onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, current_password: event.target.value }))}
                     autoComplete="current-password"
                     required
                   />
                 </label>
-                <div className="button-row">
-                  <button type="button" className="ghost-button" onClick={() => setShowCurrentSettingsPassword((current: boolean) => !current)}>
-                    {showCurrentSettingsPassword ? "Hide" : "Show"}
-                  </button>
-                </div>
               </>
             ) : null}
             <div className="inline-grid">
               <label className="stack compact">
                 <span>New password</span>
-                <input type="password" value={settingsPasswordForm.new_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, new_password: event.target.value }))} autoComplete="new-password" required />
+                <PasswordInput value={settingsPasswordForm.new_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, new_password: event.target.value }))} autoComplete="new-password" required />
               </label>
               <label className="stack compact">
                 <span>Confirm new password</span>
-                <input type="password" value={settingsPasswordForm.confirm_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))} autoComplete="new-password" required />
+                <PasswordInput value={settingsPasswordForm.confirm_password} onChange={(event) => setSettingsPasswordForm((current) => ({ ...current, confirm_password: event.target.value }))} autoComplete="new-password" required />
               </label>
             </div>
             <div className="button-row">

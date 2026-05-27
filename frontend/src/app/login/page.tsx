@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { PasswordInput } from "../../components/PasswordInput";
 
 declare global {
   interface Window {
@@ -70,8 +71,6 @@ async function readApiError(response: Response, fallback: string) {
 export default function LoginPage() {
   const [destination, setDestination] = useState("/dashboard");
   const [authMode, setAuthMode] = useState<"login" | "register">("login");
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
-  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -306,22 +305,17 @@ export default function LoginPage() {
                   </label>
                   <label className="stack compact">
                     <span>Password</span>
-                    <div className="aervyx-password-field">
-                      <input
-                        type={showLoginPassword ? "text" : "password"}
-                        value={loginForm.password}
-                        onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
-                        placeholder="Enter your password"
-                        autoComplete="current-password"
-                        required
-                      />
-                    </div>
+                    <PasswordInput
+                      wrapperClassName="aervyx-password-field"
+                      value={loginForm.password}
+                      onChange={(event) => setLoginForm({ ...loginForm, password: event.target.value })}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      required
+                    />
                     <div className="aervyx-auth-inline-actions">
                       <button type="button" className="aervyx-auth-helper-button" onClick={() => setForgotMode((value) => !value)}>
                         {forgotMode ? "Hide password help" : "Forgot password?"}
-                      </button>
-                      <button type="button" className="aervyx-password-toggle" onClick={() => setShowLoginPassword((value) => !value)}>
-                        {showLoginPassword ? "Hide" : "Show"}
                       </button>
                     </div>
                   </label>
@@ -373,20 +367,13 @@ export default function LoginPage() {
                 </label>
                 <label className="stack compact">
                   <span>Password</span>
-                  <div className="aervyx-password-field">
-                    <input
-                      type={showRegisterPassword ? "text" : "password"}
-                      value={registerForm.password}
-                      onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })}
-                      autoComplete="new-password"
-                      required
-                    />
-                  </div>
-                  <div className="aervyx-auth-inline-actions aervyx-auth-inline-actions-end">
-                    <button type="button" className="aervyx-password-toggle" onClick={() => setShowRegisterPassword((value) => !value)}>
-                      {showRegisterPassword ? "Hide" : "Show"}
-                    </button>
-                  </div>
+                  <PasswordInput
+                    wrapperClassName="aervyx-password-field"
+                    value={registerForm.password}
+                    onChange={(event) => setRegisterForm({ ...registerForm, password: event.target.value })}
+                    autoComplete="new-password"
+                    required
+                  />
                 </label>
                 <button type="submit" className="aervyx-auth-submit" disabled={isSubmitting}>
                   {isSubmitting ? "Creating account..." : "Create account"}

@@ -970,6 +970,62 @@ input:focus, select:focus, textarea:focus {
 
 input::placeholder { color: var(--ink-muted); }
 
+.password-input-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.password-input-wrap input {
+  padding-right: 42px;
+}
+
+.password-visibility-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--ink-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transform: translateY(-50%);
+  transition: background 150ms ease, color 150ms ease;
+}
+
+.password-visibility-toggle:hover {
+  background: var(--wash-alt);
+  color: var(--ink);
+}
+
+.password-visibility-toggle:focus-visible {
+  outline: 2px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 1px;
+}
+
+.password-visibility-toggle svg {
+  width: 18px;
+  height: 18px;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+}
+
+.password-visibility-toggle circle {
+  fill: currentColor;
+  stroke: none;
+}
+
+.password-toggle-slash {
+  stroke-width: 2.1;
+}
+
 select {
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
@@ -5747,6 +5803,16 @@ button[type="submit"]:hover,
   position: relative;
 }
 
+.aervyx-password-field .password-visibility-toggle {
+  right: 8px;
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.aervyx-password-field .password-visibility-toggle:hover {
+  background: rgba(0, 229, 255, 0.12);
+  color: #ffffff;
+}
+
 .aervyx-auth-inline-actions {
   display: flex;
   align-items: center;
@@ -7609,4 +7675,13 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
 }
 .tracking-expand-toggle.expanded {
   transform: rotate(90deg);
+}
+
+html[data-theme="dark"] .password-visibility-toggle {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+html[data-theme="dark"] .password-visibility-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
 }
