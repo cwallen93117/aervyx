@@ -2649,7 +2649,7 @@ function LiveTrackingTab({
                             toggleExpand(d.key);
                           } : undefined}
                         >
-                          {canExpand ? (isExpanded ? "▾" : "▸") : ""}
+                          {canExpand ? "" : ""}
                         </td>
                         <td>
                           <span
