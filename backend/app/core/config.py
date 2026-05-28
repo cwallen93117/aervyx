@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     apk_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "apks")
     provisioner_root: str = str(Path(__file__).resolve().parents[2] / "storage" / "provisioners")
     access_token_expire_minutes: int = 1440  # 24 hours
-    refresh_token_expire_days: int = 30
+    refresh_token_expire_days: int = 365
     max_upload_size_mb: int = 10
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000", "http://10.0.2.2:8000"])
     allowed_hosts: list[str] = Field(

@@ -93,12 +93,18 @@ class User {
 
 class AuthToken {
   final String accessToken;
+  final String? refreshToken;
   final User user;
 
-  const AuthToken({required this.accessToken, required this.user});
+  const AuthToken({
+    required this.accessToken,
+    required this.user,
+    this.refreshToken,
+  });
 
   factory AuthToken.fromJson(Map<String, dynamic> json) => AuthToken(
         accessToken: json['access_token'] as String,
+        refreshToken: json['refresh_token'] as String?,
         user: User.fromJson(json['user'] as Map<String, dynamic>),
       );
 }
