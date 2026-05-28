@@ -21,6 +21,7 @@ import {
   displayNameForSubject,
   buildTrackCollection,
   mergePositionGroup,
+  latestDisplayPositionsBySubject,
   subjectKeyForPosition,
 } from "../../lib/live-tracking-utils";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
@@ -203,13 +204,7 @@ export function LiveWatchClient() {
   );
 
   useEffect(() => {
-    const latest = new Map<string, LivePositionRecord>();
-    for (const [subjectKey, positions] of positionsByPilot) {
-      if (positions.length) {
-        latest.set(subjectKey, positions[positions.length - 1]);
-      }
-    }
-    setLivePositionsByPilot(latest);
+    setLivePositionsByPilot(latestDisplayPositionsBySubject(positionsByPilot));
   }, [positionsByPilot]);
 
   const sourceLabel = useMemo(() => {

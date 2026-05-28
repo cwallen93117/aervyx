@@ -1,17 +1,23 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import LivePosition, MeshDevice, MeshNodeStatus, User
-from app.routers.tracking import get_mesh_nodes
+from app.routers.tracking import PositionPayload, get_mesh_nodes, post_position
 
 
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+
+
+def _utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def test_mesh_nodes_resolves_gateway_display_name_from_registered_device() -> None:
@@ -151,3 +157,35 @@ def test_mesh_nodes_ignores_phone_app_device_ids() -> None:
     nodes = get_mesh_nodes(minutes=60, admin=admin, session=session)
 
     assert [node.device_id for node in nodes] == ["!tracker"]
+
+
+def test_mesh_position_battery_status_uses_position_seen_at() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    relay_user = User(
+        username="relay@example.com",
+        full_name="Relay",
+        role="pilot",
+        mesh_device_id="!gateway",
+    )
+    session.add(relay_user)
+    session.commit()
+
+    response = post_position(
+        PositionPayload(
+            lat=35.2,
+            lon=-82.6,
+            timestamp=now,
+            source="mesh_relay",
+            device_id="!tracker",
+            battery_level=87,
+        ),
+        user=relay_user,
+        session=session,
+    )
+
+    tracker_status = session.scalar(select(MeshNodeStatus).where(MeshNodeStatus.device_id == "!tracker"))
+    assert response.device_id == "!tracker"
+    assert tracker_status is not None
+    assert tracker_status.battery_level == 87
+    assert _utc(tracker_status.battery_level_seen_at) == now

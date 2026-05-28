@@ -25,6 +25,7 @@ export type LivePositionRecord = {
   aircraft_icon: "hang_glider" | "paraglider" | "sailplane";
   profile_type?: ProfileType | null;
   position_source?: PositionSource | null;
+  received_at?: string | null;
 };
 
 function resolveConfiguredBase(configured: string | undefined, fallback: string) {
@@ -131,15 +132,65 @@ export function displayNameForSubject(position: LivePositionRecord, namesBySubje
   return position.device_id ?? "Tracker";
 }
 
+function timestampMs(value: string | null | undefined): number {
+  if (!value) return Number.NaN;
+  return Date.parse(value);
+}
+
+function sortableMs(value: string | null | undefined, fallback: string | null | undefined): number {
+  const parsed = timestampMs(value);
+  if (Number.isFinite(parsed)) return parsed;
+  const fallbackParsed = timestampMs(fallback);
+  return Number.isFinite(fallbackParsed) ? fallbackParsed : 0;
+}
+
+export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[] {
+  const byReceiveOrder = positions
+    .map((position, index) => ({ position, index }))
+    .sort((left, right) => {
+      const leftReceived = sortableMs(left.position.received_at, left.position.timestamp);
+      const rightReceived = sortableMs(right.position.received_at, right.position.timestamp);
+      if (leftReceived !== rightReceived) {
+        return leftReceived - rightReceived;
+      }
+      return left.index - right.index;
+    });
+
+  const display: LivePositionRecord[] = [];
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  for (const { position } of byReceiveOrder) {
+    const parsedTimestamp = timestampMs(position.timestamp);
+    const nextTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : latestTimestamp;
+    if (nextTimestamp < latestTimestamp) {
+      continue;
+    }
+    display.push(position);
+    latestTimestamp = nextTimestamp;
+  }
+  return display;
+}
+
+export function latestDisplayPositionsBySubject(
+  positionsBySubject: Map<string, LivePositionRecord[]>,
+): Map<string, LivePositionRecord> {
+  const latest = new Map<string, LivePositionRecord>();
+  for (const [subjectKey, positions] of positionsBySubject) {
+    const displayPositions = displayPositionsForLiveTrack(positions);
+    const position = displayPositions[displayPositions.length - 1];
+    if (position) {
+      latest.set(subjectKey, position);
+    }
+  }
+  return latest;
+}
+
 export function buildTrackCollection(
   positionsBySubject: Map<string, LivePositionRecord[]>,
   subjectNameByKey: Map<string, string>,
 ): TrackCollection | null {
   const subjectKeys = Array.from(positionsBySubject.keys()).sort();
   const features = subjectKeys.flatMap((subjectKey) => {
-    const positions = [...(positionsBySubject.get(subjectKey) ?? [])].sort(
-      (left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp),
-    );
+    const positions = displayPositionsForLiveTrack(positionsBySubject.get(subjectKey) ?? []);
     if (!positions.length) {
       return [];
     }
@@ -181,7 +232,6 @@ export function mergePositionGroup(
     } else {
       existing.push(position);
     }
-    existing.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
     next.set(subjectKey, existing);
   }
   return next;

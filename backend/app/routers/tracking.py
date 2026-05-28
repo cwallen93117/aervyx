@@ -126,7 +126,7 @@ def _upsert_mesh_position_status(
     status_row.packet_count = (status_row.packet_count or 0) + 1
     if battery_level is not None:
         status_row.battery_level = battery_level
-        status_row.battery_level_seen_at = timestamp
+        status_row.battery_level_seen_at = seen_at
     return status_row
 
 
@@ -182,6 +182,7 @@ class PositionResponse(BaseModel):
     aircraft_icon: str = "hang_glider"
     profile_type: str = "pilot"
     position_source: str = "other"
+    received_at: str | None = None
 
 
 class MeshConfigResponse(BaseModel):
@@ -402,6 +403,7 @@ def post_position(
         aircraft_icon=response_aircraft_icon,
         profile_type=response_profile_type,
         position_source=normalize_position_source(pos.source),
+        received_at=pos.created_at.isoformat() if pos.created_at else None,
     )
 
 
