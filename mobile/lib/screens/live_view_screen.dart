@@ -6,12 +6,14 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../config/api_config.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/tracking_service.dart';
 import '../widgets/live_map_style.dart';
+import '../widgets/live_tracking_map_helpers.dart';
 import '../widgets/map_scale_bar.dart';
 
 /// A pilot position received from the backend.
@@ -130,6 +132,10 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
 
   void _moveToFollowTarget(LatLng target) {
     _mapController.move(target, _followZoom());
+  }
+
+  void _northUp() {
+    _mapController.rotate(0);
   }
 
   void _handleTrackingUpdate() {
@@ -326,6 +332,109 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       aircraftIcon: json['aircraft_icon'] as String?,
       profileType: profileType,
       batteryLevel: json['battery_level'] as int?,
+      lastSeen: DateTime.tryParse(json['timestamp'] as String? ?? '') ??
+          existing?.lastSeen,
+    );
+  }
+
+  List<String> get _orderedSubjectKeys => _pilots.keys.toList()..sort();
+
+  Future<void> _openDirections(_LivePilot pilot) async {
+    final geoUri =
+        liveDirectionsGeoUri(pilot.lat, pilot.lon, label: pilot.name);
+    if (await canLaunchUrl(geoUri)) {
+      await launchUrl(geoUri);
+      return;
+    }
+    final webUri = liveDirectionsWebUri(pilot.lat, pilot.lon);
+    if (await canLaunchUrl(webUri)) {
+      await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      return;
+    }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('No navigation app found')),
+    );
+  }
+
+  void _showPilotSheet(_LivePilot pilot) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        return Padding(
+          padding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            20 + MediaQuery.of(sheetContext).padding.bottom,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  LiveRoleGlyph(
+                    profileType: pilot.profileType,
+                    aircraftIcon: pilot.aircraftIcon,
+                    color: liveColorForSubject(
+                      pilot.subjectKey,
+                      _orderedSubjectKeys,
+                    ),
+                    size: 24,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      pilot.name,
+                      style: theme.textTheme.titleLarge,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 14,
+                runSpacing: 8,
+                children: [
+                  _PilotMetric(
+                    icon: Icons.schedule,
+                    label: 'Last seen',
+                    value: liveRelativeTime(pilot.lastSeen),
+                  ),
+                  if (pilot.alt != null)
+                    _PilotMetric(
+                      icon: Icons.height,
+                      label: 'Altitude',
+                      value: '${pilot.alt!.toStringAsFixed(0)} m',
+                    ),
+                  if (pilot.speed != null)
+                    _PilotMetric(
+                      icon: Icons.speed,
+                      label: 'Speed',
+                      value: '${(pilot.speed! * 3.6).toStringAsFixed(0)} km/h',
+                    ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  icon: const Icon(Icons.navigation),
+                  label: const Text('Directions'),
+                  onPressed: () {
+                    Navigator.of(sheetContext).pop();
+                    unawaited(_openDirections(pilot));
+                  },
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -341,6 +450,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     final pilotCount =
         _pilots.length + (tracking.isInFlight && trackPos != null ? 1 : 0);
     final theme = Theme.of(context);
+    final orderedSubjectKeys = _orderedSubjectKeys;
 
     return Scaffold(
       appBar: AppBar(
@@ -384,9 +494,19 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                   // Other pilots
                   ..._pilots.values.map((pilot) => Marker(
                         point: LatLng(pilot.lat, pilot.lon),
-                        width: 60,
-                        height: 50,
-                        child: _PilotMarker(pilot: pilot),
+                        width: 82,
+                        height: 58,
+                        child: GestureDetector(
+                          onTap: () => _showPilotSheet(pilot),
+                          child: LiveSubjectMarker(
+                            name: pilot.name,
+                            subjectKey: pilot.subjectKey,
+                            orderedSubjectKeys: orderedSubjectKeys,
+                            aircraftIcon: pilot.aircraftIcon,
+                            profileType: pilot.profileType,
+                            lastSeen: pilot.lastSeen,
+                          ),
+                        ),
                       )),
                   // User's own position (blue dot)
                   if (trackPos != null)
@@ -451,47 +571,100 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
           Positioned(
             bottom: 16 + MediaQuery.of(context).padding.bottom,
             right: 16,
-            child: FloatingActionButton.small(
-              onPressed: () {
-                final LatLng? target;
-                if (trackPos != null) {
-                  target = LatLng(trackPos.lat, trackPos.lon);
-                } else if (_userPosition != null) {
-                  target = _userPosition;
-                } else {
-                  target = null;
-                }
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'live-view-north-up',
+                  onPressed: _northUp,
+                  tooltip: 'North up',
+                  child: const Icon(Icons.explore),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.small(
+                  heroTag: 'live-view-my-location',
+                  onPressed: () {
+                    final LatLng? target;
+                    if (trackPos != null) {
+                      target = LatLng(trackPos.lat, trackPos.lon);
+                    } else if (_userPosition != null) {
+                      target = _userPosition;
+                    } else {
+                      target = null;
+                    }
 
-                if (target != null) {
-                  // Re-enable follow and jump to the current local GPS fix.
-                  setState(() {
-                    _userPanned = false;
-                    _followUser = true;
-                  });
-                  _moveToFollowTarget(target);
-                } else {
-                  setState(() {
-                    _userPanned = false;
-                    _followUser = true;
-                  });
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('No GPS fix yet — waiting for location'),
-                      duration: Duration(seconds: 2),
-                    ),
-                  );
-                  // Kick off a fresh position request so next tap will work
-                  _getUserPosition();
-                }
-              },
-              tooltip: _followUser ? 'Following GPS' : 'Center on GPS',
-              backgroundColor: _followUser ? theme.colorScheme.primary : null,
-              foregroundColor: _followUser ? theme.colorScheme.onPrimary : null,
-              child: const Icon(Icons.my_location),
+                    if (target != null) {
+                      // Re-enable follow and jump to the current local GPS fix.
+                      setState(() {
+                        _userPanned = false;
+                        _followUser = true;
+                      });
+                      _moveToFollowTarget(target);
+                    } else {
+                      setState(() {
+                        _userPanned = false;
+                        _followUser = true;
+                      });
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content:
+                              Text('No GPS fix yet — waiting for location'),
+                          duration: Duration(seconds: 2),
+                        ),
+                      );
+                      // Kick off a fresh position request so next tap will work
+                      _getUserPosition();
+                    }
+                  },
+                  tooltip: _followUser ? 'Following GPS' : 'Center on GPS',
+                  backgroundColor:
+                      _followUser ? theme.colorScheme.primary : null,
+                  foregroundColor:
+                      _followUser ? theme.colorScheme.onPrimary : null,
+                  child: const Icon(Icons.my_location),
+                ),
+              ],
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PilotMetric extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _PilotMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18, color: theme.colorScheme.primary),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Text(value, style: theme.textTheme.bodyMedium),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -543,68 +716,6 @@ class _OwnDriverMarker extends StatelessWidget {
         ],
       ),
       child: const Icon(Icons.directions_car, size: 16, color: Colors.green),
-    );
-  }
-}
-
-class _PilotMarker extends StatelessWidget {
-  final _LivePilot pilot;
-
-  const _PilotMarker({required this.pilot});
-
-  IconData _iconForAircraft(String? type) {
-    if (pilot.profileType == 'driver') {
-      return Icons.directions_car;
-    }
-    switch (type) {
-      case 'hang_glider':
-        return Icons.air;
-      case 'sailplane':
-        return Icons.flight;
-      case 'paraglider':
-      default:
-        return Icons.paragliding;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.blue, width: 2),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 3),
-            ],
-          ),
-          child: Icon(
-            _iconForAircraft(pilot.aircraftIcon),
-            size: 18,
-            color: pilot.profileType == 'driver' ? Colors.green : Colors.blue,
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-          decoration: BoxDecoration(
-            color: Colors.white.withAlpha(210),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            pilot.name.split(' ').first,
-            style: const TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
     );
   }
 }

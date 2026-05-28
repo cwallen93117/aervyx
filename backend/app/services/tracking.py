@@ -874,7 +874,7 @@ def store_position(
 
 
 def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
-    """Return the latest position per live subject for a task (active sessions only)."""
+    """Return the latest retained current-day position per live subject for a task."""
     active_sessions = session.scalars(
         select(TrackingSession).where(
             TrackingSession.task_id == task_id,
@@ -906,15 +906,10 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
 
 
 def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[str, Any]]:
-    """Return latest position for every live subject with recent activity."""
-    from datetime import timedelta
-
-    cutoff = datetime.now(UTC) - timedelta(minutes=minutes)
-
+    """Return latest retained current-day position for every active live subject."""
     active_sessions = session.scalars(
         select(TrackingSession).where(
             TrackingSession.is_active.is_(True),
-            TrackingSession.last_seen_at >= cutoff,
         )
     ).all()
 
@@ -933,7 +928,7 @@ def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[st
 
     rows = session.scalars(
         select(LivePosition)
-        .where(or_(*conditions), LivePosition.timestamp >= cutoff, _current_day_position_clause(session))
+        .where(or_(*conditions), _current_day_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(conditions) * 100))
     ).all()

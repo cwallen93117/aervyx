@@ -11,6 +11,7 @@ import '../services/driver_service.dart';
 import '../services/tracking_service.dart';
 import '../utils/app_shutdown.dart';
 import '../widgets/live_map_style.dart';
+import '../widgets/live_tracking_map_helpers.dart';
 import '../widgets/map_scale_bar.dart';
 import 'driver_navigation_screen.dart';
 import 'settings_screen.dart';
@@ -91,6 +92,10 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     _mapController.move(target, _followZoom());
   }
 
+  void _northUp() {
+    _mapController.rotate(0);
+  }
+
   void _handleTrackingUpdate() {
     if (!_followDriver || !mounted) return;
     final position = _trackingService?.lastPosition;
@@ -140,34 +145,39 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     });
   }
 
-  /// Open Google Maps navigation to the pilot's position.
-  Future<void> _navigateToPilot(DriverPilot pilot) async {
-    final uri = Uri.parse(
-      'google.navigation:q=${pilot.lat},${pilot.lon}&mode=d',
-    );
+  String _subjectKeyForPilot(DriverPilot pilot) => 'pilot:${pilot.pilotId}';
 
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri);
-    } else {
-      final geoUri = Uri.parse(
-        'geo:${pilot.lat},${pilot.lon}?q=${pilot.lat},${pilot.lon}',
+  List<String> get _orderedSubjectKeys {
+    final keys = _driverService?.visiblePilots
+            .map((pilot) => _subjectKeyForPilot(pilot))
+            .toList() ??
+        <String>[];
+    keys.sort();
+    return keys;
+  }
+
+  /// Open the default map app for directions to the pilot's position.
+  Future<void> _navigateToPilot(DriverPilot pilot) async {
+    final geoUri =
+        liveDirectionsGeoUri(pilot.lat, pilot.lon, label: pilot.name);
+    if (await canLaunchUrl(geoUri)) {
+      await launchUrl(geoUri);
+      return;
+    }
+    final webUri = liveDirectionsWebUri(pilot.lat, pilot.lon);
+    if (await canLaunchUrl(webUri)) {
+      await launchUrl(webUri, mode: LaunchMode.externalApplication);
+      return;
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No navigation app found')),
       );
-      if (await canLaunchUrl(geoUri)) {
-        await launchUrl(geoUri);
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No navigation app found')),
-        );
-      }
     }
   }
 
   String _timeSince(DateTime value) {
-    final ago = DateTime.now().difference(value);
-    if (ago.inSeconds < 10) return 'now';
-    if (ago.inSeconds < 60) return '${ago.inSeconds}s ago';
-    if (ago.inMinutes < 60) return '${ago.inMinutes}m ago';
-    return '${ago.inHours}h ago';
+    return liveRelativeTime(value);
   }
 
   void _showPilotSheet(DriverPilot pilot) {
@@ -189,6 +199,16 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
             children: [
               Row(
                 children: [
+                  LiveRoleGlyph(
+                    profileType: 'pilot',
+                    aircraftIcon: pilot.aircraftIcon,
+                    color: liveColorForSubject(
+                      _subjectKeyForPilot(pilot),
+                      _orderedSubjectKeys,
+                    ),
+                    size: 24,
+                  ),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Text(
                       pilot.compNumber != null
@@ -350,11 +370,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                   ...pilots.map(
                     (pilot) => Marker(
                       point: LatLng(pilot.lat, pilot.lon),
-                      width: 48,
-                      height: 52,
+                      width: 82,
+                      height: 58,
                       child: GestureDetector(
                         onTap: () => _showPilotSheet(pilot),
-                        child: _DriverPilotMarker(pilot: pilot),
+                        child: _DriverPilotMarker(
+                          pilot: pilot,
+                          subjectKey: _subjectKeyForPilot(pilot),
+                          orderedSubjectKeys: _orderedSubjectKeys,
+                        ),
                       ),
                     ),
                   ),
@@ -379,13 +403,27 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           Positioned(
             bottom: 16 + navBottom,
             right: 16,
-            child: FloatingActionButton.small(
-              tooltip: _followDriver ? 'Following GPS' : 'Center on GPS',
-              backgroundColor: _followDriver ? theme.colorScheme.primary : null,
-              foregroundColor:
-                  _followDriver ? theme.colorScheme.onPrimary : null,
-              onPressed: _centerOnDriver,
-              child: const Icon(Icons.my_location),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FloatingActionButton.small(
+                  heroTag: 'driver-north-up',
+                  tooltip: 'North up',
+                  onPressed: _northUp,
+                  child: const Icon(Icons.explore),
+                ),
+                const SizedBox(height: 10),
+                FloatingActionButton.small(
+                  heroTag: 'driver-my-location',
+                  tooltip: _followDriver ? 'Following GPS' : 'Center on GPS',
+                  backgroundColor:
+                      _followDriver ? theme.colorScheme.primary : null,
+                  foregroundColor:
+                      _followDriver ? theme.colorScheme.onPrimary : null,
+                  onPressed: _centerOnDriver,
+                  child: const Icon(Icons.my_location),
+                ),
+              ],
             ),
           ),
           if (hasRouteFab)
@@ -448,74 +486,24 @@ class _DriverCarMarker extends StatelessWidget {
 
 class _DriverPilotMarker extends StatelessWidget {
   final DriverPilot pilot;
+  final String subjectKey;
+  final Iterable<String> orderedSubjectKeys;
 
-  const _DriverPilotMarker({required this.pilot});
-
-  Color get _statusColor {
-    switch (pilot.status) {
-      case 'ready':
-        return Colors.green;
-      case 'landed':
-        return Colors.orange;
-      case 'picked_up':
-        return Colors.blue;
-      default:
-        return pilot.assigned ? Colors.blue : Colors.grey;
-    }
-  }
-
-  IconData _iconForAircraft(String? type) {
-    switch (type) {
-      case 'hang_glider':
-        return Icons.air;
-      case 'sailplane':
-        return Icons.flight;
-      case 'paraglider':
-      default:
-        return Icons.paragliding;
-    }
-  }
+  const _DriverPilotMarker({
+    required this.pilot,
+    required this.subjectKey,
+    required this.orderedSubjectKeys,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 2),
-            boxShadow: [
-              BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 3),
-            ],
-          ),
-          child: Icon(
-            _iconForAircraft(pilot.aircraftIcon),
-            size: 18,
-            color: color,
-          ),
-        ),
-        Container(
-          constraints: const BoxConstraints(maxWidth: 62),
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-          decoration: BoxDecoration(
-            color: Colors.white.withAlpha(215),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Text(
-            pilot.compNumber != null ? '#${pilot.compNumber}' : pilot.name,
-            style: const TextStyle(
-              fontSize: 9,
-              fontWeight: FontWeight.bold,
-              color: Colors.black87,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-        ),
-      ],
+    return LiveSubjectMarker(
+      name: pilot.name,
+      subjectKey: subjectKey,
+      orderedSubjectKeys: orderedSubjectKeys,
+      aircraftIcon: pilot.aircraftIcon,
+      profileType: 'pilot',
+      lastSeen: pilot.lastSeen,
     );
   }
 }
