@@ -7561,6 +7561,10 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   padding-right: 12px;
 }
 
+.live-tracking-sortable-th {
+  white-space: nowrap;
+}
+
 .live-tracking-debugging-map {
   height: 430px;
   margin: 0 12px;
@@ -7606,7 +7610,34 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   width: 24px;
   text-align: center;
   transition: transform 0.15s;
+  font-size: 0;
 }
 .tracking-expand-toggle.expanded {
-  transform: rotate(90deg);
+  transform: none;
+}
+.tracking-expand-toggle::before {
+  content: ">";
+  font-size: 0.84rem;
+}
+.tracking-expand-toggle.expanded::before {
+  content: "v";
+}
+.tracking-expand-all {
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+.tracking-expand-all:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.tracking-expand-all:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }

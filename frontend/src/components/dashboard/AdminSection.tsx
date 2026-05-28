@@ -78,6 +78,16 @@ type UnifiedDevice = {
   lastSeenAt: string | null;
 };
 
+type LiveTrackingCollapsedSource = {
+  lastHeardAt: string | null;
+  isOnline: boolean;
+  purpose: string;
+  source: string;
+  deviceId: string;
+  batteryLevel: number | null;
+  positionText: string;
+};
+
 type FaaCredentialsRecord = {
   provider: string;
   enabled: boolean;
@@ -173,6 +183,7 @@ const MAP_GROUPS = [
 ] as const;
 type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
 type SortDir = "asc" | "desc";
+type LiveTrackingSortField = "status" | "device_pilot" | "purpose" | "sources" | "device_id" | "battery" | "fix_path" | "last_heard";
 
 // ---------------------------------------------------------------------------
 // MeshDeviceEditModal
@@ -2012,6 +2023,16 @@ function SortHeader({ field, label, current, dir, toggle }: { field: UserSortFie
   );
 }
 
+function LiveTrackingSortHeader({ field, label, current, dir, toggle }: { field: LiveTrackingSortField; label: string; current: LiveTrackingSortField; dir: SortDir; toggle: (field: LiveTrackingSortField) => void }) {
+  const active = current === field;
+  const arrow = active ? (dir === "asc" ? " \u25B2" : " \u25BC") : " \u2195";
+  return (
+    <th className={`sortable-th live-tracking-sortable-th${active ? " active" : ""}`} onClick={() => toggle(field)}>
+      {label}{arrow}
+    </th>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /*  Debugging tab helpers + sub-component                             */
 /* ------------------------------------------------------------------ */
@@ -2275,6 +2296,97 @@ function formatDebugPosition(position: MeshDeviceStatus["lastPosition"] | import
   return parts.join(" | ");
 }
 
+function timestampMs(value: string | null | undefined): number {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSource {
+  const pilotTracker = row.meshDevices
+    .filter((device) => device.purpose === "tracking")
+    .sort((a, b) => timestampMs(b.lastSeenAt) - timestampMs(a.lastSeenAt))[0];
+  const phoneSeenAt = row.session?.last_seen_at ?? null;
+  const usePhone = row.session != null && (
+    !pilotTracker || timestampMs(phoneSeenAt) >= timestampMs(pilotTracker.lastSeenAt)
+  );
+
+  if (usePhone) {
+    return {
+      lastHeardAt: phoneSeenAt,
+      isOnline: row.session?.is_online ?? false,
+      purpose: "Phone app",
+      source: "Phone app",
+      deviceId: row.session?.device_id ?? "",
+      batteryLevel: row.session?.battery_level ?? null,
+      positionText: formatDebugPosition(row.session?.last_position),
+    };
+  }
+
+  if (pilotTracker) {
+    return {
+      lastHeardAt: pilotTracker.lastSeenAt,
+      isOnline: pilotTracker.isConnected,
+      purpose: meshPurposeLabel(pilotTracker.purpose),
+      source: meshSourcePillLabel(pilotTracker.meshStatus, pilotTracker.source),
+      deviceId: pilotTracker.deviceId,
+      batteryLevel: pilotTracker.batteryLevel,
+      positionText: meshFixSummary(pilotTracker),
+    };
+  }
+
+  return {
+    lastHeardAt: null,
+    isOnline: false,
+    purpose: "",
+    source: "",
+    deviceId: "",
+    batteryLevel: null,
+    positionText: "",
+  };
+}
+
+function compareLiveTrackingRows(a: UnifiedDevice, b: UnifiedDevice, field: LiveTrackingSortField, dir: SortDir): number {
+  const direction = dir === "asc" ? 1 : -1;
+  const aSource = getCollapsedTrackingSource(a);
+  const bSource = getCollapsedTrackingSource(b);
+  let result = 0;
+
+  switch (field) {
+    case "status":
+      result = Number(bSource.isOnline) - Number(aSource.isOnline);
+      break;
+    case "device_pilot":
+      result = a.pilot_name.localeCompare(b.pilot_name, undefined, { sensitivity: "base" });
+      break;
+    case "purpose":
+      result = aSource.purpose.localeCompare(bSource.purpose, undefined, { sensitivity: "base" });
+      break;
+    case "sources":
+      result = aSource.source.localeCompare(bSource.source, undefined, { sensitivity: "base" });
+      break;
+    case "device_id":
+      result = aSource.deviceId.localeCompare(bSource.deviceId, undefined, { sensitivity: "base" });
+      break;
+    case "battery":
+      result = (aSource.batteryLevel ?? -1) - (bSource.batteryLevel ?? -1);
+      break;
+    case "fix_path":
+      result = aSource.positionText.localeCompare(bSource.positionText, undefined, { sensitivity: "base" });
+      break;
+    case "last_heard":
+      result = timestampMs(aSource.lastHeardAt) - timestampMs(bSource.lastHeardAt);
+      break;
+    default:
+      result = 0;
+  }
+
+  if (result === 0 && field !== "device_pilot") {
+    result = a.pilot_name.localeCompare(b.pilot_name, undefined, { sensitivity: "base" });
+  }
+  return direction * result;
+}
+
 function LiveTrackingTab({
   debugStatus,
   meshNodes,
@@ -2287,6 +2399,8 @@ function LiveTrackingTab({
   overlayConfig?: MapOverlayConfigRecord["config"]["dashboard_live"];
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const [trackingSortField, setTrackingSortField] = useState<LiveTrackingSortField>("device_pilot");
+  const [trackingSortDir, setTrackingSortDir] = useState<SortDir>("asc");
   const [focusPos, setFocusPos] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
 
   function handleRowClick(d: UnifiedDevice) {
@@ -2396,14 +2510,33 @@ function LiveTrackingTab({
         return (a.label ?? a.deviceId).localeCompare(b.label ?? b.deviceId);
       });
     }
-    list.sort((a, b) => {
-      if (a.isOnline !== b.isOnline) return a.isOnline ? -1 : 1;
-      const ta = a.lastSeenAt ? new Date(a.lastSeenAt).getTime() : 0;
-      const tb = b.lastSeenAt ? new Date(b.lastSeenAt).getTime() : 0;
-      return tb - ta;
-    });
     return list;
   }, [debugStatus, meshNodes]);
+
+  const sortedUnified = useMemo(() => {
+    return [...unified].sort((a, b) => compareLiveTrackingRows(a, b, trackingSortField, trackingSortDir));
+  }, [trackingSortDir, trackingSortField, unified]);
+
+  const allRowsExpanded = sortedUnified.length > 0 && sortedUnified.every((row) => expandedKeys.has(row.key));
+
+  const toggleTrackingSort = useCallback((field: LiveTrackingSortField) => {
+    setTrackingSortField((prev) => {
+      if (prev === field) {
+        setTrackingSortDir((current) => (current === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setTrackingSortDir("asc");
+      return field;
+    });
+  }, []);
+
+  const toggleAllRows = useCallback(() => {
+    setExpandedKeys((prev) => {
+      const shouldCollapse = sortedUnified.length > 0 && sortedUnified.every((row) => prev.has(row.key));
+      if (shouldCollapse) return new Set();
+      return new Set(sortedUnified.map((row) => row.key));
+    });
+  }, [sortedUnified]);
 
   const livePositions = useMemo<MapLivePosition[]>(() => {
     const positions: MapLivePosition[] = [];
@@ -2476,22 +2609,36 @@ function LiveTrackingTab({
           <table className="participant-table live-tracking-debugging-table">
             <thead>
               <tr>
-                <th style={{ width: "24px" }}></th>
-                <th>Status</th>
-                <th>Device / Pilot</th>
-                <th>Purpose</th>
-                <th>Sources</th>
-                <th>Device ID</th>
-                <th>Battery</th>
-                <th>Fix / Path</th>
-                <th>Last Heard</th>
+                <th style={{ width: "24px" }}>
+                  <button
+                    type="button"
+                    className={`tracking-expand-all${allRowsExpanded ? " expanded" : ""}`}
+                    onClick={toggleAllRows}
+                    disabled={sortedUnified.length === 0}
+                    aria-label={allRowsExpanded ? "Collapse all tracking rows" : "Expand all tracking rows"}
+                    title={allRowsExpanded ? "Collapse all" : "Expand all"}
+                  >
+                    {allRowsExpanded ? "v" : ">"}
+                  </button>
+                </th>
+                <LiveTrackingSortHeader field="status" label="Status" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="device_pilot" label="Device / Pilot" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="purpose" label="Purpose" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="sources" label="Sources" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="device_id" label="Device ID" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="battery" label="Battery" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="fix_path" label="Fix / Path" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
+                <LiveTrackingSortHeader field="last_heard" label="Last Heard" current={trackingSortField} dir={trackingSortDir} toggle={toggleTrackingSort} />
               </tr>
             </thead>
             <tbody>
-              {unified.length ? (
-                unified.map((d) => {
+              {sortedUnified.length ? (
+                sortedUnified.map((d) => {
+                  const collapsedSource = getCollapsedTrackingSource(d);
                   const color = lastSeenColor(d.lastSeenAt, nowMs);
                   const borderColor = color === "green" ? "#22c55e" : color === "orange" ? "#f59e0b" : "#ef4444";
+                  const collapsedLastHeardColor = lastSeenColor(collapsedSource.lastHeardAt, nowMs);
+                  const collapsedLastHeardTextColor = collapsedLastHeardColor === "green" ? "inherit" : collapsedLastHeardColor === "orange" ? "#f59e0b" : "#ef4444";
                   const isExpanded = expandedKeys.has(d.key);
                   const canExpand = true; // Always expandable for position detail
 
@@ -2507,7 +2654,12 @@ function LiveTrackingTab({
                         >
                           {canExpand ? (isExpanded ? "▾" : "▸") : ""}
                         </td>
-                        <td></td>
+                        <td>
+                          <span
+                            style={{ display: "inline-block", width: 8, height: 8, borderRadius: "50%", backgroundColor: collapsedSource.isOnline ? "#22c55e" : "#ef4444", marginRight: "4px" }}
+                            title={collapsedSource.isOnline ? "Primary tracking source live" : "Primary tracking source offline"}
+                          />
+                        </td>
                         <td>
                           <strong>{d.pilot_name}</strong>
                         </td>
@@ -2516,7 +2668,7 @@ function LiveTrackingTab({
                         <td></td>
                         <td></td>
                         <td></td>
-                        <td></td>
+                        <td style={{ color: collapsedLastHeardTextColor }}>{relativeTime(collapsedSource.lastHeardAt, nowMs)}</td>
                       </tr>
                       {isExpanded && (
                         <>
