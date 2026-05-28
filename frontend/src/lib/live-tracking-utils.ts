@@ -1,6 +1,7 @@
 import type { MapUnitPreferences, TrackCollection } from "../components/TaskMap";
 
 export const TRACK_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d", "#0f766e", "#c2410c"];
+const LIVE_TRACK_CELLULAR_PRIORITY_WINDOW_MS = 120_000;
 const LIVE_TRACK_MAX_SPEED_KMH = 104.607;
 
 export type ProfileType = "pilot" | "driver" | "stationary_node";
@@ -155,6 +156,51 @@ function haversineMeters(left: LivePositionRecord, right: LivePositionRecord): n
   return 2 * radiusM * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+function isCellularPosition(position: LivePositionRecord): boolean {
+  return position.position_source === "cellular" || position.source === "app";
+}
+
+function isMeshPosition(position: LivePositionRecord): boolean {
+  return position.position_source === "mesh" || position.source === "mesh_relay" || position.source === "mqtt_gateway";
+}
+
+function hasTimestampWithin(sortedTimestamps: number[], timestamp: number, windowMs: number): boolean {
+  let low = 0;
+  let high = sortedTimestamps.length;
+  while (low < high) {
+    const mid = Math.floor((low + high) / 2);
+    if (sortedTimestamps[mid] < timestamp) {
+      low = mid + 1;
+    } else {
+      high = mid;
+    }
+  }
+  const next = sortedTimestamps[low];
+  const previous = sortedTimestamps[low - 1];
+  return (
+    (Number.isFinite(next) && Math.abs(next - timestamp) <= windowMs) ||
+    (Number.isFinite(previous) && Math.abs(previous - timestamp) <= windowMs)
+  );
+}
+
+function suppressMeshWhenCellularIsNearby(positions: LivePositionRecord[]): LivePositionRecord[] {
+  const cellularTimestamps = positions
+    .filter(isCellularPosition)
+    .map((position) => timestampMs(position.timestamp))
+    .filter(Number.isFinite)
+    .sort((left, right) => left - right);
+  if (!cellularTimestamps.length) {
+    return positions;
+  }
+  return positions.filter((position) => {
+    if (!isMeshPosition(position)) {
+      return true;
+    }
+    const timestamp = timestampMs(position.timestamp);
+    return !Number.isFinite(timestamp) || !hasTimestampWithin(cellularTimestamps, timestamp, LIVE_TRACK_CELLULAR_PRIORITY_WINDOW_MS);
+  });
+}
+
 function shouldSplitLiveTrackSegment(previous: LivePositionRecord, next: LivePositionRecord): boolean {
   if (previous.source === "igc" || next.source === "igc") {
     return false;
@@ -196,7 +242,7 @@ export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): L
     display.push(position);
     latestTimestamp = nextTimestamp;
   }
-  return display;
+  return suppressMeshWhenCellularIsNearby(display);
 }
 
 export function segmentPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[][] {

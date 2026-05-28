@@ -49,10 +49,11 @@ function position(overrides) {
     heading: null,
     accuracy: null,
     timestamp: overrides.timestamp,
-    source: "app",
-    device_id: null,
+    source: overrides.source ?? "app",
+    device_id: overrides.device_id ?? null,
     battery_level: null,
     aircraft_icon: "hang_glider",
+    position_source: overrides.position_source ?? (overrides.source === "mqtt_gateway" || overrides.source === "mesh_relay" ? "mesh" : "cellular"),
     received_at: overrides.received_at,
   };
 }
@@ -223,4 +224,51 @@ test("live track rendering splits jumps above 65 mph", () => {
     ["2026-05-28T20:53:40Z", "2026-05-28T20:53:57Z"],
     ["2026-05-28T20:54:35Z", "2026-05-28T20:54:50Z"],
   ]));
+});
+
+test("live display prefers cellular points over nearby mesh points for the same subject", () => {
+  const appA = position({
+    id: "app-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+  });
+  const nearbyMesh = position({
+    id: "nearby-mesh",
+    lat: 40.01,
+    lon: -75.01,
+    timestamp: "2026-05-28T20:00:30Z",
+    received_at: "2026-05-28T20:00:30Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+  const appB = position({
+    id: "app-b",
+    lat: 40.001,
+    lon: -75.001,
+    timestamp: "2026-05-28T20:01:00Z",
+    received_at: "2026-05-28T20:01:00Z",
+  });
+  const fallbackMeshA = position({
+    id: "fallback-mesh-a",
+    lat: 40.02,
+    lon: -75.02,
+    timestamp: "2026-05-28T20:05:00Z",
+    received_at: "2026-05-28T20:05:00Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+  const fallbackMeshB = position({
+    id: "fallback-mesh-b",
+    lat: 40.021,
+    lon: -75.021,
+    timestamp: "2026-05-28T20:05:30Z",
+    received_at: "2026-05-28T20:05:30Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+
+  const display = displayPositionsForLiveTrack([appA, nearbyMesh, appB, fallbackMeshA, fallbackMeshB]);
+  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["app-a", "app-b", "fallback-mesh-a", "fallback-mesh-b"]));
 });
