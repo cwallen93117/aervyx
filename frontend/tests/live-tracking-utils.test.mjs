@@ -96,7 +96,7 @@ test("live display ignores delayed older fixes that arrive after newer fixes", (
   );
 });
 
-test("live track rendering splits across large timestamp and distance gaps", () => {
+test("live track rendering keeps slow movement across large timestamp gaps connected", () => {
   const homeStart = position({
     id: "home-start",
     lat: 40.0,
@@ -129,24 +129,21 @@ test("live track rendering splits across large timestamp and distance gaps", () 
   const positions = [homeStart, homeEnd, bankStart, bankEnd];
   const segments = segmentPositionsForLiveTrack(positions);
   assert.equal(JSON.stringify(segments.map((segment) => segment.map((item) => item.id))), JSON.stringify([
-    ["home-start", "home-end"],
-    ["bank-start", "bank-end"],
+    ["home-start", "home-end", "bank-start", "bank-end"],
   ]));
 
   const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Mick Howard"]]));
-  assert.equal(track.features.length, 2);
-  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.segment_index)), JSON.stringify([0, 1]));
+  assert.equal(track.features.length, 1);
+  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.segment_index)), JSON.stringify([0]));
   assert.equal(JSON.stringify(track.features[0].geometry.coordinates), JSON.stringify([
     [-75.0, 40.0, 0],
     [-75.0005, 40.0005, 0],
-  ]));
-  assert.equal(JSON.stringify(track.features[1].geometry.coordinates), JSON.stringify([
     [-75.01, 40.01, 0],
     [-75.0105, 40.0105, 0],
   ]));
 });
 
-test("live track rendering keeps sparse long movement below 100 mph connected", () => {
+test("live track rendering keeps sparse long movement below 65 mph connected", () => {
   const beforeJumpA = position({
     id: "before-jump-a",
     lat: 40.0404933,
@@ -165,15 +162,15 @@ test("live track rendering keeps sparse long movement below 100 mph connected", 
     id: "after-jump-a",
     lat: 40.0550166,
     lon: -75.352,
-    timestamp: "2026-05-28T20:54:45Z",
-    received_at: "2026-05-28T20:54:45Z",
+    timestamp: "2026-05-28T20:56:00Z",
+    received_at: "2026-05-28T20:56:00Z",
   });
   const afterJumpB = position({
     id: "after-jump-b",
     lat: 40.0551166,
     lon: -75.3519,
-    timestamp: "2026-05-28T20:55:00Z",
-    received_at: "2026-05-28T20:55:00Z",
+    timestamp: "2026-05-28T20:56:15Z",
+    received_at: "2026-05-28T20:56:15Z",
   });
 
   const positions = [beforeJumpA, beforeJumpB, afterJumpA, afterJumpB];
@@ -183,13 +180,13 @@ test("live track rendering keeps sparse long movement below 100 mph connected", 
     [
       "2026-05-28T20:53:40Z",
       "2026-05-28T20:53:57Z",
-      "2026-05-28T20:54:45Z",
-      "2026-05-28T20:55:00Z",
+      "2026-05-28T20:56:00Z",
+      "2026-05-28T20:56:15Z",
     ],
   ]));
 });
 
-test("live track rendering splits jumps above 100 mph", () => {
+test("live track rendering splits jumps above 65 mph", () => {
   const beforeJumpA = position({
     id: "before-fast-jump-a",
     lat: 40.0404933,
@@ -208,15 +205,15 @@ test("live track rendering splits jumps above 100 mph", () => {
     id: "after-fast-jump-a",
     lat: 40.0550166,
     lon: -75.352,
-    timestamp: "2026-05-28T20:54:25Z",
-    received_at: "2026-05-28T20:54:25Z",
+    timestamp: "2026-05-28T20:54:35Z",
+    received_at: "2026-05-28T20:54:35Z",
   });
   const afterJumpB = position({
     id: "after-fast-jump-b",
     lat: 40.0551166,
     lon: -75.3519,
-    timestamp: "2026-05-28T20:54:40Z",
-    received_at: "2026-05-28T20:54:40Z",
+    timestamp: "2026-05-28T20:54:50Z",
+    received_at: "2026-05-28T20:54:50Z",
   });
 
   const positions = [beforeJumpA, beforeJumpB, afterJumpA, afterJumpB];
@@ -224,6 +221,6 @@ test("live track rendering splits jumps above 100 mph", () => {
   assert.equal(track.features.length, 2);
   assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.timestamps)), JSON.stringify([
     ["2026-05-28T20:53:40Z", "2026-05-28T20:53:57Z"],
-    ["2026-05-28T20:54:25Z", "2026-05-28T20:54:40Z"],
+    ["2026-05-28T20:54:35Z", "2026-05-28T20:54:50Z"],
   ]));
 });
