@@ -226,7 +226,7 @@ test("live track rendering splits jumps above 65 mph", () => {
   ]));
 });
 
-test("live track rendering keeps cellular and mesh trails separate for the same subject", () => {
+test("live track rendering fuses cellular and mesh into one subject trail", () => {
   const appA = position({
     id: "app-a",
     lat: 40.0,
@@ -235,9 +235,9 @@ test("live track rendering keeps cellular and mesh trails separate for the same 
     received_at: "2026-05-28T20:00:00Z",
   });
   const nearbyMesh = position({
-    id: "nearby-mesh",
-    lat: 40.01,
-    lon: -75.01,
+    id: "mesh-gap",
+    lat: 40.001,
+    lon: -75.001,
     timestamp: "2026-05-28T20:00:30Z",
     received_at: "2026-05-28T20:00:30Z",
     source: "mqtt_gateway",
@@ -245,46 +245,29 @@ test("live track rendering keeps cellular and mesh trails separate for the same 
   });
   const appB = position({
     id: "app-b",
-    lat: 40.001,
-    lon: -75.001,
+    lat: 40.002,
+    lon: -75.002,
     timestamp: "2026-05-28T20:01:00Z",
     received_at: "2026-05-28T20:01:00Z",
   });
-  const fallbackMeshA = position({
-    id: "fallback-mesh-a",
-    lat: 40.02,
-    lon: -75.02,
-    timestamp: "2026-05-28T20:05:00Z",
-    received_at: "2026-05-28T20:05:00Z",
-    source: "mqtt_gateway",
-    device_id: "!tracker",
-  });
-  const fallbackMeshB = position({
-    id: "fallback-mesh-b",
-    lat: 40.021,
-    lon: -75.021,
-    timestamp: "2026-05-28T20:05:30Z",
-    received_at: "2026-05-28T20:05:30Z",
-    source: "mqtt_gateway",
-    device_id: "!tracker",
-  });
 
-  const display = displayPositionsForLiveTrack([appA, nearbyMesh, appB, fallbackMeshA, fallbackMeshB]);
-  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["app-a", "nearby-mesh", "app-b", "fallback-mesh-a", "fallback-mesh-b"]));
+  const display = displayPositionsForLiveTrack([appA, nearbyMesh, appB]);
+  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["app-a", "mesh-gap", "app-b"]));
 
   const latest = latestDisplayPositionsBySubject(new Map([["pilot:1", display]])).get("pilot:1");
-  assert.equal(latest.id, "fallback-mesh-b");
+  assert.equal(latest.id, "app-b");
 
   const track = buildTrackCollection(new Map([["pilot:1", display]]), new Map([["pilot:1", "Charles Allen"]]));
-  assert.equal(track.features.length, 2);
-  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.source_bucket)), JSON.stringify(["cellular", "mesh"]));
-  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.timestamps)), JSON.stringify([
-    ["2026-05-28T20:00:00Z", "2026-05-28T20:01:00Z"],
-    ["2026-05-28T20:00:30Z", "2026-05-28T20:05:00Z", "2026-05-28T20:05:30Z"],
+  assert.equal(track.features.length, 1);
+  assert.equal(track.features[0].properties.source_bucket, undefined);
+  assert.equal(JSON.stringify(track.features[0].properties.timestamps), JSON.stringify([
+    "2026-05-28T20:00:00Z",
+    "2026-05-28T20:00:30Z",
+    "2026-05-28T20:01:00Z",
   ]));
 });
 
-test("live marker prefers recent cellular points without hiding mesh geometry", () => {
+test("live fused track rejects app and mesh ping-pong connectors", () => {
   const appA = position({
     id: "app-a",
     lat: 40.0,
@@ -293,11 +276,11 @@ test("live marker prefers recent cellular points without hiding mesh geometry", 
     received_at: "2026-05-28T20:00:00Z",
   });
   const meshA = position({
-    id: "mesh-a",
-    lat: 40.01,
-    lon: -75.01,
-    timestamp: "2026-05-28T20:00:30Z",
-    received_at: "2026-05-28T20:00:30Z",
+    id: "mesh-far",
+    lat: 40.02,
+    lon: -75.02,
+    timestamp: "2026-05-28T20:00:01Z",
+    received_at: "2026-05-28T20:00:01Z",
     source: "mqtt_gateway",
     device_id: "!tracker",
   });
@@ -305,19 +288,72 @@ test("live marker prefers recent cellular points without hiding mesh geometry", 
     id: "app-b",
     lat: 40.001,
     lon: -75.001,
-    timestamp: "2026-05-28T20:01:00Z",
-    received_at: "2026-05-28T20:01:00Z",
+    timestamp: "2026-05-28T20:00:30Z",
+    received_at: "2026-05-28T20:00:30Z",
   });
-  const meshB = position({
-    id: "mesh-b",
-    lat: 40.011,
-    lon: -75.011,
-    timestamp: "2026-05-28T20:01:30Z",
-    received_at: "2026-05-28T20:01:30Z",
+
+  const latest = latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, meshA, appB]]])).get("pilot:1");
+  assert.equal(latest.id, "app-b");
+
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, meshA, appB]]]), new Map([["pilot:1", "Charles Allen"]]));
+  assert.equal(track.features.length, 1);
+  assert.equal(JSON.stringify(track.features[0].properties.timestamps), JSON.stringify([
+    "2026-05-28T20:00:00Z",
+    "2026-05-28T20:00:30Z",
+  ]));
+});
+
+test("live fused track collapses only near-identical duplicate relay points", () => {
+  const meshA = position({
+    id: "mesh-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+  const meshDuplicate = position({
+    id: "mesh-duplicate",
+    lat: 40.00001,
+    lon: -75.00001,
+    timestamp: "2026-05-28T20:00:00.500Z",
+    received_at: "2026-05-28T20:00:00.500Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+  const meshMoved = position({
+    id: "mesh-moved",
+    lat: 40.00006,
+    lon: -75.00006,
+    timestamp: "2026-05-28T20:00:01Z",
+    received_at: "2026-05-28T20:00:01Z",
     source: "mqtt_gateway",
     device_id: "!tracker",
   });
 
-  const latest = latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, meshA, appB, meshB]]])).get("pilot:1");
-  assert.equal(latest.id, "app-b");
+  const display = displayPositionsForLiveTrack([meshA, meshDuplicate, meshMoved]);
+  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["mesh-duplicate", "mesh-moved"]));
+});
+
+test("live fused track keeps cellular when a nearby mesh point is only a close tie", () => {
+  const appA = position({
+    id: "app-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+  });
+  const meshTie = position({
+    id: "mesh-tie",
+    lat: 40.00001,
+    lon: -75.00001,
+    timestamp: "2026-05-28T20:00:01Z",
+    received_at: "2026-05-28T20:00:01Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, meshTie]]]), new Map([["pilot:1", "Charles Allen"]]));
+  assert.equal(track, null);
 });
