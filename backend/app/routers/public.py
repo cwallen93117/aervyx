@@ -107,6 +107,7 @@ class PublicPositionResponse(BaseModel):
     aircraft_icon: str = "hang_glider"
     profile_type: str = "pilot"
     position_source: str = "other"
+    received_at: str | None = None
 
 
 class PublicTurnpointInfo(BaseModel):

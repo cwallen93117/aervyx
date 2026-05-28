@@ -95,6 +95,18 @@ def _as_utc(value: datetime | None) -> datetime:
     return value.astimezone(UTC)
 
 
+def _max_datetime(left: datetime | None, right: datetime | None) -> datetime:
+    if left is None:
+        return _as_utc(right)
+    if right is None:
+        return _as_utc(left)
+    return left if _as_utc(left) >= _as_utc(right) else right
+
+
+def _iso_or_none(value: datetime | None) -> str | None:
+    return _as_utc(value).isoformat() if value is not None else None
+
+
 def resolve_tracking_timezone_name(value: str | None) -> str:
     if not value:
         return "UTC"
@@ -505,6 +517,7 @@ def _position_payload(
         "aircraft_icon": aircraft_icon,
         "profile_type": profile_type,
         "position_source": normalize_position_source(pos.source),
+        "received_at": _iso_or_none(pos.created_at),
     }
 
 
@@ -809,7 +822,7 @@ def store_position(
         tracking = session.scalar(select(TrackingSession).where(*filters))
 
         if tracking is not None:
-            tracking.last_seen_at = ts
+            tracking.last_seen_at = _max_datetime(tracking.last_seen_at, ts)
             tracking.position_count = (tracking.position_count or 0) + 1
         else:
             tracking = TrackingSession(

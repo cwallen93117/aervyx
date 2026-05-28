@@ -26,6 +26,7 @@ import {
   displayNameForSubject,
   buildTrackCollection,
   mergePositionGroup,
+  latestDisplayPositionsBySubject,
   subjectKeyForPosition,
 } from "../../lib/live-tracking-utils";
 
@@ -270,13 +271,6 @@ export default function LiveTrackingSection({
     const handleSnapshot = (positions: LivePositionRecord[]) => {
       if (!active) return;
       setPositionsByPilot((current) => mergePositionGroup(current, positions));
-      setLivePositionsByPilot((current) => {
-        const next = new Map(current);
-        for (const position of positions) {
-          next.set(subjectKeyForPosition(position), position);
-        }
-        return next;
-      });
       const names = collectNames(positions as LivePositionWithName[]);
       if (names.size) {
         setAllUsersNameById((prev) => new Map([...prev, ...names]));
@@ -286,11 +280,6 @@ export default function LiveTrackingSection({
     const handlePosition = (position: LivePositionRecord) => {
       if (!active) return;
       setPositionsByPilot((current) => mergePositionGroup(current, [position]));
-      setLivePositionsByPilot((current) => {
-        const next = new Map(current);
-        next.set(subjectKeyForPosition(position), position);
-        return next;
-      });
       const names = collectNames([position as LivePositionWithName]);
       if (names.size) {
         setAllUsersNameById((prev) => new Map([...prev, ...names]));
@@ -406,6 +395,10 @@ export default function LiveTrackingSection({
       controller.abort();
     };
   }, [trackingSource, token, buddyPilotIds, fetchIgcTrack]);
+
+  useEffect(() => {
+    setLivePositionsByPilot(latestDisplayPositionsBySubject(positionsByPilot));
+  }, [positionsByPilot]);
 
   const taskPoints = useMemo<TaskPointRecord[]>(() => selectedTask?.points ?? [], [selectedTask]);
   const taskTurnpoints = useMemo<MapTurnpoint[]>(() => {

@@ -224,6 +224,60 @@ def test_live_queries_and_public_event_positions_include_driver_subjects() -> No
         assert row["profile_type"] == "driver"
 
 
+def test_delayed_live_position_does_not_move_session_last_seen_backward() -> None:
+    session = _session()
+    task, _driver, pilot = _active_task_with_driver(session)
+    pilot_user = User(
+        username="timestamp-pilot@example.com",
+        full_name="Timestamp Pilot",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+    )
+    session.add(pilot_user)
+    session.flush()
+    now = datetime.now(UTC)
+
+    newer = store_position(
+        session,
+        task_id=task.id,
+        user_id=pilot_user.id,
+        pilot_id=pilot.id,
+        lat=35.2,
+        lon=-82.6,
+        timestamp=now,
+        source="app",
+    )
+    delayed = store_position(
+        session,
+        task_id=task.id,
+        user_id=pilot_user.id,
+        pilot_id=pilot.id,
+        lat=35.1,
+        lon=-82.5,
+        timestamp=now - timedelta(minutes=3),
+        source="mesh_relay",
+    )
+    session.commit()
+
+    rows = session.scalars(
+        select(LivePosition)
+        .where(LivePosition.pilot_id == pilot.id)
+        .order_by(LivePosition.timestamp.asc())
+    ).all()
+    tracking = session.scalar(
+        select(TrackingSession).where(
+            TrackingSession.task_id == task.id,
+            TrackingSession.pilot_id == pilot.id,
+        )
+    )
+
+    assert [row.id for row in rows] == [delayed.id, newer.id]
+    assert tracking is not None
+    assert _utc(tracking.last_seen_at) == now
+    assert tracking.position_count == 2
+
+
 def test_live_queries_keep_current_day_offline_last_positions() -> None:
     session = _session()
     task, driver, pilot = _active_task_with_driver(session)
