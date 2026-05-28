@@ -1,9 +1,7 @@
 import type { MapUnitPreferences, TrackCollection } from "../components/TaskMap";
 
 export const TRACK_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d", "#0f766e", "#c2410c"];
-const LIVE_TRACK_SEGMENT_GAP_SECONDS = 120;
-const LIVE_TRACK_SEGMENT_GAP_METERS = 200;
-const LIVE_TRACK_MAX_SPEED_KMH = 160.934;
+const LIVE_TRACK_MAX_SPEED_KMH = 104.607;
 
 export type ProfileType = "pilot" | "driver" | "stationary_node";
 export type PositionSource = "cellular" | "mesh" | "other";
@@ -172,10 +170,7 @@ function shouldSplitLiveTrackSegment(previous: LivePositionRecord, next: LivePos
   }
   const distanceMeters = haversineMeters(previous, next);
   const speedKmh = (distanceMeters / gapSeconds) * 3.6;
-  return (
-    (gapSeconds > LIVE_TRACK_SEGMENT_GAP_SECONDS && distanceMeters > LIVE_TRACK_SEGMENT_GAP_METERS) ||
-    speedKmh > LIVE_TRACK_MAX_SPEED_KMH
-  );
+  return speedKmh > LIVE_TRACK_MAX_SPEED_KMH;
 }
 
 export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[] {
