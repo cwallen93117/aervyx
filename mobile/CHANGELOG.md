@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.38+55 - 2026-05-28
+
+### Fixed
+- Driver mode live maps now always show all active same-day pilot positions,
+  include the live pilot count chip, and keep marker tap directions available
+  even without an active task assignment.
+
 ## 0.4.37+54 - 2026-05-28
 
 ### Added
