@@ -81,6 +81,7 @@ class MeshNodeStatus(Base):
     last_topic: Mapped[str | None] = mapped_column(String(255), nullable=True)
     packet_count: Mapped[int] = mapped_column(Integer, default=0)
     battery_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    battery_level_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     long_name: Mapped[str | None] = mapped_column(String(160), nullable=True)
     short_name: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

@@ -566,6 +566,7 @@ def _record_mesh_node_status(
     status.packet_count = (status.packet_count or 0) + 1
     if battery_level is not None:
         status.battery_level = battery_level
+        status.battery_level_seen_at = seen_at
     if long_name:
         status.long_name = long_name[:160]
     if short_name:

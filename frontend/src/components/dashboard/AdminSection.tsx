@@ -29,6 +29,7 @@ type MeshNode = {
   speed: number | null;
   heading: number | null;
   battery_level: number | null;
+  battery_level_seen_at: string | null;
   timestamp: string;
   source: string | null;
   position_source: string;
@@ -55,6 +56,7 @@ type MeshDeviceStatus = {
   source: string | null;
   positionSource: string;
   batteryLevel: number | null;
+  batteryLevelSeenAt: string | null;
   lastSeenAt: string | null;
   lastPacketType: string | null;
   lastGatewayId: string | null;
@@ -85,6 +87,7 @@ type LiveTrackingCollapsedSource = {
   source: string;
   deviceId: string;
   batteryLevel: number | null;
+  batteryLevelSeenAt: string | null;
   positionText: string;
 };
 
@@ -2247,6 +2250,7 @@ function meshDeviceFromDebug(device: MeshDeviceDebug): MeshDeviceStatus {
     source: device.source,
     positionSource: "mesh",
     batteryLevel: device.battery_level,
+    batteryLevelSeenAt: device.battery_level_seen_at,
     lastSeenAt: device.last_seen_at,
     lastPacketType: device.last_packet_type,
     lastGatewayId: device.last_gateway_id,
@@ -2271,6 +2275,7 @@ function meshDeviceFromNode(node: MeshNode): MeshDeviceStatus {
     source: node.source,
     positionSource: node.position_source,
     batteryLevel: node.battery_level,
+    batteryLevelSeenAt: node.battery_level_seen_at,
     lastSeenAt: node.timestamp,
     lastPacketType: node.last_packet_type,
     lastGatewayId: node.last_gateway_id,
@@ -2302,6 +2307,17 @@ function timestampMs(value: string | null | undefined): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
+function batteryCell(level: number | null | undefined, seenAt: string | null | undefined, nowMs: number) {
+  if (level == null) return "\u2014";
+  return (
+    <span>
+      <span>{level}%</span>
+      <br />
+      <span className="hint">{relativeTime(seenAt, nowMs)}</span>
+    </span>
+  );
+}
+
 function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSource {
   const pilotTracker = row.meshDevices
     .filter((device) => device.purpose === "tracking")
@@ -2319,6 +2335,7 @@ function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSo
       source: "Phone app",
       deviceId: row.session?.device_id ?? "",
       batteryLevel: row.session?.battery_level ?? null,
+      batteryLevelSeenAt: row.session?.battery_level_seen_at ?? row.session?.last_seen_at ?? null,
       positionText: formatDebugPosition(row.session?.last_position),
     };
   }
@@ -2331,6 +2348,7 @@ function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSo
       source: meshSourcePillLabel(pilotTracker.meshStatus, pilotTracker.source),
       deviceId: pilotTracker.deviceId,
       batteryLevel: pilotTracker.batteryLevel,
+      batteryLevelSeenAt: pilotTracker.batteryLevelSeenAt,
       positionText: meshFixSummary(pilotTracker),
     };
   }
@@ -2342,6 +2360,7 @@ function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSo
     source: "",
     deviceId: "",
     batteryLevel: null,
+    batteryLevelSeenAt: null,
     positionText: "",
   };
 }
@@ -2666,7 +2685,7 @@ function LiveTrackingTab({
                         <td></td>
                         <td></td>
                         <td></td>
-                        <td></td>
+                        <td>{batteryCell(collapsedSource.batteryLevel, collapsedSource.batteryLevelSeenAt, nowMs)}</td>
                         <td></td>
                         <td style={{ color: collapsedLastHeardTextColor }}>{relativeTime(collapsedSource.lastHeardAt, nowMs)}</td>
                       </tr>
@@ -2694,7 +2713,7 @@ function LiveTrackingTab({
                               <td>Phone app</td>
                               <td><span className={phoneSourcePillClass(d.session, nowMs)}>Phone app</span></td>
                               <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{d.session?.device_id ?? "\u2014"}</td>
-                              <td>{d.session?.battery_level != null ? `${d.session?.battery_level}%` : "\u2014"}</td>
+                              <td>{batteryCell(d.session?.battery_level, d.session?.battery_level_seen_at ?? d.session?.last_seen_at, nowMs)}</td>
                               <td>{formatDebugPosition(d.session?.last_position)}</td>
                               <td style={{ color: lastSeenColor(d.session?.last_seen_at, nowMs) === "green" ? "inherit" : lastSeenColor(d.session?.last_seen_at, nowMs) === "orange" ? "#f59e0b" : "#ef4444" }}>
                                 {relativeTime(d.session?.last_seen_at, nowMs)}
@@ -2734,7 +2753,7 @@ function LiveTrackingTab({
                                   </span>
                                 </td>
                                 <td style={{ fontFamily: "monospace", fontSize: "0.72rem", color: "var(--muted)" }}>{meshDevice.deviceId}</td>
-                                <td>{meshDevice.batteryLevel != null ? `${meshDevice.batteryLevel}%` : "\u2014"}</td>
+                                <td>{batteryCell(meshDevice.batteryLevel, meshDevice.batteryLevelSeenAt, nowMs)}</td>
                                 <td>
                                   <div>{meshFixSummary(meshDevice)}</div>
                                   <div className="hint">Packets heard: {meshDevice.packetCount}</div>

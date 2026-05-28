@@ -404,6 +404,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                           last_topic VARCHAR(255),
                           packet_count INTEGER NOT NULL DEFAULT 0,
                           battery_level INTEGER,
+                          battery_level_seen_at TIMESTAMP,
                           long_name VARCHAR(160),
                           short_name VARCHAR(40),
                           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -425,6 +426,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                     "last_topic": "ALTER TABLE mesh_node_statuses ADD COLUMN last_topic VARCHAR(255)",
                     "packet_count": "ALTER TABLE mesh_node_statuses ADD COLUMN packet_count INTEGER NOT NULL DEFAULT 0",
                     "battery_level": "ALTER TABLE mesh_node_statuses ADD COLUMN battery_level INTEGER",
+                    "battery_level_seen_at": "ALTER TABLE mesh_node_statuses ADD COLUMN battery_level_seen_at TIMESTAMP",
                     "long_name": "ALTER TABLE mesh_node_statuses ADD COLUMN long_name VARCHAR(160)",
                     "short_name": "ALTER TABLE mesh_node_statuses ADD COLUMN short_name VARCHAR(40)",
                     "created_at": "ALTER TABLE mesh_node_statuses ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
@@ -433,6 +435,17 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 for column_name, statement in mesh_node_status_statements.items():
                     if column_name not in mesh_node_status_columns:
                         connection.execute(text(statement))
+                if "battery_level_seen_at" not in mesh_node_status_columns:
+                    connection.execute(
+                        text(
+                            """
+                            UPDATE mesh_node_statuses
+                            SET battery_level_seen_at = last_seen_at
+                            WHERE battery_level IS NOT NULL
+                              AND battery_level_seen_at IS NULL
+                            """
+                        )
+                    )
 
             existing_mesh_status_indexes = {idx["name"] for idx in inspector.get_indexes("mesh_node_statuses")}
             if "ix_mesh_node_statuses_last_seen_at" not in existing_mesh_status_indexes:
