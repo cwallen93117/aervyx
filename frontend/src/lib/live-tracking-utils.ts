@@ -1,6 +1,9 @@
 import type { MapUnitPreferences, TrackCollection } from "../components/TaskMap";
 
 export const TRACK_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d", "#0f766e", "#c2410c"];
+const LIVE_TRACK_SEGMENT_GAP_SECONDS = 120;
+const LIVE_TRACK_SEGMENT_GAP_METERS = 200;
+const LIVE_TRACK_MAX_SPEED_KMH = 180;
 
 export type ProfileType = "pilot" | "driver" | "stationary_node";
 export type PositionSource = "cellular" | "mesh" | "other";
@@ -144,6 +147,37 @@ function sortableMs(value: string | null | undefined, fallback: string | null | 
   return Number.isFinite(fallbackParsed) ? fallbackParsed : 0;
 }
 
+function haversineMeters(left: LivePositionRecord, right: LivePositionRecord): number {
+  const radiusM = 6371000;
+  const leftLat = (left.lat * Math.PI) / 180;
+  const rightLat = (right.lat * Math.PI) / 180;
+  const deltaLat = ((right.lat - left.lat) * Math.PI) / 180;
+  const deltaLon = ((right.lon - left.lon) * Math.PI) / 180;
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(leftLat) * Math.cos(rightLat) * Math.sin(deltaLon / 2) ** 2;
+  return 2 * radiusM * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function shouldSplitLiveTrackSegment(previous: LivePositionRecord, next: LivePositionRecord): boolean {
+  if (previous.source === "igc" || next.source === "igc") {
+    return false;
+  }
+  const previousTimestamp = timestampMs(previous.timestamp);
+  const nextTimestamp = timestampMs(next.timestamp);
+  if (!Number.isFinite(previousTimestamp) || !Number.isFinite(nextTimestamp)) {
+    return false;
+  }
+  const gapSeconds = (nextTimestamp - previousTimestamp) / 1000;
+  if (gapSeconds <= 0) {
+    return false;
+  }
+  const distanceMeters = haversineMeters(previous, next);
+  const speedKmh = (distanceMeters / gapSeconds) * 3.6;
+  return (
+    (gapSeconds > LIVE_TRACK_SEGMENT_GAP_SECONDS && distanceMeters > LIVE_TRACK_SEGMENT_GAP_METERS) ||
+    speedKmh > LIVE_TRACK_MAX_SPEED_KMH
+  );
+}
+
 export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[] {
   const byReceiveOrder = positions
     .map((position, index) => ({ position, index }))
@@ -170,6 +204,26 @@ export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): L
   return display;
 }
 
+export function segmentPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[][] {
+  const displayPositions = displayPositionsForLiveTrack(positions);
+  const segments: LivePositionRecord[][] = [];
+  let current: LivePositionRecord[] = [];
+  for (const position of displayPositions) {
+    const previous = current[current.length - 1];
+    if (previous && shouldSplitLiveTrackSegment(previous, position)) {
+      if (current.length > 1) {
+        segments.push(current);
+      }
+      current = [];
+    }
+    current.push(position);
+  }
+  if (current.length > 1) {
+    segments.push(current);
+  }
+  return segments;
+}
+
 export function latestDisplayPositionsBySubject(
   positionsBySubject: Map<string, LivePositionRecord[]>,
 ): Map<string, LivePositionRecord> {
@@ -190,13 +244,13 @@ export function buildTrackCollection(
 ): TrackCollection | null {
   const subjectKeys = Array.from(positionsBySubject.keys()).sort();
   const features = subjectKeys.flatMap((subjectKey) => {
-    const positions = displayPositionsForLiveTrack(positionsBySubject.get(subjectKey) ?? []);
-    if (!positions.length) {
+    const segments = segmentPositionsForLiveTrack(positionsBySubject.get(subjectKey) ?? []);
+    if (!segments.length) {
       return [];
     }
-    const latest = positions[positions.length - 1];
-    return [
-      {
+    return segments.map((positions, segmentIndex) => {
+      const latest = positions[positions.length - 1];
+      return {
         type: "Feature" as const,
         properties: {
           subject_key: subjectKey,
@@ -207,13 +261,17 @@ export function buildTrackCollection(
           aircraft_icon: latest?.aircraft_icon ?? "hang_glider",
           profile_type: latest?.profile_type ?? "pilot",
           timestamps: positions.map((position) => position.timestamp),
+          segment_index: segmentIndex,
+          segment_count: segments.length,
+          segment_start_timestamp: positions[0]?.timestamp ?? null,
+          segment_end_timestamp: latest?.timestamp ?? null,
         },
         geometry: {
           type: "LineString" as const,
           coordinates: positions.map((position) => [position.lon, position.lat, position.alt ?? 0] as [number, number, number]),
         },
-      },
-    ];
+      };
+    });
   });
   return features.length ? { type: "FeatureCollection", features } : null;
 }
