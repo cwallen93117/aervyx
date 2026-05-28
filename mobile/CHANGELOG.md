@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.37+54 - 2026-05-28
+
+### Added
+- Live maps now include a north-up button, colored Watch Live-style pilot
+  markers, first-name plus last-initial labels, retained same-day last-known
+  positions, and marker details with directions in the default map app.
+
 ## 0.4.36+53 - 2026-05-28
 
 ### Fixed

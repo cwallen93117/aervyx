@@ -271,6 +271,7 @@ class DriverService extends ChangeNotifier {
       aircraftIcon: json['aircraft_icon'] as String?,
       compNumber: json['comp_number'] as int?,
       assigned: _assignedIds.contains(pilotId),
+      lastSeen: DateTime.tryParse(json['timestamp'] as String? ?? ''),
     );
   }
 

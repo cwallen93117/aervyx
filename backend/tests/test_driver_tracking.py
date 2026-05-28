@@ -224,6 +224,112 @@ def test_live_queries_and_public_event_positions_include_driver_subjects() -> No
         assert row["profile_type"] == "driver"
 
 
+def test_live_queries_keep_current_day_offline_last_positions() -> None:
+    session = _session()
+    task, driver, pilot = _active_task_with_driver(session)
+    now = datetime.now(UTC)
+    pilot_user = User(
+        username="pilot@example.com",
+        full_name="Pat Pilot",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+    )
+    session.add(pilot_user)
+    session.flush()
+    session.add_all(
+        [
+            TrackingSession(
+                task_id=task.id,
+                pilot_id=pilot.id,
+                user_id=pilot_user.id,
+                started_at=now - timedelta(minutes=30),
+                last_seen_at=now - timedelta(minutes=10),
+                is_active=True,
+            ),
+            TrackingSession(
+                task_id=task.id,
+                pilot_id=None,
+                user_id=driver.id,
+                started_at=now - timedelta(minutes=30),
+                last_seen_at=now - timedelta(minutes=10),
+                is_active=True,
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=pilot.id,
+                user_id=pilot_user.id,
+                lat=35.0,
+                lon=-82.0,
+                timestamp=now - timedelta(minutes=10),
+                source="app",
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=None,
+                user_id=driver.id,
+                lat=35.2,
+                lon=-82.6,
+                timestamp=now - timedelta(minutes=10),
+                source="app",
+            ),
+        ]
+    )
+    session.commit()
+
+    task_rows = get_live_positions(session, task.id)
+    active_rows = get_all_active_positions(session, minutes=5)
+
+    assert {row["subject_key"] for row in task_rows} == {
+        f"pilot:{pilot.id}",
+        f"user:{driver.id}",
+    }
+    assert {row["subject_key"] for row in active_rows} == {
+        f"pilot:{pilot.id}",
+        f"user:{driver.id}",
+    }
+
+
+def test_live_queries_exclude_positions_outside_current_day() -> None:
+    session = _session()
+    task, _driver, pilot = _active_task_with_driver(session)
+    now = datetime.now(UTC)
+    pilot_user = User(
+        username="stale-pilot@example.com",
+        full_name="Stale Pilot",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+    )
+    session.add(pilot_user)
+    session.flush()
+    session.add_all(
+        [
+            TrackingSession(
+                task_id=task.id,
+                pilot_id=pilot.id,
+                user_id=pilot_user.id,
+                started_at=now - timedelta(days=1),
+                last_seen_at=now - timedelta(days=1),
+                is_active=True,
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=pilot.id,
+                user_id=pilot_user.id,
+                lat=35.0,
+                lon=-82.0,
+                timestamp=now - timedelta(days=1),
+                source="app",
+            ),
+        ]
+    )
+    session.commit()
+
+    assert get_live_positions(session, task.id) == []
+    assert get_all_active_positions(session, minutes=5) == []
+
+
 def test_driver_mesh_device_positions_are_classified_as_driver_subjects() -> None:
     session = _session()
     owner = User(username="owner@example.com", full_name="Owner", role="pilot")
