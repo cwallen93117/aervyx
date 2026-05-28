@@ -304,12 +304,6 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
               MaterialPageRoute(builder: (_) => const SettingsScreen()),
             ),
           ),
-          IconButton(
-            icon: Icon(driver.showAllPilots ? Icons.people : Icons.person),
-            tooltip:
-                driver.showAllPilots ? 'Show my pilots' : 'Show all pilots',
-            onPressed: driver.toggleShowAllPilots,
-          ),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Tooltip(
@@ -394,6 +388,15 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
           ),
           Positioned(
             top: 12,
+            left: 12,
+            child: _InfoChip(
+              icon: Icons.people,
+              text:
+                  '${pilots.length} pilot${pilots.length == 1 ? '' : 's'} live',
+            ),
+          ),
+          Positioned(
+            top: 12,
             right: 12,
             child: LiveMapStyleDropdown(
               value: _mapStyle,
@@ -444,6 +447,37 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
                 },
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final IconData icon;
+  final String text;
+
+  const _InfoChip({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface.withAlpha(230),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(30), blurRadius: 4),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: theme.colorScheme.primary),
+          const SizedBox(width: 5),
+          Text(text, style: theme.textTheme.labelSmall),
         ],
       ),
     );

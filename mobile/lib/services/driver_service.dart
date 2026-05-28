@@ -62,12 +62,13 @@ class DriverService extends ChangeNotifier {
 
   final Map<int, DriverPilot> _pilots = {};
   StreamSubscription<String>? _sseSubscription;
+  Timer? _pollTimer;
   Timer? _reconnectTimer;
   String? _taskName;
   int? _taskId;
   String? _error;
   bool _connected = false;
-  bool _showAllPilots = false;
+  bool _showAllPilots = true;
   bool _closed = false;
 
   Map<int, DriverPilot> get pilots => Map.unmodifiable(_pilots);
@@ -83,8 +84,10 @@ class DriverService extends ChangeNotifier {
       _pilots.values.where((p) => p.assigned).toList();
 
   /// Visible pilots based on filter.
-  List<DriverPilot> get visiblePilots =>
-      _showAllPilots ? _pilots.values.toList() : assignedPilots;
+  List<DriverPilot> get visiblePilots => _showAllPilots
+      ? (_pilots.values.toList()
+        ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())))
+      : assignedPilots;
 
   DriverService(this._api);
 
@@ -97,6 +100,7 @@ class DriverService extends ChangeNotifier {
   Future<void> connect() async {
     _closed = false;
     _reconnectTimer?.cancel();
+    _pollTimer?.cancel();
     try {
       // Get active task
       final taskJson = await _api.get(ApiConfig.activeTaskPath);
@@ -106,10 +110,11 @@ class DriverService extends ChangeNotifier {
         _taskId = null;
         _taskName = null;
         _assignedIds = {};
-        _pilots.clear();
         _error = null;
         _connected = false;
         notifyListeners();
+        await _pollActivePilots();
+        _startPolling();
         return;
       }
 
@@ -142,14 +147,49 @@ class DriverService extends ChangeNotifier {
 
       // Connect to live stream
       _connectToSse();
+      await _pollActivePilots();
+      _startPolling();
     } catch (e) {
       _error = 'Failed to connect: $e';
       _connected = false;
       notifyListeners();
+      await _pollActivePilots();
+      _startPolling();
     }
   }
 
   Set<int> _assignedIds = {};
+
+  void _startPolling() {
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _pollActivePilots(),
+    );
+  }
+
+  Future<void> _pollActivePilots() async {
+    if (_closed) return;
+    try {
+      final list = await _api.getList(ApiConfig.activePilotsPath);
+      if (_closed) return;
+      final nextPilots = <int, DriverPilot>{};
+      for (final item in list) {
+        final pilot = _parsePilot(item as Map<String, dynamic>);
+        if (pilot == null) continue;
+        final existing = _pilots[pilot.pilotId];
+        _preservePickupState(pilot, existing);
+        nextPilots[pilot.pilotId] = pilot;
+      }
+      _pilots
+        ..clear()
+        ..addAll(nextPilots);
+      _error = null;
+      notifyListeners();
+    } catch (_) {
+      // Keep existing last-known pilot positions if polling is temporarily down.
+    }
+  }
 
   void _connectToSse() {
     if (_closed || _taskId == null) return;
@@ -207,10 +247,10 @@ class DriverService extends ChangeNotifier {
     try {
       if (event == 'snapshot') {
         final list = jsonDecode(data) as List<dynamic>;
-        _pilots.clear();
         for (final item in list) {
           final pilot = _parsePilot(item as Map<String, dynamic>);
           if (pilot == null) continue;
+          _preservePickupState(pilot, _pilots[pilot.pilotId]);
           _pilots[pilot.pilotId] = pilot;
         }
         notifyListeners();
@@ -218,14 +258,7 @@ class DriverService extends ChangeNotifier {
         final json = jsonDecode(data) as Map<String, dynamic>;
         final pilot = _parsePilot(json);
         if (pilot == null) return;
-        // Preserve landing status from existing pilot data
-        final existing = _pilots[pilot.pilotId];
-        if (existing != null && existing.needsPickup) {
-          pilot.status = existing.status;
-          pilot.landedAt = existing.landedAt;
-          pilot.readyAt = existing.readyAt;
-          pilot.landingId = existing.landingId;
-        }
+        _preservePickupState(pilot, _pilots[pilot.pilotId]);
         _pilots[pilot.pilotId] = pilot;
         notifyListeners();
       } else if (event == 'landing') {
@@ -256,6 +289,15 @@ class DriverService extends ChangeNotifier {
     }
   }
 
+  void _preservePickupState(DriverPilot pilot, DriverPilot? existing) {
+    if (existing != null && existing.needsPickup) {
+      pilot.status = existing.status;
+      pilot.landedAt = existing.landedAt;
+      pilot.readyAt = existing.readyAt;
+      pilot.landingId = existing.landingId;
+    }
+  }
+
   DriverPilot? _parsePilot(Map<String, dynamic> json) {
     if (json['profile_type'] == 'driver' || json['pilot_id'] == null) {
       return null;
@@ -277,6 +319,8 @@ class DriverService extends ChangeNotifier {
 
   void disconnect() {
     _closed = true;
+    _pollTimer?.cancel();
+    _pollTimer = null;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     _sseSubscription?.cancel();
