@@ -145,3 +145,42 @@ test("live track rendering splits across large timestamp and distance gaps", () 
     [-75.0105, 40.0105, 0],
   ]));
 });
+
+test("live track rendering splits sparse long jumps even at plausible vehicle speed", () => {
+  const beforeJumpA = position({
+    id: "before-jump-a",
+    lat: 40.0404933,
+    lon: -75.3648283,
+    timestamp: "2026-05-28T20:53:40Z",
+    received_at: "2026-05-28T20:53:40Z",
+  });
+  const beforeJumpB = position({
+    id: "before-jump-b",
+    lat: 40.0405933,
+    lon: -75.3647283,
+    timestamp: "2026-05-28T20:53:57Z",
+    received_at: "2026-05-28T20:53:57Z",
+  });
+  const afterJumpA = position({
+    id: "after-jump-a",
+    lat: 40.0550166,
+    lon: -75.352,
+    timestamp: "2026-05-28T20:54:45Z",
+    received_at: "2026-05-28T20:54:45Z",
+  });
+  const afterJumpB = position({
+    id: "after-jump-b",
+    lat: 40.0551166,
+    lon: -75.3519,
+    timestamp: "2026-05-28T20:55:00Z",
+    received_at: "2026-05-28T20:55:00Z",
+  });
+
+  const positions = [beforeJumpA, beforeJumpB, afterJumpA, afterJumpB];
+  const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Jim Messina"]]));
+  assert.equal(track.features.length, 2);
+  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.timestamps)), JSON.stringify([
+    ["2026-05-28T20:53:40Z", "2026-05-28T20:53:57Z"],
+    ["2026-05-28T20:54:45Z", "2026-05-28T20:55:00Z"],
+  ]));
+});
