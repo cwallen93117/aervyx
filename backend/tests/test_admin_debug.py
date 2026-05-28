@@ -8,6 +8,10 @@ from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, Tracking
 from app.routers.admin_debug import admin_debug_status
 
 
+def _sqlite_iso(value: datetime) -> str:
+    return value.replace(tzinfo=None).isoformat()
+
+
 def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
@@ -52,6 +56,7 @@ def test_admin_debug_status_lists_registered_mesh_device_without_recent_position
 
 def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
     session = _session()
+    seen_at = datetime.now(UTC) - timedelta(seconds=10)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
     pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
     owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
@@ -77,7 +82,7 @@ def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
             speed=42.0,
             heading=271.0,
             accuracy=None,
-            timestamp=datetime.now(UTC) - timedelta(seconds=10),
+            timestamp=seen_at,
             source="mqtt_gateway",
             device_id="!abc123",
             battery_level=87,
@@ -93,6 +98,7 @@ def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
     assert device["last_seen_at"] is not None
     assert device["last_packet_type"] == "POSITION_APP"
     assert device["battery_level"] == 87
+    assert device["battery_level_seen_at"] == _sqlite_iso(seen_at)
     assert device["source"] == "mqtt_gateway"
     assert device["last_position"] == {
         "lat": 35.12345,
@@ -193,6 +199,45 @@ def test_admin_debug_status_omits_mqtt_only_activity_from_phone_sessions() -> No
     assert device["source"] == "mqtt_gateway"
 
 
+def test_admin_debug_status_reports_battery_age_separately_from_last_heard() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    battery_seen_at = now - timedelta(minutes=30)
+    last_seen_at = now - timedelta(seconds=5)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    owner = User(username="owner@example.com", full_name="Tracker Owner", role="pilot")
+    session.add_all([admin, owner])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id="!abc123",
+                label="Tracker",
+                purpose="tracking",
+                is_active=True,
+            ),
+            MeshNodeStatus(
+                device_id="!abc123",
+                last_seen_at=last_seen_at,
+                last_packet_type="POSITION_APP",
+                last_source="mqtt_gateway",
+                packet_count=10,
+                battery_level=71,
+                battery_level_seen_at=battery_seen_at,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    device = payload["registered_mesh_devices"][0]
+    assert device["battery_level"] == 71
+    assert device["battery_level_seen_at"] == _sqlite_iso(battery_seen_at)
+    assert device["last_seen_at"] == _sqlite_iso(last_seen_at)
+
+
 def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_position() -> None:
     session = _session()
     now = datetime.now(UTC)
@@ -253,6 +298,7 @@ def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_positio
     assert phone["device_id"] is None
     assert phone["source"] == "app"
     assert phone["battery_level"] == 44
+    assert phone["battery_level_seen_at"] == _sqlite_iso(now - timedelta(minutes=2))
     assert phone["position_count"] == 1
     assert phone["positions_last_60s"] == 0
     assert phone["is_online"] is False

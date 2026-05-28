@@ -403,6 +403,7 @@ export type DebugActiveSession = {
   device_id: string | null;
   source: string | null;
   battery_level: number | null;
+  battery_level_seen_at: string | null;
   position_count: number;
   positions_last_60s: number;
   started_at: string | null;
@@ -430,6 +431,7 @@ export type DebugMeshDevice = {
   long_name: string | null;
   short_name: string | null;
   battery_level: number | null;
+  battery_level_seen_at: string | null;
   source: string | null;
   last_position: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
 };

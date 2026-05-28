@@ -502,6 +502,7 @@ def test_mqtt_records_gateway_and_inner_sender_status_separately(monkeypatch) ->
         assert sender.last_packet_type == "TELEMETRY_APP"
         assert sender.last_gateway_id == gateway_id
         assert sender.battery_level == 88
+        assert sender.battery_level_seen_at is not None
 
 
 def test_mqtt_records_encrypted_status_when_payload_cannot_be_decrypted(monkeypatch) -> None:

@@ -126,6 +126,7 @@ def _upsert_mesh_position_status(
     status_row.packet_count = (status_row.packet_count or 0) + 1
     if battery_level is not None:
         status_row.battery_level = battery_level
+        status_row.battery_level_seen_at = timestamp
     return status_row
 
 
@@ -228,6 +229,7 @@ class MeshNodeResponse(BaseModel):
     speed: float | None = None
     heading: float | None = None
     battery_level: int | None = None
+    battery_level_seen_at: str | None = None
     timestamp: str
     source: str | None = None
     position_source: str = "other"
@@ -985,12 +987,13 @@ def get_mesh_nodes(
 
     # Similarly backfill battery from recent positions for devices with NULL battery
     devices_missing_bat = [r.device_id for r in position_by_device.values() if r.battery_level is None and r.device_id]
-    bat_backfill: dict[str, int] = {}
+    bat_backfill: dict[str, tuple[int, datetime | None]] = {}
     if devices_missing_bat:
         bat_subq = (
             select(
                 LivePosition.device_id,
                 LivePosition.battery_level,
+                LivePosition.timestamp,
                 sa_func.row_number().over(
                     partition_by=LivePosition.device_id,
                     order_by=LivePosition.timestamp.desc(),
@@ -1004,9 +1007,9 @@ def get_mesh_nodes(
             .subquery()
         )
         bat_rows = session.execute(
-            select(bat_subq.c.device_id, bat_subq.c.battery_level).where(bat_subq.c.rn == 1)
+            select(bat_subq.c.device_id, bat_subq.c.battery_level, bat_subq.c.timestamp).where(bat_subq.c.rn == 1)
         ).all()
-        bat_backfill = {r.device_id: r.battery_level for r in bat_rows}
+        bat_backfill = {r.device_id: (r.battery_level, r.timestamp) for r in bat_rows}
 
     def _ts_value(value: datetime | None) -> float:
         if value is None:
@@ -1044,7 +1047,13 @@ def get_mesh_nodes(
             node_status.battery_level
             if node_status is not None and node_status.battery_level is not None
             else row.battery_level if row is not None and row.battery_level is not None
-            else bat_backfill.get(device_id)
+            else bat_backfill.get(device_id, (None, None))[0]
+        )
+        battery_seen_at = (
+            node_status.battery_level_seen_at or node_status.last_seen_at
+            if node_status is not None and node_status.battery_level is not None
+            else row.timestamp if row is not None and row.battery_level is not None
+            else bat_backfill.get(device_id, (None, None))[1]
         )
         latest_ts = node_status.last_seen_at if node_status is not None else None
         latest_position_is_newer = False
@@ -1088,6 +1097,7 @@ def get_mesh_nodes(
                 speed=row.speed if row is not None else None,
                 heading=row.heading if row is not None else None,
                 battery_level=battery,
+                battery_level_seen_at=battery_seen_at.isoformat() if battery_seen_at else None,
                 timestamp=latest_ts.isoformat() if latest_ts else now.isoformat(),
                 source=source,
                 position_source=normalize_position_source(row.source if row is not None else None),
