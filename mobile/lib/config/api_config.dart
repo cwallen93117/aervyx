@@ -35,6 +35,7 @@ class ApiConfig {
   // Auth
   static const String loginPath = '/api/auth/login';
   static const String registerPath = '/api/auth/register';
+  static const String refreshPath = '/api/auth/refresh';
   static const String mePath = '/api/auth/me';
   static const String googleAuthPath = '/api/auth/google';
   static const String googleClientIdPath = '/api/auth/google-client-id';

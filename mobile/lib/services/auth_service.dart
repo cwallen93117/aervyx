@@ -11,6 +11,7 @@ import 'api_service.dart';
 /// Handles login, registration, token persistence, and session state.
 class AuthService extends ChangeNotifier {
   static const _tokenKey = 'access_token';
+  static const _refreshTokenKey = 'refresh_token';
   static const _cachedUserKey = 'cached_user';
   static const _pendingProfileTypeKey = 'pending_profile_type';
 
@@ -20,6 +21,7 @@ class AuthService extends ChangeNotifier {
   User? _user;
   bool _loading = true;
   bool _profileTypeSyncPending = false;
+  Future<bool>? _refreshFuture;
 
   User? get user => _user;
   bool get isLoggedIn => _user != null;
@@ -27,7 +29,9 @@ class AuthService extends ChangeNotifier {
   String? get token => _api.token;
   bool get profileTypeSyncPending => _profileTypeSyncPending;
 
-  AuthService(this._api);
+  AuthService(this._api) {
+    _api.setAuthRefreshHandler(refreshAccessToken);
+  }
 
   Future<void> _cacheUser(User user) async {
     await _storage.write(key: _cachedUserKey, value: jsonEncode(user.toJson()));
@@ -89,6 +93,59 @@ class AuthService extends ChangeNotifier {
         await _storage.read(key: _pendingProfileTypeKey) != null;
   }
 
+  Future<void> _storeAuthToken(AuthToken auth) async {
+    _api.setToken(auth.accessToken);
+    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    if (auth.refreshToken != null && auth.refreshToken!.isNotEmpty) {
+      await _storage.write(key: _refreshTokenKey, value: auth.refreshToken);
+    }
+  }
+
+  Future<void> _clearStoredSession({bool notify = true}) async {
+    _api.setToken(null);
+    _user = null;
+    await _storage.delete(key: _tokenKey);
+    await _storage.delete(key: _refreshTokenKey);
+    await _storage.delete(key: _cachedUserKey);
+    await _clearPendingProfileType();
+    if (notify) notifyListeners();
+  }
+
+  /// Exchange the persisted refresh token for a fresh access token.
+  Future<bool> refreshAccessToken() {
+    return _refreshFuture ??= _refreshAccessToken().whenComplete(() {
+      _refreshFuture = null;
+    });
+  }
+
+  Future<bool> _refreshAccessToken() async {
+    final refreshToken = await _storage.read(key: _refreshTokenKey);
+    if (refreshToken == null || refreshToken.isEmpty) {
+      await _clearStoredSession();
+      return false;
+    }
+
+    try {
+      final json = await _api.post(
+        ApiConfig.refreshPath,
+        body: {'refresh_token': refreshToken},
+      );
+      final auth = AuthToken.fromJson(json);
+      await _storeAuthToken(auth);
+      _user = auth.user;
+      await _cacheUser(auth.user);
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        await _clearStoredSession();
+      }
+      return false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<bool> _tryFlushPendingProfileType({
     bool notify = true,
     Duration? timeout,
@@ -134,11 +191,15 @@ class AuthService extends ChangeNotifier {
 
     try {
       final savedToken = await _storage.read(key: _tokenKey);
+      final savedRefreshToken = await _storage.read(key: _refreshTokenKey);
       final cachedUser = await _readCachedUser();
-      if (savedToken != null) {
+      if (savedToken != null || savedRefreshToken != null) {
         _api.setToken(savedToken);
         if (cachedUser != null) {
           _user = cachedUser;
+        }
+        if (savedToken == null && savedRefreshToken != null) {
+          await refreshAccessToken();
         }
         await _refreshPendingProfileFlag();
         if (_profileTypeSyncPending && _user != null) {
@@ -156,11 +217,16 @@ class AuthService extends ChangeNotifier {
             _user = User.fromJson(json);
             await _cacheUser(_user!);
           }
+        } on ApiException catch (e) {
+          if (e.statusCode == 401 || e.statusCode == 403) {
+            await _clearStoredSession(notify: false);
+          } else if (cachedUser != null) {
+            _user = cachedUser;
+          }
         } catch (_) {
-          // Backend unreachable: keep cached profile when available.
           if (cachedUser != null) {
             _user = cachedUser;
-          } else {
+          } else if (savedRefreshToken == null) {
             await _storage.delete(key: _tokenKey);
             _api.setToken(null);
           }
@@ -181,8 +247,7 @@ class AuthService extends ChangeNotifier {
       'password': password,
     }).timeout(const Duration(seconds: 45));
     final auth = AuthToken.fromJson(json);
-    _api.setToken(auth.accessToken);
-    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    await _storeAuthToken(auth);
     await _clearPendingProfileType();
     await _cacheUser(auth.user);
     _user = auth.user;
@@ -208,8 +273,7 @@ class AuthService extends ChangeNotifier {
       if (competitionNumber != null) 'competition_number': competitionNumber,
     });
     final auth = AuthToken.fromJson(json);
-    _api.setToken(auth.accessToken);
-    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    await _storeAuthToken(auth);
     await _clearPendingProfileType();
     _user = auth.user;
     await _cacheUser(auth.user);
@@ -222,8 +286,7 @@ class AuthService extends ChangeNotifier {
       'credential': idToken,
     });
     final auth = AuthToken.fromJson(json);
-    _api.setToken(auth.accessToken);
-    await _storage.write(key: _tokenKey, value: auth.accessToken);
+    await _storeAuthToken(auth);
     await _clearPendingProfileType();
     _user = auth.user;
     await _cacheUser(auth.user);
@@ -318,12 +381,7 @@ class AuthService extends ChangeNotifier {
 
   /// Log out and clear stored credentials.
   Future<void> logout() async {
-    _api.setToken(null);
-    _user = null;
-    await _storage.delete(key: _tokenKey);
-    await _storage.delete(key: _cachedUserKey);
-    await _clearPendingProfileType();
-    notifyListeners();
+    await _clearStoredSession();
   }
 }
 

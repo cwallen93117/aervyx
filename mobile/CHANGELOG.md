@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.36+53 - 2026-05-28
+
+### Fixed
+- The app now keeps the secure refresh token and automatically renews expired
+  sessions, so phones stay signed in instead of showing session-expired errors
+  after the short-lived access token rolls over.
+
 ## 0.4.35+52 - 2026-05-28
 
 ### Fixed
