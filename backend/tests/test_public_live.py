@@ -17,6 +17,7 @@ from app.routers.public import (
     public_pilot_summary,
     public_task_result_summary,
 )
+from app.services.pilot_identity import merge_pilots
 
 
 def _session() -> Session:
@@ -217,6 +218,52 @@ def test_public_event_positions_are_limited_to_competition_pilots() -> None:
     assert row["pilot_id"] == pilot.id
     assert row["pilot_name"] == "Ari Sky"
     assert row["position_source"] == "cellular"
+
+
+def test_public_event_positions_include_live_rows_after_duplicate_pilot_merge() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    event = Event(
+        name="HC 2026",
+        location="Myles",
+        starts_on=date(2026, 5, 29),
+        ends_on=date(2026, 6, 6),
+        timezone="UTC",
+        is_public_tracking=True,
+    )
+    roster_pilot = Pilot(first_name="Mick", last_name="Howard")
+    duplicate_pilot = Pilot(first_name="Mick", last_name="Howard", email="mick@example.com")
+    session.add_all([event, roster_pilot, duplicate_pilot])
+    session.flush()
+    user = User(username="mick@example.com", full_name="Mick Howard", role="pilot", pilot_id=duplicate_pilot.id)
+    session.add(user)
+    session.flush()
+    session.add_all(
+        [
+            EventPilot(event_id=event.id, pilot_id=roster_pilot.id),
+            LivePosition(
+                pilot_id=duplicate_pilot.id,
+                user_id=user.id,
+                lat=40.0,
+                lon=-75.0,
+                timestamp=now - timedelta(minutes=1),
+                source="mqtt_gateway",
+            ),
+        ]
+    )
+    session.commit()
+
+    assert public_event_positions(event.id, minutes=60, session=session) == []
+
+    merge_pilots(session, source_pilot_id=duplicate_pilot.id, target_pilot_id=roster_pilot.id)
+    session.commit()
+
+    payload = public_event_positions(event.id, minutes=60, session=session)
+
+    assert len(payload) == 1
+    row = payload[0].model_dump()
+    assert row["pilot_id"] == roster_pilot.id
+    assert row["pilot_name"] == "Mick Howard"
 
 
 def _score(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import logging
+from dataclasses import dataclass, field
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -21,8 +22,11 @@ from app.models import (
     TaskScoringInput,
     TrackingSession,
     User,
+    UserEmail,
 )
 from app.services.seeding import DEFAULT_PILOT_PASSWORD
+
+logger = logging.getLogger("aervyx.pilot_identity")
 
 
 @dataclass
@@ -32,9 +36,22 @@ class PilotIdentityResult:
     temp_password: str | None = None
 
 
+@dataclass
+class PilotMergeResult:
+    source_pilot_id: int
+    target_pilot_id: int
+    moved_counts: dict[str, int] = field(default_factory=dict)
+    deleted_conflicts: dict[str, int] = field(default_factory=dict)
+
+
 def normalize_email(value: str | None) -> str | None:
     candidate = (value or "").strip().lower()
     return candidate if "@" in candidate else None
+
+
+def normalize_identity_value(value: str | None) -> str | None:
+    candidate = (value or "").strip().lower()
+    return candidate or None
 
 
 def is_auto_generated_user(user: User) -> bool:
@@ -68,21 +85,165 @@ def find_pilot_user_by_email(session: Session, email: str | None) -> User | None
     )
 
 
+def _best_pilot_candidate(session: Session, candidates: list[Pilot], preferred: Pilot | None = None) -> Pilot | None:
+    unique: dict[int, Pilot] = {pilot.id: pilot for pilot in candidates if pilot is not None}
+    if not unique:
+        return preferred
+    if preferred is not None and preferred.id in unique:
+        return preferred
+    return max(unique.values(), key=lambda pilot: (_event_membership_count(session, pilot.id), -pilot.id))
+
+
+def find_canonical_pilot(
+    session: Session,
+    *,
+    email: str | None = None,
+    civl_id: str | None = None,
+    competition_number: str | None = None,
+    preferred: Pilot | None = None,
+) -> Pilot | None:
+    normalized_email = normalize_email(email)
+    if normalized_email is not None:
+        email_user = find_pilot_user_by_email(session, normalized_email)
+        if email_user is not None and email_user.pilot_id:
+            pilot = session.get(Pilot, email_user.pilot_id)
+            if pilot is not None:
+                return pilot
+
+        email_row = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == normalized_email))
+        if email_row is not None:
+            owner = session.get(User, email_row.user_id)
+            if owner is not None and owner.pilot_id:
+                pilot = session.get(Pilot, owner.pilot_id)
+                if pilot is not None:
+                    return pilot
+
+        email_candidates = session.scalars(
+            select(Pilot).where(func.lower(Pilot.email) == normalized_email).order_by(Pilot.id.asc())
+        ).all()
+        non_preferred_email_candidates = [pilot for pilot in email_candidates if preferred is None or pilot.id != preferred.id]
+        candidate = _best_pilot_candidate(session, non_preferred_email_candidates, None)
+        if candidate is not None:
+            return candidate
+
+    normalized_civl = normalize_identity_value(civl_id)
+    if normalized_civl is not None:
+        civl_candidates = session.scalars(
+            select(Pilot).where(func.lower(Pilot.civl_id) == normalized_civl).order_by(Pilot.id.asc())
+        ).all()
+        candidate = _best_pilot_candidate(session, civl_candidates, preferred)
+        if candidate is not None:
+            return candidate
+
+    normalized_comp = normalize_identity_value(competition_number)
+    if normalized_comp is not None:
+        comp_candidates = session.scalars(
+            select(Pilot).where(func.lower(Pilot.competition_number) == normalized_comp).order_by(Pilot.id.asc())
+        ).all()
+        candidate = _best_pilot_candidate(session, comp_candidates, preferred)
+        if candidate is not None:
+            return candidate
+
+    return preferred
+
+
 def find_canonical_pilot_by_email(session: Session, email: str | None, preferred: Pilot | None = None) -> Pilot | None:
     normalized = normalize_email(email)
     if normalized is None:
         return preferred
-    email_user = find_pilot_user_by_email(session, normalized)
-    if email_user is not None and email_user.pilot_id:
-        pilot = session.get(Pilot, email_user.pilot_id)
-        if pilot is not None:
-            return pilot
-    candidates = session.scalars(select(Pilot).where(func.lower(Pilot.email) == normalized).order_by(Pilot.id.asc())).all()
-    if preferred is not None and normalize_email(preferred.email) == normalized and preferred in candidates:
-        return preferred
-    if not candidates:
-        return preferred
-    return max(candidates, key=lambda pilot: (_event_membership_count(session, pilot.id), -pilot.id))
+    return find_canonical_pilot(session, email=normalized, preferred=preferred)
+
+
+def merge_pilots(session: Session, *, source_pilot_id: int, target_pilot_id: int) -> PilotMergeResult:
+    if source_pilot_id == target_pilot_id:
+        return PilotMergeResult(source_pilot_id=source_pilot_id, target_pilot_id=target_pilot_id)
+
+    source = session.get(Pilot, source_pilot_id)
+    target = session.get(Pilot, target_pilot_id)
+    if source is None or target is None:
+        raise ValueError("Both source and target pilots must exist before merging")
+
+    result = PilotMergeResult(source_pilot_id=source_pilot_id, target_pilot_id=target_pilot_id)
+    _copy_profile(source=source, target=target)
+    session.add(target)
+
+    for user in session.scalars(select(User).where(User.pilot_id == source_pilot_id)).all():
+        user.pilot_id = target_pilot_id
+        session.add(user)
+        result.moved_counts["users"] = result.moved_counts.get("users", 0) + 1
+
+    _move_unique_memberships(
+        session,
+        model=EventPilot,
+        source_pilot_id=source_pilot_id,
+        target_pilot_id=target_pilot_id,
+        unique_fields=("event_id",),
+        result=result,
+        key="event_pilots",
+    )
+    _move_unique_memberships(
+        session,
+        model=TaskScoringInput,
+        source_pilot_id=source_pilot_id,
+        target_pilot_id=target_pilot_id,
+        unique_fields=("task_id",),
+        result=result,
+        key="task_scoring_inputs",
+    )
+    _move_unique_memberships(
+        session,
+        model=ScoreResult,
+        source_pilot_id=source_pilot_id,
+        target_pilot_id=target_pilot_id,
+        unique_fields=("task_id",),
+        result=result,
+        key="score_results",
+    )
+    _move_unique_memberships(
+        session,
+        model=BuddyGroupMember,
+        source_pilot_id=source_pilot_id,
+        target_pilot_id=target_pilot_id,
+        unique_fields=("group_id",),
+        result=result,
+        key="buddy_group_members",
+    )
+    _move_unique_memberships(
+        session,
+        model=DriverAssignment,
+        source_pilot_id=source_pilot_id,
+        target_pilot_id=target_pilot_id,
+        unique_fields=("task_id", "driver_user_id"),
+        result=result,
+        key="driver_assignments",
+    )
+
+    for model, key in (
+        (IGCUpload, "igc_uploads"),
+        (PilotFlight, "pilot_flights"),
+        (ScorePenalty, "score_penalties"),
+        (LivePosition, "live_positions"),
+        (TrackingSession, "tracking_sessions"),
+        (SosAlert, "sos_alerts"),
+        (PilotLanding, "pilot_landings"),
+    ):
+        rows = session.scalars(select(model).where(model.pilot_id == source_pilot_id)).all()
+        for row in rows:
+            row.pilot_id = target_pilot_id
+            session.add(row)
+        if rows:
+            result.moved_counts[key] = result.moved_counts.get(key, 0) + len(rows)
+
+    source.email = None
+    session.delete(source)
+    logger.info(
+        "Merged duplicate pilot %s into canonical pilot %s; moved=%s conflicts=%s",
+        source_pilot_id,
+        target_pilot_id,
+        result.moved_counts,
+        result.deleted_conflicts,
+    )
+    return result
 
 
 def participant_event_ids_for_user(session: Session, user: User) -> set[int]:
@@ -142,15 +303,16 @@ def ensure_pilot_login_identity(
 
     pilot.email = email
     email_user = find_pilot_user_by_email(session, email)
-    canonical = find_canonical_pilot_by_email(session, email, preferred=pilot) or pilot
+    canonical = find_canonical_pilot(
+        session,
+        email=email,
+        civl_id=pilot.civl_id,
+        competition_number=pilot.competition_number,
+        preferred=pilot,
+    ) or pilot
     if canonical.id != pilot.id:
-        source_has_history = _has_pilot_history(session, pilot.id)
-        _copy_profile(source=pilot, target=canonical)
-        _merge_event_memberships(session, source_pilot_id=pilot.id, target_pilot_id=canonical.id)
-        _retire_auto_users(session, source_pilot_id=pilot.id, except_user_id=email_user.id if email_user else None)
-        if not source_has_history:
-            pilot.email = None
-            session.add(pilot)
+        merge_pilots(session, source_pilot_id=pilot.id, target_pilot_id=canonical.id)
+        session.flush()
 
     if email_user is not None:
         email_user.pilot_id = canonical.id
@@ -206,6 +368,20 @@ def repair_user_email_identity(session: Session, user: User) -> PilotIdentityRes
         if pilot is None:
             return None
         user.pilot_id = pilot.id
+        session.add(user)
+
+    canonical = find_canonical_pilot(
+        session,
+        email=email,
+        civl_id=pilot.civl_id,
+        competition_number=pilot.competition_number,
+        preferred=pilot,
+    )
+    if canonical is not None and canonical.id != pilot.id:
+        merge_pilots(session, source_pilot_id=pilot.id, target_pilot_id=canonical.id)
+        session.flush()
+        pilot = canonical
+        user.pilot_id = canonical.id
         session.add(user)
 
     if normalize_email(pilot.email) != email:
@@ -271,23 +447,29 @@ def _copy_profile(source: Pilot, target: Pilot) -> None:
     target.civl_id = source.civl_id or target.civl_id
 
 
-def _merge_event_memberships(session: Session, source_pilot_id: int, target_pilot_id: int) -> None:
-    if source_pilot_id == target_pilot_id:
-        return
-    source_memberships = session.scalars(select(EventPilot).where(EventPilot.pilot_id == source_pilot_id)).all()
-    remove_source_memberships = not _has_pilot_history(session, source_pilot_id)
-    for membership in source_memberships:
-        existing_target = session.scalar(
-            select(EventPilot).where(EventPilot.event_id == membership.event_id, EventPilot.pilot_id == target_pilot_id)
-        )
-        if existing_target is None:
-            if remove_source_memberships:
-                membership.pilot_id = target_pilot_id
-                session.add(membership)
-            else:
-                session.add(EventPilot(event_id=membership.event_id, pilot_id=target_pilot_id))
-        elif remove_source_memberships:
-            session.delete(membership)
+def _move_unique_memberships(
+    session: Session,
+    *,
+    model,
+    source_pilot_id: int,
+    target_pilot_id: int,
+    unique_fields: tuple[str, ...],
+    result: PilotMergeResult,
+    key: str,
+) -> None:
+    rows = session.scalars(select(model).where(model.pilot_id == source_pilot_id)).all()
+    for row in rows:
+        filters = [model.pilot_id == target_pilot_id]
+        for field_name in unique_fields:
+            filters.append(getattr(model, field_name) == getattr(row, field_name))
+        existing = session.scalar(select(model).where(*filters))
+        if existing is not None:
+            session.delete(row)
+            result.deleted_conflicts[key] = result.deleted_conflicts.get(key, 0) + 1
+            continue
+        row.pilot_id = target_pilot_id
+        session.add(row)
+        result.moved_counts[key] = result.moved_counts.get(key, 0) + 1
 
 
 def _retire_auto_users(session: Session, source_pilot_id: int, except_user_id: int | None = None) -> None:
