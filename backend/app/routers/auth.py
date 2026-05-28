@@ -375,6 +375,22 @@ def _update_owned_mesh_device(
     return device
 
 
+def _delete_owned_mesh_device(device_id: str, user: User, session: Session) -> MeshDevice:
+    normalized = _normalize_mesh_device_id(device_id)
+    if normalized is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
+    device = session.scalar(
+        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == user.id)
+    )
+    if device is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
+    if _normalize_mesh_device_id(user.mesh_device_id) == normalized:
+        user.mesh_device_id = None
+        session.add(user)
+    session.delete(device)
+    return device
+
+
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
@@ -819,18 +835,7 @@ def delete_mesh_device(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> None:
-    normalized = _normalize_mesh_device_id(device_id)
-    if normalized is None:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="device_id is required")
-    device = session.scalar(
-        select(MeshDevice).where(MeshDevice.device_id == normalized, MeshDevice.owner_user_id == user.id)
-    )
-    if device is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh device not found")
-    if user.mesh_device_id == normalized:
-        user.mesh_device_id = None
-        session.add(user)
-    session.delete(device)
+    _delete_owned_mesh_device(device_id, user, session)
     session.commit()
     _request_mqtt_refresh()
 
@@ -1221,6 +1226,27 @@ def admin_update_user_mesh_device(
     _request_mqtt_refresh()
     session.refresh(target)
     logger.info("Admin %s updated mesh device %s for user %s", admin.username, device.device_id, target.username)
+    return _admin_user_response(target, session)
+
+
+@router.delete("/users/{user_id}/mesh-devices/{device_id}", response_model=AdminUserResponse)
+def admin_delete_user_mesh_device(
+    user_id: int,
+    device_id: str,
+    admin: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> AdminUserResponse:
+    """Admin-only: remove an owned mesh device from a user's profile."""
+    target = session.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    device = _delete_owned_mesh_device(device_id, target, session)
+    deleted_device_id = device.device_id
+    session.commit()
+    _request_mqtt_refresh()
+    session.refresh(target)
+    logger.info("Admin %s deleted mesh device %s for user %s", admin.username, deleted_device_id, target.username)
     return _admin_user_response(target, session)
 
 
