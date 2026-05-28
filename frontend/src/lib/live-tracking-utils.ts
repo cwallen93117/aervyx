@@ -164,41 +164,17 @@ function isMeshPosition(position: LivePositionRecord): boolean {
   return position.position_source === "mesh" || position.source === "mesh_relay" || position.source === "mqtt_gateway";
 }
 
-function hasTimestampWithin(sortedTimestamps: number[], timestamp: number, windowMs: number): boolean {
-  let low = 0;
-  let high = sortedTimestamps.length;
-  while (low < high) {
-    const mid = Math.floor((low + high) / 2);
-    if (sortedTimestamps[mid] < timestamp) {
-      low = mid + 1;
-    } else {
-      high = mid;
-    }
+function sourceBucketForLiveTrack(position: LivePositionRecord): PositionSource | "igc" {
+  if (position.source === "igc") {
+    return "igc";
   }
-  const next = sortedTimestamps[low];
-  const previous = sortedTimestamps[low - 1];
-  return (
-    (Number.isFinite(next) && Math.abs(next - timestamp) <= windowMs) ||
-    (Number.isFinite(previous) && Math.abs(previous - timestamp) <= windowMs)
-  );
-}
-
-function suppressMeshWhenCellularIsNearby(positions: LivePositionRecord[]): LivePositionRecord[] {
-  const cellularTimestamps = positions
-    .filter(isCellularPosition)
-    .map((position) => timestampMs(position.timestamp))
-    .filter(Number.isFinite)
-    .sort((left, right) => left - right);
-  if (!cellularTimestamps.length) {
-    return positions;
+  if (isCellularPosition(position)) {
+    return "cellular";
   }
-  return positions.filter((position) => {
-    if (!isMeshPosition(position)) {
-      return true;
-    }
-    const timestamp = timestampMs(position.timestamp);
-    return !Number.isFinite(timestamp) || !hasTimestampWithin(cellularTimestamps, timestamp, LIVE_TRACK_CELLULAR_PRIORITY_WINDOW_MS);
-  });
+  if (isMeshPosition(position)) {
+    return "mesh";
+  }
+  return "other";
 }
 
 function shouldSplitLiveTrackSegment(previous: LivePositionRecord, next: LivePositionRecord): boolean {
@@ -220,9 +196,17 @@ function shouldSplitLiveTrackSegment(previous: LivePositionRecord, next: LivePos
 }
 
 export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[] {
-  const byReceiveOrder = positions
-    .map((position, index) => ({ position, index }))
-    .sort((left, right) => {
+  const positionsBySource = new Map<string, Array<{ position: LivePositionRecord; index: number }>>();
+  positions.forEach((position, index) => {
+    const bucket = sourceBucketForLiveTrack(position);
+    const sourcePositions = positionsBySource.get(bucket) ?? [];
+    sourcePositions.push({ position, index });
+    positionsBySource.set(bucket, sourcePositions);
+  });
+
+  const display: LivePositionRecord[] = [];
+  for (const sourcePositions of positionsBySource.values()) {
+    const byReceiveOrder = sourcePositions.sort((left, right) => {
       const leftReceived = sortableMs(left.position.received_at, left.position.timestamp);
       const rightReceived = sortableMs(right.position.received_at, right.position.timestamp);
       if (leftReceived !== rightReceived) {
@@ -231,22 +215,30 @@ export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): L
       return left.index - right.index;
     });
 
-  const display: LivePositionRecord[] = [];
-  let latestTimestamp = Number.NEGATIVE_INFINITY;
-  for (const { position } of byReceiveOrder) {
-    const parsedTimestamp = timestampMs(position.timestamp);
-    const nextTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : latestTimestamp;
-    if (nextTimestamp < latestTimestamp) {
-      continue;
+    let latestTimestamp = Number.NEGATIVE_INFINITY;
+    for (const { position } of byReceiveOrder) {
+      const parsedTimestamp = timestampMs(position.timestamp);
+      const nextTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : latestTimestamp;
+      if (nextTimestamp < latestTimestamp) {
+        continue;
+      }
+      display.push(position);
+      latestTimestamp = nextTimestamp;
     }
-    display.push(position);
-    latestTimestamp = nextTimestamp;
   }
-  return suppressMeshWhenCellularIsNearby(display);
+  return display.sort((left, right) => {
+    const leftTimestamp = sortableMs(left.timestamp, left.received_at);
+    const rightTimestamp = sortableMs(right.timestamp, right.received_at);
+    if (leftTimestamp !== rightTimestamp) {
+      return leftTimestamp - rightTimestamp;
+    }
+    const leftReceived = sortableMs(left.received_at, left.timestamp);
+    const rightReceived = sortableMs(right.received_at, right.timestamp);
+    return leftReceived - rightReceived;
+  });
 }
 
-export function segmentPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[][] {
-  const displayPositions = displayPositionsForLiveTrack(positions);
+function contiguousSegmentsForLiveTrack(displayPositions: LivePositionRecord[]): LivePositionRecord[][] {
   const segments: LivePositionRecord[][] = [];
   let current: LivePositionRecord[] = [];
   for (const position of displayPositions) {
@@ -265,13 +257,72 @@ export function segmentPositionsForLiveTrack(positions: LivePositionRecord[]): L
   return segments;
 }
 
+export function segmentPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[][] {
+  const displayPositions = displayPositionsForLiveTrack(positions);
+  const positionsBySource = new Map<string, LivePositionRecord[]>();
+  for (const position of displayPositions) {
+    const bucket = sourceBucketForLiveTrack(position);
+    const sourcePositions = positionsBySource.get(bucket) ?? [];
+    sourcePositions.push(position);
+    positionsBySource.set(bucket, sourcePositions);
+  }
+  return Array.from(positionsBySource.values()).flatMap((sourcePositions) =>
+    contiguousSegmentsForLiveTrack(
+      sourcePositions.sort((left, right) => {
+        const leftTimestamp = sortableMs(left.timestamp, left.received_at);
+        const rightTimestamp = sortableMs(right.timestamp, right.received_at);
+        if (leftTimestamp !== rightTimestamp) {
+          return leftTimestamp - rightTimestamp;
+        }
+        return sortableMs(left.received_at, left.timestamp) - sortableMs(right.received_at, right.timestamp);
+      }),
+    ),
+  );
+}
+
+function latestByTimestamp(positions: LivePositionRecord[]): LivePositionRecord | null {
+  return positions.reduce<LivePositionRecord | null>((latest, position) => {
+    if (!latest) {
+      return position;
+    }
+    const latestTimestamp = sortableMs(latest.timestamp, latest.received_at);
+    const positionTimestamp = sortableMs(position.timestamp, position.received_at);
+    if (positionTimestamp !== latestTimestamp) {
+      return positionTimestamp > latestTimestamp ? position : latest;
+    }
+    return sortableMs(position.received_at, position.timestamp) > sortableMs(latest.received_at, latest.timestamp) ? position : latest;
+  }, null);
+}
+
+function latestLivePositionForMarker(positions: LivePositionRecord[]): LivePositionRecord | null {
+  const latestOverall = latestByTimestamp(positions);
+  if (!latestOverall) {
+    return null;
+  }
+  const latestCellular = latestByTimestamp(positions.filter(isCellularPosition));
+  if (!latestCellular) {
+    return latestOverall;
+  }
+  const overallTimestamp = timestampMs(latestOverall.timestamp);
+  const cellularTimestamp = timestampMs(latestCellular.timestamp);
+  if (
+    latestOverall !== latestCellular &&
+    Number.isFinite(overallTimestamp) &&
+    Number.isFinite(cellularTimestamp) &&
+    Math.abs(overallTimestamp - cellularTimestamp) <= LIVE_TRACK_CELLULAR_PRIORITY_WINDOW_MS
+  ) {
+    return latestCellular;
+  }
+  return latestOverall;
+}
+
 export function latestDisplayPositionsBySubject(
   positionsBySubject: Map<string, LivePositionRecord[]>,
 ): Map<string, LivePositionRecord> {
   const latest = new Map<string, LivePositionRecord>();
   for (const [subjectKey, positions] of positionsBySubject) {
     const displayPositions = displayPositionsForLiveTrack(positions);
-    const position = displayPositions[displayPositions.length - 1];
+    const position = latestLivePositionForMarker(displayPositions);
     if (position) {
       latest.set(subjectKey, position);
     }
@@ -306,6 +357,7 @@ export function buildTrackCollection(
           segment_count: segments.length,
           segment_start_timestamp: positions[0]?.timestamp ?? null,
           segment_end_timestamp: latest?.timestamp ?? null,
+          source_bucket: latest ? sourceBucketForLiveTrack(latest) : "other",
         },
         geometry: {
           type: "LineString" as const,

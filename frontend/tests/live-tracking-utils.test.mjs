@@ -226,7 +226,7 @@ test("live track rendering splits jumps above 65 mph", () => {
   ]));
 });
 
-test("live display prefers cellular points over nearby mesh points for the same subject", () => {
+test("live track rendering keeps cellular and mesh trails separate for the same subject", () => {
   const appA = position({
     id: "app-a",
     lat: 40.0,
@@ -270,5 +270,54 @@ test("live display prefers cellular points over nearby mesh points for the same 
   });
 
   const display = displayPositionsForLiveTrack([appA, nearbyMesh, appB, fallbackMeshA, fallbackMeshB]);
-  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["app-a", "app-b", "fallback-mesh-a", "fallback-mesh-b"]));
+  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["app-a", "nearby-mesh", "app-b", "fallback-mesh-a", "fallback-mesh-b"]));
+
+  const latest = latestDisplayPositionsBySubject(new Map([["pilot:1", display]])).get("pilot:1");
+  assert.equal(latest.id, "fallback-mesh-b");
+
+  const track = buildTrackCollection(new Map([["pilot:1", display]]), new Map([["pilot:1", "Charles Allen"]]));
+  assert.equal(track.features.length, 2);
+  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.source_bucket)), JSON.stringify(["cellular", "mesh"]));
+  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.timestamps)), JSON.stringify([
+    ["2026-05-28T20:00:00Z", "2026-05-28T20:01:00Z"],
+    ["2026-05-28T20:00:30Z", "2026-05-28T20:05:00Z", "2026-05-28T20:05:30Z"],
+  ]));
+});
+
+test("live marker prefers recent cellular points without hiding mesh geometry", () => {
+  const appA = position({
+    id: "app-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+  });
+  const meshA = position({
+    id: "mesh-a",
+    lat: 40.01,
+    lon: -75.01,
+    timestamp: "2026-05-28T20:00:30Z",
+    received_at: "2026-05-28T20:00:30Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+  const appB = position({
+    id: "app-b",
+    lat: 40.001,
+    lon: -75.001,
+    timestamp: "2026-05-28T20:01:00Z",
+    received_at: "2026-05-28T20:01:00Z",
+  });
+  const meshB = position({
+    id: "mesh-b",
+    lat: 40.011,
+    lon: -75.011,
+    timestamp: "2026-05-28T20:01:30Z",
+    received_at: "2026-05-28T20:01:30Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+
+  const latest = latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, meshA, appB, meshB]]])).get("pilot:1");
+  assert.equal(latest.id, "app-b");
 });
