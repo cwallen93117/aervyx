@@ -281,17 +281,16 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
     }
   }
 
-  async function handleClearTracker() {
+  async function handleDeleteTracker() {
+    if (!device) return;
     setSaving(true);
     setError(null);
     try {
-      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-devices/tracking`, {
-        method: "PUT",
+      const res = await fetch(`${apiBase}/api/auth/users/${user.id}/mesh-devices/${encodeURIComponent(device.device_id)}`, {
+        method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
         },
-        body: JSON.stringify({ mesh_device_id: null }),
       });
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { detail?: string };
@@ -301,7 +300,7 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
       onSaved(updated);
       onClose();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not clear pilot tracker.");
+      setError(caught instanceof Error ? caught.message : "Could not delete pilot tracker.");
     } finally {
       setSaving(false);
     }
@@ -390,14 +389,14 @@ function MeshDeviceEditModal({ user, device, apiBase, token, onSaved, onClose }:
           >
             Cancel
           </button>
-          {user.mesh_device_id && (!device || user.mesh_device_id === device.device_id) ? (
+          {user.mesh_device_id && device && user.mesh_device_id === device.device_id ? (
             <button
               type="button"
               className="ghost-button danger-button"
               disabled={saving}
-              onClick={() => void handleClearTracker()}
+              onClick={() => void handleDeleteTracker()}
             >
-              Clear tracker
+              Delete tracker
             </button>
           ) : null}
           <button

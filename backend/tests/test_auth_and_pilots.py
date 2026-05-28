@@ -9,6 +9,7 @@ from starlette.requests import Request
 from app.db import Base
 from app.models import Event, EventPilot, MeshDevice, Pilot, User
 from app.routers.auth import (
+    admin_delete_user_mesh_device,
     admin_set_user_tracking_mesh_device,
     admin_update_user_mesh_device,
     change_password,
@@ -497,6 +498,32 @@ def test_admin_can_select_switch_and_clear_user_pilot_tracker() -> None:
         "!backup": False,
         "!tracker": False,
     }
+
+
+def test_admin_can_delete_user_pilot_tracker_from_profile() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id="!tracker")
+    session.add_all([admin, user])
+    session.flush()
+    session.add_all(
+        [
+            MeshDevice(owner_user_id=user.id, device_id="!tracker", label="Tracker", purpose="tracking"),
+            MeshDevice(owner_user_id=user.id, device_id="!relay", label="Relay", purpose="relay"),
+        ]
+    )
+    session.commit()
+
+    response = admin_delete_user_mesh_device(user.id, "!tracker", admin, session)
+
+    session.refresh(user)
+    deleted_tracker = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!tracker"))
+    remaining_relay = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!relay"))
+    assert response.mesh_device_id is None
+    assert user.mesh_device_id is None
+    assert deleted_tracker is None
+    assert remaining_relay is not None
+    assert [device.device_id for device in response.mesh_devices] == ["!relay"]
 
 
 def test_admin_can_edit_user_mesh_device_fields() -> None:
