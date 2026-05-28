@@ -146,7 +146,7 @@ test("live track rendering splits across large timestamp and distance gaps", () 
   ]));
 });
 
-test("live track rendering splits sparse long jumps even at plausible vehicle speed", () => {
+test("live track rendering keeps sparse long movement below 100 mph connected", () => {
   const beforeJumpA = position({
     id: "before-jump-a",
     lat: 40.0404933,
@@ -178,9 +178,52 @@ test("live track rendering splits sparse long jumps even at plausible vehicle sp
 
   const positions = [beforeJumpA, beforeJumpB, afterJumpA, afterJumpB];
   const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Jim Messina"]]));
+  assert.equal(track.features.length, 1);
+  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.timestamps)), JSON.stringify([
+    [
+      "2026-05-28T20:53:40Z",
+      "2026-05-28T20:53:57Z",
+      "2026-05-28T20:54:45Z",
+      "2026-05-28T20:55:00Z",
+    ],
+  ]));
+});
+
+test("live track rendering splits jumps above 100 mph", () => {
+  const beforeJumpA = position({
+    id: "before-fast-jump-a",
+    lat: 40.0404933,
+    lon: -75.3648283,
+    timestamp: "2026-05-28T20:53:40Z",
+    received_at: "2026-05-28T20:53:40Z",
+  });
+  const beforeJumpB = position({
+    id: "before-fast-jump-b",
+    lat: 40.0405933,
+    lon: -75.3647283,
+    timestamp: "2026-05-28T20:53:57Z",
+    received_at: "2026-05-28T20:53:57Z",
+  });
+  const afterJumpA = position({
+    id: "after-fast-jump-a",
+    lat: 40.0550166,
+    lon: -75.352,
+    timestamp: "2026-05-28T20:54:25Z",
+    received_at: "2026-05-28T20:54:25Z",
+  });
+  const afterJumpB = position({
+    id: "after-fast-jump-b",
+    lat: 40.0551166,
+    lon: -75.3519,
+    timestamp: "2026-05-28T20:54:40Z",
+    received_at: "2026-05-28T20:54:40Z",
+  });
+
+  const positions = [beforeJumpA, beforeJumpB, afterJumpA, afterJumpB];
+  const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Jim Messina"]]));
   assert.equal(track.features.length, 2);
   assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.timestamps)), JSON.stringify([
     ["2026-05-28T20:53:40Z", "2026-05-28T20:53:57Z"],
-    ["2026-05-28T20:54:45Z", "2026-05-28T20:55:00Z"],
+    ["2026-05-28T20:54:25Z", "2026-05-28T20:54:40Z"],
   ]));
 });
