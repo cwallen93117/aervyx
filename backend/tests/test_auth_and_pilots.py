@@ -7,12 +7,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.requests import Request
 
 from app.db import Base
-from app.models import Event, EventPilot, MeshDevice, Pilot, User
+from app.models import Event, EventPilot, LivePosition, MeshDevice, Pilot, ScoreResult, Task, TaskScoringInput, TrackingSession, User
 from app.routers.auth import (
     admin_delete_user_mesh_device,
     admin_set_user_tracking_mesh_device,
     admin_update_user_mesh_device,
     change_password,
+    claim_pilot,
     create_mesh_device,
     list_mesh_devices,
     list_users,
@@ -24,9 +25,9 @@ from app.routers.auth import (
 )
 from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotUpsert, RegisterRequest
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RegisterRequest
 from app.services.tracking import resolve_mesh_device_assignment
-from app.services.pilot_identity import repair_pilot_email_identities
+from app.services.pilot_identity import merge_pilots, repair_pilot_email_identities
 
 
 def _session() -> Session:
@@ -75,6 +76,36 @@ def test_register_links_existing_pilot_by_email() -> None:
     assert response.user.username == "casey@example.com"
     assert response.user.pilot_id == pilot.id
     assert user.pilot_id == pilot.id
+
+
+def test_register_links_existing_pilot_by_competition_number_without_creating_duplicate() -> None:
+    session = _session()
+    event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 5, 29), ends_on=date(2026, 6, 6), timezone="UTC")
+    pilot = Pilot(first_name="Leonardo", last_name="Ortiz", email=None, competition_number="28")
+    session.add_all([event, pilot])
+    session.flush()
+    session.add(EventPilot(event_id=event.id, pilot_id=pilot.id))
+    session.commit()
+
+    with patch("app.routers.auth.hash_password", return_value="hashed-password"):
+        response = register(
+            _request(),
+            RegisterRequest(
+                first_name="Leonardo",
+                last_name="Ortiz",
+                email="leo@example.com",
+                password="secret123",
+                competition_number="28",
+            ),
+            session,
+        )
+
+    user = session.query(User).filter(User.username == "leo@example.com").one()
+    session.refresh(pilot)
+    assert response.user.pilot_id == pilot.id
+    assert user.pilot_id == pilot.id
+    assert pilot.email == "leo@example.com"
+    assert session.query(Pilot).count() == 1
 
 
 def test_register_organizer_creates_user_without_pilot() -> None:
@@ -212,6 +243,8 @@ def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> 
     )
     session.add_all([email_pilot, roster_pilot, event])
     session.flush()
+    email_pilot_id = email_pilot.id
+    roster_pilot_id = roster_pilot.id
     email_user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=email_pilot.id, password_hash="hash")
     generated_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=roster_pilot.id, password_hash="hash")
     session.add_all([email_user, generated_user, EventPilot(event_id=event.id, pilot_id=roster_pilot.id)])
@@ -222,14 +255,90 @@ def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> 
 
     session.refresh(email_user)
     session.refresh(generated_user)
-    session.refresh(roster_pilot)
-    assert email_user.pilot_id == email_pilot.id
+    assert email_user.pilot_id == email_pilot_id
     assert generated_user.pilot_id is None
     assert generated_user.is_active is False
-    assert roster_pilot.email is None
-    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == email_pilot.id)) is not None
-    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == roster_pilot.id)) is None
+    assert session.get(Pilot, roster_pilot_id) is None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == email_pilot_id)) is not None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == roster_pilot_id)) is None
     assert {event.name for event in list_events(user=email_user, session=session)} == {"HC 2025 - myles"}
+
+
+def test_merge_pilots_moves_live_identity_to_event_roster_pilot() -> None:
+    session = _session()
+    roster_pilot = Pilot(first_name="Jeff", last_name="Chipman", email=None)
+    duplicate_pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 5, 29), ends_on=date(2026, 6, 6), timezone="UTC")
+    session.add_all([roster_pilot, duplicate_pilot, event])
+    session.flush()
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", pilot_id=duplicate_pilot.id, password_hash="hash")
+    task = Task(event_id=event.id, name="Practice Day", status="published", task_date=date(2026, 5, 29))
+    session.add_all([user, task])
+    session.flush()
+    session.add_all(
+        [
+            EventPilot(event_id=event.id, pilot_id=roster_pilot.id),
+            EventPilot(event_id=event.id, pilot_id=duplicate_pilot.id),
+            LivePosition(pilot_id=duplicate_pilot.id, user_id=user.id, lat=40.0, lon=-75.0, timestamp=datetime(2026, 5, 28, 12, 0, tzinfo=UTC)),
+            TrackingSession(pilot_id=duplicate_pilot.id, user_id=user.id, task_id=None),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            TaskScoringInput(task_id=task.id, pilot_id=roster_pilot.id),
+            TaskScoringInput(task_id=task.id, pilot_id=duplicate_pilot.id),
+            ScoreResult(task_id=task.id, pilot_id=roster_pilot.id, score_points=100),
+            ScoreResult(task_id=task.id, pilot_id=duplicate_pilot.id, score_points=90),
+        ]
+    )
+    session.commit()
+    duplicate_id = duplicate_pilot.id
+    roster_id = roster_pilot.id
+
+    result = merge_pilots(session, source_pilot_id=duplicate_id, target_pilot_id=roster_id)
+    session.commit()
+
+    session.refresh(user)
+    assert user.pilot_id == roster_id
+    assert session.get(Pilot, duplicate_id) is None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == duplicate_id)) is None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == roster_id)) is not None
+    assert session.scalar(select(LivePosition).where(LivePosition.pilot_id == roster_id)) is not None
+    assert session.scalar(select(TrackingSession).where(TrackingSession.pilot_id == roster_id)) is not None
+    assert session.scalar(select(TaskScoringInput).where(TaskScoringInput.task_id == task.id, TaskScoringInput.pilot_id == duplicate_id)) is None
+    assert session.scalar(select(ScoreResult).where(ScoreResult.task_id == task.id, ScoreResult.pilot_id == duplicate_id)) is None
+    assert result.deleted_conflicts["event_pilots"] == 1
+    assert result.deleted_conflicts["task_scoring_inputs"] == 1
+    assert result.deleted_conflicts["score_results"] == 1
+
+
+def test_claim_pilot_merges_existing_duplicate_user_pilot() -> None:
+    session = _session()
+    roster_pilot = Pilot(first_name="Mick", last_name="Howard", competition_number="42")
+    duplicate_pilot = Pilot(first_name="Mick", last_name="Howard", email="mick@example.com")
+    event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 5, 29), ends_on=date(2026, 6, 6), timezone="UTC")
+    session.add_all([roster_pilot, duplicate_pilot, event])
+    session.flush()
+    user = User(username="mick@example.com", full_name="Mick Howard", role="pilot", pilot_id=duplicate_pilot.id, password_hash="hash")
+    session.add_all(
+        [
+            user,
+            EventPilot(event_id=event.id, pilot_id=roster_pilot.id),
+            LivePosition(pilot_id=duplicate_pilot.id, user_id=user.id, lat=40.0, lon=-75.0, timestamp=datetime(2026, 5, 28, 12, 0, tzinfo=UTC)),
+        ]
+    )
+    session.commit()
+    roster_id = roster_pilot.id
+    duplicate_id = duplicate_pilot.id
+
+    response = claim_pilot(PilotClaimRequest(pilot_id=roster_id, competition_number="42"), user, session)
+
+    assert response.pilot_id == roster_id
+    session.refresh(user)
+    assert user.pilot_id == roster_id
+    assert session.get(Pilot, duplicate_id) is None
+    assert session.scalar(select(LivePosition).where(LivePosition.pilot_id == roster_id)) is not None
 
 
 def test_update_settings_updates_pilot_profile_and_username_email() -> None:

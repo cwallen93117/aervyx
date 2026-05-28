@@ -40,7 +40,7 @@ from app.schemas import (
     UserEmailResponse,
     UserSummary,
 )
-from app.services.pilot_identity import repair_user_email_identity
+from app.services.pilot_identity import find_canonical_pilot, merge_pilots, repair_user_email_identity
 from app.services.mesh_ids import normalize_mesh_device_id
 
 logger = logging.getLogger(__name__)
@@ -93,36 +93,9 @@ def _normalize_email_identity(username: str | None, email: str | None) -> str | 
                 return candidate
     return None
 
-
 def _find_pilot_broad_match(session: Session, email: str, competition_number: str | None, civl_id: str | None) -> Pilot | None:
-    """Find a Pilot by email, user_emails table, competition_number, or civl_id."""
-    # 1. Primary Pilot.email
-    pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email))
-    if pilot is not None:
-        return pilot
-    # 2. user_emails table → owning user → their pilot
-    try:
-        ue_row = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == email))
-        if ue_row is not None:
-            owner = session.get(User, ue_row.user_id)
-            if owner and owner.pilot_id:
-                pilot = session.get(Pilot, owner.pilot_id)
-                if pilot is not None:
-                    return pilot
-    except Exception:
-        # user_emails table may not exist yet — degrade gracefully
-        logger.debug("user_emails lookup skipped (table may not exist)")
-    # 3. competition_number
-    if competition_number and competition_number.strip():
-        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.competition_number) == competition_number.strip().lower()))
-        if pilot is not None:
-            return pilot
-    # 4. civl_id
-    if civl_id and civl_id.strip():
-        pilot = session.scalar(select(Pilot).where(func.lower(Pilot.civl_id) == civl_id.strip().lower()))
-        if pilot is not None:
-            return pilot
-    return None
+    """Find a Pilot through the shared canonical identity resolver."""
+    return find_canonical_pilot(session, email=email, competition_number=competition_number, civl_id=civl_id)
 
 
 def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None = None) -> AccountSettingsUpdateResponse:
@@ -1010,13 +983,13 @@ def claim_pilot(
             detail="Cannot verify ownership. Please contact an administrator.",
         )
 
-    # Deactivate old auto-generated user if present
-    if linked_user is not None and _is_auto_generated_user(linked_user) and linked_user.id != user.id:
+    if user.pilot_id is not None and user.pilot_id != pilot.id:
+        merge_pilots(session, source_pilot_id=user.pilot_id, target_pilot_id=pilot.id)
+    elif linked_user is not None and _is_auto_generated_user(linked_user) and linked_user.id != user.id:
         linked_user.is_active = False
         linked_user.pilot_id = None
         session.add(linked_user)
 
-    # Link requesting user to the pilot
     user.pilot_id = pilot.id
     # Populate user's full_name from pilot record if blank
     pilot_full = f"{pilot.first_name or ''} {pilot.last_name or ''}".strip()

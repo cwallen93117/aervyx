@@ -16,7 +16,7 @@ from app.services.pilot_identity import (
     apply_pilot_profile,
     ensure_event_membership,
     ensure_pilot_login_identity,
-    find_canonical_pilot_by_email,
+    find_canonical_pilot,
     linked_user_for_pilot,
     normalize_email,
 )
@@ -70,7 +70,12 @@ def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(requ
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
     email = normalize_email(payload.email)
-    pilot = find_canonical_pilot_by_email(session, email) if email else None
+    pilot = find_canonical_pilot(
+        session,
+        email=email,
+        competition_number=payload.competition_number,
+        civl_id=payload.civl_id,
+    )
     if pilot is None:
         pilot = Pilot(first_name=payload.first_name, last_name=payload.last_name, email=email, nation=payload.nation, competition_number=payload.competition_number, civl_id=payload.civl_id)
     else:
@@ -157,7 +162,12 @@ async def import_pilots(event_id: int, file: UploadFile = File(...), admin: User
         if not row.get("first_name") or not row.get("last_name"):
             continue
         email = normalize_email(row.get("email"))
-        pilot = find_canonical_pilot_by_email(session, email) if email else None
+        pilot = find_canonical_pilot(
+            session,
+            email=email,
+            competition_number=(row.get("competition_number") or "").strip() or None,
+            civl_id=(row.get("civl_id") or "").strip() or None,
+        )
         if pilot is None:
             pilot = Pilot(
                 first_name=row["first_name"].strip(),
