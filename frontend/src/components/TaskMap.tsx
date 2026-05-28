@@ -1245,6 +1245,7 @@ export const TaskMap = React.memo(function TaskMap({
   optimizedRoute = [],
   legMetrics = [],
   track,
+  telemetryTrack,
   scoredTrackPoints = [],
   livePositions = [],
   liveMarkerScale = 1,
@@ -1279,6 +1280,7 @@ export const TaskMap = React.memo(function TaskMap({
   optimizedRoute?: [number, number][];
   legMetrics?: MapLegMetric[];
   track: TrackCollection | null;
+  telemetryTrack?: TrackCollection | null;
   scoredTrackPoints?: MapScoredTrackPoint[];
   livePositions?: MapLivePosition[];
   liveMarkerScale?: number;
@@ -1374,6 +1376,7 @@ export const TaskMap = React.memo(function TaskMap({
   const effectiveTaskRoutePoints = oc?.task_route === false ? [] : taskPoints;
   const effectiveTaskCylinderPoints = oc?.task_cylinders === false ? [] : taskPoints;
   const effectiveScoredTrackPoints = oc?.flight_track === false ? [] : scoredTrackPoints;
+  const effectiveTelemetryTrack = telemetryTrack ?? track;
   const clickToAddTurnpointEnabledRef = useRef(oc?.click_to_add_turnpoint !== false);
 
   const stopGpsFollowing = useCallback((map: maplibregl.Map) => {
@@ -1709,6 +1712,43 @@ export const TaskMap = React.memo(function TaskMap({
       };
     });
   }, [effectiveTelemetrySmoothing, effectiveTrack, trackFeatureTimelines]);
+  const telemetryTrackFeatureTimelines = useMemo(() => {
+    if (!effectiveTelemetryTrack) {
+      return [] as Array<{ uploadId: number; subjectKey: string | null; timestamps: number[]; coordinateCount: number }>;
+    }
+    return effectiveTelemetryTrack.features.map((feature) => {
+      const raw = Array.isArray(feature.properties?.timestamps) ? feature.properties.timestamps : [];
+      const timestamps = raw
+        .slice(0, feature.geometry.coordinates.length)
+        .map((value) => Date.parse(String(value)))
+        .filter((value) => Number.isFinite(value));
+      return {
+        uploadId: Number(feature.properties?.upload_id ?? 0),
+        subjectKey: trackFeatureSubjectKey(feature),
+        timestamps,
+        coordinateCount: feature.geometry.coordinates.length,
+      };
+    });
+  }, [effectiveTelemetryTrack]);
+  const smoothedTelemetryTrackSeries = useMemo<TrackTelemetrySeries[]>(() => {
+    if (!effectiveTelemetryTrack) {
+      return [];
+    }
+    return effectiveTelemetryTrack.features.map((feature, featureIndex) => {
+      const timestamps = telemetryTrackFeatureTimelines[featureIndex]?.timestamps ?? [];
+      const limitedCoordinates = feature.geometry.coordinates.slice(0, timestamps.length);
+      const series = buildTrackTelemetrySeries(limitedCoordinates, timestamps, effectiveTelemetrySmoothing);
+      return {
+        uploadId: Number(feature.properties?.upload_id ?? 0),
+        subjectKey: trackFeatureSubjectKey(feature),
+        timestamps,
+        altitudeM: series.altitudeM,
+        speedKmh: series.speedKmh,
+        verticalSpeedMps: series.verticalSpeedMps,
+        glideRatio: series.glideRatio,
+      };
+    });
+  }, [effectiveTelemetrySmoothing, effectiveTelemetryTrack, telemetryTrackFeatureTimelines]);
   const replayTimeline = useMemo(() => {
     const unique = new Set<number>();
     trackFeatureTimelines.forEach((feature) => {
@@ -2814,11 +2854,11 @@ export const TaskMap = React.memo(function TaskMap({
       return null;
     }
     const livePosition = effectiveLivePositions.find((position) => (position.subjectKey ?? position.id) === effectiveHighlightedLiveSubjectKey);
-    const featureIndex = effectiveTrack?.features.findIndex(
+    const featureIndex = effectiveTelemetryTrack?.features.findIndex(
       (feature) => trackFeatureSubjectKey(feature) === effectiveHighlightedLiveSubjectKey && feature.geometry.type === "LineString" && feature.geometry.coordinates.length > 0,
     ) ?? -1;
-    const highlightedFeature = featureIndex >= 0 ? effectiveTrack?.features[featureIndex] : null;
-    const telemetrySeries = smoothedTrackTelemetrySeries.find((series) => series.subjectKey === effectiveHighlightedLiveSubjectKey);
+    const highlightedFeature = featureIndex >= 0 ? effectiveTelemetryTrack?.features[featureIndex] : null;
+    const telemetrySeries = smoothedTelemetryTrackSeries.find((series) => series.subjectKey === effectiveHighlightedLiveSubjectKey);
     const latestCoordinateIndex = telemetrySeries?.timestamps.length
       ? telemetrySeries.timestamps.length - 1
       : highlightedFeature?.geometry.coordinates.length
@@ -2849,7 +2889,7 @@ export const TaskMap = React.memo(function TaskMap({
       glideRatio: telemetryIndex >= 0 ? telemetrySeries?.glideRatio[telemetryIndex] ?? null : null,
       color: String(livePosition?.color ?? highlightedFeature?.properties?.color ?? "#2563eb"),
     };
-  }, [effectiveHighlightedLiveSubjectKey, effectiveLivePositions, effectiveTrack, smoothedTrackTelemetrySeries]);
+  }, [effectiveHighlightedLiveSubjectKey, effectiveLivePositions, effectiveTelemetryTrack, smoothedTelemetryTrackSeries]);
   const activeHighlightedTrackSnapshot = highlightedLiveSnapshot ?? highlightedTrackSnapshot;
   const highlightedTrackSnapshotRef = useRef<HighlightedTrackSnapshot | null>(null);
   const telemetryThrottleMs = useMemo(

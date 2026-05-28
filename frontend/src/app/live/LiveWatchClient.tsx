@@ -108,6 +108,7 @@ export function LiveWatchClient() {
   const [hasAppliedInitialEvent, setHasAppliedInitialEvent] = useState(false);
   const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
   const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
+  const [visibleTrackSubjectKeys, setVisibleTrackSubjectKeys] = useState<Set<string>>(() => new Set());
   const sseControllerRef = useRef<AbortController | null>(null);
   const focusRequestIdRef = useRef(0);
 
@@ -171,7 +172,24 @@ export function LiveWatchClient() {
     }));
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 
-  const track = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById), [positionsByPilot, pilotNameById]);
+  const telemetryTrack = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById), [positionsByPilot, pilotNameById]);
+  const visibleTrackPositionsByPilot = useMemo(() => {
+    const next = new Map<string, LivePositionRecord[]>();
+    for (const [subjectKey, positions] of positionsByPilot) {
+      if (visibleTrackSubjectKeys.has(subjectKey)) {
+        next.set(subjectKey, positions);
+      }
+    }
+    return next;
+  }, [positionsByPilot, visibleTrackSubjectKeys]);
+  const visibleTrack = useMemo(
+    () => buildTrackCollection(visibleTrackPositionsByPilot, pilotNameById),
+    [pilotNameById, visibleTrackPositionsByPilot],
+  );
+  const allLiveTracksChecked = useMemo(
+    () => activePilotIds.length > 0 && activePilotIds.every((subjectKey) => visibleTrackSubjectKeys.has(subjectKey)),
+    [activePilotIds, visibleTrackSubjectKeys],
+  );
   const selectedEventId = selected.type === "event" ? selected.eventId : null;
   const selectedEvent = useMemo(
     () => sources.events.find((event) => event.id === selectedEventId) ?? null,
@@ -230,6 +248,7 @@ export function LiveWatchClient() {
     setPilotNameById(new Map());
     setHighlightedSubjectKey(null);
     setFocusPosition(null);
+    setVisibleTrackSubjectKeys(new Set());
 
     if (source.type === "none") {
       setLoading(false);
@@ -464,6 +483,27 @@ export function LiveWatchClient() {
     setHighlightedSubjectKey((current) => current === subjectKey ? null : subjectKey);
   }, [latestPositionForSubject]);
 
+  const toggleSubjectTrack = useCallback((subjectKey: string, checked: boolean) => {
+    setVisibleTrackSubjectKeys((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(subjectKey);
+      } else {
+        next.delete(subjectKey);
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleAllLiveTracks = useCallback(() => {
+    setVisibleTrackSubjectKeys(() => {
+      if (allLiveTracksChecked) {
+        return new Set();
+      }
+      return new Set(activePilotIds);
+    });
+  }, [activePilotIds, allLiveTracksChecked]);
+
   const compScoresHref = useMemo(() => {
     const eventId = returnScoresEventId ?? selectedEventId;
     return eventId != null ? `/scores?event_id=${encodeURIComponent(String(eventId))}` : "/scores";
@@ -472,8 +512,19 @@ export function LiveWatchClient() {
   const renderPilotSidebar = (className = "live-sidebar") => (
     <div className={className}>
       <div className="live-sidebar-header">
-        <strong>{sourceLabel}</strong>
-        <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
+        <div className="live-sidebar-title">
+          <strong>{sourceLabel}</strong>
+          <span>{activePilotIds.length} pilot{activePilotIds.length !== 1 ? "s" : ""}</span>
+        </div>
+        <label className="live-track-master-toggle" title={allLiveTracksChecked ? "Hide all tracks" : "Show all tracks"}>
+          <input
+            type="checkbox"
+            checked={allLiveTracksChecked}
+            disabled={!activePilotIds.length}
+            onChange={toggleAllLiveTracks}
+          />
+          <span>Tracks</span>
+        </label>
       </div>
       <div className="live-pilot-list">
         {activePilotIds.length > 0 ? (
@@ -482,16 +533,28 @@ export function LiveWatchClient() {
             const name = pos ? displayNameForSubject(pos, pilotNameById) : pilotNameById.get(pilotId) ?? pilotId;
             const color = colorForSubject(pilotId, activePilotIds);
             const isHighlighted = highlightedSubjectKey === pilotId;
+            const trackChecked = visibleTrackSubjectKeys.has(pilotId);
             return (
-              <button
+              <div
                 key={pilotId}
-                type="button"
                 className={`live-pilot-row${isHighlighted ? " is-highlighted" : ""}`}
-                onClick={() => focusSubjectOnMap(pilotId)}
-                aria-pressed={isHighlighted}
-                disabled={!pos}
-                title={pos ? `${isHighlighted ? "Hide details for" : "Center map on"} ${name}` : undefined}
               >
+                <input
+                  type="checkbox"
+                  className="live-pilot-track-toggle"
+                  checked={trackChecked}
+                  onChange={(event) => toggleSubjectTrack(pilotId, event.target.checked)}
+                  title={trackChecked ? `Hide track for ${name}` : `Show track for ${name}`}
+                  aria-label={trackChecked ? `Hide track for ${name}` : `Show track for ${name}`}
+                />
+                <button
+                  type="button"
+                  className="live-pilot-main"
+                  onClick={() => focusSubjectOnMap(pilotId)}
+                  aria-pressed={isHighlighted}
+                  disabled={!pos}
+                  title={pos ? `${isHighlighted ? "Hide details for" : "Center map on"} ${name}` : undefined}
+                >
                 <span className="live-pilot-badge" style={{ color }}>
                   <PilotRoleBadge
                     profileType={pos?.profile_type}
@@ -508,7 +571,8 @@ export function LiveWatchClient() {
                     {pos?.timestamp ? ` - ${formatRelativeTime(pos.timestamp)}` : ""}
                   </span>
                 </div>
-              </button>
+                </button>
+              </div>
             );
           })
         ) : (
@@ -603,7 +667,8 @@ export function LiveWatchClient() {
             turnpoints={turnpoints}
             taskPoints={taskPoints}
             livePositions={livePositions}
-            track={track}
+            track={visibleTrack}
+            telemetryTrack={telemetryTrack}
             optimizedRoute={taskDistanceMetrics.routeCoordinates}
             legMetrics={taskDistanceMetrics.legMetrics}
             mode="live"

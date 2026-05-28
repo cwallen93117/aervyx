@@ -4607,14 +4607,44 @@ button[type="submit"]:hover,
   flex-shrink: 0;
 }
 
-.live-sidebar-header strong {
-  font-size: 0.8125rem;
-  color: #e2e8f0;
+.live-sidebar-title {
+  min-width: 0;
 }
 
-.live-sidebar-header span {
+.live-sidebar-header strong {
+  display: block;
+  font-size: 0.8125rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-sidebar-title span {
   font-size: 0.6875rem;
   color: rgba(255, 255, 255, 0.4);
+}
+
+.live-track-master-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  font-size: 0.6875rem;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.live-track-master-toggle input[type="checkbox"],
+.live-pilot-track-toggle {
+  width: 15px;
+  height: 15px;
+  accent-color: #00e5ff;
+}
+
+.live-track-master-toggle:has(input:disabled) {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .live-pilot-list {
@@ -4664,6 +4694,30 @@ button[type="submit"]:hover,
 
 .live-pilot-row {
   width: 100%;
+  color: inherit;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  transition: background 0.12s;
+}
+
+.live-pilot-row:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.live-pilot-row.is-highlighted {
+  background: rgba(37, 99, 235, 0.18);
+}
+
+.live-pilot-track-toggle {
+  flex: 0 0 auto;
+}
+
+.live-pilot-main {
+  min-width: 0;
+  flex: 1 1 auto;
   border: 0;
   background: transparent;
   color: inherit;
@@ -4672,26 +4726,17 @@ button[type="submit"]:hover,
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
-  transition: background 0.12s;
+  padding: 8px 0;
   cursor: pointer;
 }
 
-.live-pilot-row:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.live-pilot-row.is-highlighted {
-  background: rgba(37, 99, 235, 0.18);
-}
-
-.live-pilot-row:focus-visible {
+.live-pilot-main:focus-visible {
   outline: 2px solid rgba(0, 229, 255, 0.75);
   outline-offset: -2px;
   background: rgba(0, 229, 255, 0.08);
 }
 
-.live-pilot-row:disabled {
+.live-pilot-main:disabled {
   cursor: default;
   opacity: 0.7;
 }
