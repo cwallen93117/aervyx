@@ -13,6 +13,12 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.28]
+
+### Fixed
+- **Mobile v0.4.35+52** fixes Meshtastic Bluetooth scans so radios without an
+  Android Bluetooth platform name still appear in the pairing list.
+
 ## [2026.05.27]
 
 ### Changed

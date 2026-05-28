@@ -33,6 +33,21 @@ class MeshtasticDevice {
   });
 }
 
+@visibleForTesting
+String meshtasticScanDisplayName({
+  required String platformName,
+  required String advertisedName,
+  required String remoteId,
+}) {
+  final platform = platformName.trim();
+  if (platform.isNotEmpty) return platform;
+
+  final advertised = advertisedName.trim();
+  if (advertised.isNotEmpty) return advertised;
+
+  return 'Meshtastic device ($remoteId)';
+}
+
 /// A Meshtastic device discovered via mDNS on the local network.
 class NetworkDevice {
   final String name;
@@ -669,10 +684,13 @@ class BleService extends ChangeNotifier {
 
       _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
         _discoveredDevices = results
-            .where((r) => r.device.platformName.isNotEmpty)
             .map((r) => MeshtasticDevice(
                   device: r.device,
-                  name: r.device.platformName,
+                  name: meshtasticScanDisplayName(
+                    platformName: r.device.platformName,
+                    advertisedName: r.advertisementData.advName,
+                    remoteId: r.device.remoteId.toString(),
+                  ),
                   rssi: r.rssi,
                 ))
             .toList();
@@ -956,9 +974,11 @@ class BleService extends ChangeNotifier {
     final best = candidates.first;
     return _savedBleDeviceFromBluetoothDevice(
       best.device,
-      name: best.device.platformName.isNotEmpty
-          ? best.device.platformName
-          : best.advertisementData.advName,
+      name: meshtasticScanDisplayName(
+        platformName: best.device.platformName,
+        advertisedName: best.advertisementData.advName,
+        remoteId: best.device.remoteId.toString(),
+      ),
     );
   }
 

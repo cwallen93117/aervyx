@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.35+52 - 2026-05-28
+
+### Fixed
+- Meshtastic Bluetooth scans now show every UUID-matching radio discovered by
+  Android, including devices that do not expose a Bluetooth platform name.
+
 ## 0.4.34+51 - 2026-05-27
 
 ### Changed
