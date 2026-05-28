@@ -794,6 +794,33 @@ function trackFeatureSubjectKey(feature: TrackCollection["features"][number]) {
   return typeof value === "string" && value ? value : null;
 }
 
+function featureEndTimestampMs(feature: TrackCollection["features"][number]) {
+  const rawEnd = feature.properties?.segment_end_timestamp;
+  const rawTimestamps = feature.properties?.timestamps;
+  const fallback = Array.isArray(rawTimestamps) ? rawTimestamps[rawTimestamps.length - 1] : null;
+  const parsed = Date.parse(String(rawEnd ?? fallback ?? ""));
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+function latestTrackFeatureIndexForSubject(track: TrackCollection | null | undefined, subjectKey: string) {
+  if (!track) {
+    return -1;
+  }
+  let latestIndex = -1;
+  let latestTimestamp = Number.NEGATIVE_INFINITY;
+  track.features.forEach((feature, index) => {
+    if (trackFeatureSubjectKey(feature) !== subjectKey || feature.geometry.type !== "LineString" || !feature.geometry.coordinates.length) {
+      return;
+    }
+    const timestamp = featureEndTimestampMs(feature);
+    if (timestamp >= latestTimestamp) {
+      latestTimestamp = timestamp;
+      latestIndex = index;
+    }
+  });
+  return latestIndex;
+}
+
 function buildTrackTelemetrySeries(
   coordinates: TrackPosition[],
   timestamps: number[],
@@ -2854,9 +2881,7 @@ export const TaskMap = React.memo(function TaskMap({
       return null;
     }
     const livePosition = effectiveLivePositions.find((position) => (position.subjectKey ?? position.id) === effectiveHighlightedLiveSubjectKey);
-    const featureIndex = effectiveTelemetryTrack?.features.findIndex(
-      (feature) => trackFeatureSubjectKey(feature) === effectiveHighlightedLiveSubjectKey && feature.geometry.type === "LineString" && feature.geometry.coordinates.length > 0,
-    ) ?? -1;
+    const featureIndex = latestTrackFeatureIndexForSubject(effectiveTelemetryTrack, effectiveHighlightedLiveSubjectKey);
     const highlightedFeature = featureIndex >= 0 ? effectiveTelemetryTrack?.features[featureIndex] : null;
     const telemetrySeries = smoothedTelemetryTrackSeries.find((series) => series.subjectKey === effectiveHighlightedLiveSubjectKey);
     const latestCoordinateIndex = telemetrySeries?.timestamps.length

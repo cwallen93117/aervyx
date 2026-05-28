@@ -34,6 +34,7 @@ const {
   displayPositionsForLiveTrack,
   latestDisplayPositionsBySubject,
   mergePositionGroup,
+  segmentPositionsForLiveTrack,
 } = module.exports;
 
 function position(overrides) {
@@ -66,15 +67,15 @@ test("live display ignores delayed older fixes that arrive after newer fixes", (
   });
   const newer = position({
     id: "newer",
-    lat: 40.2,
-    lon: -75.2,
+    lat: 40.001,
+    lon: -75.001,
     timestamp: "2026-05-28T12:02:00Z",
     received_at: "2026-05-28T12:02:01Z",
   });
   const delayed = position({
     id: "delayed",
-    lat: 40.1,
-    lon: -75.1,
+    lat: 40.0005,
+    lon: -75.0005,
     timestamp: "2026-05-28T12:01:00Z",
     received_at: "2026-05-28T12:03:00Z",
   });
@@ -90,7 +91,57 @@ test("live display ignores delayed older fixes that arrive after newer fixes", (
     JSON.stringify(track.features[0].geometry.coordinates),
     JSON.stringify([
       [-75.0, 40.0, 0],
-      [-75.2, 40.2, 0],
+      [-75.001, 40.001, 0],
     ]),
   );
+});
+
+test("live track rendering splits across large timestamp and distance gaps", () => {
+  const homeStart = position({
+    id: "home-start",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T12:00:00Z",
+    received_at: "2026-05-28T12:00:01Z",
+  });
+  const homeEnd = position({
+    id: "home-end",
+    lat: 40.0005,
+    lon: -75.0005,
+    timestamp: "2026-05-28T12:00:30Z",
+    received_at: "2026-05-28T12:00:31Z",
+  });
+  const bankStart = position({
+    id: "bank-start",
+    lat: 40.01,
+    lon: -75.01,
+    timestamp: "2026-05-28T12:10:00Z",
+    received_at: "2026-05-28T12:10:01Z",
+  });
+  const bankEnd = position({
+    id: "bank-end",
+    lat: 40.0105,
+    lon: -75.0105,
+    timestamp: "2026-05-28T12:10:30Z",
+    received_at: "2026-05-28T12:10:31Z",
+  });
+
+  const positions = [homeStart, homeEnd, bankStart, bankEnd];
+  const segments = segmentPositionsForLiveTrack(positions);
+  assert.equal(JSON.stringify(segments.map((segment) => segment.map((item) => item.id))), JSON.stringify([
+    ["home-start", "home-end"],
+    ["bank-start", "bank-end"],
+  ]));
+
+  const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Mick Howard"]]));
+  assert.equal(track.features.length, 2);
+  assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.segment_index)), JSON.stringify([0, 1]));
+  assert.equal(JSON.stringify(track.features[0].geometry.coordinates), JSON.stringify([
+    [-75.0, 40.0, 0],
+    [-75.0005, 40.0005, 0],
+  ]));
+  assert.equal(JSON.stringify(track.features[1].geometry.coordinates), JSON.stringify([
+    [-75.01, 40.01, 0],
+    [-75.0105, 40.0105, 0],
+  ]));
 });
