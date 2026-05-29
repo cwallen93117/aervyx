@@ -182,6 +182,7 @@ class BleService extends ChangeNotifier {
   // ── Device battery (from telemetry packets) ──
   int? _deviceBatteryLevel; // 0-100 %
   double? _deviceVoltage; // volts
+  DateTime? _deviceBatteryLevelReceivedAt;
 
   // ── SOS ──
   String _sosMessage = 'SOS — Pilot needs immediate assistance';
@@ -251,6 +252,9 @@ class BleService extends ChangeNotifier {
 
   /// Device voltage from telemetry packets.
   double? get deviceVoltage => _deviceVoltage;
+
+  /// Timestamp when the latest device battery telemetry was received.
+  DateTime? get deviceBatteryLevelReceivedAt => _deviceBatteryLevelReceivedAt;
 
   /// Describes the current GPS source priority state for display.
   String get gpsSourceLabel {
@@ -2581,7 +2585,7 @@ class BleService extends ChangeNotifier {
 
       // Handle telemetry packets (portnum 67 = TELEMETRY_APP)
       if (portnum == 67) {
-        _handleTelemetryPacket(fromNode, payload);
+        await _handleTelemetryPacket(fromNode, payload);
         return;
       }
 
@@ -2737,7 +2741,7 @@ class BleService extends ChangeNotifier {
   ///     field 3: channel_utilization (float)
   ///     field 4: air_util_tx (float)
   ///     field 5: uptime_seconds (uint32)
-  void _handleTelemetryPacket(int? fromNode, Uint8List payload) {
+  Future<void> _handleTelemetryPacket(int? fromNode, Uint8List payload) async {
     // Only care about our own device's telemetry
     if (fromNode == null || fromNode != _deviceState.myNodeNum) return;
 
@@ -2785,21 +2789,54 @@ class BleService extends ChangeNotifier {
       }
 
       bool changed = false;
+      final receivedAt = DateTime.now().toUtc();
       if (batteryLevel != null && batteryLevel <= 100) {
         _deviceBatteryLevel = batteryLevel;
+        _deviceBatteryLevelReceivedAt = receivedAt;
         changed = true;
       } else if (batteryLevel != null && batteryLevel == 101) {
         // 101 means USB-powered / no battery — show as "Powered"
         _deviceBatteryLevel = 101;
+        _deviceBatteryLevelReceivedAt = receivedAt;
         changed = true;
       }
       if (voltage != null && voltage > 0) {
         _deviceVoltage = voltage;
         changed = true;
       }
-      if (changed) notifyListeners();
+      if (changed) {
+        notifyListeners();
+      }
+      if (batteryLevel != null && batteryLevel >= 0 && batteryLevel <= 101) {
+        await _postDeviceBatteryTelemetry(
+          batteryLevel: batteryLevel,
+          receivedAt: receivedAt,
+        );
+      }
     } catch (e) {
       debugPrint('[BLE] telemetry parse error: $e');
+    }
+  }
+
+  Future<void> _postDeviceBatteryTelemetry({
+    required int batteryLevel,
+    required DateTime receivedAt,
+  }) async {
+    final nodeNum = _deviceState.myNodeNum;
+    if (nodeNum == 0) return;
+
+    final deviceId = '!${nodeNum.toRadixString(16).padLeft(8, '0')}';
+    try {
+      await _api.post(
+        ApiConfig.meshRadioTelemetryPath,
+        body: {
+          'device_id': deviceId,
+          'battery_level': batteryLevel,
+          'battery_level_seen_at': receivedAt.toUtc().toIso8601String(),
+        },
+      );
+    } catch (_) {
+      // Non-critical; the next telemetry packet will retry naturally.
     }
   }
 

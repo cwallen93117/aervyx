@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.39+56 - 2026-05-29
+
+### Added
+- The home screen now shows the connected Mesh Radio battery level beside the
+  Mesh Radio label and reports the latest received radio battery timestamp to
+  the site debug view.
+
 ## 0.4.38+55 - 2026-05-28
 
 ### Fixed

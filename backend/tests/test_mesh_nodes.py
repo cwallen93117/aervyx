@@ -1,11 +1,18 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import LivePosition, MeshDevice, MeshNodeStatus, User
-from app.routers.tracking import PositionPayload, get_mesh_nodes, post_position
+from app.routers.tracking import (
+    MeshRadioTelemetryPayload,
+    PositionPayload,
+    get_mesh_nodes,
+    post_mesh_radio_telemetry,
+    post_position,
+)
 
 
 def _session() -> Session:
@@ -189,3 +196,112 @@ def test_mesh_position_battery_status_uses_position_seen_at() -> None:
     assert tracker_status is not None
     assert tracker_status.battery_level == 87
     assert _utc(tracker_status.battery_level_seen_at) == now
+
+
+def test_mesh_radio_telemetry_updates_battery_without_live_position() -> None:
+    session = _session()
+    seen_at = datetime(2026, 5, 29, 14, 30, tzinfo=UTC)
+    user = User(username="pilot@example.com", full_name="Pilot", role="pilot")
+    session.add(user)
+    session.commit()
+
+    response = post_mesh_radio_telemetry(
+        MeshRadioTelemetryPayload(
+            device_id="01020304",
+            battery_level=76,
+            battery_level_seen_at=seen_at,
+        ),
+        _user=user,
+        session=session,
+    )
+
+    status_row = session.scalar(
+        select(MeshNodeStatus).where(MeshNodeStatus.device_id == "!01020304")
+    )
+    assert response.device_id == "!01020304"
+    assert response.battery_level == 76
+    assert response.battery_level_seen_at == seen_at.isoformat()
+    assert status_row is not None
+    assert status_row.battery_level == 76
+    assert _utc(status_row.battery_level_seen_at) == seen_at
+    assert status_row.last_packet_type == "TELEMETRY_APP"
+    assert status_row.last_source == "app_ble"
+    assert session.query(LivePosition).count() == 0
+
+
+def test_mesh_radio_telemetry_rejects_invalid_device_id() -> None:
+    session = _session()
+    user = User(username="pilot@example.com", full_name="Pilot", role="pilot")
+    session.add(user)
+    session.commit()
+
+    with pytest.raises(Exception) as exc_info:
+        post_mesh_radio_telemetry(
+            MeshRadioTelemetryPayload(
+                device_id="unknown",
+                battery_level=76,
+                battery_level_seen_at=datetime.now(UTC),
+            ),
+            _user=user,
+            session=session,
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 400
+
+
+def test_mesh_radio_telemetry_keeps_newest_battery_timestamp() -> None:
+    session = _session()
+    newer_seen_at = datetime(2026, 5, 29, 14, 30, tzinfo=UTC)
+    older_seen_at = newer_seen_at - timedelta(minutes=5)
+    user = User(username="pilot@example.com", full_name="Pilot", role="pilot")
+    session.add_all(
+        [
+            user,
+            MeshNodeStatus(
+                device_id="!01020304",
+                last_seen_at=newer_seen_at,
+                battery_level=80,
+                battery_level_seen_at=newer_seen_at,
+            ),
+        ]
+    )
+    session.commit()
+
+    response = post_mesh_radio_telemetry(
+        MeshRadioTelemetryPayload(
+            device_id="!01020304",
+            battery_level=20,
+            battery_level_seen_at=older_seen_at,
+        ),
+        _user=user,
+        session=session,
+    )
+
+    status_row = session.scalar(
+        select(MeshNodeStatus).where(MeshNodeStatus.device_id == "!01020304")
+    )
+    assert response.battery_level == 80
+    assert response.battery_level_seen_at == newer_seen_at.isoformat()
+    assert status_row is not None
+    assert status_row.battery_level == 80
+    assert _utc(status_row.battery_level_seen_at) == newer_seen_at
+
+
+def test_mesh_radio_telemetry_rejects_invalid_battery_level() -> None:
+    session = _session()
+    user = User(username="pilot@example.com", full_name="Pilot", role="pilot")
+    session.add(user)
+    session.commit()
+
+    with pytest.raises(Exception) as exc_info:
+        post_mesh_radio_telemetry(
+            MeshRadioTelemetryPayload(
+                device_id="!01020304",
+                battery_level=102,
+                battery_level_seen_at=datetime.now(UTC),
+            ),
+            _user=user,
+            session=session,
+        )
+
+    assert getattr(exc_info.value, "status_code", None) == 422
