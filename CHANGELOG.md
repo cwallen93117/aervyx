@@ -20,6 +20,11 @@ production release.
   mobile home screen and reports the latest received radio battery timestamp
   to the site debug view.
 
+### Changed
+- **Mobile v0.4.40+57** removes the redundant "Paired" text from the Mesh
+  Radio row when the connected radio already shows a battery badge and green
+  status indicator.
+
 ## [2026.05.28]
 
 ### Fixed
