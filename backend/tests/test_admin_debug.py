@@ -311,6 +311,49 @@ def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_positio
     assert phone["has_mesh"] is True
 
 
+def test_admin_debug_status_uses_phone_battery_seen_at() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    battery_seen_at = now - timedelta(seconds=45)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    session.add_all([admin, pilot])
+    session.flush()
+    session.add(
+        TrackingSession(
+            pilot_id=pilot.id,
+            task_id=None,
+            started_at=now - timedelta(minutes=10),
+            last_seen_at=now,
+            is_active=True,
+            position_count=1,
+        )
+    )
+    session.add(
+        LivePosition(
+            pilot_id=pilot.id,
+            task_id=None,
+            lat=40.1,
+            lon=-75.1,
+            alt=300,
+            speed=12,
+            heading=None,
+            accuracy=None,
+            timestamp=now,
+            source="app",
+            battery_level=44,
+            battery_level_seen_at=battery_seen_at,
+        )
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    phone = payload["active_sessions"][0]
+    assert phone["battery_level"] == 44
+    assert phone["battery_level_seen_at"] == _sqlite_iso(battery_seen_at)
+
+
 def test_admin_debug_status_names_user_subject_phone_session() -> None:
     session = _session()
     now = datetime.now(UTC)

@@ -783,6 +783,7 @@ def store_position(
     source: str | None = None,
     device_id: str | None = None,
     battery_level: int | None = None,
+    battery_level_seen_at: datetime | None = None,
     pilot_id: int | None = None,
     user_id: int | None = None,
 ) -> LivePosition:
@@ -803,6 +804,7 @@ def store_position(
         source=source,
         device_id=device_id,
         battery_level=battery_level,
+        battery_level_seen_at=battery_level_seen_at,
     )
     session.add(pos)
 

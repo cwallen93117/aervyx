@@ -5,6 +5,7 @@ import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } fr
 import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import { PasswordInput } from "../PasswordInput";
+import { adminDebugBatterySummary } from "../../lib/admin-debug-battery";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MeshDevicePurpose, MeshDeviceRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
@@ -2315,10 +2316,34 @@ function batteryCell(level: number | null | undefined, seenAt: string | null | u
   );
 }
 
-function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSource {
-  const pilotTracker = row.meshDevices
+function newestPilotTracker(row: UnifiedDevice): MeshDeviceStatus | null {
+  return row.meshDevices
     .filter((device) => device.purpose === "tracking")
-    .sort((a, b) => timestampMs(b.lastSeenAt) - timestampMs(a.lastSeenAt))[0];
+    .sort((a, b) => timestampMs(b.batteryLevelSeenAt ?? b.lastSeenAt) - timestampMs(a.batteryLevelSeenAt ?? a.lastSeenAt))[0] ?? null;
+}
+
+function userBatterySummaryCell(row: UnifiedDevice) {
+  const tracker = newestPilotTracker(row);
+  const items = adminDebugBatterySummary({
+    phoneBatteryLevel: row.session?.battery_level,
+    trackerBatteryLevel: tracker?.batteryLevel,
+  });
+  if (!items.length) return "\u2014";
+
+  return (
+    <span className={`tracking-user-battery-summary${items.length > 1 ? " compact" : ""}`}>
+      {items.map((item) => (
+        <span key={item.label} className="tracking-user-battery-item">
+          <span className="tracking-user-battery-label">{item.label}</span>{" "}
+          <span className="tracking-user-battery-level">{item.level}%</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function getCollapsedTrackingSource(row: UnifiedDevice): LiveTrackingCollapsedSource {
+  const pilotTracker = newestPilotTracker(row);
   const phoneSeenAt = row.session?.last_seen_at ?? null;
   const usePhone = row.session != null && (
     !pilotTracker || timestampMs(phoneSeenAt) >= timestampMs(pilotTracker.lastSeenAt)
@@ -2682,7 +2707,7 @@ function LiveTrackingTab({
                         <td></td>
                         <td></td>
                         <td></td>
-                        <td>{batteryCell(collapsedSource.batteryLevel, collapsedSource.batteryLevelSeenAt, nowMs)}</td>
+                        <td>{userBatterySummaryCell(d)}</td>
                         <td></td>
                         <td style={{ color: collapsedLastHeardTextColor }}>{relativeTime(collapsedSource.lastHeardAt, nowMs)}</td>
                       </tr>

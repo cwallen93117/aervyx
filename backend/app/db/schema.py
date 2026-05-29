@@ -757,6 +757,19 @@ def ensure_runtime_schema(engine: Engine) -> None:
             if "user_id" not in lp_columns:
                 connection.execute(text("ALTER TABLE live_positions ADD COLUMN user_id INTEGER REFERENCES users (id) ON DELETE SET NULL"))
                 lp_columns["user_id"] = {"name": "user_id"}
+            if "battery_level_seen_at" not in lp_columns:
+                connection.execute(text("ALTER TABLE live_positions ADD COLUMN battery_level_seen_at TIMESTAMP"))
+                connection.execute(
+                    text(
+                        """
+                        UPDATE live_positions
+                        SET battery_level_seen_at = timestamp
+                        WHERE battery_level IS NOT NULL
+                          AND battery_level_seen_at IS NULL
+                        """
+                    )
+                )
+                lp_columns["battery_level_seen_at"] = {"name": "battery_level_seen_at"}
             existing_indexes = {idx["name"] for idx in inspector.get_indexes("live_positions")}
             if "ix_live_positions_pilot_ts" not in existing_indexes:
                 connection.execute(text("CREATE INDEX ix_live_positions_pilot_ts ON live_positions (pilot_id, timestamp)"))

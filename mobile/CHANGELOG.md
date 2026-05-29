@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.41+58 - 2026-05-29
+
+### Fixed
+- Phone app position uploads now include phone battery level and the time the
+  battery was read, so admin debug battery ages do not refresh on every GPS
+  point unless the phone battery was actually sampled again.
+
 ## 0.4.40+57 - 2026-05-29
 
 ### Changed
