@@ -13,6 +13,13 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.29]
+
+### Added
+- **Mobile v0.4.39+56** shows the connected Mesh Radio battery level on the
+  mobile home screen and reports the latest received radio battery timestamp
+  to the site debug view.
+
 ## [2026.05.28]
 
 ### Fixed

@@ -45,6 +45,8 @@ class ApiConfig {
 
   // Tracking — no task ID needed; backend resolves event from pilot identity
   static const String trackPositionPath = '/api/track/position';
+  static const String meshRadioTelemetryPath =
+      '/api/track/mesh-radio/telemetry';
 
   // Active pilots — latest position for all currently flying pilots
   static const String activePilotsPath = '/api/track/active-pilots';

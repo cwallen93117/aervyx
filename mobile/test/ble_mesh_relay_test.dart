@@ -80,6 +80,44 @@ void main() {
 
       expect(api.posts, hasLength(1));
     });
+
+    test('posts own radio battery telemetry with received timestamp', () async {
+      final api = _RecordingApiService();
+      final ble = BleService(api);
+      ble.deviceState.myNodeNum = 0x01020304;
+
+      await ble.debugHandleMeshPacket(
+        _telemetryPacket(fromNode: 0x01020304, batteryLevel: 88),
+      );
+
+      expect(ble.deviceBatteryLevel, 88);
+      expect(ble.deviceBatteryLevelReceivedAt, isNotNull);
+      expect(api.posts, hasLength(1));
+      expect(api.posts.single.path, ApiConfig.meshRadioTelemetryPath);
+      expect(api.posts.single.body['device_id'], '!01020304');
+      expect(api.posts.single.body['battery_level'], 88);
+      expect(
+        DateTime.tryParse(
+          api.posts.single.body['battery_level_seen_at'] as String,
+        ),
+        isNotNull,
+      );
+    });
+
+    test('ignores peer telemetry for connected radio battery reporting',
+        () async {
+      final api = _RecordingApiService();
+      final ble = BleService(api);
+      ble.deviceState.myNodeNum = 0x01020304;
+
+      await ble.debugHandleMeshPacket(
+        _telemetryPacket(fromNode: 0x0a0b0c0d, batteryLevel: 44),
+      );
+
+      expect(ble.deviceBatteryLevel, isNull);
+      expect(ble.deviceBatteryLevelReceivedAt, isNull);
+      expect(api.posts, isEmpty);
+    });
   });
 }
 
@@ -100,6 +138,22 @@ Uint8List _positionPacket({
   final decoded = ProtoWriter()
     ..writeVarint(1, PortNum.positionApp)
     ..writeBytes(2, position.toBytes());
+
+  return (ProtoWriter()
+        ..writeFixed32(1, fromNode)
+        ..writeMessage(4, decoded))
+      .toBytes();
+}
+
+Uint8List _telemetryPacket({
+  required int fromNode,
+  required int batteryLevel,
+}) {
+  final deviceMetrics = ProtoWriter()..writeVarint(1, batteryLevel);
+  final telemetry = ProtoWriter()..writeMessage(2, deviceMetrics);
+  final decoded = ProtoWriter()
+    ..writeVarint(1, 67)
+    ..writeBytes(2, telemetry.toBytes());
 
   return (ProtoWriter()
         ..writeFixed32(1, fromNode)

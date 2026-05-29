@@ -201,6 +201,9 @@ class HomeScreen extends StatelessWidget {
               _StatusRow(
                 icon: Icons.bluetooth,
                 label: 'Mesh Radio',
+                labelTrailing: ble.isConnected && ble.deviceBatteryLevel != null
+                    ? _MeshBatteryBadge(ble: ble)
+                    : null,
                 statusText: ble.isConnected ? 'Paired' : 'Not Paired',
                 ledColor: ble.isConnected ? Colors.green : Colors.grey,
                 expandedContent: _MeshDetails(ble: ble),
@@ -444,6 +447,7 @@ class _StatusText extends StatelessWidget {
 class _StatusRow extends StatefulWidget {
   final IconData icon;
   final String label;
+  final Widget? labelTrailing;
   final String statusText;
   final Color ledColor;
   final Widget expandedContent;
@@ -451,6 +455,7 @@ class _StatusRow extends StatefulWidget {
   const _StatusRow({
     required this.icon,
     required this.label,
+    this.labelTrailing,
     required this.statusText,
     required this.ledColor,
     required this.expandedContent,
@@ -488,6 +493,10 @@ class _StatusRowState extends State<_StatusRow> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
+                  if (widget.labelTrailing != null) ...[
+                    const SizedBox(width: 6),
+                    widget.labelTrailing!,
+                  ],
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -729,6 +738,42 @@ class _ServerDetails extends StatelessWidget {
 }
 
 // ── Mesh Details (expanded content) ──
+
+class _MeshBatteryBadge extends StatelessWidget {
+  final BleService ble;
+
+  const _MeshBatteryBadge({required this.ble});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final level = ble.deviceBatteryLevel;
+    if (level == null) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: _batteryIconColor(level).withAlpha(24),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: _batteryIconColor(level).withAlpha(96)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(_batteryIcon(level), size: 13, color: _batteryIconColor(level)),
+          const SizedBox(width: 3),
+          Text(
+            level == 101 ? 'USB' : '$level%',
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: _batteryIconColor(level),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _MeshDetails extends StatelessWidget {
   final BleService ble;

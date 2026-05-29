@@ -162,6 +162,18 @@ class PositionPayload(BaseModel):
     battery_level: int | None = None
 
 
+class MeshRadioTelemetryPayload(BaseModel):
+    device_id: str
+    battery_level: int
+    battery_level_seen_at: datetime
+
+
+class MeshRadioTelemetryResponse(BaseModel):
+    device_id: str
+    battery_level: int
+    battery_level_seen_at: str
+
+
 class PositionResponse(BaseModel):
     id: str
     subject_key: str
@@ -404,6 +416,69 @@ def post_position(
         profile_type=response_profile_type,
         position_source=normalize_position_source(pos.source),
         received_at=pos.created_at.isoformat() if pos.created_at else None,
+    )
+
+
+@router.post(
+    "/api/track/mesh-radio/telemetry",
+    response_model=MeshRadioTelemetryResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def post_mesh_radio_telemetry(
+    payload: MeshRadioTelemetryPayload,
+    _user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> MeshRadioTelemetryResponse:
+    normalized_device_id = _normalize_required_mesh_position_device_id(payload.device_id)
+    if payload.battery_level < 0 or payload.battery_level > 101:
+        raise HTTPException(
+            status_code=422,
+            detail="battery_level must be between 0 and 101",
+        )
+
+    seen_at = payload.battery_level_seen_at
+    if seen_at.tzinfo is None:
+        seen_at = seen_at.replace(tzinfo=UTC)
+    else:
+        seen_at = seen_at.astimezone(UTC)
+
+    status_row = session.scalar(
+        select(MeshNodeStatus).where(MeshNodeStatus.device_id == normalized_device_id)
+    )
+    if status_row is None:
+        status_row = MeshNodeStatus(
+            device_id=normalized_device_id,
+            last_seen_at=seen_at,
+            packet_count=0,
+        )
+        session.add(status_row)
+
+    existing_battery_seen_at = status_row.battery_level_seen_at
+    if existing_battery_seen_at is not None:
+        if existing_battery_seen_at.tzinfo is None:
+            existing_battery_seen_at = existing_battery_seen_at.replace(tzinfo=UTC)
+        else:
+            existing_battery_seen_at = existing_battery_seen_at.astimezone(UTC)
+        if existing_battery_seen_at > seen_at:
+            return MeshRadioTelemetryResponse(
+                device_id=normalized_device_id,
+                battery_level=status_row.battery_level,
+                battery_level_seen_at=existing_battery_seen_at.isoformat(),
+            )
+
+    status_row.last_seen_at = seen_at
+    status_row.last_packet_type = "TELEMETRY_APP"
+    status_row.last_source = "app_ble"
+    status_row.last_topic = "api:/api/track/mesh-radio/telemetry"
+    status_row.packet_count = (status_row.packet_count or 0) + 1
+    status_row.battery_level = payload.battery_level
+    status_row.battery_level_seen_at = seen_at
+    session.commit()
+
+    return MeshRadioTelemetryResponse(
+        device_id=normalized_device_id,
+        battery_level=status_row.battery_level,
+        battery_level_seen_at=seen_at.isoformat(),
     )
 
 
