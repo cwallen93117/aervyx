@@ -233,7 +233,11 @@ def admin_debug_status(
             "device_id": None,
             "source": PHONE_APP_POSITION_SOURCE,
             "battery_level": latest_app_pos.battery_level,
-            "battery_level_seen_at": latest_app_pos.timestamp.isoformat() if latest_app_pos.battery_level is not None else None,
+            "battery_level_seen_at": (
+                (latest_app_pos.battery_level_seen_at or latest_app_pos.timestamp).isoformat()
+                if latest_app_pos.battery_level is not None
+                else None
+            ),
             "position_count": phone_position_count,
             "positions_last_60s": positions_last_60s,
             "started_at": ts.started_at.isoformat() if ts.started_at else None,

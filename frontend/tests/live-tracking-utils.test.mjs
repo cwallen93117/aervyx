@@ -10,7 +10,15 @@ const require = createRequire(import.meta.url);
 const ts = require("typescript");
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const source = readFileSync(join(root, "src", "lib", "live-tracking-utils.ts"), "utf8");
+const batterySource = readFileSync(join(root, "src", "lib", "admin-debug-battery.ts"), "utf8");
 const transpiled = ts.transpileModule(source, {
+  compilerOptions: {
+    esModuleInterop: true,
+    module: ts.ModuleKind.CommonJS,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
+const batteryTranspiled = ts.transpileModule(batterySource, {
   compilerOptions: {
     esModuleInterop: true,
     module: ts.ModuleKind.CommonJS,
@@ -19,10 +27,20 @@ const transpiled = ts.transpileModule(source, {
 }).outputText;
 
 const module = { exports: {} };
+const batteryModule = { exports: {} };
 vm.runInNewContext(transpiled, {
   console,
   exports: module.exports,
   module,
+  process: { env: {} },
+  require,
+  URL,
+  window: undefined,
+});
+vm.runInNewContext(batteryTranspiled, {
+  console,
+  exports: batteryModule.exports,
+  module: batteryModule,
   process: { env: {} },
   require,
   URL,
@@ -36,6 +54,7 @@ const {
   mergePositionGroup,
   segmentPositionsForLiveTrack,
 } = module.exports;
+const { adminDebugBatterySummary } = batteryModule.exports;
 
 function position(overrides) {
   return {
@@ -57,6 +76,19 @@ function position(overrides) {
     received_at: overrides.received_at,
   };
 }
+
+test("admin debug battery summary labels phone and tracker batteries", () => {
+  assert.equal(
+    JSON.stringify(adminDebugBatterySummary({ phoneBatteryLevel: 87, trackerBatteryLevel: 96 })),
+    JSON.stringify([
+      { label: "Phone", level: 87 },
+      { label: "Tracker", level: 96 },
+    ]),
+  );
+  assert.equal(JSON.stringify(adminDebugBatterySummary({ phoneBatteryLevel: 87 })), JSON.stringify([{ label: "Phone", level: 87 }]));
+  assert.equal(JSON.stringify(adminDebugBatterySummary({ trackerBatteryLevel: 96 })), JSON.stringify([{ label: "Tracker", level: 96 }]));
+  assert.equal(JSON.stringify(adminDebugBatterySummary({})), JSON.stringify([]));
+});
 
 test("live display ignores delayed older fixes that arrive after newer fixes", () => {
   const first = position({

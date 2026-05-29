@@ -24,6 +24,13 @@ production release.
 - **Mobile v0.4.40+57** removes the redundant "Paired" text from the Mesh
   Radio row when the connected radio already shows a battery badge and green
   status indicator.
+- Admin live-tracking debug now labels collapsed user-row battery readings as
+  Phone and Tracker when both are present.
+
+### Fixed
+- **Mobile v0.4.41+58** sends phone battery level and read time with app
+  position uploads, so admin debug phone battery ages no longer reset on every
+  GPS point unless the phone battery was sampled again.
 
 ## [2026.05.28]
 

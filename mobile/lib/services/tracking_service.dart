@@ -100,6 +100,7 @@ class TrackingService extends ChangeNotifier {
   // ── Battery protection ──
   int? _batteryThreshold = 15;
   int? _currentBatteryLevel;
+  DateTime? _currentBatteryLevelSeenAt;
   bool _stoppedByBattery = false;
 
   // ── Flight time ──
@@ -211,6 +212,12 @@ class TrackingService extends ChangeNotifier {
   /// Path to the last saved IGC file (shown briefly after stop).
   String? _lastSavedIgcPath;
   String? get lastSavedIgcPath => _lastSavedIgcPath;
+
+  @visibleForTesting
+  void debugSetCurrentBatteryLevel(int? level) {
+    _currentBatteryLevel = level;
+    _currentBatteryLevelSeenAt = level == null ? null : DateTime.now().toUtc();
+  }
 
   TrackingService(this._api, this._auth, this._igc) {
     // Start server heartbeat immediately so the LED shows status on app open
@@ -1090,18 +1097,7 @@ class TrackingService extends ChangeNotifier {
     _positionCount++;
 
     // Try to send to backend (non-blocking for UI)
-    final payload = {
-      'lat': geoPos.latitude,
-      'lon': geoPos.longitude,
-      'alt': geoPos.altitude,
-      'speed': geoPos.speed,
-      'heading': geoPos.heading,
-      'accuracy': geoPos.accuracy,
-      'timestamp': geoPos.timestamp.toUtc().toIso8601String(),
-      'source': 'app',
-      if (_activeTask != null) 'task_id': _activeTask!.taskId,
-      'zone': _currentZone.name,
-    };
+    final payload = debugBuildPositionPayload(geoPos);
 
     try {
       await _api.post(ApiConfig.trackPositionPath, body: payload);
@@ -1135,6 +1131,42 @@ class TrackingService extends ChangeNotifier {
       _error = 'Backend offline — recording locally'
           '${_positionBuffer.isNotEmpty ? ' (${_positionBuffer.length} buffered)' : ''}';
     }
+  }
+
+  @visibleForTesting
+  Map<String, dynamic> debugBuildPositionPayload(Position geoPos) {
+    return debugBuildPositionPayloadFromValues(
+      geoPos,
+      taskId: _activeTask?.taskId,
+      batteryLevel: _currentBatteryLevel,
+      batteryLevelSeenAt: _currentBatteryLevelSeenAt,
+      zone: _currentZone,
+    );
+  }
+
+  @visibleForTesting
+  static Map<String, dynamic> debugBuildPositionPayloadFromValues(
+    Position geoPos, {
+    int? taskId,
+    int? batteryLevel,
+    DateTime? batteryLevelSeenAt,
+    TrackingZone zone = TrackingZone.stationary,
+  }) {
+    return {
+      'lat': geoPos.latitude,
+      'lon': geoPos.longitude,
+      'alt': geoPos.altitude,
+      'speed': geoPos.speed,
+      'heading': geoPos.heading,
+      'accuracy': geoPos.accuracy,
+      'timestamp': geoPos.timestamp.toUtc().toIso8601String(),
+      'source': 'app',
+      if (taskId != null) 'task_id': taskId,
+      if (batteryLevel != null) 'battery_level': batteryLevel,
+      if (batteryLevel != null && batteryLevelSeenAt != null)
+        'battery_level_seen_at': batteryLevelSeenAt.toUtc().toIso8601String(),
+      'zone': zone.name,
+    };
   }
 
   /// Drain up to [limit] buffered positions to the backend.
@@ -1364,6 +1396,7 @@ class TrackingService extends ChangeNotifier {
   Future<void> _checkBattery() async {
     try {
       _currentBatteryLevel = await _battery.batteryLevel;
+      _currentBatteryLevelSeenAt = DateTime.now().toUtc();
       if (_batteryThreshold != null &&
           _currentBatteryLevel != null &&
           _currentBatteryLevel! <= _batteryThreshold! &&

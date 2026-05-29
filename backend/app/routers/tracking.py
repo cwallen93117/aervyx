@@ -160,6 +160,7 @@ class PositionPayload(BaseModel):
     source: str | None = None
     device_id: str | None = None
     battery_level: int | None = None
+    battery_level_seen_at: datetime | None = None
 
 
 class MeshRadioTelemetryPayload(BaseModel):
@@ -372,6 +373,7 @@ def post_position(
         source=source,
         device_id=payload_device_id,
         battery_level=payload.battery_level,
+        battery_level_seen_at=payload.battery_level_seen_at,
         pilot_id=pilot_id,
         user_id=user_id,
     )

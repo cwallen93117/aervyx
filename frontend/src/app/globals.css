@@ -7649,6 +7649,23 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   background: rgba(239, 68, 68, 0.14);
   color: #ef4444;
 }
+.tracking-user-battery-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+.tracking-user-battery-summary.compact {
+  gap: 8px;
+  font-size: 0.74rem;
+}
+.tracking-user-battery-label {
+  color: var(--muted);
+  font-weight: 600;
+}
+.tracking-user-battery-level {
+  font-weight: 700;
+}
 .tracking-expand-toggle {
   cursor: pointer;
   user-select: none;
