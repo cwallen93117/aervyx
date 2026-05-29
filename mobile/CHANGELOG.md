@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.40+57 - 2026-05-29
+
+### Changed
+- The Mesh Radio row no longer repeats "Paired" when the connected radio
+  already shows a battery badge and green status indicator.
+
 ## 0.4.39+56 - 2026-05-29
 
 ### Added

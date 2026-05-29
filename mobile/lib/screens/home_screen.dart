@@ -204,7 +204,11 @@ class HomeScreen extends StatelessWidget {
                 labelTrailing: ble.isConnected && ble.deviceBatteryLevel != null
                     ? _MeshBatteryBadge(ble: ble)
                     : null,
-                statusText: ble.isConnected ? 'Paired' : 'Not Paired',
+                statusText: ble.isConnected && ble.deviceBatteryLevel != null
+                    ? ''
+                    : ble.isConnected
+                        ? 'Paired'
+                        : 'Not Paired',
                 ledColor: ble.isConnected ? Colors.green : Colors.grey,
                 expandedContent: _MeshDetails(ble: ble),
               ),
