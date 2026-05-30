@@ -50,15 +50,40 @@ def list_pilots(event_id: int, user: User = Depends(get_current_user), session: 
 
 @router.get("/api/pilots", response_model=list[PilotResponse])
 def list_people(search: str | None = None, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> list[PilotResponse]:
-    query = select(Pilot)
+    active_user_exists = (
+        select(User.id)
+        .where(
+            User.pilot_id == Pilot.id,
+            User.role == "pilot",
+            User.is_active.is_(True),
+        )
+        .exists()
+    )
+    query = select(Pilot).where(active_user_exists)
     if search:
         pattern = f"%{search.lower()}%"
+        matching_user_exists = (
+            select(User.id)
+            .where(
+                User.pilot_id == Pilot.id,
+                User.role == "pilot",
+                User.is_active.is_(True),
+                or_(
+                    func.lower(User.username).like(pattern),
+                    func.lower(User.full_name).like(pattern),
+                ),
+            )
+            .exists()
+        )
         query = query.where(
             or_(
                 func.lower(Pilot.first_name).like(pattern),
                 func.lower(Pilot.last_name).like(pattern),
                 func.lower(func.coalesce(Pilot.email, "")).like(pattern),
                 func.lower(func.coalesce(Pilot.competition_number, "")).like(pattern),
+                func.lower(func.coalesce(Pilot.civl_id, "")).like(pattern),
+                func.lower(func.coalesce(Pilot.nation, "")).like(pattern),
+                matching_user_exists,
             )
         )
     pilots = session.scalars(query.order_by(Pilot.last_name.asc(), Pilot.first_name.asc())).all()

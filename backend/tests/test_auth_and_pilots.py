@@ -15,6 +15,7 @@ from app.routers.auth import (
     change_password,
     claim_pilot,
     create_mesh_device,
+    delete_user_account,
     list_mesh_devices,
     list_users,
     register,
@@ -24,7 +25,7 @@ from app.routers.auth import (
     update_user_account,
 )
 from app.routers.events import list_events
-from app.routers.pilots import assign_existing_pilot, create_pilot, update_pilot
+from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_pilot
 from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RegisterRequest
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import merge_pilots, repair_pilot_email_identities
@@ -227,6 +228,68 @@ def test_assign_existing_pilot_links_matching_email_user() -> None:
     assert generated_user.pilot_id is None
     assert generated_user.is_active is False
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
+
+
+def test_people_directory_uses_active_users_as_source_of_truth() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    canonical = Pilot(first_name="Knut", last_name="Pilot", email="knut@example.com", nation="NO", competition_number="77", civl_id="CIVL-KNUT")
+    duplicate = Pilot(first_name="Knut", last_name="Pilot", email="knut@example.com", nation="NO", competition_number="88")
+    unregistered = Pilot(first_name="Knut", last_name="Historical", email="old-knut@example.com", nation="NO", competition_number="99")
+    session.add_all([admin, canonical, duplicate, unregistered])
+    session.flush()
+    session.add(User(username="knut@example.com", full_name="Knut Pilot", role="pilot", pilot_id=canonical.id, password_hash="hash"))
+    session.commit()
+
+    all_results = list_people(admin=admin, session=session)
+    search_results = list_people(search="knut", admin=admin, session=session)
+    civl_results = list_people(search="civl-knut", admin=admin, session=session)
+    nation_results = list_people(search="no", admin=admin, session=session)
+
+    assert [pilot.id for pilot in all_results] == [canonical.id]
+    assert [pilot.id for pilot in search_results] == [canonical.id]
+    assert [pilot.id for pilot in civl_results] == [canonical.id]
+    assert [pilot.id for pilot in nation_results] == [canonical.id]
+
+
+def test_deleted_user_disappears_from_people_directory_but_event_roster_remains() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    pilot = Pilot(first_name="Knut", last_name="Pilot", email="knut@example.com", competition_number="77")
+    event = Event(name="Spring Open", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
+    session.add_all([admin, pilot, event])
+    session.flush()
+    user = User(username="knut@example.com", full_name="Knut Pilot", role="pilot", pilot_id=pilot.id, password_hash="hash")
+    session.add_all([user, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.commit()
+
+    assert [entry.id for entry in list_people(search="knut", admin=admin, session=session)] == [pilot.id]
+
+    delete_user_account(user.id, admin, session)
+
+    assert list_people(search="knut", admin=admin, session=session) == []
+    assert [entry.id for entry in list_pilots(event.id, admin, session)] == [pilot.id]
+    assert session.get(Pilot, pilot.id) is not None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
+
+
+def test_assign_existing_pilot_uses_canonical_directory_id_for_already_assigned_state() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    pilot = Pilot(first_name="Knut", last_name="Pilot", email="knut@example.com", competition_number="77")
+    event = Event(name="Spring Open", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
+    session.add_all([admin, pilot, event])
+    session.flush()
+    session.add(User(username="knut@example.com", full_name="Knut Pilot", role="pilot", pilot_id=pilot.id, password_hash="hash"))
+    session.commit()
+
+    assigned = assign_existing_pilot(event.id, pilot.id, admin, session)
+    directory = list_people(search="knut", admin=admin, session=session)
+    roster = list_pilots(event.id, admin, session)
+
+    assert assigned.id == pilot.id
+    assert [entry.id for entry in directory] == [pilot.id]
+    assert [entry.id for entry in roster] == [pilot.id]
 
 
 def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> None:
