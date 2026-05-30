@@ -10,6 +10,20 @@ from app.models import User
 security = HTTPBearer(auto_error=False)
 
 
+def token_subject_for_user(user: User) -> str:
+    return f"user:{user.id}"
+
+
+def resolve_user_from_token_subject(session: Session, subject: str) -> User | None:
+    if subject.startswith("user:"):
+        try:
+            user_id = int(subject.removeprefix("user:"))
+        except ValueError:
+            return None
+        return session.get(User, user_id)
+    return session.scalar(select(User).where(User.username == subject, User.is_active.is_(True)))
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials | None = Depends(security),
     session: Session = Depends(get_session),
@@ -19,8 +33,8 @@ def get_current_user(
     subject = decode_access_token(credentials.credentials)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    user = session.scalar(select(User).where(User.username == subject, User.is_active.is_(True)))
-    if user is None:
+    user = resolve_user_from_token_subject(session, subject)
+    if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 

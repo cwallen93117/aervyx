@@ -85,6 +85,7 @@ TIMEZONE_ALIASES = {
     "us/pacific": "America/Los_Angeles",
     "utc": "UTC",
 }
+LIVE_APP_RECEIVED_STALE_FIX_SECONDS = 12 * 60 * 60
 
 
 def _as_utc(value: datetime | None) -> datetime:
@@ -181,6 +182,27 @@ def _current_day_position_clause(session: Session, *, now: datetime | None = Non
     return or_(*conditions)
 
 
+def _received_app_position_clause(*, now: datetime | None = None):
+    """Include app uploads received today even when their GPS fix time is stale."""
+    reference_time = _as_utc(now)
+    utc_start, utc_end = _current_day_window_utc("UTC", reference_time)
+    oldest_allowed_fix = reference_time - timedelta(seconds=LIVE_APP_RECEIVED_STALE_FIX_SECONDS)
+    return and_(
+        LivePosition.source == "app",
+        LivePosition.created_at.isnot(None),
+        LivePosition.created_at >= utc_start,
+        LivePosition.created_at < utc_end,
+        LivePosition.timestamp >= oldest_allowed_fix,
+    )
+
+
+def _live_visibility_position_clause(session: Session, *, now: datetime | None = None):
+    return or_(
+        _current_day_position_clause(session, now=now),
+        _received_app_position_clause(now=now),
+    )
+
+
 def _optional_since(since: datetime | None, minutes: int | None, now: datetime | None) -> datetime | None:
     cutoffs = []
     if since is not None:
@@ -198,12 +220,31 @@ def _apply_live_position_history_window(
     minutes: int | None = None,
     limit: int | None = None,
     now: datetime | None = None,
+    include_received_app_positions: bool = False,
 ):
     reference_time = _as_utc(now)
-    query = query.where(_current_day_position_clause(session, now=reference_time))
+    visibility_clause = (
+        _live_visibility_position_clause(session, now=reference_time)
+        if include_received_app_positions
+        else _current_day_position_clause(session, now=reference_time)
+    )
+    query = query.where(visibility_clause)
     since_cutoff = _optional_since(since, minutes, reference_time)
     if since_cutoff is not None:
-        query = query.where(LivePosition.timestamp >= since_cutoff)
+        if include_received_app_positions:
+            query = query.where(
+                or_(
+                    LivePosition.timestamp >= since_cutoff,
+                    and_(
+                        LivePosition.source == "app",
+                        LivePosition.created_at.isnot(None),
+                        LivePosition.created_at >= since_cutoff,
+                        LivePosition.timestamp >= reference_time - timedelta(seconds=LIVE_APP_RECEIVED_STALE_FIX_SECONDS),
+                    ),
+                )
+            )
+        else:
+            query = query.where(LivePosition.timestamp >= since_cutoff)
     if limit is not None:
         query = query.limit(limit)
     return query
@@ -912,7 +953,7 @@ def get_live_positions(session: Session, task_id: int) -> list[dict[str, Any]]:
 
     rows = session.scalars(
         select(LivePosition)
-        .where(LivePosition.task_id == task_id, or_(*conditions), _current_day_position_clause(session))
+        .where(LivePosition.task_id == task_id, or_(*conditions), _live_visibility_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(conditions) * 100))
     ).all()
@@ -943,7 +984,7 @@ def get_all_active_positions(session: Session, minutes: int = 5) -> list[dict[st
 
     rows = session.scalars(
         select(LivePosition)
-        .where(or_(*conditions), _current_day_position_clause(session))
+        .where(or_(*conditions), _live_visibility_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(conditions) * 100))
     ).all()
@@ -990,7 +1031,7 @@ def get_live_positions_for_pilots(session: Session, pilot_ids: list[int]) -> lis
 
     rows = session.scalars(
         select(LivePosition)
-        .where(LivePosition.pilot_id.in_(pilot_ids), _current_day_position_clause(session))
+        .where(LivePosition.pilot_id.in_(pilot_ids), _live_visibility_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, len(pilot_ids) * 100))
     ).all()
@@ -1014,7 +1055,7 @@ def get_live_positions_for_subjects(
 
     rows = session.scalars(
         select(LivePosition)
-        .where(or_(*conditions), _current_day_position_clause(session))
+        .where(or_(*conditions), _live_visibility_position_clause(session))
         .order_by(LivePosition.timestamp.desc())
         .limit(max(1000, (len(pilot_ids) + len(user_ids)) * 100))
     ).all()
@@ -1039,6 +1080,7 @@ def get_all_recent_positions(
         minutes=minutes,
         limit=limit,
         now=now,
+        include_received_app_positions=True,
     ).order_by(LivePosition.timestamp.desc())
     rows = session.scalars(query).all()
 
@@ -1066,6 +1108,7 @@ def get_position_history_for_pilots(
         minutes=minutes,
         limit=limit,
         now=now,
+        include_received_app_positions=True,
     )
     query = query.order_by(LivePosition.timestamp.asc())
 
@@ -1100,6 +1143,7 @@ def get_position_history_for_subjects(
         minutes=minutes,
         limit=limit,
         now=now,
+        include_received_app_positions=True,
     )
     query = query.order_by(LivePosition.timestamp.asc())
 
