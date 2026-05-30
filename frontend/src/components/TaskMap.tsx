@@ -410,28 +410,6 @@ function formatLivePositionUpdateLabel(value: string | null | undefined): string
   return `${absolute} (${relative})`;
 }
 
-type LiveMarkerPopupItem = {
-  nameLabel: string;
-  latitude: number;
-  longitude: number;
-  timestamp: string;
-};
-
-export type LivePositionPopupRequest = LiveMarkerPopupItem & {
-  key: string | number;
-};
-
-function livePositionPopupHtml(item: LiveMarkerPopupItem): string {
-  const directionsUrl = drivingDirectionsUrl(item.latitude, item.longitude);
-  return `
-    <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
-      <div style="font-weight: 700; margin-bottom: 6px;">${escapeHtml(item.nameLabel)}</div>
-      <div style="color: #475569; margin-bottom: 10px;"><strong>Last update:</strong> ${escapeHtml(formatLivePositionUpdateLabel(item.timestamp))}</div>
-      <a href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border-radius: 6px; background: #0f172a; color: #ffffff; font-weight: 700; text-decoration: none;">Driving directions</a>
-    </div>
-  `;
-}
-
 function drivingDirectionsUrl(lat: number, lon: number) {
   const destination = `${lat.toFixed(6)},${lon.toFixed(6)}`;
   return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
@@ -833,6 +811,7 @@ type HighlightedTrackSnapshot = {
   verticalSpeedMps: number | null;
   glideRatio: number | null;
   color: string;
+  lastUpdateLabel?: string;
   directionsUrl?: string;
 };
 
@@ -1352,8 +1331,6 @@ export const TaskMap = React.memo(function TaskMap({
   showGpsButton = false,
   overlayConfig,
   focusPosition,
-  enableLivePositionPopups = false,
-  livePositionPopupRequest,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1384,16 +1361,12 @@ export const TaskMap = React.memo(function TaskMap({
   showGpsButton?: boolean;
   overlayConfig?: Record<string, boolean>;
   focusPosition?: { lat: number; lon: number; key: string | number } | null;
-  enableLivePositionPopups?: boolean;
-  livePositionPopupRequest?: LivePositionPopupRequest | null;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
-  const livePositionPopupRef = useRef<maplibregl.Popup | null>(null);
-  const lastLivePopupRequestKeyRef = useRef<string | number | null>(null);
   const fullscreenControlRef = useRef<maplibregl.FullscreenControl | null>(null);
   const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -2001,38 +1974,6 @@ export const TaskMap = React.memo(function TaskMap({
     }
     return maxAltitude > 0 ? maxAltitude : 15000;
   }, [effectiveTrack]);
-  const showLivePositionPopup = useCallback((item: LiveMarkerPopupItem) => {
-    const map = mapRef.current;
-    if (!map) {
-      return;
-    }
-    livePositionPopupRef.current?.remove();
-    livePositionPopupRef.current = new maplibregl.Popup({
-      closeButton: true,
-      closeOnClick: true,
-      className: "live-position-map-popup",
-      offset: 18,
-      maxWidth: "280px",
-    })
-      .setLngLat([item.longitude, item.latitude])
-      .setHTML(livePositionPopupHtml(item))
-      .addTo(map);
-
-    const element = livePositionPopupRef.current.getElement();
-    element.style.zIndex = "80";
-  }, []);
-
-  useEffect(() => {
-    if (!livePositionPopupRequest || !enableLivePositionPopups) {
-      return;
-    }
-    if (lastLivePopupRequestKeyRef.current === livePositionPopupRequest.key) {
-      return;
-    }
-    lastLivePopupRequestKeyRef.current = livePositionPopupRequest.key;
-    showLivePositionPopup(livePositionPopupRequest);
-  }, [enableLivePositionPopups, livePositionPopupRequest, showLivePositionPopup]);
-
   const deckTrackLayers = useMemo(() => {
     const layers = [];
     if (isPerspective3D && cylinderVolumes.length) {
@@ -2198,45 +2139,7 @@ export const TaskMap = React.memo(function TaskMap({
         aircraftType?: "hang_glider" | "paraglider" | "sailplane";
         highlighted?: boolean;
       };
-      const liveMarkerClickHandler = enableLivePositionPopups
-        ? (info: { object?: LiveMarkerItem }) => {
-            if (!info.object) {
-              return false;
-            }
-            showLivePositionPopup(info.object);
-            return true;
-          }
-        : undefined;
-      const liveMarkerHoverHandler = enableLivePositionPopups
-        ? (info: { object?: LiveMarkerItem }) => {
-            const map = mapRef.current;
-            if (map) {
-              map.getCanvas().style.cursor = info.object ? "pointer" : "";
-            }
-          }
-        : undefined;
       layers.push(
-        new ScatterplotLayer({
-          id: `live-pilot-hit-targets-${mode}`,
-          data: liveMarkerData as LiveMarkerItem[],
-          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-          billboard: true,
-          getPosition: (item: LiveMarkerItem) => item.position,
-          getRadius: (item: LiveMarkerItem) => Math.round((item.highlighted ? 34 : 30) * liveMarkerScale),
-          radiusUnits: "pixels",
-          radiusMinPixels: Math.round(26 * liveMarkerScale),
-          getFillColor: () => [255, 255, 255, 1],
-          getLineColor: () => [255, 255, 255, 1],
-          stroked: false,
-          filled: true,
-          opacity: 0.01,
-          pickable: enableLivePositionPopups,
-          onClick: liveMarkerClickHandler,
-          onHover: liveMarkerHoverHandler,
-          parameters: {
-            depthTest: false,
-          },
-        }),
         new IconLayer({
           id: `live-pilot-rings-${mode}`,
           data: liveMarkerData as LiveMarkerItem[],
@@ -2256,9 +2159,7 @@ export const TaskMap = React.memo(function TaskMap({
           getSize: (item: LiveMarkerItem) => Math.round((item.highlighted ? 32 : 28) * liveMarkerScale),
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(20 * liveMarkerScale),
-          pickable: enableLivePositionPopups,
-          onClick: liveMarkerClickHandler,
-          onHover: liveMarkerHoverHandler,
+          pickable: false,
           parameters: {
             depthTest: false,
           },
@@ -2284,9 +2185,7 @@ export const TaskMap = React.memo(function TaskMap({
           getSize: (item: LiveMarkerItem) => Math.round((item.highlighted ? 21 : 18) * liveMarkerScale),
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(12 * liveMarkerScale),
-          pickable: enableLivePositionPopups,
-          onClick: liveMarkerClickHandler,
-          onHover: liveMarkerHoverHandler,
+          pickable: false,
           parameters: {
             depthTest: false,
           },
@@ -2348,7 +2247,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [cylinderVolumes, displayTrack, enableLivePositionPopups, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, showLivePositionPopup, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -2604,8 +2503,6 @@ export const TaskMap = React.memo(function TaskMap({
         }
         scoredPointPopupRef.current?.remove();
         scoredPointPopupRef.current = null;
-        livePositionPopupRef.current?.remove();
-        livePositionPopupRef.current = null;
         map.remove();
         mapRef.current = null;
       };
@@ -3054,6 +2951,11 @@ export const TaskMap = React.memo(function TaskMap({
       verticalSpeedMps: telemetryIndex >= 0 ? telemetrySeries?.verticalSpeedMps[telemetryIndex] ?? null : null,
       glideRatio: telemetryIndex >= 0 ? telemetrySeries?.glideRatio[telemetryIndex] ?? null : null,
       color: String(livePosition?.color ?? highlightedFeature?.properties?.color ?? "#2563eb"),
+      lastUpdateLabel: livePosition?.timestamp
+        ? formatLivePositionUpdateLabel(livePosition.timestamp)
+        : telemetrySeries?.timestamps[telemetryIndex] != null
+          ? formatLivePositionUpdateLabel(new Date(telemetrySeries.timestamps[telemetryIndex]).toISOString())
+          : undefined,
       directionsUrl: drivingDirectionsUrl(mapCoordinate[1], mapCoordinate[0]),
     };
   }, [effectiveHighlightedLiveSubjectKey, effectiveLivePositions, effectiveTelemetryTrack, smoothedTelemetryTrackSeries]);
@@ -3136,6 +3038,12 @@ export const TaskMap = React.memo(function TaskMap({
         <span>{displayedHighlightedTrackSnapshot.verticalSpeedMps != null ? formatVarioLabel(displayedHighlightedTrackSnapshot.verticalSpeedMps, units.vario) : "--"}</span>
         <span>L/D</span>
         <span>{displayedHighlightedTrackSnapshot.glideRatio != null ? formatGlideRatioLabel(displayedHighlightedTrackSnapshot.glideRatio) : "--"}</span>
+        {displayedHighlightedTrackSnapshot.lastUpdateLabel ? (
+          <>
+            <span>Last update</span>
+            <span>{displayedHighlightedTrackSnapshot.lastUpdateLabel}</span>
+          </>
+        ) : null}
       </div>
       {displayedHighlightedTrackSnapshot.directionsUrl ? (
         <a

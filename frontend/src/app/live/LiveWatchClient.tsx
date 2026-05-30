@@ -8,7 +8,6 @@ import {
   type MapTaskPoint,
   type MapTurnpoint,
   type MapUnitPreferences,
-  type LivePositionPopupRequest,
 } from "../../components/TaskMap";
 import { PilotRoleBadge } from "../../components/PilotRoleBadge";
 import {
@@ -109,7 +108,6 @@ export function LiveWatchClient() {
   const [returnScoresEventId, setReturnScoresEventId] = useState<number | null>(null);
   const [hasAppliedInitialEvent, setHasAppliedInitialEvent] = useState(false);
   const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
-  const [livePositionPopupRequest, setLivePositionPopupRequest] = useState<LivePositionPopupRequest | null>(null);
   const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
   const [visibleTrackSubjectKeys, setVisibleTrackSubjectKeys] = useState<Set<string>>(() => new Set());
   const sseControllerRef = useRef<AbortController | null>(null);
@@ -245,7 +243,6 @@ export function LiveWatchClient() {
     setPilotNameById(new Map());
     setHighlightedSubjectKey(null);
     setFocusPosition(null);
-    setLivePositionPopupRequest(null);
     setVisibleTrackSubjectKeys(new Set());
 
     if (source.type === "none") {
@@ -483,15 +480,8 @@ export function LiveWatchClient() {
       lon: position.lon,
       key: requestKey,
     });
-    setLivePositionPopupRequest({
-      key: requestKey,
-      nameLabel: displayNameForSubject(position, pilotNameById),
-      latitude: position.lat,
-      longitude: position.lon,
-      timestamp: position.timestamp,
-    });
     setHighlightedSubjectKey((current) => current === subjectKey ? null : subjectKey);
-  }, [latestPositionForSubject, pilotNameById]);
+  }, [latestPositionForSubject]);
 
   const toggleSubjectTrack = useCallback((subjectKey: string, checked: boolean) => {
     setVisibleTrackSubjectKeys((current) => {
@@ -685,8 +675,6 @@ export function LiveWatchClient() {
             units={defaultUnits}
             editable={false}
             showGpsButton
-            enableLivePositionPopups
-            livePositionPopupRequest={livePositionPopupRequest}
             overlayConfig={overlayConfig}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"

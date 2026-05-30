@@ -3830,6 +3830,12 @@ button[type="submit"]:hover,
   text-align: right;
 }
 
+.map-track-telemetry-grid span:last-child {
+  max-width: 170px;
+  justify-self: end;
+  white-space: normal;
+}
+
 .map-track-telemetry-directions {
   display: inline-flex;
   align-items: center;
@@ -4820,14 +4826,6 @@ button[type="submit"]:hover,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.maplibregl-popup.live-position-map-popup {
-  z-index: 80;
-}
-
-.live-position-map-popup .maplibregl-popup-content {
-  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.28);
 }
 
 /* -- Public Comp Scores page -------------------------------- */
