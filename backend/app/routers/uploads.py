@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import io
 import re
 import zipfile
 from dataclasses import dataclass
-from datetime import datetime as dt, time as dt_time, timezone
+from datetime import datetime as dt, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -20,10 +17,17 @@ from app.db import get_session
 from app.deps import get_current_user
 from app.models import Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.schemas import BulkUploadItemResponse, UploadResponse
+from app.services import task_uploads as task_upload_service
 from app.services.audit import log_action
 from app.services.igc import parse_igc
-from app.services.logbook import sync_task_upload_to_logbook
 from app.services.scoring import rescore_task
+from app.services.task_uploads import (
+    is_late_start_upload,
+    manual_filename_with_suffix,
+    normalized_upload_source,
+    select_upload_for_scoring,
+    store_task_upload,
+)
 from app.services.tracking import _publish
 router = APIRouter(tags=["uploads"])
 
@@ -42,10 +46,7 @@ class PilotUploadMatch:
 
 
 def _normalized_upload_source(value: str | None) -> str:
-    normalized = str(value or "manual").strip().lower()
-    if normalized == "auto":
-        return "bulk"
-    return normalized or "manual"
+    return normalized_upload_source(value)
 
 
 def _normalize_text(value: str | None) -> str:
@@ -161,32 +162,7 @@ def _match_pilot_for_upload(session: Session, event_id: int, filename: str, meta
 
 
 def _manual_filename_with_suffix(session: Session, task_id: int, pilot_id: int, filename: str) -> str:
-    existing = {
-        str(name)
-        for name in session.scalars(
-            select(IGCUpload.filename).where(
-                IGCUpload.task_id == task_id,
-                IGCUpload.pilot_id == pilot_id,
-            )
-        ).all()
-    }
-    if filename not in existing:
-        return filename
-    path = Path(filename)
-    base = path.stem
-    suffix = path.suffix or ""
-    match = re.match(r"^(.*?)(\d+)$", base)
-    if match:
-        root = match.group(1)
-        counter = int(match.group(2))
-    else:
-        root = base
-        counter = 1
-    while True:
-        counter += 1
-        candidate = f"{root}{counter}{suffix}"
-        if candidate not in existing:
-            return candidate
+    return manual_filename_with_suffix(session, task_id, pilot_id, filename)
 
 
 def _serialize_upload(upload: IGCUpload) -> UploadResponse:
@@ -203,26 +179,7 @@ def _serialize_upload(upload: IGCUpload) -> UploadResponse:
 
 
 def _is_late_start_upload(session: Session, task: Task, upload: IGCUpload) -> bool:
-    """Return True if the upload's first fix is after the task's start_close_time."""
-    if not task.start_close_time:
-        return False
-    first_fix_time = session.scalar(
-        select(func.min(TrackPoint.recorded_at)).where(TrackPoint.upload_id == upload.id)
-    )
-    if first_fix_time is None:
-        return False
-    try:
-        parts = task.start_close_time.split(":")
-        close_time = dt_time(int(parts[0]), int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
-    except (ValueError, IndexError):
-        return False
-    event = session.get(Event, task.event_id)
-    try:
-        tz = ZoneInfo(event.timezone if event else "UTC")
-    except Exception:
-        tz = ZoneInfo("UTC")
-    local_fix = first_fix_time.astimezone(tz).time()
-    return local_fix > close_time
+    return is_late_start_upload(session, task, upload)
 
 
 def _select_upload_for_scoring(
@@ -232,29 +189,7 @@ def _select_upload_for_scoring(
     upload: IGCUpload,
     updated_by_user_id: int,
 ) -> bool:
-    existing_input = session.scalar(
-        select(TaskScoringInput).where(
-            TaskScoringInput.task_id == task.id,
-            TaskScoringInput.pilot_id == pilot_id,
-        )
-    )
-    if existing_input is None:
-        session.add(TaskScoringInput(
-            task_id=task.id,
-            pilot_id=pilot_id,
-            selected_upload_id=upload.id,
-            updated_by_user_id=updated_by_user_id,
-        ))
-        session.flush()
-        return True
-
-    changed = existing_input.selected_upload_id != upload.id or existing_input.status_override is not None
-    if changed:
-        existing_input.selected_upload_id = upload.id
-        existing_input.status_override = None
-        existing_input.updated_by_user_id = updated_by_user_id
-        session.flush()
-    return changed
+    return select_upload_for_scoring(session, task, pilot_id, upload, updated_by_user_id)
 
 
 def _auto_select_and_rescore(
@@ -305,72 +240,20 @@ async def _store_upload(
     upload_source: str = "manual",
     auto_select_and_rescore: bool = True,
 ) -> StoredUpload:
-    sha256 = hashlib.sha256(content).hexdigest()
-    # Dedup: if the same file was already uploaded for this pilot/task, return existing
-    existing = session.scalar(
-        select(IGCUpload).where(
-            IGCUpload.task_id == task.id,
-            IGCUpload.pilot_id == pilot_id,
-            IGCUpload.sha256 == sha256,
-        )
-    )
-    if existing is not None:
-        return StoredUpload(upload=existing, created=False)
-    parsed = parse_igc(content)
-    filename = file.filename or "track.igc"
-    if upload_source == "manual":
-        filename = _manual_filename_with_suffix(session, task.id, pilot_id, filename)
-    parsed.metadata["upload_source"] = upload_source
-    settings = get_settings()
-    upload_dir = Path(settings.upload_root) / "igc" / sha256
-    await asyncio.to_thread(upload_dir.mkdir, parents=True, exist_ok=True)
-    stored_path = upload_dir / filename
-    if not await asyncio.to_thread(stored_path.exists):
-        await asyncio.to_thread(stored_path.write_bytes, content)
-    upload = IGCUpload(
-        event_id=task.event_id,
-        task_id=task.id,
+    task_upload_service.get_settings = get_settings
+    task_upload_service.rescore_task = rescore_task
+    task_upload_service._publish = _publish
+    stored = await store_task_upload(
+        session,
+        task,
+        filename=file.filename or "track.igc",
+        content=content,
         pilot_id=pilot_id,
         uploaded_by_user_id=uploaded_by_user_id,
-        filename=filename,
-        sha256=sha256,
-        stored_path=str(stored_path),
-        metadata_json=parsed.metadata,
+        upload_source=upload_source,
+        auto_select_and_rescore_enabled=auto_select_and_rescore,
     )
-    session.add(upload)
-    session.flush()
-    for sequence, fix in enumerate(parsed.fixes, start=1):
-        session.add(
-            TrackPoint(
-                upload_id=upload.id,
-                sequence=sequence,
-                recorded_at=fix.recorded_at,
-                latitude=fix.latitude,
-                longitude=fix.longitude,
-                pressure_altitude_m=fix.pressure_altitude_m,
-                gps_altitude_m=fix.gps_altitude_m,
-            )
-        )
-    log_action(
-        session,
-        actor_user_id=uploaded_by_user_id,
-        action="igc.upload",
-        entity_type="igc_upload",
-        entity_id=str(upload.id),
-        details={"task_id": task.id, "pilot_id": pilot_id, "sha256": sha256, "fix_count": parsed.metadata.get("fix_count"), "upload_source": upload_source},
-    )
-    sync_task_upload_to_logbook(session, upload=upload, parsed=parsed)
-    # Notify live tracking SSE subscribers that an IGC file is available
-    _publish(task.id, {
-        "event": "igc_available",
-        "task_id": task.id,
-        "pilot_id": pilot_id,
-        "upload_id": upload.id,
-    })
-    # Auto-select newest upload and rescore if task has been scored
-    if auto_select_and_rescore:
-        _auto_select_and_rescore(session, task, pilot_id, upload, uploaded_by_user_id)
-    return StoredUpload(upload=upload, created=True)
+    return StoredUpload(upload=stored.upload, created=stored.created)
 
 
 @router.post("/api/tasks/{task_id}/uploads", response_model=UploadResponse)
