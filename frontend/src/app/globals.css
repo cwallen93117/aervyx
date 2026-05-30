@@ -6524,7 +6524,7 @@ details[open] > summary {
 
 .scoring-ops-table .rank-col { width: 52px; }
 .scoring-ops-table .name-col { width: 160px; }
-.scoring-ops-table .actions-col { width: 260px; }
+.scoring-ops-table .actions-col { width: 360px; }
 .scoring-ops-table .penalty-col { width: 112px; }
 .scoring-ops-table .time-col { width: 96px; }
 .scoring-ops-table .points-col { width: 96px; }
@@ -6608,7 +6608,8 @@ details[open] > summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  white-space: nowrap;
 }
 
 .scoring-ops-btn {
@@ -6627,6 +6628,7 @@ details[open] > summary {
 
 .scoring-ops-btn.upload:hover:not(:disabled) { background: #f5f5f4; }
 .scoring-ops-btn.logbook {
+  min-width: 126px;
   border-color: #9bbf71;
   background: #f4faea;
   color: #365f12;
