@@ -3830,6 +3830,27 @@ button[type="submit"]:hover,
   text-align: right;
 }
 
+.map-track-telemetry-directions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 6px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.22);
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.map-track-telemetry-directions:hover {
+  background: rgba(37, 99, 235, 0.16);
+  border-color: rgba(37, 99, 235, 0.36);
+}
+
 .results-task-map .results-sheet-header {
   padding: 16px 18px 0;
 }
@@ -4709,7 +4730,6 @@ button[type="submit"]:hover,
   font: inherit;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 10px;
   padding: 0 14px;
   transition: background 0.12s;
@@ -4800,31 +4820,6 @@ button[type="submit"]:hover,
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.live-pilot-actions {
-  flex: 1 1 100%;
-  padding: 0 0 10px 25px;
-}
-
-.live-pilot-directions {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 30px;
-  width: 100%;
-  border-radius: 6px;
-  background: rgba(0, 229, 255, 0.12);
-  border: 1px solid rgba(0, 229, 255, 0.26);
-  color: #67e8f9;
-  font-size: 0.75rem;
-  font-weight: 700;
-  text-decoration: none;
-}
-
-.live-pilot-directions:hover {
-  background: rgba(0, 229, 255, 0.18);
-  border-color: rgba(0, 229, 255, 0.42);
 }
 
 .maplibregl-popup.live-position-map-popup {

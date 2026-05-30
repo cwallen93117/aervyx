@@ -422,8 +422,7 @@ export type LivePositionPopupRequest = LiveMarkerPopupItem & {
 };
 
 function livePositionPopupHtml(item: LiveMarkerPopupItem): string {
-  const destination = `${item.latitude.toFixed(6)},${item.longitude.toFixed(6)}`;
-  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+  const directionsUrl = drivingDirectionsUrl(item.latitude, item.longitude);
   return `
     <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
       <div style="font-weight: 700; margin-bottom: 6px;">${escapeHtml(item.nameLabel)}</div>
@@ -431,6 +430,11 @@ function livePositionPopupHtml(item: LiveMarkerPopupItem): string {
       <a href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border-radius: 6px; background: #0f172a; color: #ffffff; font-weight: 700; text-decoration: none;">Driving directions</a>
     </div>
   `;
+}
+
+function drivingDirectionsUrl(lat: number, lon: number) {
+  const destination = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
 }
 
 function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"]) {
@@ -829,6 +833,7 @@ type HighlightedTrackSnapshot = {
   verticalSpeedMps: number | null;
   glideRatio: number | null;
   color: string;
+  directionsUrl?: string;
 };
 
 type TaskCylinderVolume = {
@@ -3049,6 +3054,7 @@ export const TaskMap = React.memo(function TaskMap({
       verticalSpeedMps: telemetryIndex >= 0 ? telemetrySeries?.verticalSpeedMps[telemetryIndex] ?? null : null,
       glideRatio: telemetryIndex >= 0 ? telemetrySeries?.glideRatio[telemetryIndex] ?? null : null,
       color: String(livePosition?.color ?? highlightedFeature?.properties?.color ?? "#2563eb"),
+      directionsUrl: drivingDirectionsUrl(mapCoordinate[1], mapCoordinate[0]),
     };
   }, [effectiveHighlightedLiveSubjectKey, effectiveLivePositions, effectiveTelemetryTrack, smoothedTelemetryTrackSeries]);
   const activeHighlightedTrackSnapshot = highlightedLiveSnapshot ?? highlightedTrackSnapshot;
@@ -3131,6 +3137,16 @@ export const TaskMap = React.memo(function TaskMap({
         <span>L/D</span>
         <span>{displayedHighlightedTrackSnapshot.glideRatio != null ? formatGlideRatioLabel(displayedHighlightedTrackSnapshot.glideRatio) : "--"}</span>
       </div>
+      {displayedHighlightedTrackSnapshot.directionsUrl ? (
+        <a
+          href={displayedHighlightedTrackSnapshot.directionsUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="map-track-telemetry-directions"
+        >
+          Driving directions
+        </a>
+      ) : null}
     </div>
   ) : null;
 

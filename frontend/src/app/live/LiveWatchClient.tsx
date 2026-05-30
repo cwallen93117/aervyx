@@ -92,11 +92,6 @@ function collectPilotNames(positions: LivePositionWithName[]) {
   return names;
 }
 
-function drivingDirectionsUrl(lat: number, lon: number) {
-  const destination = `${lat.toFixed(6)},${lon.toFixed(6)}`;
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
-}
-
 export function LiveWatchClient() {
   const [sources, setSources] = useState<PublicSources>({ events: [], buddy_groups: [] });
   const [selected, setSelected] = useState<SelectedSource>(allUsersSource);
@@ -587,18 +582,6 @@ export function LiveWatchClient() {
                   </span>
                 </div>
                 </button>
-                {isHighlighted && pos ? (
-                  <div className="live-pilot-actions">
-                    <a
-                      href={drivingDirectionsUrl(pos.lat, pos.lon)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="live-pilot-directions"
-                    >
-                      Driving directions
-                    </a>
-                  </div>
-                ) : null}
               </div>
             );
           })
