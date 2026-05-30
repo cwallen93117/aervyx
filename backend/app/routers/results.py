@@ -1,6 +1,7 @@
 import json
 import math
 from datetime import datetime, time as dt_time
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -9,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_staff
-from app.models import AuditLog, Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
+from app.models import AuditLog, Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.schemas import (
     PenaltyAuditEntry,
     PilotSummaryResponse,
@@ -19,12 +20,15 @@ from app.schemas import (
     ScoringOperationsResponse,
     ScoringOperationsResultSummary,
     ScoringOperationsRow,
+    ScoringLogbookCandidate,
+    ScoringLogbookSelectResponse,
     ScoringUploadOption,
     TaskResultSummaryResponse,
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
 from app.services.scoring import build_result_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
+from app.services.task_uploads import select_upload_for_scoring, store_task_upload
 
 router = APIRouter(tags=["results"])
 
@@ -128,6 +132,52 @@ def _effective_selected_upload_id(entry: TaskScoringInput | None) -> int | None:
     if entry is not None and entry.selected_upload_id is not None:
         return entry.selected_upload_id
     return None
+
+
+def _downloadable_logbook_path(session: Session, flight: PilotFlight) -> Path | None:
+    if flight.igc_upload_id is not None:
+        upload = session.get(IGCUpload, flight.igc_upload_id)
+        if upload is not None:
+            candidate = Path(upload.stored_path)
+            if candidate.exists():
+                return candidate
+    if flight.stored_path:
+        candidate = Path(flight.stored_path)
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def _validate_scoring_logbook_context(session: Session, task_id: int, pilot_id: int) -> tuple[Task, Pilot]:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    pilot = session.get(Pilot, pilot_id)
+    if pilot is None or session.scalar(select(EventPilot).where(EventPilot.event_id == task.event_id, EventPilot.pilot_id == pilot_id)) is None:
+        raise HTTPException(status_code=404, detail="Pilot not found for this event")
+    return task, pilot
+
+
+def _logbook_candidate_payload(session: Session, flight: PilotFlight) -> ScoringLogbookCandidate:
+    event = session.get(Event, flight.event_id) if flight.event_id else None
+    task = session.get(Task, flight.task_id) if flight.task_id else None
+    already_linked_upload_id = None
+    if flight.igc_upload_id is not None:
+        upload = session.get(IGCUpload, flight.igc_upload_id)
+        already_linked_upload_id = upload.id if upload is not None else None
+    return ScoringLogbookCandidate(
+        flight_id=flight.id,
+        filename=flight.filename,
+        source_kind=flight.source_kind,
+        flight_date=flight.flight_date,
+        created_at=flight.created_at,
+        event_name=event.name if event else None,
+        task_name=task.name if task else None,
+        duration_seconds=flight.duration_seconds,
+        highest_altitude_m=flight.highest_altitude_m,
+        best_climb_mps=flight.best_climb_mps,
+        already_linked_upload_id=already_linked_upload_id,
+    )
 
 
 def _gap_day_quality(details_json: dict | None) -> float | None:
@@ -373,6 +423,116 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
 
     rows.sort(key=row_sort_key)
     return ScoringOperationsResponse(rows=rows)
+
+
+@router.get("/api/tasks/{task_id}/pilots/{pilot_id}/logbook-igc-candidates", response_model=list[ScoringLogbookCandidate])
+def list_logbook_igc_candidates(
+    task_id: int,
+    pilot_id: int,
+    _admin: User = Depends(require_staff),
+    session: Session = Depends(get_session),
+) -> list[ScoringLogbookCandidate]:
+    task, _pilot = _validate_scoring_logbook_context(session, task_id, pilot_id)
+    if task.task_date is None:
+        return []
+    flights = session.scalars(
+        select(PilotFlight)
+        .where(
+            PilotFlight.pilot_id == pilot_id,
+            PilotFlight.flight_date == task.task_date,
+            PilotFlight.source_kind.in_(("app_upload", "task_upload")),
+        )
+        .order_by(PilotFlight.created_at.desc(), PilotFlight.id.desc())
+    ).all()
+    candidates = [
+        flight
+        for flight in flights
+        if flight.igc_upload_id is not None or _downloadable_logbook_path(session, flight) is not None
+    ]
+    return [_logbook_candidate_payload(session, flight) for flight in candidates]
+
+
+@router.post("/api/tasks/{task_id}/pilots/{pilot_id}/logbook-igc-candidates/{flight_id}/select", response_model=ScoringLogbookSelectResponse)
+async def select_logbook_igc_candidate(
+    task_id: int,
+    pilot_id: int,
+    flight_id: int,
+    admin: User = Depends(require_staff),
+    session: Session = Depends(get_session),
+) -> ScoringLogbookSelectResponse:
+    task, _pilot = _validate_scoring_logbook_context(session, task_id, pilot_id)
+    if task.task_date is None:
+        raise HTTPException(status_code=400, detail="Task must have a date before logbook files can be matched")
+    flight = session.get(PilotFlight, flight_id)
+    if flight is None or flight.pilot_id != pilot_id or flight.flight_date != task.task_date:
+        raise HTTPException(status_code=404, detail="Logbook flight not found for this pilot and task date")
+    if flight.source_kind not in {"app_upload", "task_upload"}:
+        raise HTTPException(status_code=400, detail="Only IGC-backed logbook flights can be selected")
+
+    selected_upload: IGCUpload | None = None
+    if flight.igc_upload_id is not None:
+        linked_upload = session.get(IGCUpload, flight.igc_upload_id)
+        if linked_upload is not None and linked_upload.task_id == task.id and linked_upload.pilot_id == pilot_id:
+            selected_upload = linked_upload
+
+    if selected_upload is None:
+        stored_path = _downloadable_logbook_path(session, flight)
+        if stored_path is None:
+            raise HTTPException(status_code=400, detail="This logbook flight does not have a downloadable IGC file")
+        content = stored_path.read_bytes()
+        stored = await store_task_upload(
+            session,
+            task,
+            filename=flight.filename or stored_path.name,
+            content=content,
+            pilot_id=pilot_id,
+            uploaded_by_user_id=admin.id,
+            upload_source="logbook",
+            auto_select_and_rescore_enabled=False,
+        )
+        selected_upload = stored.upload
+        synced_flight = session.scalar(select(PilotFlight).where(PilotFlight.igc_upload_id == selected_upload.id))
+        if flight.igc_upload_id is None and synced_flight is not None and synced_flight.id != flight.id:
+            synced_values = {
+                "source_kind": "task_upload",
+                "event_id": selected_upload.event_id,
+                "task_id": selected_upload.task_id,
+                "igc_upload_id": selected_upload.id,
+                "site_id": synced_flight.site_id,
+                "site_name": synced_flight.site_name,
+                "filename": synced_flight.filename,
+                "sha256": synced_flight.sha256,
+                "stored_path": synced_flight.stored_path,
+                "metadata_json": synced_flight.metadata_json,
+                "duration_seconds": synced_flight.duration_seconds,
+                "highest_altitude_m": synced_flight.highest_altitude_m,
+                "best_climb_mps": synced_flight.best_climb_mps,
+            }
+            session.execute(delete(PilotFlightTrackPoint).where(PilotFlightTrackPoint.flight_id == flight.id))
+            session.delete(synced_flight)
+            session.flush()
+            for attr, value in synced_values.items():
+                setattr(flight, attr, value)
+            session.add(flight)
+            session.flush()
+
+    select_upload_for_scoring(session, task, pilot_id, selected_upload, admin.id)
+    rescore_task(session, task.id)
+    log_action(
+        session,
+        actor_user_id=admin.id,
+        action="task.scoring_input.logbook_select",
+        entity_type="task_scoring_input",
+        entity_id=f"{task.id}:{pilot_id}",
+        details={"task_id": task.id, "pilot_id": pilot_id, "flight_id": flight.id, "selected_upload_id": selected_upload.id},
+    )
+    session.commit()
+    return ScoringLogbookSelectResponse(
+        task_id=task.id,
+        pilot_id=pilot_id,
+        flight_id=flight.id,
+        selected_upload_id=selected_upload.id,
+    )
 
 
 @router.patch("/api/tasks/{task_id}/scoring-inputs/{pilot_id}")

@@ -297,6 +297,26 @@ export type ScoringOperationsRowRecord = {
 };
 export type ScoringOperationsResponseRecord = { rows: ScoringOperationsRowRecord[] };
 export type ScoringInputSelectionRecord = { selected_upload_id: number | null; status_override: "minimum_distance" | "did_not_fly" | "absent" | null };
+export type ScoringLogbookCandidateRecord = {
+  flight_id: number;
+  filename: string | null;
+  source_kind: string;
+  flight_date: string;
+  created_at: string;
+  event_name: string | null;
+  task_name: string | null;
+  duration_seconds: number | null;
+  highest_altitude_m: number | null;
+  best_climb_mps: number | null;
+  already_linked_upload_id: number | null;
+};
+export type ScoringLogbookSelectResponseRecord = {
+  status: string;
+  task_id: number;
+  pilot_id: number;
+  flight_id: number;
+  selected_upload_id: number;
+};
 export type TurnpointUploadResponse = { source_id: number; format: string; imported_count: number; sha256: string; filename: string };
 export type BulkUploadItemRecord = { filename: string; matched: boolean; upload_id?: number | null; pilot_id?: number | null; pilot_name?: string | null; match_confidence?: string | null; message: string };
 export type AirspaceSourceKind = "" | "airspace" | "restricted_field";

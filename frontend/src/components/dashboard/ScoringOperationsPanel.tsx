@@ -8,6 +8,8 @@ import type {
   BulkUploadItemRecord,
   ScorePenaltyRecord,
   PilotSummaryRecord,
+  ScoringLogbookCandidateRecord,
+  ScoringLogbookSelectResponseRecord,
   ScoringOperationsResponseRecord,
   ScoringOperationsRowRecord,
   ScoringPresetRecord,
@@ -17,6 +19,13 @@ import type {
 type FeedbackState = { type: "success" | "error" | "pending"; text: string } | null;
 type ConfirmAction = "delete_all" | "delete_scored_task" | null;
 type UploadedIgcRecord = { id: number; pilot_id: number; filename: string };
+type LogbookPickerState = {
+  row: ScoringOperationsRowRecord;
+  candidates: ScoringLogbookCandidateRecord[];
+  loading: boolean;
+  error: string | null;
+  selectingFlightId: number | null;
+} | null;
 const TOKEN_KEY = "flightcomp-platform-token";
 const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 let refreshPromise: Promise<string> | null = null;
@@ -106,6 +115,33 @@ function formatPoints(value: number | null | undefined): string {
   return value.toFixed(1);
 }
 
+function formatShortDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatDuration(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const totalSeconds = Math.max(0, Math.round(value));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function sourceLabel(value: string): string {
+  switch (value) {
+    case "task_upload":
+      return "Task";
+    case "app_upload":
+      return "Logbook";
+    default:
+      return value.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+}
+
 function rowSelectionValue(row: ScoringOperationsRowRecord): string {
   if (row.selected_upload_id != null) return `file:${row.selected_upload_id}`;
   if (row.status_override) return `status:${row.status_override}`;
@@ -190,6 +226,7 @@ export default function ScoringOperationsPanel({
   const [panelPilotId, setPanelPilotId] = useState<number | null>(null);
   const [draftPenalties, setDraftPenalties] = useState<ScorePenaltyRecord[]>([]);
   const [savingPenalties, setSavingPenalties] = useState(false);
+  const [logbookPicker, setLogbookPicker] = useState<LogbookPickerState>(null);
   const rowUploadRefs = useRef<Record<number, HTMLInputElement | null>>({});
   const bulkUploadRef = useRef<HTMLInputElement | null>(null);
   const publishedTasks = tasks.filter((task) => task.status === "published");
@@ -365,6 +402,49 @@ export default function ScoringOperationsPanel({
       setFeedback({ type: "success", text: `Uploaded and scored ${file.name}.` });
     } catch (caught) {
       setFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Upload failed." });
+    }
+  };
+
+  const openLogbookPicker = async (row: ScoringOperationsRowRecord) => {
+    if (!token || !activePublishedTaskId) return;
+    setLogbookPicker({ row, candidates: [], loading: true, error: null, selectingFlightId: null });
+    try {
+      const candidates = await apiFetch<ScoringLogbookCandidateRecord[]>(
+        `/api/tasks/${activePublishedTaskId}/pilots/${row.pilot_id}/logbook-igc-candidates`,
+        token,
+      );
+      setLogbookPicker({ row, candidates, loading: false, error: null, selectingFlightId: null });
+    } catch (caught) {
+      setLogbookPicker({
+        row,
+        candidates: [],
+        loading: false,
+        error: caught instanceof Error ? caught.message : "Could not load logbook files.",
+        selectingFlightId: null,
+      });
+    }
+  };
+
+  const selectLogbookCandidate = async (flightId: number) => {
+    if (!token || !activePublishedTaskId || !logbookPicker) return;
+    const row = logbookPicker.row;
+    setLogbookPicker({ ...logbookPicker, selectingFlightId: flightId, error: null });
+    try {
+      const result = await apiFetch<ScoringLogbookSelectResponseRecord>(
+        `/api/tasks/${activePublishedTaskId}/pilots/${row.pilot_id}/logbook-igc-candidates/${flightId}/select`,
+        token,
+        { method: "POST" },
+      );
+      await reloadTaskAndRows();
+      await refreshEventSummary();
+      setLogbookPicker(null);
+      setFeedback({ type: "success", text: `Selected logbook IGC for ${row.pilot_name}. Upload ${result.selected_upload_id} is now scored.` });
+    } catch (caught) {
+      setLogbookPicker({
+        ...logbookPicker,
+        selectingFlightId: null,
+        error: caught instanceof Error ? caught.message : "Could not select that logbook file.",
+      });
     }
   };
 
@@ -623,6 +703,14 @@ export default function ScoringOperationsPanel({
                             >
                               Upload
                             </button>
+                            <button
+                              type="button"
+                              className="scoring-ops-btn logbook"
+                              onClick={() => void openLogbookPicker(row)}
+                              disabled={!selectedTask?.task_date}
+                            >
+                              Pick from Logbook
+                            </button>
                             <input
                               ref={(node) => {
                                 rowUploadRefs.current[row.pilot_id] = node;
@@ -726,6 +814,67 @@ export default function ScoringOperationsPanel({
             <button type="button" className="scoring-ops-footer-btn destructive" onClick={() => void executeConfirmAction()}>
               {confirmAction === "delete_all" ? "Delete all IGCs" : "Delete scored task"}
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div className={`scoring-ops-modal-overlay${logbookPicker ? " active" : ""}`} onClick={() => setLogbookPicker(null)}>
+        <div className="scoring-ops-modal scoring-ops-logbook-modal" onClick={(event) => event.stopPropagation()}>
+          <div className="scoring-ops-modal-title">
+            Pick from Logbook
+          </div>
+          <div className="scoring-ops-modal-body">
+            {logbookPicker ? (
+              <>
+                <div className="scoring-ops-logbook-heading">
+                  <strong>{logbookPicker.row.pilot_name}</strong>
+                  <span>{selectedTask?.name ?? "Task"} - {formatShortDate(selectedTask?.task_date)}</span>
+                </div>
+                {logbookPicker.loading ? (
+                  <div className="scoring-ops-empty compact">Loading logbook IGC files...</div>
+                ) : logbookPicker.error ? (
+                  <div className="status-chip error">{logbookPicker.error}</div>
+                ) : logbookPicker.candidates.length ? (
+                  <div className="scoring-ops-logbook-list">
+                    {logbookPicker.candidates.map((candidate) => {
+                      const context = [candidate.event_name, candidate.task_name].filter(Boolean).join(" - ");
+                      const selecting = logbookPicker.selectingFlightId === candidate.flight_id;
+                      return (
+                        <div key={candidate.flight_id} className="scoring-ops-logbook-row">
+                          <div className="scoring-ops-logbook-main">
+                            <div className="scoring-ops-logbook-title">{candidate.filename ?? `Flight ${candidate.flight_id}`}</div>
+                            <div className="scoring-ops-logbook-meta">
+                              <span>{formatShortDate(candidate.flight_date)}</span>
+                              <span>{sourceLabel(candidate.source_kind)}</span>
+                              {context ? <span>{context}</span> : null}
+                              {candidate.already_linked_upload_id ? <span>Upload {candidate.already_linked_upload_id}</span> : null}
+                            </div>
+                            <div className="scoring-ops-logbook-stats">
+                              <span>{formatDuration(candidate.duration_seconds)}</span>
+                              <span>{candidate.highest_altitude_m != null ? `${Math.round(candidate.highest_altitude_m)} m max` : "- max"}</span>
+                              <span>{candidate.best_climb_mps != null ? `${candidate.best_climb_mps.toFixed(1)} m/s climb` : "- climb"}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="scoring-ops-footer-btn secondary"
+                            disabled={logbookPicker.selectingFlightId != null}
+                            onClick={() => void selectLogbookCandidate(candidate.flight_id)}
+                          >
+                            {selecting ? "Selecting..." : "Select"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="scoring-ops-empty compact">No same-date IGC files were found in this pilot&apos;s logbook.</div>
+                )}
+              </>
+            ) : null}
+          </div>
+          <div className="scoring-ops-modal-actions">
+            <button type="button" className="scoring-ops-footer-btn secondary" onClick={() => setLogbookPicker(null)}>Close</button>
           </div>
         </div>
       </div>

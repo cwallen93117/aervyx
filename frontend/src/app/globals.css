@@ -6526,7 +6526,7 @@ details[open] > summary {
 
 .scoring-ops-table .rank-col { width: 52px; }
 .scoring-ops-table .name-col { width: 160px; }
-.scoring-ops-table .actions-col { width: 170px; }
+.scoring-ops-table .actions-col { width: 260px; }
 .scoring-ops-table .penalty-col { width: 112px; }
 .scoring-ops-table .time-col { width: 96px; }
 .scoring-ops-table .points-col { width: 96px; }
@@ -6610,6 +6610,7 @@ details[open] > summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .scoring-ops-btn {
@@ -6627,6 +6628,12 @@ details[open] > summary {
 }
 
 .scoring-ops-btn.upload:hover:not(:disabled) { background: #f5f5f4; }
+.scoring-ops-btn.logbook {
+  border-color: #9bbf71;
+  background: #f4faea;
+  color: #365f12;
+}
+.scoring-ops-btn.logbook:hover:not(:disabled) { background: #e5f4d2; }
 .scoring-ops-btn.danger { border-color: #f0997b; background: #faece7; color: #993c1d; }
 .scoring-ops-btn.danger:hover:not(:disabled) { background: #f5c4b3; }
 .scoring-ops-btn:disabled { opacity: 0.4; cursor: default; }
@@ -6843,6 +6850,10 @@ details[open] > summary {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
 }
 
+.scoring-ops-logbook-modal {
+  width: min(94vw, 720px);
+}
+
 .scoring-ops-modal-title { font-size: 0.9375rem; font-weight: 600; margin-bottom: 8px; }
 
 .scoring-ops-modal-body {
@@ -6856,6 +6867,62 @@ details[open] > summary {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.scoring-ops-logbook-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  color: var(--ink);
+}
+
+.scoring-ops-logbook-heading span {
+  color: var(--ink-secondary);
+}
+
+.scoring-ops-empty.compact {
+  padding: 14px;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+}
+
+.scoring-ops-logbook-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(52vh, 460px);
+  overflow: auto;
+}
+
+.scoring-ops-logbook-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.scoring-ops-logbook-main {
+  min-width: 0;
+}
+
+.scoring-ops-logbook-title {
+  color: var(--ink);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.scoring-ops-logbook-meta,
+.scoring-ops-logbook-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 4px;
+  color: var(--ink-secondary);
+  font-size: 0.75rem;
 }
 
 .scoring-ops-panel-overlay {
@@ -7477,6 +7544,14 @@ html[data-theme="dark"] .scoring-ops-btn {
 
 html[data-theme="dark"] .scoring-ops-btn.upload:hover:not(:disabled) { background: #1e293b; }
 
+html[data-theme="dark"] .scoring-ops-btn.logbook {
+  border-color: rgba(132, 204, 22, 0.3);
+  background: rgba(132, 204, 22, 0.1);
+  color: #bef264;
+}
+
+html[data-theme="dark"] .scoring-ops-btn.logbook:hover:not(:disabled) { background: rgba(132, 204, 22, 0.18); }
+
 html[data-theme="dark"] .scoring-ops-btn.danger {
   border-color: rgba(239, 68, 68, 0.4);
   background: rgba(239, 68, 68, 0.1);
@@ -7535,6 +7610,7 @@ html[data-theme="dark"] .scoring-ops-footer-btn.state-unofficial:hover:not(:disa
 
 html[data-theme="dark"] .scoring-ops-modal-overlay { background: rgba(0, 0, 0, 0.6); }
 html[data-theme="dark"] .scoring-ops-modal { background: #111827; }
+html[data-theme="dark"] .scoring-ops-logbook-row { background: #0f172a; border-color: rgba(255, 255, 255, 0.12); }
 html[data-theme="dark"] .scoring-ops-panel-overlay { background: rgba(0, 0, 0, 0.5); }
 html[data-theme="dark"] .scoring-ops-penalty-panel { background: #111827; }
 html[data-theme="dark"] .scoring-ops-panel-close { color: rgba(255, 255, 255, 0.42); }

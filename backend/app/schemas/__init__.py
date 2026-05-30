@@ -711,6 +711,28 @@ class ScoringOperationsResponse(BaseModel):
     rows: list[ScoringOperationsRow] = Field(default_factory=list)
 
 
+class ScoringLogbookCandidate(BaseModel):
+    flight_id: int
+    filename: str | None = None
+    source_kind: str
+    flight_date: date
+    created_at: datetime
+    event_name: str | None = None
+    task_name: str | None = None
+    duration_seconds: int | None = None
+    highest_altitude_m: float | None = None
+    best_climb_mps: float | None = None
+    already_linked_upload_id: int | None = None
+
+
+class ScoringLogbookSelectResponse(BaseModel):
+    status: str = "ok"
+    task_id: int
+    pilot_id: int
+    flight_id: int
+    selected_upload_id: int
+
+
 class LogbookFlightCreate(BaseModel):
     flight_date: date
     site_name: str = ""
