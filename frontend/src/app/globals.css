@@ -3141,9 +3141,8 @@ button[type="submit"]:hover,
   background: #e2e8f0;
 }
 
-.practice-task-badge {
+.practice-task-label {
   display: inline-block;
-  margin-left: 6px;
   padding: 1px 6px;
   border-radius: 4px;
   background: #dbeafe;
@@ -4156,10 +4155,6 @@ button[type="submit"]:hover,
 
 .results-header-stack .result-state-badge {
   margin-top: 4px;
-}
-
-.results-header-stack .practice-task-badge {
-  margin: 4px 0 0;
 }
 
 .task-practice-checkbox-row {

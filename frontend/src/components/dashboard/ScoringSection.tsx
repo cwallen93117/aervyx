@@ -166,12 +166,41 @@ function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactN
   const dateLabel = formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at);
   return (
     <span className="results-header-stack">
-      <span>{task.name}</span>
-      {task.is_practice ? <span className="practice-task-badge">Practice</span> : null}
+      <span className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</span>
       <span>{dateLabel}</span>
       {stateLabel ? <span className={`result-state-badge ${stateClassName}`}>{stateLabel}</span> : null}
     </span>
   );
+}
+
+function eventHasNotStarted(startsOn: string | null | undefined): boolean {
+  if (!startsOn) return false;
+  const parsed = new Date(`${startsOn}T00:00:00`);
+  return Number.isFinite(parsed.getTime()) && Date.now() < parsed.getTime();
+}
+
+function sortOverallPilotSummary(
+  summaries: PilotSummaryRecord[],
+  scoredTasks: TaskRecord[],
+  eventStartsOn: string | null | undefined,
+): PilotSummaryRecord[] {
+  const practiceTasks = scoredTasks.filter((task) => task.is_practice);
+  const latestPracticeTask = practiceTasks[practiceTasks.length - 1];
+  if (eventHasNotStarted(eventStartsOn) && latestPracticeTask) {
+    const taskKey = String(latestPracticeTask.id);
+    return [...summaries].sort((left, right) => {
+      const scoreDiff = (right.task_scores[taskKey] ?? 0) - (left.task_scores[taskKey] ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const totalDiff = right.total_score_points - left.total_score_points;
+      if (totalDiff !== 0) return totalDiff;
+      return left.pilot_name.localeCompare(right.pilot_name);
+    });
+  }
+  return [...summaries].sort((left, right) => {
+    const totalDiff = right.total_score_points - left.total_score_points;
+    if (totalDiff !== 0) return totalDiff;
+    return left.pilot_name.localeCompare(right.pilot_name);
+  });
 }
 
 function PenaltyDetailsModal({
@@ -379,6 +408,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
     }
     return states;
   }, [pilotSummary, scoredTasks]);
+  const overallPilotSummary = useMemo(
+    () => sortOverallPilotSummary(pilotSummary, scoredTasks, eventForm.starts_on),
+    [eventForm.starts_on, pilotSummary, scoredTasks],
+  );
   const selectedTaskResultsOfficial = useMemo(
     () => results.some((result) => result.result_state !== "unscored") && results.every((result) => result.result_state === "official" || result.result_state === "unscored"),
     [results],
@@ -734,7 +767,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                       <tbody>
                         {scoredTasks.map((task) => (
                           <tr key={task.id}>
-                            <td><strong>{task.name}</strong>{task.is_practice ? <span className="practice-task-badge">Practice</span> : null}</td>
+                            <td><strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong></td>
                             <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                             <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
                             <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
@@ -757,7 +790,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {pilotSummary.map((summary, index) => {
+                        {overallPilotSummary.map((summary, index) => {
                           const pilot = pilotById.get(summary.pilot_id);
                           return (
                             <tr key={summary.pilot_id}>

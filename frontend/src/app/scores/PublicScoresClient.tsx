@@ -129,6 +129,36 @@ function resultStateLabel(resultState: string | null | undefined): { label: stri
   return null;
 }
 
+function eventHasNotStarted(startsOn: string | null | undefined): boolean {
+  if (!startsOn) return false;
+  const parsed = new Date(`${startsOn}T00:00:00`);
+  return Number.isFinite(parsed.getTime()) && Date.now() < parsed.getTime();
+}
+
+function sortOverallPilotSummary(
+  summaries: PilotSummaryRecord[],
+  scoredTasks: PublicTask[],
+  eventStartsOn: string | null | undefined,
+): PilotSummaryRecord[] {
+  const practiceTasks = scoredTasks.filter((task) => task.is_practice);
+  const latestPracticeTask = practiceTasks[practiceTasks.length - 1];
+  if (eventHasNotStarted(eventStartsOn) && latestPracticeTask) {
+    const taskKey = String(latestPracticeTask.id);
+    return [...summaries].sort((left, right) => {
+      const scoreDiff = (right.task_scores[taskKey] ?? 0) - (left.task_scores[taskKey] ?? 0);
+      if (scoreDiff !== 0) return scoreDiff;
+      const totalDiff = right.total_score_points - left.total_score_points;
+      if (totalDiff !== 0) return totalDiff;
+      return left.pilot_name.localeCompare(right.pilot_name);
+    });
+  }
+  return [...summaries].sort((left, right) => {
+    const totalDiff = right.total_score_points - left.total_score_points;
+    if (totalDiff !== 0) return totalDiff;
+    return left.pilot_name.localeCompare(right.pilot_name);
+  });
+}
+
 function sortPublicEventsByDate(events: PublicEvent[]): PublicEvent[] {
   return [...events].sort((a, b) => (
     b.starts_on.localeCompare(a.starts_on)
@@ -363,8 +393,12 @@ export function PublicScoresClient() {
     [tasks, pilotSummary],
   );
   const visiblePilotSummary = useMemo(
-    () => pilotSummary.filter((summary) => Object.keys(summary.task_scores).length > 0),
-    [pilotSummary],
+    () => sortOverallPilotSummary(
+      pilotSummary.filter((summary) => Object.keys(summary.task_scores).length > 0),
+      scoredTasks,
+      selectedEvent?.starts_on,
+    ),
+    [pilotSummary, scoredTasks, selectedEvent?.starts_on],
   );
   const overallTaskResultStates = useMemo(() => {
     const states = new Map<number, string>();
@@ -720,7 +754,7 @@ export function PublicScoresClient() {
             <tbody>
               {scoredTasks.map((task) => (
                 <tr key={task.id}>
-                  <td><strong>{task.name}</strong>{task.is_practice ? <span className="practice-task-badge">Practice</span> : null}</td>
+                  <td><strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong></td>
                   <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                   <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)} km</td>
                   <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
@@ -743,8 +777,7 @@ export function PublicScoresClient() {
                   return (
                     <th key={task.id}>
                       <span className="results-header-stack">
-                        <span>{task.name}</span>
-                        {task.is_practice ? <span className="practice-task-badge">Practice</span> : null}
+                        <span className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</span>
                         {state ? <span className={`result-state-badge ${state.className}`}>{state.label}</span> : null}
                       </span>
                     </th>
@@ -782,7 +815,7 @@ export function PublicScoresClient() {
       <div className="scores-panel">
         <div className="scores-panel-header">
           <div>
-            <h1>{selectedTask.name} {selectedTask.is_practice ? <span className="practice-task-badge">Practice</span> : null} {selectedState ? <span className={`result-state-badge ${selectedState.className}`}>{selectedState.label}</span> : null}</h1>
+            <h1><span className={selectedTask.is_practice ? "practice-task-label" : undefined}>{selectedTask.name}</span> {selectedState ? <span className={`result-state-badge ${selectedState.className}`}>{selectedState.label}</span> : null}</h1>
             <p>{formatDateLabel(selectedTask.task_date)} - {taskTypeLabelWithGateCount(selectedTask)}</p>
           </div>
         </div>
