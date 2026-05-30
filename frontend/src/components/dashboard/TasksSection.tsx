@@ -300,16 +300,14 @@ export default function TasksSection(props: TasksSectionProps) {
                           </label>
                         </div>
                       ) : null}
-                      {startGateLabels.length ? (
-                        <div className="task-gate-times" aria-label="Start gate times">
-                          <strong>{startGateTimesLabel}</strong>
-                          <div className="task-gate-time-list">
-                            {startGateLabels.map((label) => (
-                              <span key={label} className="task-gate-time-chip">{label}</span>
-                            ))}
-                          </div>
+                      <div className="task-gate-times" aria-label="Start gate times">
+                        <strong>{startGateTimesLabel}</strong>
+                        <div className="task-gate-time-list">
+                          {startGateLabels.length ? startGateLabels.map((label) => (
+                            <span key={label} className="task-gate-time-chip">{label}</span>
+                          )) : <span className="task-readonly-empty">Set Start open to preview gate times.</span>}
                         </div>
-                      ) : null}
+                      </div>
                     </>
                   ) : (
                     <>
