@@ -656,7 +656,6 @@ export function PublicScoresClient() {
                   <td><span className="scoring-ops-rank-badge">{index + 1}</span></td>
                   <td>
                     <strong>{summary.pilot_name}</strong>
-                    {summary.competition_number ? <span className="scores-name-meta">#{summary.competition_number}</span> : null}
                   </td>
                   {scoredTasks.map((task) => (
                     <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatPoints(summary.task_scores[String(task.id)]) : "-"}</td>
@@ -711,7 +710,6 @@ export function PublicScoresClient() {
                       <td>
                         <strong>{result.pilot_name}</strong>
                         {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
-                        {result.competition_number ? <span className="scores-name-meta">#{result.competition_number}</span> : null}
                       </td>
                       <td>{formatClockTime(result.started_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
                       <td>{formatClockTime(result.goal_at ?? result.ess_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
