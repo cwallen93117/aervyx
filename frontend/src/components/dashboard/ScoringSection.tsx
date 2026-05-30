@@ -748,7 +748,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
               {pilotSummary.length ? (
                 <>
                   <div className="results-table-wrap">
-                    <table className="results-table results-table-compact">
+                    <table className="results-table results-table-compact overall-task-summary-table">
                       <thead>
                         <tr>
                           <th>Task</th>
