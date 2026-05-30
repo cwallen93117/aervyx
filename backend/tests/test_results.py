@@ -148,17 +148,18 @@ def test_task_results_include_penalty_calculation_details() -> None:
     payload = get_task_results(task.id, user=admin, session=session)
 
     result = payload[0]
-    assert result.penalty_summary == "Jump start -60 pts, -10%, -10 pts"
+    assert result.penalty_summary == "Early start penalty -60 pts, -10%, -10 pts"
     assert len(result.penalties) == 2
     assert result.penalty_calculation is not None
     assert result.penalty_calculation.engine_penalty_points == 60
     assert result.penalty_calculation.manual_penalty_points == 110
     assert result.penalty_calculation.total_display_penalty_points == 170
     assert [(line.kind, line.label, line.amount_points) for line in result.penalty_calculation.lines] == [
-        ("engine", "Jump start", 60.0),
+        ("engine", "Early start penalty", 60.0),
         ("manual", "Cloud flying", 100.0),
         ("manual", "Late report", 10.0),
     ]
+    assert result.penalty_calculation.lines[0].detail == "Started at 14:14:30 UTC, before start gate 2 at 14:15:00 UTC. Early by 30s. Charged 2 points per second."
 
 
 def test_pilot_summary_keeps_practice_scores_out_of_totals() -> None:

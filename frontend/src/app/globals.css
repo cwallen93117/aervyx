@@ -2999,11 +2999,10 @@ button[type="submit"]:hover,
   border: 0;
   padding: 0;
   background: transparent;
-  color: inherit;
+  color: #dc2626;
   font: inherit;
   font-weight: 700;
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -3090,6 +3089,11 @@ button[type="submit"]:hover,
   display: block;
   margin-top: 0.2rem;
   color: var(--ink);
+}
+
+.score-penalty-score-strip strong.score-penalty-amount,
+.score-penalty-line strong.score-penalty-amount {
+  color: #dc2626;
 }
 
 .score-penalty-lines {
@@ -5238,6 +5242,10 @@ button[type="submit"]:hover,
   color: #f87171;
 }
 
+.scores-page .score-penalty-link {
+  color: #f87171;
+}
+
 .scores-page .score-penalty-modal {
   border-color: rgba(255, 255, 255, 0.1);
   background: #111827;
@@ -5252,6 +5260,11 @@ button[type="submit"]:hover,
 .scores-page .score-penalty-score-strip strong,
 .scores-page .score-penalty-line strong {
   color: #f8fafc;
+}
+
+.scores-page .score-penalty-score-strip strong.score-penalty-amount,
+.scores-page .score-penalty-line strong.score-penalty-amount {
+  color: #f87171;
 }
 
 .scores-page .score-penalty-modal-subtitle,

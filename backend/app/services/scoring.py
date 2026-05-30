@@ -1438,6 +1438,34 @@ def _format_penalty_number(value: float) -> str:
     return f"{int(value)}" if float(value).is_integer() else f"{value:g}"
 
 
+def _format_penalty_time(value: object) -> str | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(value)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(UTC)
+        return parsed.strftime("%H:%M:%S UTC")
+    return parsed.strftime("%H:%M:%S")
+
+
+def _format_penalty_duration(seconds: object) -> str | None:
+    try:
+        total_seconds = int(float(seconds or 0))
+    except (TypeError, ValueError):
+        return None
+    if total_seconds <= 0:
+        return None
+    minutes, remainder = divmod(total_seconds, 60)
+    if minutes and remainder:
+        return f"{minutes}m {remainder}s"
+    if minutes:
+        return f"{minutes}m"
+    return f"{remainder}s"
+
+
 def _penalty_entry_payload(penalty: ScorePenalty) -> dict:
     return {
         "id": penalty.id,
@@ -1468,23 +1496,29 @@ def _engine_penalty_lines(details_json: dict | None) -> tuple[float, list[dict]]
             actual_start = start_timing.get("actual_start_crossing_at") or start_timing.get("actual_start_exit_after_at")
             formula = details_json.get("gap", {}).get("formula", {}) if isinstance(details_json.get("gap"), dict) else {}
             factor = formula.get("jump_the_gun_factor") if isinstance(formula, dict) else None
-            if actual_start:
-                parts.append(f"actual start {actual_start}")
-            if gate_index:
-                parts.append(f"gate {gate_index}{f' at {gate_time}' if gate_time else ''}")
-            if jump_seconds:
-                parts.append(f"{jump_seconds}s early")
-            if penalty_seconds and penalty_seconds != jump_seconds:
-                parts.append(f"capped at {penalty_seconds}s")
+            actual_start_label = _format_penalty_time(actual_start)
+            gate_time_label = _format_penalty_time(gate_time)
+            if actual_start_label and gate_index and gate_time_label:
+                parts.append(f"Started at {actual_start_label}, before start gate {gate_index} at {gate_time_label}.")
+            elif actual_start_label:
+                parts.append(f"Started at {actual_start_label}.")
+            elif gate_index and gate_time_label:
+                parts.append(f"Assigned to start gate {gate_index} at {gate_time_label}.")
+            early_label = _format_penalty_duration(jump_seconds)
+            capped_label = _format_penalty_duration(penalty_seconds)
+            if early_label and capped_label and penalty_seconds != jump_seconds:
+                parts.append(f"Early by {early_label}; penalty was capped at {capped_label}.")
+            elif early_label:
+                parts.append(f"Early by {early_label}.")
             if factor:
-                parts.append(f"{_format_penalty_number(_safe_float(factor))} pts/s")
+                parts.append(f"Charged {_format_penalty_number(_safe_float(factor))} points per second.")
             lines.append(
                 {
                     "kind": "engine",
-                    "label": "Jump start",
+                    "label": "Early start penalty",
                     "amount_points": round(start_points, 2),
                     "running_score_points": None,
-                    "detail": ", ".join(parts) if parts else None,
+                    "detail": " ".join(parts) if parts else None,
                 }
             )
 

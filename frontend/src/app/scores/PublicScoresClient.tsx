@@ -319,9 +319,9 @@ function PenaltyDetailsModal({
         {calculation ? (
           <>
             <div className="score-penalty-score-strip">
-              <div><span>Raw</span><strong>{formatScorePoints(calculation.raw_score_points)}</strong></div>
-              <div><span>Engine</span><strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
-              <div><span>Manual</span><strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
+              <div><span>Total</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
+              <div><span>Automatic Penalties</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
+              <div><span>Manual</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
               <div><span>Final</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
             </div>
             <div className="score-penalty-lines">
@@ -332,7 +332,7 @@ function PenaltyDetailsModal({
                     {line.detail ? <span>{line.detail}</span> : null}
                   </div>
                   <div>
-                    <strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: line.amount_points } })}</strong>
+                    <strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: line.amount_points } })}</strong>
                     {line.running_score_points != null ? <span>{formatScorePoints(line.running_score_points)} running</span> : null}
                   </div>
                 </div>

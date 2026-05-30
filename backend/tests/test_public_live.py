@@ -637,7 +637,7 @@ def test_public_task_results_include_public_safe_penalty_details() -> None:
     payload = get_public_task_results(task.id, session=session)
 
     assert len(payload) == 1
-    assert payload[0].penalty_summary == "Jump start -30 pts, -45 pts"
+    assert payload[0].penalty_summary == "Early start penalty -30 pts, -45 pts"
     assert payload[0].penalties[0].reason == "Airspace"
     assert payload[0].penalties[0].applied_by is None
     assert payload[0].penalty_calculation is not None
