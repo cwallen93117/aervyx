@@ -256,10 +256,9 @@ export default function TasksSection(props: TasksSectionProps) {
                   </select>
                 </label>
                 <label className="stack compact task-practice-field">
-                  <span>Practice Task</span>
+                  <span>Practice Task <span className="task-practice-state">({taskDraft.is_practice ? "Yes" : "No"})</span></span>
                   <span className="task-practice-checkbox-row">
                     <input type="checkbox" checked={taskDraft.is_practice} onChange={(event) => setTaskDraft({ ...taskDraft, is_practice: event.target.checked })} disabled={!canManagePlatform} />
-                    <strong>{taskDraft.is_practice ? "Yes" : "No"}</strong>
                   </span>
                 </label>
               </div>
