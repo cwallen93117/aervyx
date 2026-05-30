@@ -27,7 +27,7 @@ from app.schemas import (
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
-from app.services.scoring import build_result_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
+from app.services.scoring import build_result_payload, build_result_penalty_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
 from app.services.task_uploads import select_upload_for_scoring, store_task_upload
 
 router = APIRouter(tags=["results"])
@@ -358,6 +358,7 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
         entry = scoring_input_by_pilot.get(pilot.id)
         result = results_by_pilot.get(pilot.id)
         pilot_penalties = penalties_by_pilot.get(pilot.id, [])
+        penalty_entries, penalty_summary, penalty_calculation = build_result_penalty_payload(result, pilot_penalties) if result else ([], _penalty_summary(pilot_penalties), None)
         rows.append(
             ScoringOperationsRow(
                 pilot_id=pilot.id,
@@ -386,20 +387,10 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
                     raw_score_points=result.raw_score_points,
                     score_points=result.score_points,
                     result_state=result.result_state,
+                    penalty_calculation=penalty_calculation,
                 ) if result else None,
-                penalties=[
-                    ScorePenaltyEntry(
-                        id=penalty.id,
-                        penalty_type=penalty.penalty_type,
-                        value=penalty.value,
-                        reason=penalty.reason,
-                        position=penalty.position,
-                        applied_by=None,
-                        applied_at=penalty.applied_at,
-                    )
-                    for penalty in pilot_penalties
-                ],
-                penalty_summary=_penalty_summary(pilot_penalties),
+                penalties=[ScorePenaltyEntry(**entry) for entry in penalty_entries],
+                penalty_summary=penalty_summary,
                 penalty_audit=_penalty_audit_entries(session, task_id, pilot.id),
                 row_classification=_row_classification(result, entry.status_override if entry else None),
             )

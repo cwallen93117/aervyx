@@ -3,6 +3,7 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { formatPenaltyPoints, formatScorePoints } from "../../lib/scorePenalties";
 import { SectionCard } from "../SectionCard";
 import type {
   BulkUploadItemRecord,
@@ -299,6 +300,9 @@ export default function ScoringOperationsPanel({
     () => calculatePenaltyCascade(activeRow?.result?.raw_score_points ?? activeRow?.result?.score_points ?? 0, draftPenalties),
     [activeRow, draftPenalties],
   );
+  const automaticPenaltyLines = activeRow?.result?.penalty_calculation?.lines.filter((line) => line.kind === "engine") ?? [];
+  const automaticPenaltyPoints = automaticPenaltyLines.reduce((total, line) => total + Number(line.amount_points || 0), 0);
+  const manualPenaltyPoints = Math.max(Number(activeRow?.result?.raw_score_points ?? activeRow?.result?.score_points ?? 0) - penaltyCascade.final, 0);
 
   const reloadTaskAndRows = async () => {
     if (!token || !activePublishedTaskId) return;
@@ -659,7 +663,7 @@ export default function ScoringOperationsPanel({
                   </tr>
                 ) : sortedRows.length ? (
                   sortedRows.map((row) => {
-                    const hasPenalty = Boolean(row.penalty_summary);
+                    const hasPenalty = Boolean(row.penalty_summary || row.result?.penalty_calculation?.lines?.length);
                     const penaltyEnabled = row.result != null && row.result.upload_id != null;
                     return (
                       <tr key={row.pilot_id} className={row.row_classification === "unscored" ? "unscored" : hasPenalty ? "has-penalty" : "scored"}>
@@ -893,20 +897,20 @@ export default function ScoringOperationsPanel({
         <div className="scoring-ops-panel-body">
           <div className="scoring-ops-score-strip">
             <div className="scoring-ops-score-strip-item">
-              <div className="scoring-ops-strip-label">Raw score</div>
-              <div className="scoring-ops-strip-value">{formatPoints(activeRow?.result?.raw_score_points ?? 0)}</div>
+              <div className="scoring-ops-strip-label">Total</div>
+              <div className="scoring-ops-strip-value">{formatScorePoints(penaltyCascade.final)}</div>
             </div>
             <div className="scoring-ops-score-strip-item">
-              <div className="scoring-ops-strip-label">After % penalties</div>
-              <div className="scoring-ops-strip-value amber">{formatPoints(penaltyCascade.afterPercent)}</div>
+              <div className="scoring-ops-strip-label">Automatic Penalties</div>
+              <div className="scoring-ops-strip-value amber score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { raw_score_points: 0, final_score_points: 0, manual_penalty_points: 0, engine_penalty_points: automaticPenaltyPoints, total_display_penalty_points: automaticPenaltyPoints, lines: [] } })}</div>
             </div>
             <div className="scoring-ops-score-strip-item">
-              <div className="scoring-ops-strip-label">After fixed penalties</div>
-              <div className="scoring-ops-strip-value amber">{formatPoints(penaltyCascade.afterFixed)}</div>
+              <div className="scoring-ops-strip-label">Manual</div>
+              <div className="scoring-ops-strip-value amber score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { raw_score_points: 0, final_score_points: 0, manual_penalty_points: manualPenaltyPoints, engine_penalty_points: 0, total_display_penalty_points: manualPenaltyPoints, lines: [] } })}</div>
             </div>
             <div className="scoring-ops-score-strip-item">
               <div className="scoring-ops-strip-label">Final score</div>
-              <div className="scoring-ops-strip-value blue">{formatPoints(penaltyCascade.final)}</div>
+              <div className="scoring-ops-strip-value blue">{formatScorePoints(penaltyCascade.final)}</div>
             </div>
           </div>
 
@@ -930,6 +934,25 @@ export default function ScoringOperationsPanel({
           </div>
 
           <div className="scoring-ops-divider" />
+          {automaticPenaltyLines.length ? (
+            <>
+              <div className="scoring-ops-section-label">Automatic penalties</div>
+              <div className="score-penalty-lines scoring-ops-automatic-penalties">
+                {automaticPenaltyLines.map((line, index) => (
+                  <div key={`${line.kind}-${index}`} className="score-penalty-line">
+                    <div>
+                      <strong>{line.label}</strong>
+                      {line.detail ? <span>{line.detail}</span> : null}
+                    </div>
+                    <div>
+                      <strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { raw_score_points: 0, final_score_points: 0, manual_penalty_points: 0, engine_penalty_points: line.amount_points, total_display_penalty_points: line.amount_points, lines: [] } })}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="scoring-ops-divider" />
+            </>
+          ) : null}
           <div className="scoring-ops-section-label">Applied penalties</div>
           {draftPenalties.length ? (
             draftPenalties.map((penalty, index) => (
@@ -988,9 +1011,15 @@ export default function ScoringOperationsPanel({
 
           <div className="scoring-ops-calc-box">
             <div className="scoring-ops-calc-row">
-              <span>Raw score</span>
-              <span>{formatPoints(activeRow?.result?.raw_score_points ?? 0)}</span>
+              <span>Total</span>
+              <span>{formatScorePoints(penaltyCascade.final)}</span>
             </div>
+            {automaticPenaltyLines.map((line, index) => (
+              <div key={`automatic-${index}`} className="scoring-ops-calc-row deduct">
+                <span>{line.label}</span>
+                <span>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { raw_score_points: 0, final_score_points: 0, manual_penalty_points: 0, engine_penalty_points: line.amount_points, total_display_penalty_points: line.amount_points, lines: [] } })}</span>
+              </div>
+            ))}
             {penaltyCascade.percentLines.map((line, index) => (
               <div key={`percent-${index}`} className="scoring-ops-calc-row deduct">
                 <span>{line.label} {line.display}</span>

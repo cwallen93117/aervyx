@@ -1577,7 +1577,7 @@ def _manual_penalty_lines(raw_score: float, penalties: list[ScorePenalty]) -> tu
     return round(max(raw_score - max(running, 0.0), 0.0), 2), lines
 
 
-def _result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty]) -> tuple[list[dict], str | None, dict | None]:
+def build_result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty]) -> tuple[list[dict], str | None, dict | None]:
     raw_score = float(result.raw_score_points or result.score_points or 0.0)
     final_score = float(result.score_points or 0.0)
     engine_points, engine_lines = _engine_penalty_lines(result.details_json)
@@ -2572,7 +2572,7 @@ def build_result_payload(session: Session, result: ScoreResult) -> dict:
         .where(ScorePenalty.task_id == result.task_id, ScorePenalty.pilot_id == result.pilot_id)
         .order_by(ScorePenalty.position.asc(), ScorePenalty.id.asc())
     ).all()
-    penalty_entries, penalty_summary, penalty_calculation = _result_penalty_payload(result, penalties)
+    penalty_entries, penalty_summary, penalty_calculation = build_result_penalty_payload(result, penalties)
     return {
         "id": result.id,
         "task_id": result.task_id,

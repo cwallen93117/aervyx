@@ -7268,6 +7268,7 @@ details[open] > summary {
 }
 
 .scoring-ops-strip-value.amber { color: #b45309; }
+.scoring-ops-strip-value.score-penalty-amount { color: #dc2626; }
 .scoring-ops-strip-value.blue { color: var(--accent); }
 
 .scoring-ops-section-label {
@@ -7363,6 +7364,11 @@ details[open] > summary {
 }
 
 .scoring-ops-calc-row.deduct { color: #b45309; }
+.scoring-ops-calc-row.deduct span:last-child { color: #dc2626; }
+
+.scoring-ops-automatic-penalties {
+  padding: 0;
+}
 
 .scoring-ops-calc-row.total {
   margin-top: 5px;

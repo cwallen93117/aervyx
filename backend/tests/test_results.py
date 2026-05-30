@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.routers import results as results_router
-from app.routers.results import get_task_results, list_logbook_igc_candidates, pilot_summary, select_logbook_igc_candidate, task_result_summary
+from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
 
 
@@ -160,6 +160,71 @@ def test_task_results_include_penalty_calculation_details() -> None:
         ("manual", "Late report", 10.0),
     ]
     assert result.penalty_calculation.lines[0].detail == "Started at 14:14:30 UTC, before start gate 2 at 14:15:00 UTC. Early by 30s. Charged 2 points per second."
+
+
+def test_scoring_operations_include_automatic_penalty_summary() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(
+        name="Penalty Ops",
+        location="Ridgeline",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+    )
+    pilot = Pilot(first_name="Charles", last_name="Allen")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Practice Day", status="published")
+    session.add_all([task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    upload = IGCUpload(
+        event_id=event.id,
+        task_id=task.id,
+        pilot_id=pilot.id,
+        uploaded_by_user_id=admin.id,
+        filename="charles.igc",
+        sha256="ops-penalty",
+        stored_path="/tmp/charles.igc",
+        metadata_json={},
+    )
+    session.add(upload)
+    session.flush()
+    session.add(
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilot.id,
+            upload_id=upload.id,
+            status="goal",
+            rank=1,
+            distance_flown_km=40,
+            raw_score_points=400,
+            score_points=400,
+            details_json={
+                "start_timing": {
+                    "actual_start_crossing_at": "2026-04-18T14:09:08Z",
+                    "start_gate_index": 1,
+                    "start_gate_time": "2026-04-18T14:15:00Z",
+                    "jump_the_gun_seconds": 352,
+                    "jump_the_gun_penalty_seconds": 300,
+                    "jump_the_gun_penalty_points": 600,
+                },
+                "gap": {"formula": {"jump_the_gun_factor": 2}},
+            },
+            result_state="provisional",
+        )
+    )
+    session.flush()
+
+    payload = get_scoring_operations(task.id, admin=admin, session=session)
+
+    assert len(payload.rows) == 1
+    row = payload.rows[0]
+    assert row.penalty_summary == "Early start penalty -600 pts"
+    assert row.result is not None
+    assert row.result.penalty_calculation is not None
+    assert row.result.penalty_calculation.engine_penalty_points == 600
+    assert row.result.penalty_calculation.lines[0].detail == "Started at 14:09:08 UTC, before start gate 1 at 14:15:00 UTC. Early by 5m 52s; penalty was capped at 5m. Charged 2 points per second."
 
 
 def test_pilot_summary_keeps_practice_scores_out_of_totals() -> None:

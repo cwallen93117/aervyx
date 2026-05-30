@@ -726,6 +726,7 @@ class ScoringOperationsResultSummary(BaseModel):
     raw_score_points: float = 0
     score_points: float = 0
     result_state: str = "official"
+    penalty_calculation: ScorePenaltyCalculation | None = None
 
 
 class ScoringOperationsRow(BaseModel):

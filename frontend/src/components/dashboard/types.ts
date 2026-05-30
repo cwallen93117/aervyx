@@ -283,7 +283,7 @@ export type ScoringUploadOptionRecord = { id: number; filename: string; upload_s
 export type ScorePenaltyRecord = { id?: number | null; penalty_type: "percentage" | "fixed"; value: number; reason: string; position: number; applied_by?: string | null; applied_at?: string | null };
 export type PenaltyAuditRecord = { actor_name: string; timestamp: string; summary: string };
 export type ScoringPresetRecord = { id: string; label: string; penalty_type: "percentage" | "fixed"; value: number; reason: string };
-export type ScoringOperationsResultRecord = { result_id: number; upload_id: number | null; status: string; rank: number | null; distance_flown_km: number; elapsed_seconds: number | null; raw_score_points: number; score_points: number; result_state?: string };
+export type ScoringOperationsResultRecord = { result_id: number; upload_id: number | null; status: string; rank: number | null; distance_flown_km: number; elapsed_seconds: number | null; raw_score_points: number; score_points: number; result_state?: string; penalty_calculation?: ScorePenaltyCalculation | null };
 export type ScoringOperationsRowRecord = {
   pilot_id: number;
   pilot_name: string;
