@@ -6878,10 +6878,13 @@ details[open] > summary {
 .scoring-ops-btn:disabled { opacity: 0.4; cursor: default; }
 
 .scoring-ops-penalty-wrap {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 .scoring-ops-penalty-wrap input[type="checkbox"] {
@@ -6891,6 +6894,8 @@ details[open] > summary {
 }
 
 .scoring-ops-penalty-badge {
+  display: block;
+  max-width: 100%;
   padding: 2px 6px;
   border-radius: 4px;
   border: 1px solid #fbbf24;
@@ -6898,6 +6903,9 @@ details[open] > summary {
   color: #92400e;
   font-size: 0.625rem;
   font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
