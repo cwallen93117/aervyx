@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
-from app.deps import get_current_user, require_admin
+from app.deps import get_current_user, require_admin, resolve_user_from_token_subject, token_subject_for_user
 from app.models import LivePosition, MeshDevice, Pilot, TrackingSession, User, UserEmail
 from app.schemas import (
     AdminUserCredentialsUpdate,
@@ -377,8 +377,8 @@ def login(request: Request, payload: LoginRequest, session: Session = Depends(ge
         session.commit()
         session.refresh(user)
     return TokenResponse(
-        access_token=create_access_token(user.username),
-        refresh_token=create_refresh_token(user.username),
+        access_token=create_access_token(token_subject_for_user(user)),
+        refresh_token=create_refresh_token(token_subject_for_user(user)),
         user=UserSummary.model_validate(user),
     )
 
@@ -480,8 +480,8 @@ def google_auth(request: Request, payload: GoogleAuthRequest, session: Session =
         session.refresh(user)
 
     return TokenResponse(
-        access_token=create_access_token(user.username),
-        refresh_token=create_refresh_token(user.username),
+        access_token=create_access_token(token_subject_for_user(user)),
+        refresh_token=create_refresh_token(token_subject_for_user(user)),
         user=UserSummary.model_validate(user),
     )
 
@@ -546,8 +546,8 @@ def register(request: Request, payload: RegisterRequest, session: Session = Depe
     session.commit()
     session.refresh(user)
     return TokenResponse(
-        access_token=create_access_token(user.username),
-        refresh_token=create_refresh_token(user.username),
+        access_token=create_access_token(token_subject_for_user(user)),
+        refresh_token=create_refresh_token(token_subject_for_user(user)),
         user=UserSummary.model_validate(user),
     )
 
@@ -559,12 +559,12 @@ def refresh(request: Request, payload: RefreshRequest, session: Session = Depend
     subject = decode_refresh_token(payload.refresh_token)
     if subject is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token")
-    user = session.scalar(select(User).where(User.username == subject, User.is_active.is_(True)))
-    if user is None:
+    user = resolve_user_from_token_subject(session, subject)
+    if user is None or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return TokenResponse(
-        access_token=create_access_token(user.username),
-        refresh_token=create_refresh_token(user.username),
+        access_token=create_access_token(token_subject_for_user(user)),
+        refresh_token=create_refresh_token(token_subject_for_user(user)),
         user=UserSummary.model_validate(user),
     )
 
@@ -662,7 +662,7 @@ def update_settings(
     session.refresh(user)
     if pilot is not None:
         session.refresh(pilot)
-    return _settings_payload(user, pilot, access_token=create_access_token(user.username))
+    return _settings_payload(user, pilot, access_token=create_access_token(token_subject_for_user(user)))
 
 
 @router.patch("/preferences", response_model=UserSummary)

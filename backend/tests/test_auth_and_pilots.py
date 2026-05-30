@@ -4,9 +4,12 @@ from unittest.mock import patch
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from fastapi.security import HTTPAuthorizationCredentials
 from starlette.requests import Request
 
+from app.core.security import create_access_token, create_refresh_token, decode_access_token
 from app.db import Base
+from app.deps import get_current_user, token_subject_for_user
 from app.models import Event, EventPilot, LivePosition, MeshDevice, Pilot, ScoreResult, Task, TaskScoringInput, TrackingSession, User
 from app.routers.auth import (
     admin_delete_user_mesh_device,
@@ -20,13 +23,14 @@ from app.routers.auth import (
     list_users,
     register,
     register_mesh_device,
+    refresh,
     update_mesh_device,
     update_settings,
     update_user_account,
 )
 from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RegisterRequest
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RefreshRequest, RegisterRequest
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import merge_pilots, repair_pilot_email_identities
 
@@ -53,6 +57,38 @@ def _utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def test_new_tokens_use_immutable_user_identity() -> None:
+    session = _session()
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    token = create_access_token(token_subject_for_user(user))
+    assert decode_access_token(token) == f"user:{user.id}"
+
+    user.username = "jeff.google@example.com"
+    session.add(user)
+    session.commit()
+
+    resolved = get_current_user(HTTPAuthorizationCredentials(scheme="Bearer", credentials=token), session)
+    assert resolved.id == user.id
+    assert resolved.username == "jeff.google@example.com"
+
+
+def test_refresh_accepts_existing_username_tokens_and_mints_user_id_tokens() -> None:
+    session = _session()
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    response = refresh(_request(), RefreshRequest(refresh_token=create_refresh_token(user.username)), session)
+
+    assert response.user.id == user.id
+    assert decode_access_token(response.access_token) == f"user:{user.id}"
 
 
 def test_register_links_existing_pilot_by_email() -> None:

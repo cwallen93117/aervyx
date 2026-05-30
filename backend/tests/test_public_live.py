@@ -29,6 +29,13 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
+def _parse_iso_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
 def test_public_events_are_sorted_by_competition_date() -> None:
     session = _session()
     session.add_all(
@@ -336,6 +343,40 @@ def test_public_all_positions_include_only_registered_users() -> None:
     payload = public_all_positions(minutes=60, limit=100, session=session)
 
     assert {row.subject_key for row in payload} == {f"pilot:{pilot.id}", f"user:{driver.id}"}
+
+
+def test_public_all_positions_include_recently_received_stale_app_fix() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    session.add(pilot)
+    session.flush()
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", pilot_id=pilot.id)
+    session.add(user)
+    session.flush()
+    session.add(
+        LivePosition(
+            pilot_id=pilot.id,
+            user_id=user.id,
+            lat=39.09632,
+            lon=-75.89077,
+            timestamp=now - timedelta(hours=7),
+            created_at=now - timedelta(minutes=2),
+            source="app",
+            battery_level=89,
+        )
+    )
+    session.commit()
+
+    payload = public_all_positions(minutes=10, limit=100, session=session)
+
+    assert len(payload) == 1
+    row = payload[0]
+    assert row.subject_key == f"pilot:{pilot.id}"
+    assert row.pilot_name == "Jeff Chipman"
+    assert row.received_at is not None
+    assert _parse_iso_utc(row.received_at) == now - timedelta(minutes=2)
+    assert _parse_iso_utc(row.timestamp) == now - timedelta(hours=7)
 
 
 def test_public_buddy_group_positions_include_only_registered_group_members() -> None:
