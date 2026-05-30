@@ -1065,30 +1065,33 @@ select {
 }
 
 .fieldset-grid.two-up.task-timing-layout {
-  grid-template-columns: max-content max-content;
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 0.55fr);
   align-items: start;
-  column-gap: 22px;
+  column-gap: 14px;
   row-gap: 10px;
+  min-width: 0;
 }
 
 .task-timing-layout .cluster-stack {
-  width: max-content;
+  min-width: 0;
+  width: 100%;
 }
 
 .task-timing-layout .stack.compact {
-  grid-template-columns: 128px auto;
+  grid-template-columns: minmax(88px, 128px) minmax(0, 1fr);
+  min-width: 0;
 }
 
 .task-timing-layout .stack.compact input[type="time"] {
-  width: 116px;
-  min-width: 116px;
-  max-width: 116px;
+  width: 100%;
+  min-width: 0;
+  max-width: 140px;
 }
 
 .task-timing-layout .stack.compact input[type="number"] {
-  width: 76px;
-  min-width: 76px;
-  max-width: 76px;
+  width: 100%;
+  min-width: 0;
+  max-width: 88px;
 }
 
 .fieldset-grid.events-scoring-grid {

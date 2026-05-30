@@ -674,6 +674,7 @@ export function LiveWatchClient() {
             units={defaultUnits}
             editable={false}
             showGpsButton
+            enableLivePositionPopups
             overlayConfig={overlayConfig}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"

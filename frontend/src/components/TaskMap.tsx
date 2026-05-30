@@ -386,6 +386,49 @@ function scoredTrackPointPopupHtml(point: ScoredTrackDeckPoint): string {
   `;
 }
 
+function formatLivePositionUpdateLabel(value: string | null | undefined): string {
+  if (!value) {
+    return "--";
+  }
+  const timestampMs = Date.parse(value);
+  if (Number.isNaN(timestampMs)) {
+    return value;
+  }
+  const absolute = new Date(timestampMs).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const ageSeconds = Math.max(0, Math.round((Date.now() - timestampMs) / 1000));
+  const relative = ageSeconds < 60
+    ? `${ageSeconds}s ago`
+    : ageSeconds < 3600
+      ? `${Math.round(ageSeconds / 60)}m ago`
+      : `${Math.round(ageSeconds / 3600)}h ago`;
+  return `${absolute} (${relative})`;
+}
+
+type LiveMarkerPopupItem = {
+  nameLabel: string;
+  latitude: number;
+  longitude: number;
+  timestamp: string;
+};
+
+function livePositionPopupHtml(item: LiveMarkerPopupItem): string {
+  const destination = `${item.latitude.toFixed(6)},${item.longitude.toFixed(6)}`;
+  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+  return `
+    <div style="font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color: #0f172a; min-width: 190px;">
+      <div style="font-weight: 700; margin-bottom: 6px;">${escapeHtml(item.nameLabel)}</div>
+      <div style="color: #475569; margin-bottom: 10px;"><strong>Last update:</strong> ${escapeHtml(formatLivePositionUpdateLabel(item.timestamp))}</div>
+      <a href="${escapeHtml(directionsUrl)}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; justify-content: center; min-height: 32px; padding: 6px 10px; border-radius: 6px; background: #0f172a; color: #ffffff; font-weight: 700; text-decoration: none;">Driving directions</a>
+    </div>
+  `;
+}
+
 function convertDistance(distanceKm: number, unit: MapUnitPreferences["distance"]) {
   return unit === "mi" ? distanceKm * 0.621371 : distanceKm;
 }
@@ -1300,6 +1343,7 @@ export const TaskMap = React.memo(function TaskMap({
   showGpsButton = false,
   overlayConfig,
   focusPosition,
+  enableLivePositionPopups = false,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1330,12 +1374,14 @@ export const TaskMap = React.memo(function TaskMap({
   showGpsButton?: boolean;
   overlayConfig?: Record<string, boolean>;
   focusPosition?: { lat: number; lon: number; key: string | number } | null;
+  enableLivePositionPopups?: boolean;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
+  const livePositionPopupRef = useRef<maplibregl.Popup | null>(null);
   const fullscreenControlRef = useRef<maplibregl.FullscreenControl | null>(null);
   const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -1573,6 +1619,9 @@ export const TaskMap = React.memo(function TaskMap({
         nameLabel: aircraftPilotLabel(normalizeAircraftIcon(position.aircraftType), position.pilotName),
         altitudeLabel: position.altitudeM != null ? formatAltitudeLabel(position.altitudeM, units.altitude) : "",
         position: [position.longitude, position.latitude, (position.altitudeM ?? 0) * effectiveAltitudeMultiplier] as [number, number, number],
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestamp: position.timestamp,
         color: hexToRgb(String(position.color ?? "#0ea5e9")),
         profileType: (position.profileType ?? "pilot") as "pilot" | "driver" | "stationary_node",
         positionSource: (position.positionSource ?? "other") as "cellular" | "mesh" | "other",
@@ -2095,12 +2144,49 @@ export const TaskMap = React.memo(function TaskMap({
     if (liveMarkerData.length) {
       type LiveMarkerItem = {
         position: [number, number, number];
+        nameLabel: string;
+        latitude: number;
+        longitude: number;
+        timestamp: string;
         color: [number, number, number];
         profileType?: "pilot" | "driver" | "stationary_node";
         positionSource?: "cellular" | "mesh" | "other";
         aircraftType?: "hang_glider" | "paraglider" | "sailplane";
         highlighted?: boolean;
       };
+      const showLivePositionPopup = (item: LiveMarkerItem) => {
+        const map = mapRef.current;
+        if (!map) {
+          return;
+        }
+        livePositionPopupRef.current?.remove();
+        livePositionPopupRef.current = new maplibregl.Popup({
+          closeButton: true,
+          closeOnClick: true,
+          offset: 16,
+          maxWidth: "260px",
+        })
+          .setLngLat([item.longitude, item.latitude])
+          .setHTML(livePositionPopupHtml(item))
+          .addTo(map);
+      };
+      const liveMarkerClickHandler = enableLivePositionPopups
+        ? (info: { object?: LiveMarkerItem }) => {
+            if (!info.object) {
+              return false;
+            }
+            showLivePositionPopup(info.object);
+            return true;
+          }
+        : undefined;
+      const liveMarkerHoverHandler = enableLivePositionPopups
+        ? (info: { object?: LiveMarkerItem }) => {
+            const map = mapRef.current;
+            if (map) {
+              map.getCanvas().style.cursor = info.object ? "pointer" : "";
+            }
+          }
+        : undefined;
       layers.push(
         new IconLayer({
           id: `live-pilot-rings-${mode}`,
@@ -2121,7 +2207,9 @@ export const TaskMap = React.memo(function TaskMap({
           getSize: (item: LiveMarkerItem) => Math.round((item.highlighted ? 32 : 28) * liveMarkerScale),
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(20 * liveMarkerScale),
-          pickable: false,
+          pickable: enableLivePositionPopups,
+          onClick: liveMarkerClickHandler,
+          onHover: liveMarkerHoverHandler,
           parameters: {
             depthTest: false,
           },
@@ -2147,7 +2235,9 @@ export const TaskMap = React.memo(function TaskMap({
           getSize: (item: LiveMarkerItem) => Math.round((item.highlighted ? 21 : 18) * liveMarkerScale),
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(12 * liveMarkerScale),
-          pickable: false,
+          pickable: enableLivePositionPopups,
+          onClick: liveMarkerClickHandler,
+          onHover: liveMarkerHoverHandler,
           parameters: {
             depthTest: false,
           },
@@ -2209,7 +2299,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [cylinderVolumes, displayTrack, fullTrackPathData, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, enableLivePositionPopups, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -2465,6 +2555,8 @@ export const TaskMap = React.memo(function TaskMap({
         }
         scoredPointPopupRef.current?.remove();
         scoredPointPopupRef.current = null;
+        livePositionPopupRef.current?.remove();
+        livePositionPopupRef.current = null;
         map.remove();
         mapRef.current = null;
       };
