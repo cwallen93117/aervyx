@@ -537,6 +537,29 @@ def _public_registered_user_ids(session: Session, user_ids: list[int] | None = N
     return list(session.scalars(query).all())
 
 
+def _public_registered_user_ids_for_pilots(session: Session, pilot_ids: list[int]) -> list[int]:
+    if not pilot_ids:
+        return []
+    return list(
+        session.scalars(
+            select(User.id)
+            .where(
+                User.is_active.is_(True),
+                User.profile_type != "stationary_node",
+                User.pilot_id.in_(pilot_ids),
+            )
+            .order_by(User.id.asc())
+            .distinct()
+        ).all()
+    )
+
+
+def _public_event_user_ids(session: Session, event_id: int, pilot_ids: list[int]) -> list[int]:
+    pilot_user_ids = set(_public_registered_user_ids_for_pilots(session, pilot_ids))
+    driver_user_ids = set(_public_registered_user_ids(session, _public_event_driver_user_ids(event_id, session)))
+    return sorted(pilot_user_ids | driver_user_ids)
+
+
 def _public_registered_live_subject_ids(session: Session) -> tuple[list[int], list[int]]:
     """Return live subject IDs that are safe for anonymous public tracking."""
     return _public_registered_pilot_ids(session), _public_registered_user_ids(session)
@@ -581,7 +604,7 @@ async def public_event_live_sse(
     """SSE stream of live positions for every pilot in a publicly-tracked event."""
     _get_public_event(event_id, session)
     pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(event_id, session))
-    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(event_id, session))
+    user_ids = _public_event_user_ids(session, event_id, pilot_ids)
 
     queue = subscribe_subjects(pilot_ids, user_ids)
 
@@ -621,7 +644,7 @@ def public_event_positions(
     """Position history for all pilots in a publicly-tracked event."""
     _get_public_event(event_id, session)
     pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(event_id, session))
-    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(event_id, session))
+    user_ids = _public_event_user_ids(session, event_id, pilot_ids)
     if not pilot_ids and not user_ids:
         return []
 
@@ -637,7 +660,7 @@ async def public_task_live_sse(
     """SSE stream of live positions for a publicly-tracked task."""
     task = _get_public_task(task_id, session)
     pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(task.event_id, session))
-    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(task.event_id, session))
+    user_ids = _public_event_user_ids(session, task.event_id, pilot_ids)
 
     queue = subscribe(task_id)
 
@@ -685,7 +708,7 @@ def public_task_positions(
     """Current-day position history for a publicly-tracked task."""
     task = _get_public_task(task_id, session)
     pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(task.event_id, session))
-    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(task.event_id, session))
+    user_ids = _public_event_user_ids(session, task.event_id, pilot_ids)
     rows = get_position_history(session, task_id)
     rows = [
         row

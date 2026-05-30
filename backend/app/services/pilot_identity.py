@@ -386,7 +386,29 @@ def repair_user_email_identity(session: Session, user: User) -> PilotIdentityRes
 
     if normalize_email(pilot.email) != email:
         pilot.email = email
-    return ensure_pilot_login_identity(session, pilot, create_user=False)
+    result = ensure_pilot_login_identity(session, pilot, create_user=False)
+    backfill_user_subject_pilot_links(session, user)
+    return result
+
+
+def backfill_user_subject_pilot_links(session: Session, user: User) -> int:
+    profile_type = (user.profile_type or "pilot").strip().lower()
+    if user.pilot_id is None or profile_type == "driver":
+        return 0
+
+    changed = 0
+    for model in (LivePosition, TrackingSession):
+        rows = session.scalars(
+            select(model).where(
+                model.user_id == user.id,
+                model.pilot_id.is_(None),
+            )
+        ).all()
+        for row in rows:
+            row.pilot_id = user.pilot_id
+            session.add(row)
+        changed += len(rows)
+    return changed
 
 
 def repair_pilot_email_identities(session: Session) -> int:

@@ -524,6 +524,9 @@ def _position_payload(
     profile_type = _normalize_profile_type(profile_user.profile_type) if profile_user is not None else "pilot"
     aircraft_icon = _normalize_aircraft_icon(profile_user.aircraft_icon) if profile_user is not None else "hang_glider"
     pilot_name = profile_user.full_name if profile_user is not None else None
+    pilot_id = pos.pilot_id
+    if pilot_id is None and user is not None and profile_type != "driver":
+        pilot_id = user.pilot_id
 
     device = None
     if devices_by_id is not None and pos.device_id:
@@ -538,10 +541,16 @@ def _position_payload(
         profile_type = mesh_purpose_to_profile_type(device.purpose)
         pilot_name = device.label
 
+    subject_key = (
+        f"pilot:{pilot_id}"
+        if pilot_id is not None and profile_type != "driver"
+        else subject_key_for_position(pos, profile_type=profile_type)
+    )
+
     return {
         "id": str(pos.id),
-        "subject_key": subject_key_for_position(pos, profile_type=profile_type),
-        "pilot_id": pos.pilot_id,
+        "subject_key": subject_key,
+        "pilot_id": pilot_id,
         "user_id": pos.user_id,
         "pilot_name": pilot_name,
         "task_id": pos.task_id,
