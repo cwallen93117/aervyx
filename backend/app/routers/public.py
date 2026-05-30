@@ -33,7 +33,6 @@ from app.routers.tasks import _task_response
 from app.schemas import EventResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
 from app.services.scoring import build_result_payload
 from app.services.tracking import (
-    get_all_recent_positions,
     get_live_positions,
     get_live_positions_for_pilots,
     get_live_positions_for_subjects,
@@ -41,11 +40,9 @@ from app.services.tracking import (
     get_position_history_for_pilots,
     get_position_history_for_subjects,
     subscribe,
-    subscribe_global,
     subscribe_pilots,
     subscribe_subjects,
     unsubscribe,
-    unsubscribe_global,
     unsubscribe_pilots,
     unsubscribe_subjects,
 )
@@ -443,6 +440,57 @@ def _public_event_pilot_ids(event_id: int, session: Session) -> list[int]:
     )
 
 
+def _public_registered_pilot_ids(session: Session, pilot_ids: list[int] | None = None) -> list[int]:
+    query = (
+        select(User.pilot_id)
+        .where(
+            User.is_active.is_(True),
+            User.profile_type != "stationary_node",
+            User.pilot_id.is_not(None),
+        )
+        .order_by(User.pilot_id.asc())
+        .distinct()
+    )
+    if pilot_ids is not None:
+        if not pilot_ids:
+            return []
+        query = query.where(User.pilot_id.in_(pilot_ids))
+    return [pid for pid in session.scalars(query).all() if pid is not None]
+
+
+def _public_registered_user_ids(session: Session, user_ids: list[int] | None = None) -> list[int]:
+    query = (
+        select(User.id)
+        .where(
+            User.is_active.is_(True),
+            User.profile_type != "stationary_node",
+        )
+        .order_by(User.id.asc())
+        .distinct()
+    )
+    if user_ids is not None:
+        if not user_ids:
+            return []
+        query = query.where(User.id.in_(user_ids))
+    return list(session.scalars(query).all())
+
+
+def _public_registered_live_subject_ids(session: Session) -> tuple[list[int], list[int]]:
+    """Return live subject IDs that are safe for anonymous public tracking."""
+    return _public_registered_pilot_ids(session), _public_registered_user_ids(session)
+
+
+def _public_position_payload_allowed(
+    payload: dict,
+    *,
+    pilot_ids: list[int],
+    user_ids: list[int],
+) -> bool:
+    pilot_id = payload.get("pilot_id")
+    user_id = payload.get("user_id")
+    return (pilot_id is not None and pilot_id in pilot_ids) or (user_id is not None and user_id in user_ids)
+
+
 def _public_event_driver_user_ids(event_id: int, session: Session) -> list[int]:
     return list(
         session.scalars(
@@ -470,8 +518,8 @@ async def public_event_live_sse(
 ) -> StreamingResponse:
     """SSE stream of live positions for every pilot in a publicly-tracked event."""
     _get_public_event(event_id, session)
-    pilot_ids = _public_event_pilot_ids(event_id, session)
-    user_ids = _public_event_driver_user_ids(event_id, session)
+    pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(event_id, session))
+    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(event_id, session))
 
     queue = subscribe_subjects(pilot_ids, user_ids)
 
@@ -510,8 +558,8 @@ def public_event_positions(
 ) -> list[PublicPositionResponse]:
     """Position history for all pilots in a publicly-tracked event."""
     _get_public_event(event_id, session)
-    pilot_ids = _public_event_pilot_ids(event_id, session)
-    user_ids = _public_event_driver_user_ids(event_id, session)
+    pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(event_id, session))
+    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(event_id, session))
     if not pilot_ids and not user_ids:
         return []
 
@@ -525,18 +573,30 @@ async def public_task_live_sse(
     session: Session = Depends(get_session),
 ) -> StreamingResponse:
     """SSE stream of live positions for a publicly-tracked task."""
-    _get_public_task(task_id, session)
+    task = _get_public_task(task_id, session)
+    pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(task.event_id, session))
+    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(task.event_id, session))
 
     queue = subscribe(task_id)
 
     async def event_stream():
         try:
-            snapshot = get_live_positions(session, task_id)
+            snapshot = [
+                row
+                for row in get_live_positions(session, task_id)
+                if _public_position_payload_allowed(row, pilot_ids=pilot_ids, user_ids=user_ids)
+            ]
             yield f"event: snapshot\ndata: {json.dumps(snapshot)}\n\n"
 
             while True:
                 try:
                     message = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    if isinstance(message, dict) and not _public_position_payload_allowed(
+                        message,
+                        pilot_ids=pilot_ids,
+                        user_ids=user_ids,
+                    ):
+                        continue
                     event_type = message.pop("event", "position") if isinstance(message, dict) else "position"
                     yield f"event: {event_type}\ndata: {json.dumps(message)}\n\n"
                 except asyncio.TimeoutError:
@@ -561,8 +621,15 @@ def public_task_positions(
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
     """Current-day position history for a publicly-tracked task."""
-    _get_public_task(task_id, session)
+    task = _get_public_task(task_id, session)
+    pilot_ids = _public_registered_pilot_ids(session, _public_event_pilot_ids(task.event_id, session))
+    user_ids = _public_registered_user_ids(session, _public_event_driver_user_ids(task.event_id, session))
     rows = get_position_history(session, task_id)
+    rows = [
+        row
+        for row in rows
+        if _public_position_payload_allowed(row, pilot_ids=pilot_ids, user_ids=user_ids)
+    ]
     return [PublicPositionResponse(**row) for row in rows]
 
 
@@ -610,7 +677,7 @@ async def public_buddy_group_live_sse(
     pilot_ids = session.scalars(
         select(BuddyGroupMember.pilot_id).where(BuddyGroupMember.group_id == group.id)
     ).all()
-    pilot_ids = list(pilot_ids)
+    pilot_ids = _public_registered_pilot_ids(session, list(pilot_ids))
 
     queue = subscribe_pilots(pilot_ids)
 
@@ -653,7 +720,7 @@ def public_buddy_group_positions(
     pilot_ids = session.scalars(
         select(BuddyGroupMember.pilot_id).where(BuddyGroupMember.group_id == group.id)
     ).all()
-    pilot_ids = list(pilot_ids)
+    pilot_ids = _public_registered_pilot_ids(session, list(pilot_ids))
 
     if not pilot_ids:
         return []
@@ -668,9 +735,10 @@ def public_buddy_group_positions(
 # Watch Live page.
 
 @router.get("/live/all")
-async def public_all_live_sse() -> StreamingResponse:
-    """SSE stream of all live positions from every device."""
-    queue = subscribe_global()
+async def public_all_live_sse(session: Session = Depends(get_session)) -> StreamingResponse:
+    """SSE stream of live positions for registered public users."""
+    pilot_ids, user_ids = _public_registered_live_subject_ids(session)
+    queue = subscribe_subjects(pilot_ids, user_ids)
 
     async def event_stream():
         try:
@@ -688,7 +756,7 @@ async def public_all_live_sse() -> StreamingResponse:
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
         finally:
-            unsubscribe_global(queue)
+            unsubscribe_subjects(pilot_ids, user_ids, queue)
 
     return StreamingResponse(
         event_stream(),
@@ -707,6 +775,7 @@ def public_all_positions(
     limit: Annotated[int | None, Query(ge=1)] = None,
     session: Session = Depends(get_session),
 ) -> list[PublicPositionResponse]:
-    """Return every retained current-day position record across all pilots/tasks."""
-    rows = get_all_recent_positions(session, minutes=minutes, limit=limit)
+    """Return retained current-day position records for registered public users."""
+    pilot_ids, user_ids = _public_registered_live_subject_ids(session)
+    rows = get_position_history_for_subjects(session, pilot_ids, user_ids, minutes=minutes, limit=limit)
     return [PublicPositionResponse(**row) for row in rows]

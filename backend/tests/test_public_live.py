@@ -13,9 +13,12 @@ from app.routers.public import (
     get_public_upload_track,
     list_public_events,
     list_public_tasks,
+    public_all_positions,
+    public_buddy_group_positions,
     public_event_positions,
     public_pilot_summary,
     public_task_result_summary,
+    public_task_positions,
 )
 from app.services.pilot_identity import merge_pilots
 
@@ -218,6 +221,229 @@ def test_public_event_positions_are_limited_to_competition_pilots() -> None:
     assert row["pilot_id"] == pilot.id
     assert row["pilot_name"] == "Ari Sky"
     assert row["position_source"] == "cellular"
+
+
+def test_public_event_positions_exclude_unregistered_competition_pilots() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    event = Event(
+        name="Registered Only Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        is_public_tracking=True,
+    )
+    registered = Pilot(first_name="Rae", last_name="Lift", email="rae@example.com")
+    unregistered = Pilot(first_name="Uma", last_name="Mesh")
+    session.add_all([event, registered, unregistered])
+    session.flush()
+    session.add_all(
+        [
+            EventPilot(event_id=event.id, pilot_id=registered.id),
+            EventPilot(event_id=event.id, pilot_id=unregistered.id),
+            User(username="rae@example.com", full_name="Rae Lift", role="pilot", pilot_id=registered.id),
+            LivePosition(
+                pilot_id=registered.id,
+                lat=35.0,
+                lon=-82.0,
+                timestamp=now - timedelta(minutes=5),
+                source="app",
+            ),
+            LivePosition(
+                pilot_id=unregistered.id,
+                lat=36.0,
+                lon=-83.0,
+                timestamp=now - timedelta(minutes=5),
+                source="mqtt_gateway",
+                device_id="!unregistered",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = public_event_positions(event.id, minutes=60, session=session)
+
+    assert [row.pilot_id for row in payload] == [registered.id]
+
+
+def test_public_all_positions_include_only_registered_users() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    pilot = Pilot(first_name="Ari", last_name="Sky", email="ari@example.com")
+    inactive_pilot = Pilot(first_name="Ivy", last_name="Idle", email="ivy@example.com")
+    session.add_all([pilot, inactive_pilot])
+    session.flush()
+    pilot_user = User(username="ari@example.com", full_name="Ari Sky", role="pilot", pilot_id=pilot.id)
+    driver = User(username="driver@example.com", full_name="Dee Driver", role="driver", profile_type="driver")
+    inactive_user = User(
+        username="ivy@example.com",
+        full_name="Ivy Idle",
+        role="pilot",
+        pilot_id=inactive_pilot.id,
+        is_active=False,
+    )
+    node = User(
+        username="node@example.com",
+        full_name="Relay Node",
+        role="pilot",
+        profile_type="stationary_node",
+    )
+    session.add_all([pilot_user, driver, inactive_user, node])
+    session.flush()
+    session.add_all(
+        [
+            LivePosition(
+                pilot_id=pilot.id,
+                lat=35.0,
+                lon=-82.0,
+                timestamp=now - timedelta(minutes=5),
+                source="app",
+            ),
+            LivePosition(
+                user_id=driver.id,
+                lat=35.1,
+                lon=-82.1,
+                timestamp=now - timedelta(minutes=4),
+                source="app",
+            ),
+            LivePosition(
+                pilot_id=inactive_pilot.id,
+                user_id=inactive_user.id,
+                lat=35.2,
+                lon=-82.2,
+                timestamp=now - timedelta(minutes=3),
+                source="app",
+            ),
+            LivePosition(
+                user_id=node.id,
+                lat=35.3,
+                lon=-82.3,
+                timestamp=now - timedelta(minutes=2),
+                source="mqtt_gateway",
+            ),
+            LivePosition(
+                lat=35.4,
+                lon=-82.4,
+                timestamp=now - timedelta(minutes=1),
+                source="mqtt_gateway",
+                device_id="!randommesh",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = public_all_positions(minutes=60, limit=100, session=session)
+
+    assert {row.subject_key for row in payload} == {f"pilot:{pilot.id}", f"user:{driver.id}"}
+
+
+def test_public_buddy_group_positions_include_only_registered_group_members() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    owner = User(username="owner@example.com", full_name="Owner", role="organizer")
+    member = Pilot(first_name="Mia", last_name="Member", email="mia@example.com")
+    unregistered_member = Pilot(first_name="Una", last_name="Unregistered")
+    outsider = Pilot(first_name="Oli", last_name="Outside", email="oli@example.com")
+    session.add_all([owner, member, unregistered_member, outsider])
+    session.flush()
+    group = BuddyGroup(user_id=owner.id, name="Public Crew", is_public=True)
+    session.add(group)
+    session.flush()
+    session.add_all(
+        [
+            BuddyGroupMember(group_id=group.id, pilot_id=member.id),
+            BuddyGroupMember(group_id=group.id, pilot_id=unregistered_member.id),
+            User(username="mia@example.com", full_name="Mia Member", role="pilot", pilot_id=member.id),
+            User(username="oli@example.com", full_name="Oli Outside", role="pilot", pilot_id=outsider.id),
+            LivePosition(
+                pilot_id=member.id,
+                lat=35.0,
+                lon=-82.0,
+                timestamp=now - timedelta(minutes=5),
+                source="app",
+            ),
+            LivePosition(
+                pilot_id=unregistered_member.id,
+                lat=35.1,
+                lon=-82.1,
+                timestamp=now - timedelta(minutes=4),
+                source="mqtt_gateway",
+                device_id="!groupdevice",
+            ),
+            LivePosition(
+                pilot_id=outsider.id,
+                lat=35.2,
+                lon=-82.2,
+                timestamp=now - timedelta(minutes=3),
+                source="app",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = public_buddy_group_positions(group.id, minutes=60, limit=100, session=session)
+
+    assert [row.pilot_id for row in payload] == [member.id]
+
+
+def test_public_task_positions_include_only_registered_event_members() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    event = Event(
+        name="Task Live Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        is_public_tracking=True,
+    )
+    registered = Pilot(first_name="Tia", last_name="Task", email="tia@example.com")
+    unregistered = Pilot(first_name="Una", last_name="Task")
+    outsider = Pilot(first_name="Oli", last_name="Outside", email="oli-task@example.com")
+    session.add_all([event, registered, unregistered, outsider])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="active", task_date=date(2026, 5, 2))
+    session.add(task)
+    session.flush()
+    session.add_all(
+        [
+            EventPilot(event_id=event.id, pilot_id=registered.id),
+            EventPilot(event_id=event.id, pilot_id=unregistered.id),
+            User(username="tia@example.com", full_name="Tia Task", role="pilot", pilot_id=registered.id),
+            User(username="oli-task@example.com", full_name="Oli Outside", role="pilot", pilot_id=outsider.id),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=registered.id,
+                lat=35.0,
+                lon=-82.0,
+                timestamp=now - timedelta(minutes=5),
+                source="app",
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=unregistered.id,
+                lat=35.1,
+                lon=-82.1,
+                timestamp=now - timedelta(minutes=4),
+                source="mqtt_gateway",
+                device_id="!taskdevice",
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=outsider.id,
+                lat=35.2,
+                lon=-82.2,
+                timestamp=now - timedelta(minutes=3),
+                source="app",
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = public_task_positions(task.id, session=session)
+
+    assert [row.pilot_id for row in payload] == [registered.id]
 
 
 def test_public_event_positions_include_live_rows_after_duplicate_pilot_merge() -> None:

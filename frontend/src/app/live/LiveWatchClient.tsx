@@ -267,8 +267,12 @@ export function LiveWatchClient() {
       if (controller.signal.aborted || !positions.length) {
         return;
       }
-      setPositionsByPilot((current) => mergePositionGroup(current, positions));
-      const names = collectPilotNames(positions);
+      const publicPositions = positions.filter((position) => position.pilot_id != null || position.user_id != null);
+      if (!publicPositions.length) {
+        return;
+      }
+      setPositionsByPilot((current) => mergePositionGroup(current, publicPositions));
+      const names = collectPilotNames(publicPositions);
       if (names.size) {
         setPilotNameById((prev) => new Map([...prev, ...names]));
       }
