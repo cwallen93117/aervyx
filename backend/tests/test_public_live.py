@@ -379,6 +379,50 @@ def test_public_all_positions_include_recently_received_stale_app_fix() -> None:
     assert _parse_iso_utc(row.timestamp) == now - timedelta(hours=7)
 
 
+def test_public_event_positions_use_linked_pilot_for_user_only_app_rows() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    event = Event(
+        name="HC 2026",
+        location="Myles",
+        starts_on=date(2026, 5, 29),
+        ends_on=date(2026, 6, 6),
+        timezone="UTC",
+        is_public_tracking=True,
+    )
+    pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", profile_type="pilot", pilot_id=pilot.id)
+    session.add(user)
+    session.flush()
+    session.add_all(
+        [
+            EventPilot(event_id=event.id, pilot_id=pilot.id),
+            LivePosition(
+                pilot_id=None,
+                user_id=user.id,
+                lat=39.09632,
+                lon=-75.89077,
+                timestamp=now - timedelta(minutes=2),
+                created_at=now - timedelta(minutes=2),
+                source="app",
+                battery_level=89,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = public_event_positions(event.id, minutes=10, limit=100, session=session)
+
+    assert len(payload) == 1
+    row = payload[0]
+    assert row.subject_key == f"pilot:{pilot.id}"
+    assert row.pilot_id == pilot.id
+    assert row.user_id == user.id
+    assert row.pilot_name == "Jeff Chipman"
+
+
 def test_public_buddy_group_positions_include_only_registered_group_members() -> None:
     session = _session()
     now = datetime.now(UTC)

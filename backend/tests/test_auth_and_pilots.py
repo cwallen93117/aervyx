@@ -32,7 +32,7 @@ from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_pilot
 from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RefreshRequest, RegisterRequest
 from app.services.tracking import resolve_mesh_device_assignment
-from app.services.pilot_identity import merge_pilots, repair_pilot_email_identities
+from app.services.pilot_identity import backfill_user_subject_pilot_links, merge_pilots, repair_pilot_email_identities
 
 
 def _session() -> Session:
@@ -89,6 +89,36 @@ def test_refresh_accepts_existing_username_tokens_and_mints_user_id_tokens() -> 
 
     assert response.user.id == user.id
     assert decode_access_token(response.access_token) == f"user:{user.id}"
+
+
+def test_backfill_user_subject_pilot_links_repairs_user_only_tracking_rows() -> None:
+    session = _session()
+    pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    session.add(pilot)
+    session.flush()
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", profile_type="pilot", pilot_id=pilot.id)
+    session.add(user)
+    session.flush()
+    position = LivePosition(
+        user_id=user.id,
+        pilot_id=None,
+        lat=39.09632,
+        lon=-75.89077,
+        timestamp=datetime.now(UTC),
+        source="app",
+    )
+    tracking = TrackingSession(user_id=user.id, pilot_id=None, position_count=1)
+    session.add_all([position, tracking])
+    session.commit()
+
+    changed = backfill_user_subject_pilot_links(session, user)
+    session.commit()
+
+    assert changed == 2
+    session.refresh(position)
+    session.refresh(tracking)
+    assert position.pilot_id == pilot.id
+    assert tracking.pilot_id == pilot.id
 
 
 def test_register_links_existing_pilot_by_email() -> None:
