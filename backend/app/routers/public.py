@@ -232,7 +232,7 @@ def get_public_upload_track(upload_id: int, session: Session = Depends(get_sessi
             ScoreResult.upload_id == upload.id,
             ScoreResult.task_id == upload.task_id,
             ScoreResult.pilot_id == upload.pilot_id,
-            ScoreResult.result_state == "official",
+            ScoreResult.result_state.in_(("official", "provisional")),
             Task.status == "published",
             Event.visibility == "public",
         )
