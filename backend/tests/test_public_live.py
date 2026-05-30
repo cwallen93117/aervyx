@@ -571,10 +571,18 @@ def test_public_task_results_include_provisional_scores() -> None:
     )
     official_pilot = Pilot(first_name="Ada", last_name="Cloud")
     provisional_pilot = Pilot(first_name="Ben", last_name="Thermal")
-    session.add_all([event, official_pilot, provisional_pilot])
+    unscored_pilot = Pilot(first_name="Cara", last_name="Waiting")
+    session.add_all([event, official_pilot, provisional_pilot, unscored_pilot])
     session.flush()
     task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
-    session.add(task)
+    session.add_all(
+        [
+            task,
+            EventPilot(event_id=event.id, pilot_id=official_pilot.id),
+            EventPilot(event_id=event.id, pilot_id=provisional_pilot.id),
+            EventPilot(event_id=event.id, pilot_id=unscored_pilot.id),
+        ]
+    )
     session.flush()
     session.add_all(
         [
@@ -586,9 +594,12 @@ def test_public_task_results_include_provisional_scores() -> None:
 
     payload = get_public_task_results(task.id, session=session)
 
-    assert [result.pilot_name for result in payload] == ["Ada Cloud", "Ben Thermal"]
+    assert [result.pilot_name for result in payload] == ["Ada Cloud", "Ben Thermal", "Cara Waiting"]
     assert payload[0].result_state == "official"
     assert payload[1].result_state == "provisional"
+    assert payload[2].result_state == "unscored"
+    assert payload[2].rank is None
+    assert payload[2].score_points == 0
 
 
 def test_public_task_results_include_public_safe_penalty_details() -> None:
@@ -605,7 +616,7 @@ def test_public_task_results_include_public_safe_penalty_details() -> None:
     session.add_all([event, pilot])
     session.flush()
     task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
-    session.add(task)
+    session.add_all([task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
     session.flush()
     details_json = {
         "start_timing": {
