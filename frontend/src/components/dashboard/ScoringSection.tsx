@@ -61,11 +61,11 @@ function formatClockTime(value: string | null | undefined, includeSeconds = fals
       hour: "numeric",
       minute: "2-digit",
       second: includeSeconds ? "2-digit" : undefined,
-      hour12: false,
+      hour12: true,
       timeZone: timeZone || undefined,
     }).format(parsed);
   } catch {
-    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: false });
+    return parsed.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: includeSeconds ? "2-digit" : undefined, hour12: true });
   }
 }
 
