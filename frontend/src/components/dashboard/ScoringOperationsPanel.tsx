@@ -906,7 +906,7 @@ export default function ScoringOperationsPanel({
               <div className="scoring-ops-strip-value amber score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { raw_score_points: 0, final_score_points: 0, manual_penalty_points: 0, engine_penalty_points: automaticPenaltyPoints, total_display_penalty_points: automaticPenaltyPoints, lines: [] } })}</div>
             </div>
             <div className="scoring-ops-score-strip-item">
-              <div className="scoring-ops-strip-label">Manual</div>
+              <div className="scoring-ops-strip-label">Manual Penalties</div>
               <div className="scoring-ops-strip-value amber score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { raw_score_points: 0, final_score_points: 0, manual_penalty_points: manualPenaltyPoints, engine_penalty_points: 0, total_display_penalty_points: manualPenaltyPoints, lines: [] } })}</div>
             </div>
             <div className="scoring-ops-score-strip-item">

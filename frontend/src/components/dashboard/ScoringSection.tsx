@@ -222,7 +222,7 @@ function PenaltyDetailsModal({
             <div className="score-penalty-score-strip">
               <div><span>Total</span><strong>{formatScorePoints(prePenaltyTotalPoints(result))}</strong></div>
               <div><span>Automatic Penalties</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
-              <div><span>Manual</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
+              <div><span>Manual Penalties</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
               <div><span>Final</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
             </div>
             <div className="score-penalty-lines">
