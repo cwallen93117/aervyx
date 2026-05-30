@@ -13,7 +13,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
-from app.models import Event, FlightSite, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, SiteSettings, Task, TrackPoint, User
+from app.models import Event, EventPilot, FlightSite, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, SiteSettings, Task, TrackPoint, User
 from app.services.igc import ParsedIGC, TrackFix, parse_igc
 
 
@@ -382,6 +382,7 @@ async def _create_logbook_owned_flight_from_parsed(
     site_name: str | None = None,
     notes: str | None = None,
     flight_date_override: date | None = None,
+    task_link_metadata: dict | None = None,
 ) -> PilotFlight:
     safe_filename = filename or "flight.igc"
     settings = get_settings()
@@ -392,6 +393,8 @@ async def _create_logbook_owned_flight_from_parsed(
         await asyncio.to_thread(stored_path.write_bytes, content)
     stats = derive_flight_stats(parsed.fixes)
     metadata = dict(parsed.metadata)
+    if task_link_metadata:
+        metadata.update(task_link_metadata)
     flight = PilotFlight(
         pilot_id=pilot_id,
         source_kind=source_kind,
@@ -428,6 +431,26 @@ async def _create_logbook_owned_flight_from_parsed(
         )
     session.flush()
     return flight
+
+
+def _parsed_flight_date(parsed: ParsedIGC, flight_date_override: date | None = None) -> date:
+    if flight_date_override is not None:
+        return flight_date_override
+    if parsed.metadata.get("flight_date"):
+        return date.fromisoformat(str(parsed.metadata["flight_date"]))
+    return date.today()
+
+
+def _same_day_task_candidates(session: Session, *, pilot_id: int, flight_date: date) -> list[Task]:
+    return session.scalars(
+        select(Task)
+        .join(EventPilot, EventPilot.event_id == Task.event_id)
+        .where(
+            EventPilot.pilot_id == pilot_id,
+            Task.task_date == flight_date,
+        )
+        .order_by(Task.id.asc())
+    ).all()
 
 
 def sync_task_upload_to_logbook(
@@ -480,6 +503,31 @@ async def create_app_upload_flight(
         raise ValueError("This account is not linked to a pilot profile.")
     parsed = parse_igc(content)
     sha256 = hashlib.sha256(content).hexdigest()
+    flight_date = _parsed_flight_date(parsed, flight_date_override)
+    task_candidates = _same_day_task_candidates(session, pilot_id=user.pilot_id, flight_date=flight_date)
+    if len(task_candidates) == 1:
+        from app.services.task_uploads import store_task_upload
+
+        stored = await store_task_upload(
+            session,
+            task_candidates[0],
+            filename=filename,
+            content=content,
+            pilot_id=user.pilot_id,
+            uploaded_by_user_id=user.id,
+            upload_source="app",
+            parsed=parsed,
+        )
+        flight = session.scalar(select(PilotFlight).where(PilotFlight.igc_upload_id == stored.upload.id))
+        if flight is not None:
+            return flight
+
+    task_link_metadata = None
+    if len(task_candidates) > 1:
+        task_link_metadata = {
+            "task_link_status": "ambiguous",
+            "task_link_candidate_ids": [task.id for task in task_candidates],
+        }
     return await _create_logbook_owned_flight_from_parsed(
         session,
         pilot_id=user.pilot_id,
@@ -491,6 +539,7 @@ async def create_app_upload_flight(
         site_name=site_name,
         notes=notes,
         flight_date_override=flight_date_override,
+        task_link_metadata=task_link_metadata,
     )
 
 
@@ -572,15 +621,51 @@ async def import_logbook_folder_files(
             )
             continue
 
-        flight = await _create_logbook_owned_flight_from_parsed(
-            session,
-            pilot_id=user.pilot_id,
-            source_kind="app_upload",
-            parsed=parsed,
-            sha256=sha256,
-            filename=filename,
-            content=content,
-        )
+        flight_date = _parsed_flight_date(parsed)
+        task_candidates = _same_day_task_candidates(session, pilot_id=user.pilot_id, flight_date=flight_date)
+        if len(task_candidates) == 1:
+            from app.services.task_uploads import store_task_upload
+
+            stored = await store_task_upload(
+                session,
+                task_candidates[0],
+                filename=filename,
+                content=content,
+                pilot_id=user.pilot_id,
+                uploaded_by_user_id=user.id,
+                upload_source="app",
+                parsed=parsed,
+            )
+            flight = session.scalar(select(PilotFlight).where(PilotFlight.igc_upload_id == stored.upload.id))
+            if flight is None:
+                flight = await _create_logbook_owned_flight_from_parsed(
+                    session,
+                    pilot_id=user.pilot_id,
+                    source_kind="app_upload",
+                    parsed=parsed,
+                    sha256=sha256,
+                    filename=filename,
+                    content=content,
+                )
+            import_reason = "Imported into the task scores and pilot logbook."
+        else:
+            task_link_metadata = None
+            if len(task_candidates) > 1:
+                task_link_metadata = {
+                    "task_link_status": "ambiguous",
+                    "task_link_candidate_ids": [task.id for task in task_candidates],
+                }
+            flight = await _create_logbook_owned_flight_from_parsed(
+                session,
+                pilot_id=user.pilot_id,
+                source_kind="app_upload",
+                parsed=parsed,
+                sha256=sha256,
+                filename=filename,
+                content=content,
+                task_link_metadata=task_link_metadata,
+            )
+            import_reason = "Imported into the pilot logbook."
         batch_hashes.add(sha256)
         existing_hashes.add(sha256)
         result.imported.append(
@@ -590,7 +675,7 @@ async def import_logbook_folder_files(
                 filename=filename,
                 relative_path=relative_path,
                 detected_pilot_name=detected_pilot_name,
-                reason="Imported into the pilot logbook.",
+                reason=import_reason,
                 flight_id=flight.id,
             )
         )
