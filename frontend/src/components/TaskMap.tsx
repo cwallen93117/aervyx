@@ -395,8 +395,6 @@ function formatLivePositionUpdateLabel(value: string | null | undefined): string
     return value;
   }
   const absolute = new Date(timestampMs).toLocaleString([], {
-    month: "short",
-    day: "numeric",
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
