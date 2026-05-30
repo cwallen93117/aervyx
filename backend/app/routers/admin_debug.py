@@ -46,6 +46,10 @@ def _is_recent(now: datetime, value: datetime | None, *, seconds: int = 60) -> b
     return age is not None and age < seconds
 
 
+def _received_at_for_position(pos: LivePosition) -> datetime:
+    return pos.created_at or pos.timestamp
+
+
 def _status_gateway_id_for_latest(
     node_status: MeshNodeStatus | None,
     *,
@@ -203,13 +207,14 @@ def admin_debug_status(
             .select_from(LivePosition)
             .where(
                 *pos_filters,
-                LivePosition.timestamp >= sixty_seconds_ago,
+                func.coalesce(LivePosition.created_at, LivePosition.timestamp) >= sixty_seconds_ago,
             )
         ) or 0
         if started_at is None:
             started_at = session.scalar(
-                select(func.min(LivePosition.timestamp)).where(*pos_filters)
+                select(func.min(func.coalesce(LivePosition.created_at, LivePosition.timestamp))).where(*pos_filters)
             )
+        received_at = _received_at_for_position(latest_app_pos)
 
         active_sessions.append({
             "pilot_id": latest_app_pos.pilot_id,
@@ -229,14 +234,14 @@ def admin_debug_status(
             "position_count": phone_position_count,
             "positions_last_60s": positions_last_60s,
             "started_at": started_at.isoformat() if started_at else None,
-            "last_seen_at": latest_app_pos.timestamp.isoformat(),
+            "last_seen_at": received_at.isoformat(),
             "last_position": {
                 "lat": latest_app_pos.lat,
                 "lon": latest_app_pos.lon,
                 "alt": latest_app_pos.alt,
                 "speed": latest_app_pos.speed,
             },
-            "is_online": _is_recent(now, latest_app_pos.timestamp),
+            "is_online": _is_recent(now, received_at),
             "has_mesh": has_mesh_for_subject(latest_app_pos.pilot_id, latest_app_pos.user_id),
         })
         seen_phone_keys.add(key)
@@ -272,7 +277,7 @@ def admin_debug_status(
         latest_app_pos = session.scalar(
             select(LivePosition)
             .where(*pos_filter)
-            .order_by(LivePosition.timestamp.desc())
+            .order_by(func.coalesce(LivePosition.created_at, LivePosition.timestamp).desc(), LivePosition.timestamp.desc())
             .limit(1)
         )
         if latest_app_pos is None:
@@ -294,10 +299,10 @@ def admin_debug_status(
         select(LivePosition)
         .where(
             LivePosition.source == PHONE_APP_POSITION_SOURCE,
-            LivePosition.timestamp >= recent_phone_cutoff,
+            func.coalesce(LivePosition.created_at, LivePosition.timestamp) >= recent_phone_cutoff,
             or_(LivePosition.pilot_id.is_not(None), LivePosition.user_id.is_not(None)),
         )
-        .order_by(LivePosition.timestamp.desc())
+        .order_by(func.coalesce(LivePosition.created_at, LivePosition.timestamp).desc(), LivePosition.timestamp.desc())
     ).all()
     for pos in recent_app_positions:
         key = phone_session_key(pos.pilot_id, pos.user_id, pos.task_id)
