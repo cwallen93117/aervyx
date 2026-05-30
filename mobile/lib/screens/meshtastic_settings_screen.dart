@@ -625,6 +625,8 @@ class _SettingsCard extends StatefulWidget {
 }
 
 class _SettingsCardState extends State<_SettingsCard> {
+  static const bool _profileSavePaused = true;
+
   late MeshtasticProfile _selectedProfile;
   late RegionCode _region;
   late TextEditingController _longNameCtl;
@@ -1167,7 +1169,7 @@ class _SettingsCardState extends State<_SettingsCard> {
             SizedBox(
               width: double.infinity,
               child: FilledButton.icon(
-                onPressed: disabled ? null : _save,
+                onPressed: _profileSavePaused || disabled ? null : _save,
                 icon: const Icon(Icons.save, size: 18),
                 label: const Text('Save'),
               ),
