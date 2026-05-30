@@ -129,20 +129,14 @@ function resultStateLabel(resultState: string | null | undefined): { label: stri
   return null;
 }
 
-function eventHasNotStarted(startsOn: string | null | undefined): boolean {
-  if (!startsOn) return false;
-  const parsed = new Date(`${startsOn}T00:00:00`);
-  return Number.isFinite(parsed.getTime()) && Date.now() < parsed.getTime();
-}
-
 function sortOverallPilotSummary(
   summaries: PilotSummaryRecord[],
   scoredTasks: PublicTask[],
-  eventStartsOn: string | null | undefined,
 ): PilotSummaryRecord[] {
   const practiceTasks = scoredTasks.filter((task) => task.is_practice);
   const latestPracticeTask = practiceTasks[practiceTasks.length - 1];
-  if (eventHasNotStarted(eventStartsOn) && latestPracticeTask) {
+  const hasCompetitionScores = scoredTasks.some((task) => !task.is_practice);
+  if (!hasCompetitionScores && latestPracticeTask) {
     const taskKey = String(latestPracticeTask.id);
     return [...summaries].sort((left, right) => {
       const scoreDiff = (right.task_scores[taskKey] ?? 0) - (left.task_scores[taskKey] ?? 0);
@@ -396,9 +390,8 @@ export function PublicScoresClient() {
     () => sortOverallPilotSummary(
       pilotSummary.filter((summary) => Object.keys(summary.task_scores).length > 0),
       scoredTasks,
-      selectedEvent?.starts_on,
     ),
-    [pilotSummary, scoredTasks, selectedEvent?.starts_on],
+    [pilotSummary, scoredTasks],
   );
   const overallTaskResultStates = useMemo(() => {
     const states = new Map<number, string>();

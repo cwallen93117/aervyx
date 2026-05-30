@@ -173,20 +173,14 @@ function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactN
   );
 }
 
-function eventHasNotStarted(startsOn: string | null | undefined): boolean {
-  if (!startsOn) return false;
-  const parsed = new Date(`${startsOn}T00:00:00`);
-  return Number.isFinite(parsed.getTime()) && Date.now() < parsed.getTime();
-}
-
 function sortOverallPilotSummary(
   summaries: PilotSummaryRecord[],
   scoredTasks: TaskRecord[],
-  eventStartsOn: string | null | undefined,
 ): PilotSummaryRecord[] {
   const practiceTasks = scoredTasks.filter((task) => task.is_practice);
   const latestPracticeTask = practiceTasks[practiceTasks.length - 1];
-  if (eventHasNotStarted(eventStartsOn) && latestPracticeTask) {
+  const hasCompetitionScores = scoredTasks.some((task) => !task.is_practice);
+  if (!hasCompetitionScores && latestPracticeTask) {
     const taskKey = String(latestPracticeTask.id);
     return [...summaries].sort((left, right) => {
       const scoreDiff = (right.task_scores[taskKey] ?? 0) - (left.task_scores[taskKey] ?? 0);
@@ -409,8 +403,8 @@ export default function ScoringSection(props: ScoringSectionProps) {
     return states;
   }, [pilotSummary, scoredTasks]);
   const overallPilotSummary = useMemo(
-    () => sortOverallPilotSummary(pilotSummary, scoredTasks, eventForm.starts_on),
-    [eventForm.starts_on, pilotSummary, scoredTasks],
+    () => sortOverallPilotSummary(pilotSummary, scoredTasks),
+    [pilotSummary, scoredTasks],
   );
   const selectedTaskResultsOfficial = useMemo(
     () => results.some((result) => result.result_state !== "unscored") && results.every((result) => result.result_state === "official" || result.result_state === "unscored"),
