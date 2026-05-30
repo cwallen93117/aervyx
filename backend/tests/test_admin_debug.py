@@ -272,6 +272,7 @@ def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_positio
                 source="app",
                 device_id="app-device-should-not-render",
                 battery_level=44,
+                created_at=now - timedelta(minutes=2),
             ),
             LivePosition(
                 pilot_id=pilot.id,
@@ -378,6 +379,7 @@ def test_admin_debug_status_lists_recent_phone_position_without_tracking_session
                 timestamp=now - timedelta(seconds=5),
                 source="app",
                 battery_level=62,
+                created_at=now - timedelta(seconds=4),
             ),
             LivePosition(
                 pilot_id=pilot.id,
@@ -392,6 +394,7 @@ def test_admin_debug_status_lists_recent_phone_position_without_tracking_session
                 timestamp=now - timedelta(seconds=10),
                 source="app",
                 battery_level=63,
+                created_at=now - timedelta(seconds=9),
             ),
         ]
     )
@@ -416,6 +419,60 @@ def test_admin_debug_status_lists_recent_phone_position_without_tracking_session
     }
 
 
+def test_admin_debug_status_uses_receive_time_for_phone_last_heard() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    old_fix_at = now - timedelta(hours=7)
+    received_at = now - timedelta(seconds=5)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", pilot_id=None)
+    session.add_all([admin, pilot, user])
+    session.flush()
+    user.pilot_id = pilot.id
+    session.add(
+        TrackingSession(
+            pilot_id=pilot.id,
+            task_id=None,
+            started_at=now - timedelta(minutes=3),
+            last_seen_at=received_at,
+            is_active=True,
+            position_count=1,
+        )
+    )
+    session.add(
+        LivePosition(
+            pilot_id=pilot.id,
+            user_id=user.id,
+            task_id=None,
+            lat=39.09632,
+            lon=-75.89077,
+            alt=-10,
+            speed=0,
+            timestamp=old_fix_at,
+            source="app",
+            battery_level=89,
+            battery_level_seen_at=now - timedelta(hours=3),
+            created_at=received_at,
+        )
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    phone = payload["active_sessions"][0]
+    assert phone["pilot_name"] == "Jeff Chipman"
+    assert phone["last_seen_at"] == _sqlite_iso(received_at)
+    assert phone["positions_last_60s"] == 1
+    assert phone["is_online"] is True
+    assert phone["last_position"] == {
+        "lat": 39.09632,
+        "lon": -75.89077,
+        "alt": -10.0,
+        "speed": 0.0,
+    }
+
+
 def test_admin_debug_status_ignores_old_phone_position_without_tracking_session() -> None:
     session = _session()
     now = datetime.now(UTC)
@@ -434,6 +491,7 @@ def test_admin_debug_status_ignores_old_phone_position_without_tracking_session(
             lon=-75.25,
             timestamp=now - timedelta(hours=7),
             source="app",
+            created_at=now - timedelta(hours=7),
         )
     )
     session.commit()
