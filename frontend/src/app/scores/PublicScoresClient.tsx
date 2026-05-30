@@ -129,6 +129,18 @@ function resultStateLabel(resultState: string | null | undefined): { label: stri
   return null;
 }
 
+function overallTaskHeader(task: PublicTask, resultState: string | null | undefined): ReactNode {
+  const state = resultStateLabel(resultState);
+  const dateLabel = formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at);
+  return (
+    <span className="results-header-stack">
+      <span className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</span>
+      <span>{dateLabel}</span>
+      {state ? <span className={`result-state-badge ${state.className}`}>{state.label}</span> : null}
+    </span>
+  );
+}
+
 function sortOverallPilotSummary(
   summaries: PilotSummaryRecord[],
   scoredTasks: PublicTask[],
@@ -765,17 +777,7 @@ export function PublicScoresClient() {
               <tr>
                 <th>#</th>
                 <th>Name</th>
-                {scoredTasks.map((task) => {
-                  const state = resultStateLabel(overallTaskResultStates.get(task.id));
-                  return (
-                    <th key={task.id}>
-                      <span className="results-header-stack">
-                        <span className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</span>
-                        {state ? <span className={`result-state-badge ${state.className}`}>{state.label}</span> : null}
-                      </span>
-                    </th>
-                  );
-                })}
+                {scoredTasks.map((task) => <th key={task.id}>{overallTaskHeader(task, overallTaskResultStates.get(task.id))}</th>)}
                 <th>Total</th>
               </tr>
             </thead>
