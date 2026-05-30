@@ -3071,6 +3071,8 @@ button[type="submit"]:hover,
 
 .score-penalty-score-strip div {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.65rem;
@@ -3080,14 +3082,14 @@ button[type="submit"]:hover,
 .score-penalty-score-strip span,
 .score-penalty-line span {
   display: block;
-  margin-top: 0.2rem;
   font-size: 0.78rem;
   color: var(--muted);
 }
 
 .score-penalty-score-strip strong {
   display: block;
-  margin-top: 0.2rem;
+  margin-top: auto;
+  padding-top: 0.45rem;
   color: var(--ink);
 }
 
@@ -7254,6 +7256,8 @@ details[open] > summary {
 
 .scoring-ops-score-strip-item {
   flex: 1;
+  display: flex;
+  flex-direction: column;
   padding: 10px 12px;
   text-align: center;
   border-right: 1px solid var(--line);
@@ -7271,6 +7275,8 @@ details[open] > summary {
 }
 
 .scoring-ops-strip-value {
+  margin-top: auto;
+  padding-top: 4px;
   font-size: 1.25rem;
   font-weight: 700;
 }
