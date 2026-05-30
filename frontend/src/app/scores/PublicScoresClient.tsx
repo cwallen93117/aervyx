@@ -399,10 +399,7 @@ export function PublicScoresClient() {
     [tasks, pilotSummary],
   );
   const visiblePilotSummary = useMemo(
-    () => sortOverallPilotSummary(
-      pilotSummary.filter((summary) => Object.keys(summary.task_scores).length > 0),
-      scoredTasks,
-    ),
+    () => sortOverallPilotSummary(pilotSummary, scoredTasks),
     [pilotSummary, scoredTasks],
   );
   const overallTaskResultStates = useMemo(() => {
@@ -426,8 +423,9 @@ export function PublicScoresClient() {
     return states;
   }, [pilotSummary, scoredTasks]);
   const selectedTaskResultState = useMemo(() => {
-    if (!taskResults.length) return null;
-    return taskResults.some((result) => result.result_state === "provisional") ? "provisional" : "official";
+    const scoredResults = taskResults.filter((result) => result.result_state !== "unscored");
+    if (!scoredResults.length) return null;
+    return scoredResults.some((result) => result.result_state === "provisional") ? "provisional" : "official";
   }, [taskResults]);
   const taskResultsColumns = useMemo(() => {
     const columns: Array<"distance" | "speed" | "arrival" | "departure" | "leading"> = [];
@@ -835,6 +833,7 @@ export function PublicScoresClient() {
               </thead>
               <tbody>
                 {taskResults.map((result) => {
+                  const isUnscored = result.result_state === "unscored";
                   const statusLabel = statusAbbreviation(result.status);
                   return (
                     <tr key={result.id}>
@@ -843,12 +842,12 @@ export function PublicScoresClient() {
                         <strong>{result.pilot_name}</strong>
                         {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
                       </td>
-                      <td>{formatClockTime(result.started_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
-                      <td>{formatClockTime(result.goal_at ?? result.ess_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
-                      <td>{formatElapsedSeconds(result.elapsed_seconds)}</td>
-                      <td>{formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
-                      <td>{result.distance_flown_km.toFixed(1)}</td>
-                      {taskResultsColumns.map((column) => <td key={column}>{formatPoints(gapAwardedPoints(result, column))}</td>)}
+                      <td>{isUnscored ? "-" : formatClockTime(result.started_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
+                      <td>{isUnscored ? "-" : formatClockTime(result.goal_at ?? result.ess_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
+                      <td>{isUnscored ? "-" : formatElapsedSeconds(result.elapsed_seconds)}</td>
+                      <td>{isUnscored ? "-" : formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
+                      <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>
+                      {taskResultsColumns.map((column) => <td key={column}>{isUnscored ? "-" : formatPoints(gapAwardedPoints(result, column))}</td>)}
                       {taskResultsIncludePenalty ? (
                         <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>
                           {hasPenaltyDetails(result) ? (
@@ -860,7 +859,7 @@ export function PublicScoresClient() {
                           )}
                         </td>
                       ) : null}
-                      <td className="results-table-total">{formatPointsWithComma(result.score_points)}</td>
+                      <td className={`results-table-total${isUnscored ? " scoring-ops-muted" : ""}`}>{isUnscored ? "-" : formatPointsWithComma(result.score_points)}</td>
                     </tr>
                   );
                 })}

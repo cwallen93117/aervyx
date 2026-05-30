@@ -170,12 +170,53 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
     event = session.get(Event, task.event_id)
     if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Published task not found")
-    results = session.scalars(
+    visible_results = session.scalars(
         select(ScoreResult)
         .where(ScoreResult.task_id == task_id)
         .order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
-    return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
+    results_by_pilot = {result.pilot_id: result for result in visible_results}
+    pilots = session.execute(
+        select(Pilot)
+        .join(EventPilot, EventPilot.pilot_id == Pilot.id)
+        .where(EventPilot.event_id == task.event_id)
+        .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
+    ).scalars().all()
+
+    rows: list[ScoreResultResponse] = []
+    for pilot in pilots:
+        result = results_by_pilot.get(pilot.id)
+        if result is not None:
+            rows.append(ScoreResultResponse(**build_result_payload(session, result)))
+            continue
+        rows.append(
+            ScoreResultResponse(
+                id=-pilot.id,
+                task_id=task_id,
+                pilot_id=pilot.id,
+                upload_id=None,
+                pilot_name=f"{pilot.first_name} {pilot.last_name}".strip(),
+                competition_number=pilot.competition_number,
+                status="unscored",
+                rank=None,
+                distance_flown_km=0.0,
+                started_at=None,
+                ess_at=None,
+                goal_at=None,
+                elapsed_seconds=None,
+                raw_score_points=0.0,
+                score_points=0.0,
+                details_json={},
+                result_state="unscored",
+            )
+        )
+
+    def row_sort_key(row: ScoreResultResponse) -> tuple:
+        if row.result_state == "unscored":
+            return (1, row.pilot_name.lower())
+        return (0, row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
+
+    return sorted(rows, key=row_sort_key)
 
 
 @router.get("/uploads/{upload_id}/track")
