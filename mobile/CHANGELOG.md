@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.42+59 - 2026-05-30
+
+### Changed
+- Meshtastic profile saves are temporarily disabled while profile writing is
+  paused.
+
 ## 0.4.41+58 - 2026-05-29
 
 ### Fixed
