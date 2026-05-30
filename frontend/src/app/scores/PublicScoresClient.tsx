@@ -77,6 +77,7 @@ type PilotSummaryRecord = {
   best_distance_km: number;
   task_scores: Record<string, number>;
   task_result_states: Record<string, string>;
+  task_statuses?: Record<string, string>;
 };
 
 type TaskResultSummaryRecord = { task_id: number; day_quality: number | null };
@@ -263,6 +264,17 @@ function statusAbbreviation(status: string): string | null {
     default:
       return null;
   }
+}
+
+function formatOverallTaskScore(summary: PilotSummaryRecord, taskId: number, formatter: (value: number) => string): string {
+  const taskKey = String(taskId);
+  const score = summary.task_scores[taskKey];
+  if (score == null) return "-";
+  const status = summary.task_statuses?.[taskKey];
+  if (score === 0 && (status === "absent" || status === "did_not_fly")) {
+    return statusAbbreviation(status) ?? formatter(score);
+  }
+  return formatter(score);
 }
 
 function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure" | "leading") {
@@ -786,9 +798,7 @@ export function PublicScoresClient() {
                   <td>
                     <strong>{summary.pilot_name}</strong>
                   </td>
-                  {scoredTasks.map((task) => (
-                    <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatPoints(summary.task_scores[String(task.id)]) : "-"}</td>
-                  ))}
+                  {scoredTasks.map((task) => <td key={task.id}>{formatOverallTaskScore(summary, task.id, formatPoints)}</td>)}
                   <td className="results-table-total">{formatPointsWithComma(summary.total_score_points)}</td>
                 </tr>
               ))}

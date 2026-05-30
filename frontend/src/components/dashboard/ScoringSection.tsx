@@ -115,6 +115,17 @@ function statusAbbreviation(status: string): string | null {
   }
 }
 
+function formatOverallTaskScore(summary: PilotSummaryRecord, taskId: number): string {
+  const taskKey = String(taskId);
+  const score = summary.task_scores[taskKey];
+  if (score == null) return "-";
+  const status = summary.task_statuses?.[taskKey];
+  if (score === 0 && (status === "absent" || status === "did_not_fly")) {
+    return statusAbbreviation(status) ?? formatResultPoints(score);
+  }
+  return formatResultPoints(score);
+}
+
 function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | undefined): string {
   if (!elapsedSeconds || elapsedSeconds <= 0) return "-";
   return (distanceKm / (elapsedSeconds / 3600)).toFixed(1);
@@ -792,7 +803,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                               <td><strong>{summary.pilot_name}</strong></td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
-                              {scoredTasks.map((task) => <td key={task.id}>{summary.task_scores[String(task.id)] != null ? formatResultPoints(summary.task_scores[String(task.id)]) : "-"}</td>)}
+                              {scoredTasks.map((task) => <td key={task.id}>{formatOverallTaskScore(summary, task.id)}</td>)}
                               <td className="results-table-total">{formatPointsWithComma(summary.total_score_points)}</td>
                             </tr>
                           );
