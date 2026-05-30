@@ -4177,8 +4177,8 @@ button[type="submit"]:hover,
 }
 
 .task-practice-checkbox-row input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 8px;
+  height: 8px;
   min-height: auto;
   margin: 0;
   accent-color: var(--accent);
