@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import get_current_user, require_staff
 from app.models import Event, IGCUpload, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, Turnpoint, TurnpointSource, User
-from app.schemas import TaskInput, TaskPointResponse, TaskResponse, default_task_point_direction
+from app.schemas import TaskInput, TaskPointResponse, TaskResponse, default_task_point_direction, default_task_point_radius_m
 from app.services.audit import log_action
 
 router = APIRouter(tags=["tasks"])
@@ -28,6 +28,10 @@ def _normalize_task_type(task_type: str | None) -> str:
 
 def _normalize_task_point_direction(direction: str | None, point_type: str) -> str:
     return direction if direction in {"enter", "exit"} else default_task_point_direction(point_type)
+
+
+def _normalize_task_point_radius(radius_m: float | None, point_type: str) -> float:
+    return radius_m if radius_m is not None and radius_m > 0 else default_task_point_radius_m(point_type)
 
 
 def _enabled_turnpoint_source_ids(session: Session, event_id: int) -> set[int]:
@@ -131,6 +135,7 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
     for point in payload.points:
         point_data = point.model_dump()
         point_data["direction"] = _normalize_task_point_direction(point_data.get("direction"), point_data["point_type"])
+        point_data["radius_m"] = _normalize_task_point_radius(point_data.get("radius_m"), point_data["point_type"])
         session.add(TaskPoint(task_id=task.id, **point_data))
     log_action(session, actor_user_id=admin.id, action="task.create", entity_type="task", entity_id=str(task.id), details={"event_id": event_id, "point_count": len(payload.points)})
     session.commit()
@@ -166,6 +171,7 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
     for point in payload.points:
         point_data = point.model_dump()
         point_data["direction"] = _normalize_task_point_direction(point_data.get("direction"), point_data["point_type"])
+        point_data["radius_m"] = _normalize_task_point_radius(point_data.get("radius_m"), point_data["point_type"])
         session.add(TaskPoint(task_id=task.id, **point_data))
     log_action(session, actor_user_id=admin.id, action="task.update", entity_type="task", entity_id=str(task.id), details={"version": task.version, "point_count": len(payload.points)})
     session.commit()

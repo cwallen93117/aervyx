@@ -569,6 +569,19 @@ function defaultTaskPointDirection(pointType: string): "enter" | "exit" {
   return pointType.toLowerCase() === "start" ? "exit" : "enter";
 }
 
+function defaultTaskPointRadius(pointType: string): number | null {
+  switch (pointType.toLowerCase()) {
+    case "start":
+      return 5000;
+    case "turnpoint":
+      return 1000;
+    case "goal":
+      return 400;
+    default:
+      return null;
+  }
+}
+
 function normalizeTaskPoint(point: TaskPointRecord): TaskPointRecord {
   return {
     ...point,
@@ -2388,15 +2401,17 @@ export default function HomePage() {
   function addTurnpoint(turnpoint: MapTurnpoint) {
       setRadiusDrafts({});
       setTaskDraft((current) => {
+        const pointType = current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint";
+        const mappedRadius = defaultTaskPointRadius(pointType);
         return {
           ...current,
           points: [
             ...current.points,
             {
               position: current.points.length + 1,
-              point_type: current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint",
-              direction: current.points.length === 0 && !taskPointAdvanced ? "exit" : "enter",
-              radius_m: current.points.length === 0 ? 300 : 400,
+              point_type: pointType,
+              direction: defaultTaskPointDirection(pointType),
+              radius_m: mappedRadius ?? (current.points.length === 0 ? 300 : 400),
               turnpoint_id: turnpoint.id,
               name: turnpoint.name,
             latitude: turnpoint.latitude,
@@ -2416,6 +2431,7 @@ export default function HomePage() {
           const nextPoint = { ...point, ...patch };
           if (patch.point_type && patch.point_type !== point.point_type) {
             nextPoint.direction = defaultTaskPointDirection(patch.point_type);
+            nextPoint.radius_m = defaultTaskPointRadius(patch.point_type) ?? nextPoint.radius_m;
           }
           return normalizeTaskPoint(nextPoint);
         })

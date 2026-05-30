@@ -9,6 +9,17 @@ def default_task_point_direction(point_type: str | None) -> str:
     return "exit" if (point_type or "").lower() == "start" else "enter"
 
 
+def default_task_point_radius_m(point_type: str | None) -> float:
+    point_type = (point_type or "").lower()
+    if point_type == "start":
+        return 5000.0
+    if point_type == "turnpoint":
+        return 1000.0
+    if point_type == "goal":
+        return 400.0
+    return 400.0
+
+
 class GoogleAuthRequest(BaseModel):
     credential: str
 
@@ -520,7 +531,7 @@ class TaskPointInput(BaseModel):
     position: int
     point_type: str
     direction: str | None = Field(default=None, pattern="^(enter|exit)$")
-    radius_m: float = Field(default=400, gt=0)
+    radius_m: float | None = None
     turnpoint_id: int | None = None
     name: str
     latitude: float
@@ -530,6 +541,8 @@ class TaskPointInput(BaseModel):
     def apply_default_direction(self) -> "TaskPointInput":
         if self.direction not in {"enter", "exit"}:
             self.direction = default_task_point_direction(self.point_type)
+        if self.radius_m is None or self.radius_m <= 0:
+            self.radius_m = default_task_point_radius_m(self.point_type)
         return self
 
 

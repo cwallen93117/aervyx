@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.tasks import _task_response, delete_task, list_tasks, unpublish_task
+from app.routers.tasks import _task_response, create_task, delete_task, list_tasks, unpublish_task
 from app.schemas import TaskInput
 
 
@@ -141,6 +141,56 @@ def test_task_input_ignores_deprecated_formula_fields() -> None:
     assert not hasattr(payload, "nominal_launch")
     assert not hasattr(payload, "minimum_distance_km")
     assert not hasattr(payload, "penalties_json")
+
+
+def test_create_task_defaults_point_radius_and_direction_by_type() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    event = Event(
+        name="Default Task Points",
+        location="Ridgeline",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+    )
+    session.add_all([admin, event])
+    session.flush()
+
+    payload = TaskInput(
+        name="Practice",
+        points=[
+            {
+                "position": 1,
+                "point_type": "start",
+                "name": "Start",
+                "latitude": 38.0,
+                "longitude": -75.0,
+            },
+            {
+                "position": 2,
+                "point_type": "turnpoint",
+                "name": "Turn",
+                "latitude": 38.1,
+                "longitude": -75.1,
+            },
+            {
+                "position": 3,
+                "point_type": "goal",
+                "radius_m": 0,
+                "name": "Goal",
+                "latitude": 38.2,
+                "longitude": -75.2,
+            },
+        ],
+    )
+
+    response = create_task(event.id, payload, admin=admin, session=session)
+
+    assert [(point.point_type, point.direction, point.radius_m) for point in response.points] == [
+        ("start", "exit", 5000.0),
+        ("turnpoint", "enter", 1000.0),
+        ("goal", "enter", 400.0),
+    ]
 
 
 def test_list_tasks_orders_dated_tasks_oldest_first_with_undated_last() -> None:
