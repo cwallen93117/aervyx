@@ -74,6 +74,7 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         event_id=task.event_id,
         name=task.name,
         task_date=task.task_date,
+        is_practice=bool(task.is_practice),
         status=task.status,
         task_type=_normalize_task_type(task.task_type),
         task_start_time=task.task_start_time,
@@ -108,7 +109,7 @@ def list_tasks(event_id: int, user: User = Depends(get_current_user), session: S
     tasks = session.scalars(
         select(Task)
         .where(Task.event_id == event_id)
-        .order_by(Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
+        .order_by(Task.is_practice.desc(), Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
     ).all()
     return [_task_response(session, task) for task in tasks]
 
@@ -121,6 +122,7 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
         event_id=event_id,
         name=payload.name,
         task_date=payload.task_date,
+        is_practice=payload.is_practice,
         status=payload.status,
         task_type=_normalize_task_type(payload.task_type),
         task_start_time=payload.task_start_time,
@@ -157,6 +159,7 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
         raise HTTPException(status_code=404, detail="Task not found")
     task.name = payload.name
     task.task_date = payload.task_date
+    task.is_practice = payload.is_practice
     task.status = payload.status
     task.task_type = _normalize_task_type(payload.task_type)
     task.task_start_time = payload.task_start_time

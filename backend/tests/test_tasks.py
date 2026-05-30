@@ -110,6 +110,7 @@ def test_task_response_filters_stale_turnpoints_when_sources_are_disabled() -> N
 
     assert [point.name for point in response.points] == ["East Ridge", "Manual Goal"]
     assert response.task_type == "race_to_goal_with_gates"
+    assert response.is_practice is False
     assert response.start_gate_count == 1
     assert [point.direction for point in response.points] == ["enter", "enter"]
     assert not hasattr(response, "nominal_distance_km")
@@ -158,6 +159,7 @@ def test_create_task_defaults_point_radius_and_direction_by_type() -> None:
 
     payload = TaskInput(
         name="Practice",
+        is_practice=True,
         points=[
             {
                 "position": 1,
@@ -186,6 +188,7 @@ def test_create_task_defaults_point_radius_and_direction_by_type() -> None:
 
     response = create_task(event.id, payload, admin=admin, session=session)
 
+    assert response.is_practice is True
     assert [(point.point_type, point.direction, point.radius_m) for point in response.points] == [
         ("start", "exit", 5000.0),
         ("turnpoint", "enter", 1000.0),
@@ -208,6 +211,7 @@ def test_list_tasks_orders_dated_tasks_oldest_first_with_undated_last() -> None:
     session.add_all(
         [
             Task(event_id=event.id, name="Newer", task_date=date(2026, 5, 5)),
+            Task(event_id=event.id, name="Practice", task_date=date(2026, 5, 4), is_practice=True),
             Task(event_id=event.id, name="Undated", task_date=None),
             Task(event_id=event.id, name="Older", task_date=date(2026, 5, 2)),
         ]
@@ -216,7 +220,7 @@ def test_list_tasks_orders_dated_tasks_oldest_first_with_undated_last() -> None:
 
     payload = list_tasks(event.id, user=user, session=session)
 
-    assert [task.name for task in payload] == ["Older", "Newer", "Undated"]
+    assert [task.name for task in payload] == ["Practice", "Older", "Newer", "Undated"]
 
 
 def test_task_response_preserves_all_points_without_active_slots() -> None:

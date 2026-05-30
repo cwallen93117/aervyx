@@ -549,6 +549,7 @@ class TaskPointInput(BaseModel):
 class TaskInput(BaseModel):
     name: str
     task_date: date | None = None
+    is_practice: bool = False
     status: str = "draft"
     task_type: str = "race_to_goal_with_gates"
     task_start_time: str | None = None
@@ -569,6 +570,7 @@ class TaskResponse(BaseModel):
     event_id: int
     name: str
     task_date: date | None = None
+    is_practice: bool = False
     status: str
     task_type: str
     task_start_time: str | None

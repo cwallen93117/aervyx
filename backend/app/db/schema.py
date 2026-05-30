@@ -517,6 +517,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race_to_goal_with_gates'",
         "task_date": "ALTER TABLE tasks ADD COLUMN task_date DATE",
+        "is_practice": "ALTER TABLE tasks ADD COLUMN is_practice BOOLEAN NOT NULL DEFAULT FALSE",
         "task_start_time": "ALTER TABLE tasks ADD COLUMN task_start_time VARCHAR(8)",
         "task_finish_time": "ALTER TABLE tasks ADD COLUMN task_finish_time VARCHAR(8)",
         "start_open_time": "ALTER TABLE tasks ADD COLUMN start_open_time VARCHAR(8)",

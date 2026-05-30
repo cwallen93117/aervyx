@@ -727,7 +727,7 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
 
     # Batch-load all per-task scores for these pilots in this event
     score_rows_query = (
-        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points, ScoreResult.result_state)
+        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points, ScoreResult.result_state, Task.is_practice)
         .join(Task, Task.id == ScoreResult.task_id)
         .where(
             Task.event_id == event_id,
@@ -750,6 +750,7 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
         .join(Task, Task.id == ScoreResult.task_id)
         .where(
             Task.event_id == event_id,
+            Task.is_practice.is_(False),
             ScoreResult.pilot_id.in_(pilot_ids),
         )
         .group_by(ScoreResult.pilot_id)
@@ -761,7 +762,10 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     # Build lookup structures
     task_scores_by_pilot: dict[int, dict[int, float]] = {}
     task_states_by_pilot: dict[int, dict[int, str]] = {}
-    for pid, tid, pts, result_state in score_rows:
+    practice_task_ids: set[int] = set()
+    for pid, tid, pts, result_state, is_practice in score_rows:
+        if is_practice:
+            practice_task_ids.add(int(tid))
         task_scores_by_pilot.setdefault(pid, {})[int(tid)] = float(pts or 0)
         task_states_by_pilot.setdefault(pid, {})[int(tid)] = str(result_state or "official")
 
@@ -780,7 +784,9 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     # Pre-compute per-task best score for FTV normalisation
     task_best_score: dict[int, float] = {}
     if use_ftv:
-        for _pid, tid, pts, _state in score_rows:
+        for _pid, tid, pts, _state, is_practice in score_rows:
+            if is_practice:
+                continue
             tid_int = int(tid)
             pts_val = float(pts or 0)
             if pts_val > task_best_score.get(tid_int, 0):
@@ -797,6 +803,8 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
             # then multiply by the average best-score to get back into point-space.
             ftv_sum = 0.0
             for tid_str, pts in pilot_task_scores.items():
+                if int(tid_str) in practice_task_ids:
+                    continue
                 best = task_best_score.get(int(tid_str), 0)
                 if best > 0:
                     ftv_sum += float(pts) / best

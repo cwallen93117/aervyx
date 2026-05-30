@@ -140,6 +140,7 @@ export default function TasksSection(props: TasksSectionProps) {
     { label: "Task name", value: displayTaskValue(taskDraft.name) },
     { label: "Task date", value: displayTaskValue(taskDraft.task_date) },
     { label: "Task type", value: taskTypeLabel(taskDraft.task_type) },
+    { label: "Practice Task", value: taskDraft.is_practice ? "Yes" : "No" },
   ];
   const showTimingAndGates = canManagePlatform || usesGatedStart;
   const fullscreenTaskEditor = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
@@ -253,6 +254,13 @@ export default function TasksSection(props: TasksSectionProps) {
                   <select value={taskDraft.task_type} onChange={(event) => setTaskDraft({ ...taskDraft, task_type: event.target.value })} disabled={!canManagePlatform}>
                     {taskTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
+                </label>
+                <label className="stack compact task-practice-field">
+                  <span>Practice Task</span>
+                  <span className="task-practice-checkbox-row">
+                    <input type="checkbox" checked={taskDraft.is_practice} onChange={(event) => setTaskDraft({ ...taskDraft, is_practice: event.target.checked })} disabled={!canManagePlatform} />
+                    <strong>{taskDraft.is_practice ? "Yes" : "No"}</strong>
+                  </span>
                 </label>
               </div>
             ) : (

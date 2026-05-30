@@ -542,6 +542,7 @@ def test_public_tasks_include_only_published_tasks_for_public_events() -> None:
     session.add_all(
         [
             Task(event_id=public_event.id, name="Newer Published", status="published", task_date=date(2026, 5, 5)),
+            Task(event_id=public_event.id, name="Practice Published", status="published", task_date=date(2026, 5, 4), is_practice=True),
             Task(event_id=public_event.id, name="Undated Published", status="published", task_date=None),
             Task(event_id=public_event.id, name="Older Published", status="published", task_date=date(2026, 5, 2)),
             Task(event_id=public_event.id, name="Draft", status="draft", task_date=date(2026, 5, 3)),
@@ -552,13 +553,13 @@ def test_public_tasks_include_only_published_tasks_for_public_events() -> None:
 
     payload = list_public_tasks(public_event.id, session=session)
 
-    assert [task.name for task in payload] == ["Older Published", "Newer Published", "Undated Published"]
+    assert [task.name for task in payload] == ["Practice Published", "Older Published", "Newer Published", "Undated Published"]
     with pytest.raises(HTTPException) as caught:
         list_public_tasks(private_event.id, session=session)
     assert caught.value.status_code == 404
 
 
-def test_public_task_results_hide_provisional_scores() -> None:
+def test_public_task_results_include_provisional_scores() -> None:
     session = _session()
     event = Event(
         name="Public Result Comp",
@@ -585,8 +586,9 @@ def test_public_task_results_hide_provisional_scores() -> None:
 
     payload = get_public_task_results(task.id, session=session)
 
-    assert [result.pilot_name for result in payload] == ["Ada Cloud"]
+    assert [result.pilot_name for result in payload] == ["Ada Cloud", "Ben Thermal"]
     assert payload[0].result_state == "official"
+    assert payload[1].result_state == "provisional"
 
 
 def test_public_pilot_summary_uses_only_official_scores() -> None:
@@ -604,12 +606,14 @@ def test_public_pilot_summary_uses_only_official_scores() -> None:
     session.flush()
     official_task = Task(event_id=event.id, name="Official Task", status="published", task_date=date(2026, 5, 2))
     provisional_task = Task(event_id=event.id, name="Provisional Task", status="published", task_date=date(2026, 5, 3))
-    session.add_all([official_task, provisional_task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    practice_task = Task(event_id=event.id, name="Practice Task", status="published", task_date=date(2026, 5, 1), is_practice=True)
+    session.add_all([official_task, provisional_task, practice_task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
     session.flush()
     session.add_all(
         [
             _score(official_task, pilot, rank=1, points=910, state="official"),
             _score(provisional_task, pilot, rank=1, points=870, state="provisional"),
+            _score(practice_task, pilot, rank=1, points=800, state="official"),
         ]
     )
     session.commit()
@@ -617,13 +621,17 @@ def test_public_pilot_summary_uses_only_official_scores() -> None:
     payload = public_pilot_summary(event.id, session=session)
 
     assert len(payload) == 1
-    assert payload[0].total_score_points == 910
-    assert payload[0].tasks_scored == 1
-    assert payload[0].task_scores == {official_task.id: 910}
-    assert payload[0].task_result_states == {official_task.id: "official"}
+    assert payload[0].total_score_points == 1780
+    assert payload[0].tasks_scored == 2
+    assert payload[0].task_scores == {practice_task.id: 800, official_task.id: 910, provisional_task.id: 870}
+    assert payload[0].task_result_states == {
+        practice_task.id: "official",
+        official_task.id: "official",
+        provisional_task.id: "provisional",
+    }
 
 
-def test_public_task_result_summary_uses_only_official_scores() -> None:
+def test_public_task_result_summary_includes_provisional_scores() -> None:
     session = _session()
     event = Event(
         name="Public Day Quality Comp",
@@ -652,7 +660,7 @@ def test_public_task_result_summary_uses_only_official_scores() -> None:
 
     payload = public_task_result_summary(event.id, session=session)
 
-    assert [(summary.task_id, summary.day_quality) for summary in payload] == [(official_task.id, 0.91)]
+    assert [(summary.task_id, summary.day_quality) for summary in payload] == [(official_task.id, 0.91), (provisional_task.id, 0.72)]
 
 
 def test_public_upload_track_is_available_for_public_official_results() -> None:

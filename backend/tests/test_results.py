@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.routers import results as results_router
-from app.routers.results import list_logbook_igc_candidates, select_logbook_igc_candidate, task_result_summary
+from app.routers.results import list_logbook_igc_candidates, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
 
 
@@ -95,6 +95,37 @@ def test_task_result_summary_hides_provisional_scores_from_pilots() -> None:
     assert [(summary.task_id, summary.day_quality) for summary in summaries] == [
         (official_task.id, 0.5536),
     ]
+
+
+def test_pilot_summary_keeps_practice_scores_out_of_totals() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(
+        name="Practice Race",
+        location="Ridgeline",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+    )
+    pilot = Pilot(first_name="Ada", last_name="Wing")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    practice_task = Task(event_id=event.id, name="Practice", is_practice=True)
+    competition_task = Task(event_id=event.id, name="Task 1")
+    session.add_all([practice_task, competition_task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    session.add_all([
+        _score(practice_task, pilot, 1.0),
+        _score(competition_task, pilot, 1.0),
+    ])
+    session.flush()
+
+    summaries = pilot_summary(event.id, user=admin, session=session)
+
+    assert len(summaries) == 1
+    assert summaries[0].total_score_points == 900
+    assert summaries[0].tasks_scored == 1
+    assert summaries[0].task_scores == {practice_task.id: 900, competition_task.id: 900}
 
 
 def _igc_content(pilot_name: str = "Charles Allen") -> bytes:

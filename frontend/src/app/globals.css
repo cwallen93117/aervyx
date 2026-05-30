@@ -3017,6 +3017,21 @@ button[type="submit"]:hover,
   background: #e2e8f0;
 }
 
+.practice-task-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  line-height: 1.35;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
 .logbook-section-body {
   display: flex;
   flex-direction: column;
@@ -4017,6 +4032,25 @@ button[type="submit"]:hover,
 
 .results-header-stack .result-state-badge {
   margin-top: 4px;
+}
+
+.results-header-stack .practice-task-badge {
+  margin: 4px 0 0;
+}
+
+.task-practice-checkbox-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+
+.task-practice-checkbox-row input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  min-height: auto;
+  margin: 0;
+  accent-color: var(--accent);
 }
 
 .results-table-task thead th,

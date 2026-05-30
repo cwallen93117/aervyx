@@ -1,6 +1,8 @@
 import type { TaskRecord } from "./types";
 
 export function compareTasksByDateAsc(a: TaskRecord, b: TaskRecord): number {
+  if (a.is_practice !== b.is_practice) return a.is_practice ? -1 : 1;
+
   const aHasDate = Boolean(a.task_date);
   const bHasDate = Boolean(b.task_date);
   if (aHasDate !== bHasDate) return aHasDate ? -1 : 1;

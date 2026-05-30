@@ -32,6 +32,7 @@ type PublicTask = {
   event_id: number;
   name: string;
   task_date: string | null;
+  is_practice: boolean;
   status: string;
   task_type: string;
   task_start_time: string | null;
@@ -104,6 +105,24 @@ function formatDateLabel(value: string | null | undefined): string {
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
   return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
+}
+
+function compareTasksForScores(a: PublicTask, b: PublicTask): number {
+  if (a.is_practice !== b.is_practice) return a.is_practice ? -1 : 1;
+  const aHasDate = Boolean(a.task_date);
+  const bHasDate = Boolean(b.task_date);
+  if (aHasDate !== bHasDate) return aHasDate ? -1 : 1;
+  if (a.task_date && b.task_date) {
+    const dateComparison = a.task_date.localeCompare(b.task_date);
+    if (dateComparison !== 0) return dateComparison;
+  }
+  return a.id - b.id;
+}
+
+function resultStateLabel(resultState: string | null | undefined): { label: string; className: string } | null {
+  if (resultState === "provisional") return { label: "Provisional", className: "provisional" };
+  if (resultState === "official") return { label: "Official", className: "official" };
+  return null;
 }
 
 function sortPublicEventsByDate(events: PublicEvent[]): PublicEvent[] {
@@ -291,13 +310,37 @@ export function PublicScoresClient() {
     [tasks],
   );
   const scoredTasks = useMemo(
-    () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)),
+    () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)).sort(compareTasksForScores),
     [tasks, pilotSummary],
   );
   const visiblePilotSummary = useMemo(
-    () => pilotSummary.filter((summary) => summary.tasks_scored > 0),
+    () => pilotSummary.filter((summary) => Object.keys(summary.task_scores).length > 0),
     [pilotSummary],
   );
+  const overallTaskResultStates = useMemo(() => {
+    const states = new Map<number, string>();
+    for (const task of scoredTasks) {
+      const taskId = String(task.id);
+      let resolved: string | null = null;
+      for (const summary of pilotSummary) {
+        const next = summary.task_result_states?.[taskId];
+        if (!next) continue;
+        if (next === "provisional") {
+          resolved = "provisional";
+          break;
+        }
+        if (next === "official") {
+          resolved = "official";
+        }
+      }
+      if (resolved) states.set(task.id, resolved);
+    }
+    return states;
+  }, [pilotSummary, scoredTasks]);
+  const selectedTaskResultState = useMemo(() => {
+    if (!taskResults.length) return null;
+    return taskResults.some((result) => result.result_state === "provisional") ? "provisional" : "official";
+  }, [taskResults]);
   const taskResultsColumns = useMemo(() => {
     const columns: Array<"distance" | "speed" | "arrival" | "departure" | "leading"> = [];
     if (selectedEvent?.use_distance_points ?? true) columns.push("distance");
@@ -312,7 +355,7 @@ export function PublicScoresClient() {
     [taskResults],
   );
   const trackableResults = useMemo(
-    () => taskResults.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null),
+    () => taskResults.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null && result.result_state === "official"),
     [taskResults],
   );
   const resultByUploadId = useMemo(
@@ -628,7 +671,7 @@ export function PublicScoresClient() {
             <tbody>
               {scoredTasks.map((task) => (
                 <tr key={task.id}>
-                  <td><strong>{task.name}</strong></td>
+                  <td><strong>{task.name}</strong>{task.is_practice ? <span className="practice-task-badge">Practice</span> : null}</td>
                   <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                   <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)} km</td>
                   <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
@@ -646,7 +689,18 @@ export function PublicScoresClient() {
               <tr>
                 <th>#</th>
                 <th>Name</th>
-                {scoredTasks.map((task) => <th key={task.id}>{task.name}</th>)}
+                {scoredTasks.map((task) => {
+                  const state = resultStateLabel(overallTaskResultStates.get(task.id));
+                  return (
+                    <th key={task.id}>
+                      <span className="results-header-stack">
+                        <span>{task.name}</span>
+                        {task.is_practice ? <span className="practice-task-badge">Practice</span> : null}
+                        {state ? <span className={`result-state-badge ${state.className}`}>{state.label}</span> : null}
+                      </span>
+                    </th>
+                  );
+                })}
                 <th>Total</th>
               </tr>
             </thead>
@@ -667,18 +721,19 @@ export function PublicScoresClient() {
           </table>
         </div>
       ) : (
-        <div className="scores-empty">No official overall results are available yet.</div>
+        <div className="scores-empty">No overall results are available yet.</div>
       )}
     </div>
   );
 
   const renderTaskResults = () => {
     if (!selectedTask) return null;
+    const selectedState = resultStateLabel(selectedTaskResultState);
     return (
       <div className="scores-panel">
         <div className="scores-panel-header">
           <div>
-            <h1>{selectedTask.name}</h1>
+            <h1>{selectedTask.name} {selectedTask.is_practice ? <span className="practice-task-badge">Practice</span> : null} {selectedState ? <span className={`result-state-badge ${selectedState.className}`}>{selectedState.label}</span> : null}</h1>
             <p>{formatDateLabel(selectedTask.task_date)} - {taskTypeLabelWithGateCount(selectedTask)}</p>
           </div>
         </div>
@@ -728,7 +783,7 @@ export function PublicScoresClient() {
             </table>
           </div>
         ) : (
-          <div className="scores-empty">No official results are available yet for this task.</div>
+          <div className="scores-empty">No results are available yet for this task.</div>
         )}
       </div>
     );

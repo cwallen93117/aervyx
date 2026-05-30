@@ -256,6 +256,7 @@ export type TaskRecord = {
   event_id: number;
   name: string;
   task_date: string | null;
+  is_practice: boolean;
   status: string;
   task_type: string;
   task_start_time: string | null;
@@ -336,6 +337,7 @@ export type TaskDraftState = {
   id: number | null;
   name: string;
   task_date: string;
+  is_practice: boolean;
   task_type: string;
   task_start_time: string;
   task_finish_time: string;

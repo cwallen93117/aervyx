@@ -146,7 +146,7 @@ def list_public_tasks(event_id: int, session: Session = Depends(get_session)) ->
     tasks = session.scalars(
         select(Task)
         .where(Task.event_id == event_id, Task.status == "published")
-        .order_by(Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
+        .order_by(Task.is_practice.desc(), Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
     ).all()
     return [_task_response(session, task) for task in tasks]
 
@@ -172,7 +172,7 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
         raise HTTPException(status_code=404, detail="Published task not found")
     results = session.scalars(
         select(ScoreResult)
-        .where(ScoreResult.task_id == task_id, ScoreResult.result_state == "official")
+        .where(ScoreResult.task_id == task_id)
         .order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     return [ScoreResultResponse(**build_result_payload(session, result)) for result in results]
@@ -262,7 +262,6 @@ def public_task_result_summary(event_id: int, session: Session = Depends(get_ses
         .where(
             Task.event_id == event_id,
             Task.status == "published",
-            ScoreResult.result_state == "official",
         )
         .order_by(ScoreResult.task_id.asc(), ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
@@ -287,7 +286,9 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
     if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Event not found")
     pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
-    published_task_ids = session.scalars(select(Task.id).where(Task.event_id == event_id, Task.status == "published")).all()
+    task_rows = session.execute(select(Task.id, Task.is_practice).where(Task.event_id == event_id, Task.status == "published")).all()
+    published_task_ids = [int(task_id) for task_id, _is_practice in task_rows]
+    competition_task_ids = [int(task_id) for task_id, is_practice in task_rows if not is_practice]
     summaries: list[PilotSummaryResponse] = []
     for pilot_id in pilot_ids:
         pilot = session.get(Pilot, pilot_id)
@@ -298,7 +299,6 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
                 .where(
                     ScoreResult.task_id.in_(published_task_ids),
                     ScoreResult.pilot_id == pilot_id,
-                    ScoreResult.result_state == "official",
                 )
                 .order_by(ScoreResult.task_id.asc())
             ).all()
@@ -312,8 +312,8 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
             .select_from(ScoreResult)
             .where(
                 ScoreResult.task_id.in_(published_task_ids),
+                ScoreResult.task_id.in_(competition_task_ids),
                 ScoreResult.pilot_id == pilot_id,
-                ScoreResult.result_state == "official",
             )
         ).one()
         summaries.append(
@@ -325,7 +325,17 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
                 tasks_scored=int(aggregates[1] or 0),
                 best_distance_km=float(aggregates[2] or 0),
                 task_scores=task_scores,
-                task_result_states={task_id: "official" for task_id in task_scores},
+                task_result_states={
+                    int(task_id): str(result_state or "official")
+                    for task_id, result_state in session.execute(
+                        select(ScoreResult.task_id, ScoreResult.result_state)
+                        .where(
+                            ScoreResult.task_id.in_(published_task_ids),
+                            ScoreResult.pilot_id == pilot_id,
+                        )
+                        .order_by(ScoreResult.task_id.asc())
+                    ).all()
+                },
             )
         )
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

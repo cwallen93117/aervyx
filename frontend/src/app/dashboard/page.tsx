@@ -472,6 +472,7 @@ function blankTaskDraft(overrides: Partial<TaskDraftState> = {}): TaskDraftState
     id: null,
     name: "New Task",
     task_date: "",
+    is_practice: false,
     task_type: "race_to_goal_with_gates",
     task_start_time: "",
     task_finish_time: "",
@@ -1101,7 +1102,7 @@ export default function HomePage() {
     eventForm.use_time_points,
   ]);
   const scoredTasks = useMemo(
-    () => tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null)).sort((left, right) => left.id - right.id),
+    () => sortTasksByDateAsc(tasks.filter((task) => pilotSummary.some((summary) => summary.task_scores[String(task.id)] != null))),
     [tasks, pilotSummary],
   );
   const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
@@ -1748,6 +1749,7 @@ export default function HomePage() {
       id: task.id,
       name: task.name,
       task_date: task.task_date ?? "",
+      is_practice: Boolean(task.is_practice),
       task_type: normalizeTaskType(task.task_type),
       task_start_time: normalizeTimeValue(task.task_start_time),
       task_finish_time: normalizeTimeValue(task.task_finish_time),
@@ -2507,6 +2509,7 @@ export default function HomePage() {
       const payload = {
         name: taskDraft.name,
         task_date: taskDraft.task_date || null,
+        is_practice: taskDraft.is_practice,
         status: "draft",
         task_type: taskDraft.task_type,
         task_start_time: timeOrNull(taskDraft.task_start_time),

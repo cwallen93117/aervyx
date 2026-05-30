@@ -173,6 +173,7 @@ function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactN
   return (
     <span className="results-header-stack">
       <span>{task.name}</span>
+      {task.is_practice ? <span className="practice-task-badge">Practice</span> : null}
       <span>{dateLabel}</span>
       {stateLabel ? <span className={`result-state-badge ${stateClassName}`}>{stateLabel}</span> : null}
     </span>
@@ -681,7 +682,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                       <tbody>
                         {scoredTasks.map((task) => (
                           <tr key={task.id}>
-                            <td><strong>{task.name}</strong></td>
+                            <td><strong>{task.name}</strong>{task.is_practice ? <span className="practice-task-badge">Practice</span> : null}</td>
                             <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                             <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
                             <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
