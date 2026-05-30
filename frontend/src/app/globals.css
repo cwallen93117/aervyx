@@ -3028,7 +3028,7 @@ button[type="submit"]:hover,
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
-  background: var(--surface);
+  background: #ffffff;
   box-shadow: var(--shadow-lg);
 }
 
@@ -3058,7 +3058,7 @@ button[type="submit"]:hover,
   height: 32px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  background: var(--surface);
+  background: #ffffff;
   color: var(--muted);
   cursor: pointer;
 }
@@ -3075,7 +3075,7 @@ button[type="submit"]:hover,
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 0.65rem;
-  background: var(--surface-soft);
+  background: #f8fafc;
 }
 
 .score-penalty-score-strip span,
@@ -5256,7 +5256,7 @@ button[type="submit"]:hover,
 .scores-page .score-penalty-score-strip div,
 .scores-page .score-penalty-modal-close {
   border-color: rgba(255, 255, 255, 0.08);
-  background: rgba(15, 23, 42, 0.72);
+  background: #0f172a;
 }
 
 .scores-page .results-table thead th:nth-child(1),
