@@ -4,7 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from
 
 import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
-import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
+import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 type PublicEvent = {
@@ -319,7 +319,7 @@ function PenaltyDetailsModal({
         {calculation ? (
           <>
             <div className="score-penalty-score-strip">
-              <div><span>Total</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
+              <div><span>Total</span><strong>{formatScorePoints(prePenaltyTotalPoints(result))}</strong></div>
               <div><span>Automatic Penalties</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
               <div><span>Manual</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
               <div><span>Final</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>

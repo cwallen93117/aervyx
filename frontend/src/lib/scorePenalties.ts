@@ -51,6 +51,17 @@ export function formatPenaltyPoints(result: PenaltyResultLike): string {
   return formatPenaltyPointsValue(penaltyDisplayPoints(result));
 }
 
+export function prePenaltyTotalPoints(result: PenaltyResultLike): number {
+  const calculation = result.penalty_calculation;
+  if (calculation) {
+    const finalScore = Number(calculation.final_score_points ?? result.score_points ?? 0);
+    const penalties = Number(calculation.total_display_penalty_points ?? 0);
+    if (Number.isFinite(finalScore) && Number.isFinite(penalties)) return finalScore + penalties;
+  }
+  const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
+  return Number.isFinite(rawScore) ? rawScore : 0;
+}
+
 export function hasPenaltyDetails(result: PenaltyResultLike): boolean {
   return Boolean(result.penalty_calculation?.lines?.length) || penaltyDisplayPoints(result) > 0.05;
 }

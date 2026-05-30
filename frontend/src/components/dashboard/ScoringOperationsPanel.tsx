@@ -303,6 +303,7 @@ export default function ScoringOperationsPanel({
   const automaticPenaltyLines = activeRow?.result?.penalty_calculation?.lines.filter((line) => line.kind === "engine") ?? [];
   const automaticPenaltyPoints = automaticPenaltyLines.reduce((total, line) => total + Number(line.amount_points || 0), 0);
   const manualPenaltyPoints = Math.max(Number(activeRow?.result?.raw_score_points ?? activeRow?.result?.score_points ?? 0) - penaltyCascade.final, 0);
+  const prePenaltyTotalPoints = penaltyCascade.final + manualPenaltyPoints + automaticPenaltyPoints;
 
   const reloadTaskAndRows = async () => {
     if (!token || !activePublishedTaskId) return;
@@ -898,7 +899,7 @@ export default function ScoringOperationsPanel({
           <div className="scoring-ops-score-strip">
             <div className="scoring-ops-score-strip-item">
               <div className="scoring-ops-strip-label">Total</div>
-              <div className="scoring-ops-strip-value">{formatScorePoints(penaltyCascade.final)}</div>
+              <div className="scoring-ops-strip-value">{formatScorePoints(prePenaltyTotalPoints)}</div>
             </div>
             <div className="scoring-ops-score-strip-item">
               <div className="scoring-ops-strip-label">Automatic Penalties</div>
@@ -1012,7 +1013,7 @@ export default function ScoringOperationsPanel({
           <div className="scoring-ops-calc-box">
             <div className="scoring-ops-calc-row">
               <span>Total</span>
-              <span>{formatScorePoints(penaltyCascade.final)}</span>
+              <span>{formatScorePoints(prePenaltyTotalPoints)}</span>
             </div>
             {automaticPenaltyLines.map((line, index) => (
               <div key={`automatic-${index}`} className="scoring-ops-calc-row deduct">
