@@ -417,6 +417,10 @@ type LiveMarkerPopupItem = {
   timestamp: string;
 };
 
+export type LivePositionPopupRequest = LiveMarkerPopupItem & {
+  key: string | number;
+};
+
 function livePositionPopupHtml(item: LiveMarkerPopupItem): string {
   const destination = `${item.latitude.toFixed(6)},${item.longitude.toFixed(6)}`;
   const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
@@ -1344,6 +1348,7 @@ export const TaskMap = React.memo(function TaskMap({
   overlayConfig,
   focusPosition,
   enableLivePositionPopups = false,
+  livePositionPopupRequest,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1375,6 +1380,7 @@ export const TaskMap = React.memo(function TaskMap({
   overlayConfig?: Record<string, boolean>;
   focusPosition?: { lat: number; lon: number; key: string | number } | null;
   enableLivePositionPopups?: boolean;
+  livePositionPopupRequest?: LivePositionPopupRequest | null;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1382,6 +1388,7 @@ export const TaskMap = React.memo(function TaskMap({
   const deckOverlayRef = useRef<MapboxOverlay | null>(null);
   const scoredPointPopupRef = useRef<maplibregl.Popup | null>(null);
   const livePositionPopupRef = useRef<maplibregl.Popup | null>(null);
+  const lastLivePopupRequestKeyRef = useRef<string | number | null>(null);
   const fullscreenControlRef = useRef<maplibregl.FullscreenControl | null>(null);
   const lastFocusPositionKeyRef = useRef<string | number | null>(null);
   const turnpointsRef = useRef(turnpoints);
@@ -1989,6 +1996,38 @@ export const TaskMap = React.memo(function TaskMap({
     }
     return maxAltitude > 0 ? maxAltitude : 15000;
   }, [effectiveTrack]);
+  const showLivePositionPopup = useCallback((item: LiveMarkerPopupItem) => {
+    const map = mapRef.current;
+    if (!map) {
+      return;
+    }
+    livePositionPopupRef.current?.remove();
+    livePositionPopupRef.current = new maplibregl.Popup({
+      closeButton: true,
+      closeOnClick: true,
+      className: "live-position-map-popup",
+      offset: 18,
+      maxWidth: "280px",
+    })
+      .setLngLat([item.longitude, item.latitude])
+      .setHTML(livePositionPopupHtml(item))
+      .addTo(map);
+
+    const element = livePositionPopupRef.current.getElement();
+    element.style.zIndex = "80";
+  }, []);
+
+  useEffect(() => {
+    if (!livePositionPopupRequest || !enableLivePositionPopups) {
+      return;
+    }
+    if (lastLivePopupRequestKeyRef.current === livePositionPopupRequest.key) {
+      return;
+    }
+    lastLivePopupRequestKeyRef.current = livePositionPopupRequest.key;
+    showLivePositionPopup(livePositionPopupRequest);
+  }, [enableLivePositionPopups, livePositionPopupRequest, showLivePositionPopup]);
+
   const deckTrackLayers = useMemo(() => {
     const layers = [];
     if (isPerspective3D && cylinderVolumes.length) {
@@ -2154,22 +2193,6 @@ export const TaskMap = React.memo(function TaskMap({
         aircraftType?: "hang_glider" | "paraglider" | "sailplane";
         highlighted?: boolean;
       };
-      const showLivePositionPopup = (item: LiveMarkerItem) => {
-        const map = mapRef.current;
-        if (!map) {
-          return;
-        }
-        livePositionPopupRef.current?.remove();
-        livePositionPopupRef.current = new maplibregl.Popup({
-          closeButton: true,
-          closeOnClick: true,
-          offset: 16,
-          maxWidth: "260px",
-        })
-          .setLngLat([item.longitude, item.latitude])
-          .setHTML(livePositionPopupHtml(item))
-          .addTo(map);
-      };
       const liveMarkerClickHandler = enableLivePositionPopups
         ? (info: { object?: LiveMarkerItem }) => {
             if (!info.object) {
@@ -2188,6 +2211,27 @@ export const TaskMap = React.memo(function TaskMap({
           }
         : undefined;
       layers.push(
+        new ScatterplotLayer({
+          id: `live-pilot-hit-targets-${mode}`,
+          data: liveMarkerData as LiveMarkerItem[],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: LiveMarkerItem) => item.position,
+          getRadius: (item: LiveMarkerItem) => Math.round((item.highlighted ? 34 : 30) * liveMarkerScale),
+          radiusUnits: "pixels",
+          radiusMinPixels: Math.round(26 * liveMarkerScale),
+          getFillColor: () => [255, 255, 255, 1],
+          getLineColor: () => [255, 255, 255, 1],
+          stroked: false,
+          filled: true,
+          opacity: 0.01,
+          pickable: enableLivePositionPopups,
+          onClick: liveMarkerClickHandler,
+          onHover: liveMarkerHoverHandler,
+          parameters: {
+            depthTest: false,
+          },
+        }),
         new IconLayer({
           id: `live-pilot-rings-${mode}`,
           data: liveMarkerData as LiveMarkerItem[],
@@ -2299,7 +2343,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [cylinderVolumes, displayTrack, enableLivePositionPopups, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
+  }, [cylinderVolumes, displayTrack, enableLivePositionPopups, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, showLivePositionPopup, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;

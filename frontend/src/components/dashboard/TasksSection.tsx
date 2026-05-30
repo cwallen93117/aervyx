@@ -235,7 +235,7 @@ export default function TasksSection(props: TasksSectionProps) {
           )}
         </div>
         {canManagePlatform && taskFeedback ? <div className={`status-chip ${taskFeedback.type} task-toolbar-feedback`}>{taskFeedback.text}</div> : null}
-        <div className="fieldset-grid two-up">
+        <div className="fieldset-grid two-up task-setup-grid">
           <fieldset className="fieldset-cluster">
             <legend>Task setup</legend>
             {canManagePlatform ? (

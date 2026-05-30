@@ -8,6 +8,7 @@ import {
   type MapTaskPoint,
   type MapTurnpoint,
   type MapUnitPreferences,
+  type LivePositionPopupRequest,
 } from "../../components/TaskMap";
 import { PilotRoleBadge } from "../../components/PilotRoleBadge";
 import {
@@ -91,6 +92,11 @@ function collectPilotNames(positions: LivePositionWithName[]) {
   return names;
 }
 
+function drivingDirectionsUrl(lat: number, lon: number) {
+  const destination = `${lat.toFixed(6)},${lon.toFixed(6)}`;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving`;
+}
+
 export function LiveWatchClient() {
   const [sources, setSources] = useState<PublicSources>({ events: [], buddy_groups: [] });
   const [selected, setSelected] = useState<SelectedSource>(allUsersSource);
@@ -108,6 +114,7 @@ export function LiveWatchClient() {
   const [returnScoresEventId, setReturnScoresEventId] = useState<number | null>(null);
   const [hasAppliedInitialEvent, setHasAppliedInitialEvent] = useState(false);
   const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
+  const [livePositionPopupRequest, setLivePositionPopupRequest] = useState<LivePositionPopupRequest | null>(null);
   const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
   const [visibleTrackSubjectKeys, setVisibleTrackSubjectKeys] = useState<Set<string>>(() => new Set());
   const sseControllerRef = useRef<AbortController | null>(null);
@@ -243,6 +250,7 @@ export function LiveWatchClient() {
     setPilotNameById(new Map());
     setHighlightedSubjectKey(null);
     setFocusPosition(null);
+    setLivePositionPopupRequest(null);
     setVisibleTrackSubjectKeys(new Set());
 
     if (source.type === "none") {
@@ -474,13 +482,21 @@ export function LiveWatchClient() {
       return;
     }
     focusRequestIdRef.current += 1;
+    const requestKey = `${subjectKey}:${position.id}:${focusRequestIdRef.current}`;
     setFocusPosition({
       lat: position.lat,
       lon: position.lon,
-      key: `${subjectKey}:${position.id}:${focusRequestIdRef.current}`,
+      key: requestKey,
+    });
+    setLivePositionPopupRequest({
+      key: requestKey,
+      nameLabel: displayNameForSubject(position, pilotNameById),
+      latitude: position.lat,
+      longitude: position.lon,
+      timestamp: position.timestamp,
     });
     setHighlightedSubjectKey((current) => current === subjectKey ? null : subjectKey);
-  }, [latestPositionForSubject]);
+  }, [latestPositionForSubject, pilotNameById]);
 
   const toggleSubjectTrack = useCallback((subjectKey: string, checked: boolean) => {
     setVisibleTrackSubjectKeys((current) => {
@@ -571,6 +587,18 @@ export function LiveWatchClient() {
                   </span>
                 </div>
                 </button>
+                {isHighlighted && pos ? (
+                  <div className="live-pilot-actions">
+                    <a
+                      href={drivingDirectionsUrl(pos.lat, pos.lon)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="live-pilot-directions"
+                    >
+                      Driving directions
+                    </a>
+                  </div>
+                ) : null}
               </div>
             );
           })
@@ -675,6 +703,7 @@ export function LiveWatchClient() {
             editable={false}
             showGpsButton
             enableLivePositionPopups
+            livePositionPopupRequest={livePositionPopupRequest}
             overlayConfig={overlayConfig}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"
