@@ -4173,13 +4173,12 @@ button[type="submit"]:hover,
 .task-practice-checkbox-row {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
-  min-height: 40px;
+  min-height: 0;
 }
 
 .task-practice-checkbox-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   min-height: auto;
   margin: 0;
   accent-color: var(--accent);
