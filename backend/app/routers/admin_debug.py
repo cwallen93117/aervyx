@@ -132,8 +132,116 @@ def admin_debug_status(
 
     now = datetime.now(UTC)
     sixty_seconds_ago = now - timedelta(seconds=60)
+    recent_phone_cutoff = now - timedelta(seconds=MESH_STATUS_STALE_SECONDS)
 
     active_sessions = []
+
+    def phone_session_key(pilot_id: int | None, user_id: int | None, task_id: int | None) -> tuple[str, int, int | None] | None:
+        if pilot_id is not None:
+            return ("pilot", pilot_id, task_id)
+        if user_id is not None:
+            return ("user", user_id, task_id)
+        return None
+
+    def phone_position_filters(pilot_id: int | None, user_id: int | None, task_id: int | None):
+        filters = [LivePosition.source == PHONE_APP_POSITION_SOURCE]
+        if pilot_id is not None:
+            filters.append(LivePosition.pilot_id == pilot_id)
+        elif user_id is not None:
+            filters.extend([
+                LivePosition.pilot_id.is_(None),
+                LivePosition.user_id == user_id,
+            ])
+        else:
+            return None
+        if task_id is not None:
+            filters.append(LivePosition.task_id == task_id)
+        else:
+            filters.append(LivePosition.task_id.is_(None))
+        return filters
+
+    def has_mesh_for_subject(pilot_id: int | None, user_id: int | None) -> bool:
+        mesh_subject_filter = []
+        if pilot_id is not None:
+            mesh_subject_filter.append(LivePosition.pilot_id == pilot_id)
+        elif user_id is not None:
+            mesh_subject_filter.extend([
+                LivePosition.pilot_id.is_(None),
+                LivePosition.user_id == user_id,
+            ])
+        else:
+            return False
+        count = session.scalar(
+            select(func.count())
+            .select_from(LivePosition)
+            .where(
+                *mesh_subject_filter,
+                LivePosition.source.in_(["mqtt_gateway", "mesh_relay"]),
+            )
+        ) or 0
+        return count > 0
+
+    def append_phone_session(
+        *,
+        latest_app_pos: LivePosition,
+        pilot_name: str,
+        profile_type: str | None,
+        task_name: str | None,
+        started_at: datetime | None,
+        key: tuple[str, int, int | None],
+    ) -> None:
+        pos_filters = phone_position_filters(latest_app_pos.pilot_id, latest_app_pos.user_id, latest_app_pos.task_id)
+        if pos_filters is None:
+            return
+        phone_position_count = session.scalar(
+            select(func.count())
+            .select_from(LivePosition)
+            .where(*pos_filters)
+        ) or 0
+        positions_last_60s = session.scalar(
+            select(func.count())
+            .select_from(LivePosition)
+            .where(
+                *pos_filters,
+                LivePosition.timestamp >= sixty_seconds_ago,
+            )
+        ) or 0
+        if started_at is None:
+            started_at = session.scalar(
+                select(func.min(LivePosition.timestamp)).where(*pos_filters)
+            )
+
+        active_sessions.append({
+            "pilot_id": latest_app_pos.pilot_id,
+            "user_id": latest_app_pos.user_id,
+            "pilot_name": pilot_name,
+            "profile_type": profile_type,
+            "task_id": latest_app_pos.task_id,
+            "task_name": task_name or ("Free Flight" if latest_app_pos.task_id is None else None),
+            "device_id": None,
+            "source": PHONE_APP_POSITION_SOURCE,
+            "battery_level": latest_app_pos.battery_level,
+            "battery_level_seen_at": (
+                (latest_app_pos.battery_level_seen_at or latest_app_pos.timestamp).isoformat()
+                if latest_app_pos.battery_level is not None
+                else None
+            ),
+            "position_count": phone_position_count,
+            "positions_last_60s": positions_last_60s,
+            "started_at": started_at.isoformat() if started_at else None,
+            "last_seen_at": latest_app_pos.timestamp.isoformat(),
+            "last_position": {
+                "lat": latest_app_pos.lat,
+                "lon": latest_app_pos.lon,
+                "alt": latest_app_pos.alt,
+                "speed": latest_app_pos.speed,
+            },
+            "is_online": _is_recent(now, latest_app_pos.timestamp),
+            "has_mesh": has_mesh_for_subject(latest_app_pos.pilot_id, latest_app_pos.user_id),
+        })
+        seen_phone_keys.add(key)
+
+    seen_phone_keys: set[tuple[str, int, int | None]] = set()
     for (
         ts,
         first_name,
@@ -156,20 +264,10 @@ def admin_debug_status(
         # are refreshed by mesh/MQTT positions too, so using the session timestamp
         # or latest position across all sources would make a mesh node look like
         # a live phone.
-        pos_filter = [LivePosition.source == PHONE_APP_POSITION_SOURCE]
-        if ts.pilot_id is not None:
-            pos_filter.append(LivePosition.pilot_id == ts.pilot_id)
-        elif ts.user_id is not None:
-            pos_filter.extend([
-                LivePosition.pilot_id.is_(None),
-                LivePosition.user_id == ts.user_id,
-            ])
-        else:
+        key = phone_session_key(ts.pilot_id, ts.user_id, ts.task_id)
+        pos_filter = phone_position_filters(ts.pilot_id, ts.user_id, ts.task_id)
+        if key is None or pos_filter is None:
             continue
-        if ts.task_id is not None:
-            pos_filter.append(LivePosition.task_id == ts.task_id)
-        else:
-            pos_filter.append(LivePosition.task_id.is_(None))
 
         latest_app_pos = session.scalar(
             select(LivePosition)
@@ -180,72 +278,51 @@ def admin_debug_status(
         if latest_app_pos is None:
             continue
 
-        # Count phone-app positions for this session.
-        phone_position_count = session.scalar(
-            select(func.count())
-            .select_from(LivePosition)
-            .where(*pos_filter)
-        ) or 0
-        positions_last_60s = session.scalar(
-            select(func.count())
-            .select_from(LivePosition)
-            .where(
-                *pos_filter,
-                LivePosition.timestamp >= sixty_seconds_ago,
-            )
-        ) or 0
+        append_phone_session(
+            latest_app_pos=latest_app_pos,
+            pilot_name=pilot_name,
+            profile_type=session_profile_type,
+            task_name=task_name,
+            started_at=ts.started_at,
+            key=key,
+        )
 
-        # Check for any mesh-sourced positions from this subject (ever)
-        mesh_subject_filter = []
-        if ts.pilot_id is not None:
-            mesh_subject_filter.append(LivePosition.pilot_id == ts.pilot_id)
-        elif ts.user_id is not None:
-            mesh_subject_filter.extend([
-                LivePosition.pilot_id.is_(None),
-                LivePosition.user_id == ts.user_id,
-            ])
-        has_mesh = session.scalar(
-            select(func.count())
-            .select_from(LivePosition)
-            .where(
-                *mesh_subject_filter,
-                LivePosition.source.in_(["mqtt_gateway", "mesh_relay"]),
-            )
-        ) or 0
+    # Backstop the session-driven view with recent direct app uploads.  This
+    # keeps the admin table useful if a tracking session row is missing, stale,
+    # or keyed differently after account/task identity changes.
+    recent_app_positions = session.scalars(
+        select(LivePosition)
+        .where(
+            LivePosition.source == PHONE_APP_POSITION_SOURCE,
+            LivePosition.timestamp >= recent_phone_cutoff,
+            or_(LivePosition.pilot_id.is_not(None), LivePosition.user_id.is_not(None)),
+        )
+        .order_by(LivePosition.timestamp.desc())
+    ).all()
+    for pos in recent_app_positions:
+        key = phone_session_key(pos.pilot_id, pos.user_id, pos.task_id)
+        if key is None or key in seen_phone_keys:
+            continue
 
-        last_position = {
-            "lat": latest_app_pos.lat,
-            "lon": latest_app_pos.lon,
-            "alt": latest_app_pos.alt,
-            "speed": latest_app_pos.speed,
-        }
+        pilot = session.get(Pilot, pos.pilot_id) if pos.pilot_id is not None else None
+        pos_user = session.get(User, pos.user_id) if pos.user_id is not None else None
+        task = session.get(Task, pos.task_id) if pos.task_id is not None else None
+        pilot_name = (
+            f"{pilot.first_name or ''} {pilot.last_name or ''}".strip()
+            if pilot is not None
+            else ""
+        ) or (pos_user.full_name if pos_user is not None else None) or (pos_user.username if pos_user is not None else None)
+        if not pilot_name:
+            continue
 
-        # Online = received a position in the last 60 seconds
-        is_online = _is_recent(now, latest_app_pos.timestamp)
-
-        active_sessions.append({
-            "pilot_id": ts.pilot_id,
-            "user_id": session_user_id,
-            "pilot_name": pilot_name,
-            "profile_type": session_profile_type,
-            "task_id": ts.task_id,
-            "task_name": task_name or ("Free Flight" if ts.task_id is None else None),
-            "device_id": None,
-            "source": PHONE_APP_POSITION_SOURCE,
-            "battery_level": latest_app_pos.battery_level,
-            "battery_level_seen_at": (
-                (latest_app_pos.battery_level_seen_at or latest_app_pos.timestamp).isoformat()
-                if latest_app_pos.battery_level is not None
-                else None
-            ),
-            "position_count": phone_position_count,
-            "positions_last_60s": positions_last_60s,
-            "started_at": ts.started_at.isoformat() if ts.started_at else None,
-            "last_seen_at": latest_app_pos.timestamp.isoformat(),
-            "last_position": last_position,
-            "is_online": is_online,
-            "has_mesh": has_mesh > 0,
-        })
+        append_phone_session(
+            latest_app_pos=pos,
+            pilot_name=pilot_name,
+            profile_type=pos_user.profile_type if pos_user is not None else None,
+            task_name=task.name if task is not None else None,
+            started_at=None,
+            key=key,
+        )
 
     # ---- Registered Meshtastic devices --------------------------------------
     registered_device_rows = session.execute(

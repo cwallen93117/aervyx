@@ -354,6 +354,95 @@ def test_admin_debug_status_uses_phone_battery_seen_at() -> None:
     assert phone["battery_level_seen_at"] == _sqlite_iso(battery_seen_at)
 
 
+def test_admin_debug_status_lists_recent_phone_position_without_tracking_session() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", pilot_id=None)
+    session.add_all([admin, pilot, user])
+    session.flush()
+    user.pilot_id = pilot.id
+    session.add_all(
+        [
+            LivePosition(
+                pilot_id=pilot.id,
+                user_id=user.id,
+                task_id=None,
+                lat=40.25,
+                lon=-75.25,
+                alt=402,
+                speed=8,
+                heading=None,
+                accuracy=None,
+                timestamp=now - timedelta(seconds=5),
+                source="app",
+                battery_level=62,
+            ),
+            LivePosition(
+                pilot_id=pilot.id,
+                user_id=user.id,
+                task_id=None,
+                lat=40.24,
+                lon=-75.24,
+                alt=398,
+                speed=7,
+                heading=None,
+                accuracy=None,
+                timestamp=now - timedelta(seconds=10),
+                source="app",
+                battery_level=63,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    assert len(payload["active_sessions"]) == 1
+    phone = payload["active_sessions"][0]
+    assert phone["pilot_id"] == pilot.id
+    assert phone["user_id"] == user.id
+    assert phone["pilot_name"] == "Jeff Chipman"
+    assert phone["source"] == "app"
+    assert phone["position_count"] == 2
+    assert phone["positions_last_60s"] == 2
+    assert phone["is_online"] is True
+    assert phone["last_position"] == {
+        "lat": 40.25,
+        "lon": -75.25,
+        "alt": 402.0,
+        "speed": 8.0,
+    }
+
+
+def test_admin_debug_status_ignores_old_phone_position_without_tracking_session() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Jeff", last_name="Chipman", email="jeff@example.com")
+    user = User(username="jeff@example.com", full_name="Jeff Chipman", role="pilot", pilot_id=None)
+    session.add_all([admin, pilot, user])
+    session.flush()
+    user.pilot_id = pilot.id
+    session.add(
+        LivePosition(
+            pilot_id=pilot.id,
+            user_id=user.id,
+            task_id=None,
+            lat=40.25,
+            lon=-75.25,
+            timestamp=now - timedelta(hours=7),
+            source="app",
+        )
+    )
+    session.commit()
+
+    payload = admin_debug_status(admin, session)
+
+    assert payload["active_sessions"] == []
+
+
 def test_admin_debug_status_names_user_subject_phone_session() -> None:
     session = _session()
     now = datetime.now(UTC)
@@ -409,8 +498,8 @@ def test_admin_debug_status_names_user_subject_phone_session() -> None:
 
     payload = admin_debug_status(admin, session)
 
-    assert len(payload["active_sessions"]) == 1
-    phone = payload["active_sessions"][0]
+    assert len(payload["active_sessions"]) == 2
+    phone = next(item for item in payload["active_sessions"] if item["user_id"] == driver.id)
     assert phone["pilot_id"] is None
     assert phone["user_id"] == driver.id
     assert phone["pilot_name"] == "Dana Driver"
