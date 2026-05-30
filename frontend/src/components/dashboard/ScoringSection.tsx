@@ -2,6 +2,7 @@
 
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails } from "../../lib/scorePenalties";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
@@ -114,13 +115,6 @@ function statusAbbreviation(status: string): string | null {
   }
 }
 
-function formatPenaltyPoints(result: ResultRecord): string {
-  const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
-  const finalScore = Number(result.score_points ?? 0);
-  const penalty = rawScore - finalScore;
-  return penalty > 0.05 ? `-${penalty.toFixed(1)}` : "-";
-}
-
 function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | undefined): string {
   if (!elapsedSeconds || elapsedSeconds <= 0) return "-";
   return (distanceKm / (elapsedSeconds / 3600)).toFixed(1);
@@ -177,6 +171,57 @@ function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactN
       <span>{dateLabel}</span>
       {stateLabel ? <span className={`result-state-badge ${stateClassName}`}>{stateLabel}</span> : null}
     </span>
+  );
+}
+
+function PenaltyDetailsModal({
+  result,
+  taskName,
+  onClose,
+}: {
+  result: ResultRecord;
+  taskName: string;
+  onClose: () => void;
+}) {
+  const calculation = result.penalty_calculation;
+  return (
+    <div className="score-penalty-modal-overlay active" onClick={onClose}>
+      <div className="score-penalty-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="score-penalty-modal-header">
+          <div>
+            <div className="score-penalty-modal-title">{result.pilot_name}</div>
+            <div className="score-penalty-modal-subtitle">{taskName}</div>
+          </div>
+          <button type="button" className="score-penalty-modal-close" onClick={onClose} aria-label="Close penalty details">x</button>
+        </div>
+        {calculation ? (
+          <>
+            <div className="score-penalty-score-strip">
+              <div><span>Raw</span><strong>{formatScorePoints(calculation.raw_score_points)}</strong></div>
+              <div><span>Engine</span><strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
+              <div><span>Manual</span><strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
+              <div><span>Final</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
+            </div>
+            <div className="score-penalty-lines">
+              {calculation.lines.map((line, index) => (
+                <div key={`${line.kind}-${index}`} className="score-penalty-line">
+                  <div>
+                    <strong>{line.label}</strong>
+                    {line.detail ? <span>{line.detail}</span> : null}
+                  </div>
+                  <div>
+                    <strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: line.amount_points } })}</strong>
+                    {line.running_score_points != null ? <span>{formatScorePoints(line.running_score_points)} running</span> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="score-penalty-empty">{formatPenaltyPoints(result)}</div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -308,6 +353,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
   } = props;
   const fullscreenPilotTracksContentId = useId();
   const [isFullscreenPilotTracksCollapsed, setIsFullscreenPilotTracksCollapsed] = useState(false);
+  const [penaltyDetailsResult, setPenaltyDetailsResult] = useState<ResultRecord | null>(null);
   const publishedTasks = tasks.filter((task) => task.status === "published");
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
@@ -345,7 +391,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     longitude: point.longitude,
   }));
   const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
-  const taskResultsIncludePenalty = results.some((result) => Number(result.raw_score_points ?? result.score_points ?? 0) - Number(result.score_points ?? 0) > 0.05);
+  const taskResultsIncludePenalty = results.some((result) => formatPenaltyPoints(result) !== "-");
   const fullscreenPilotTracksToggleLabel = isFullscreenPilotTracksCollapsed ? "Expand pilot tracks" : "Collapse pilot tracks";
   const fullscreenPilotTracksToggleButton = (
     <button
@@ -606,7 +652,13 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                 ))}
                                 {taskResultsIncludePenalty ? (
                                   <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>
-                                    {formatPenaltyPoints(result)}
+                                    {hasPenaltyDetails(result) ? (
+                                      <button type="button" className="score-penalty-link" onClick={() => setPenaltyDetailsResult(result)}>
+                                        {formatPenaltyPoints(result)}
+                                      </button>
+                                    ) : (
+                                      formatPenaltyPoints(result)
+                                    )}
                                   </td>
                                 ) : null}
                                 <td className={`results-table-total${isUnscored ? " scoring-ops-muted" : ""}`}>{isUnscored ? "-" : formatPointsWithComma(result.score_points)}</td>
@@ -726,6 +778,13 @@ export default function ScoringSection(props: ScoringSectionProps) {
             </div>
           )}
         </div>
+      ) : null}
+      {penaltyDetailsResult ? (
+        <PenaltyDetailsModal
+          result={penaltyDetailsResult}
+          taskName={selectedTask?.name ?? "Task"}
+          onClose={() => setPenaltyDetailsResult(null)}
+        />
       ) : null}
     </div>
   );

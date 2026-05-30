@@ -1,4 +1,5 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
+import type { ScorePenaltyCalculation } from "../../lib/scorePenalties";
 
 export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
@@ -274,7 +275,7 @@ export type TaskRecord = {
   published_at: string | null;
   points: TaskPointRecord[];
 };
-export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string };
+export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string; penalties?: ScorePenaltyRecord[]; penalty_summary?: string | null; penalty_calculation?: ScorePenaltyCalculation | null };
 export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number>; task_result_states: Record<string, string> };
 export type TaskResultSummaryRecord = { task_id: number; day_quality: number | null };
 export type UploadRecord = { id: number; pilot_id: number; filename: string; sha256: string; uploaded_at: string; upload_source?: "manual" | "bulk" | "tracker" | string; metadata_json: Record<string, unknown> };

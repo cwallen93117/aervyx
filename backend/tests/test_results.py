@@ -6,9 +6,9 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.routers import results as results_router
-from app.routers.results import list_logbook_igc_candidates, pilot_summary, select_logbook_igc_candidate, task_result_summary
+from app.routers.results import get_task_results, list_logbook_igc_candidates, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
 
 
@@ -94,6 +94,70 @@ def test_task_result_summary_hides_provisional_scores_from_pilots() -> None:
 
     assert [(summary.task_id, summary.day_quality) for summary in summaries] == [
         (official_task.id, 0.5536),
+    ]
+
+
+def test_task_results_include_penalty_calculation_details() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(
+        name="Penalty Race",
+        location="Ridgeline",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+    )
+    pilot = Pilot(first_name="Ada", last_name="Wing")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1")
+    session.add_all([task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    details_json = {
+        "start_timing": {
+            "actual_start_crossing_at": "2026-04-18T14:14:30Z",
+            "start_gate_index": 2,
+            "start_gate_time": "2026-04-18T14:15:00Z",
+            "jump_the_gun_seconds": 30,
+            "jump_the_gun_penalty_seconds": 30,
+            "jump_the_gun_penalty_points": 60,
+        },
+        "gap": {"formula": {"jump_the_gun_factor": 2}},
+    }
+    session.add(
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilot.id,
+            status="goal",
+            rank=1,
+            distance_flown_km=40,
+            raw_score_points=1000,
+            score_points=890,
+            details_json=details_json,
+            result_state="official",
+        )
+    )
+    session.add_all(
+        [
+            ScorePenalty(task_id=task.id, pilot_id=pilot.id, penalty_type="percentage", value=10, reason="Cloud flying", position=0),
+            ScorePenalty(task_id=task.id, pilot_id=pilot.id, penalty_type="fixed", value=10, reason="Late report", position=1),
+        ]
+    )
+    session.flush()
+
+    payload = get_task_results(task.id, user=admin, session=session)
+
+    result = payload[0]
+    assert result.penalty_summary == "Jump start -60 pts, -10%, -10 pts"
+    assert len(result.penalties) == 2
+    assert result.penalty_calculation is not None
+    assert result.penalty_calculation.engine_penalty_points == 60
+    assert result.penalty_calculation.manual_penalty_points == 110
+    assert result.penalty_calculation.total_display_penalty_points == 170
+    assert [(line.kind, line.label, line.amount_points) for line in result.penalty_calculation.lines] == [
+        ("engine", "Jump start", 60.0),
+        ("manual", "Cloud flying", 100.0),
+        ("manual", "Late report", 10.0),
     ]
 
 

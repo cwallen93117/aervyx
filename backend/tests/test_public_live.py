@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScoreResult, Task, TrackPoint, User
+from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, Task, TrackPoint, User
 from app.routers.public import (
     get_public_live_sources,
     get_public_task_results,
@@ -589,6 +589,61 @@ def test_public_task_results_include_provisional_scores() -> None:
     assert [result.pilot_name for result in payload] == ["Ada Cloud", "Ben Thermal"]
     assert payload[0].result_state == "official"
     assert payload[1].result_state == "provisional"
+
+
+def test_public_task_results_include_public_safe_penalty_details() -> None:
+    session = _session()
+    event = Event(
+        name="Public Penalty Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+    )
+    pilot = Pilot(first_name="Ada", last_name="Cloud")
+    session.add_all([event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    session.add(task)
+    session.flush()
+    details_json = {
+        "start_timing": {
+            "actual_start_crossing_at": "2026-05-02T14:14:45Z",
+            "start_gate_index": 1,
+            "start_gate_time": "2026-05-02T14:15:00Z",
+            "jump_the_gun_seconds": 15,
+            "jump_the_gun_penalty_seconds": 15,
+            "jump_the_gun_penalty_points": 30,
+        },
+        "gap": {"formula": {"jump_the_gun_factor": 2}},
+    }
+    session.add(
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilot.id,
+            status="goal",
+            rank=1,
+            distance_flown_km=42,
+            raw_score_points=900,
+            score_points=855,
+            details_json=details_json,
+            result_state="official",
+        )
+    )
+    session.add(ScorePenalty(task_id=task.id, pilot_id=pilot.id, penalty_type="fixed", value=45, reason="Airspace", position=0))
+    session.commit()
+
+    payload = get_public_task_results(task.id, session=session)
+
+    assert len(payload) == 1
+    assert payload[0].penalty_summary == "Jump start -30 pts, -45 pts"
+    assert payload[0].penalties[0].reason == "Airspace"
+    assert payload[0].penalties[0].applied_by is None
+    assert payload[0].penalty_calculation is not None
+    assert payload[0].penalty_calculation.engine_penalty_points == 30
+    assert payload[0].penalty_calculation.manual_penalty_points == 45
+    assert payload[0].penalty_calculation.total_display_penalty_points == 75
 
 
 def test_public_pilot_summary_uses_only_official_scores() -> None:

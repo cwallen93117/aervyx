@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from
 
 import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
+import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 type PublicEvent = {
@@ -62,6 +63,9 @@ type ResultRecord = {
   rank: number | null;
   details_json: Record<string, unknown>;
   result_state?: string;
+  penalties?: ScorePenaltyRecord[];
+  penalty_summary?: string | null;
+  penalty_calculation?: ScorePenaltyCalculation | null;
 };
 
 type PilotSummaryRecord = {
@@ -230,13 +234,6 @@ function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arr
   return Number(gap?.awarded_points?.[key] ?? 0);
 }
 
-function formatPenaltyPoints(result: ResultRecord): string {
-  const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
-  const finalScore = Number(result.score_points ?? 0);
-  const penalty = rawScore - finalScore;
-  return penalty > 0.05 ? `-${penalty.toFixed(1)}` : "-";
-}
-
 function resultScoringTimezone(result: ResultRecord, fallback?: string): string | undefined {
   const timezone = result.details_json?.scoring_timezone;
   return typeof timezone === "string" && timezone.trim() ? timezone : fallback;
@@ -269,6 +266,57 @@ function taskMapTurnpoints(task: PublicTask): MapTurnpoint[] {
   }));
 }
 
+function PenaltyDetailsModal({
+  result,
+  taskName,
+  onClose,
+}: {
+  result: ResultRecord;
+  taskName: string;
+  onClose: () => void;
+}) {
+  const calculation = result.penalty_calculation;
+  return (
+    <div className="score-penalty-modal-overlay active" onClick={onClose}>
+      <div className="score-penalty-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="score-penalty-modal-header">
+          <div>
+            <div className="score-penalty-modal-title">{result.pilot_name}</div>
+            <div className="score-penalty-modal-subtitle">{taskName}</div>
+          </div>
+          <button type="button" className="score-penalty-modal-close" onClick={onClose} aria-label="Close penalty details">x</button>
+        </div>
+        {calculation ? (
+          <>
+            <div className="score-penalty-score-strip">
+              <div><span>Raw</span><strong>{formatScorePoints(calculation.raw_score_points)}</strong></div>
+              <div><span>Engine</span><strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
+              <div><span>Manual</span><strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
+              <div><span>Final</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
+            </div>
+            <div className="score-penalty-lines">
+              {calculation.lines.map((line, index) => (
+                <div key={`${line.kind}-${index}`} className="score-penalty-line">
+                  <div>
+                    <strong>{line.label}</strong>
+                    {line.detail ? <span>{line.detail}</span> : null}
+                  </div>
+                  <div>
+                    <strong>{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: line.amount_points } })}</strong>
+                    {line.running_score_points != null ? <span>{formatScorePoints(line.running_score_points)} running</span> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div className="score-penalty-empty">{formatPenaltyPoints(result)}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function PublicScoresClient() {
   const apiBase = useMemo(() => resolveApiBase(), []);
   const pilotTracksContentId = useId();
@@ -281,6 +329,7 @@ export function PublicScoresClient() {
   const [taskTab, setTaskTab] = useState<TaskSubTab>("results");
   const [taskResults, setTaskResults] = useState<ResultRecord[]>([]);
   const [taskResultsTaskId, setTaskResultsTaskId] = useState<number | null>(null);
+  const [penaltyDetailsResult, setPenaltyDetailsResult] = useState<ResultRecord | null>(null);
   const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
   const [resultTracksByUploadId, setResultTracksByUploadId] = useState<Record<number, TrackCollection>>({});
   const [highlightedResultUploadId, setHighlightedResultUploadId] = useState<number | null>(null);
@@ -773,7 +822,15 @@ export function PublicScoresClient() {
                       <td>{result.distance_flown_km.toFixed(1)}</td>
                       {taskResultsColumns.map((column) => <td key={column}>{formatPoints(gapAwardedPoints(result, column))}</td>)}
                       {taskResultsIncludePenalty ? (
-                        <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>{formatPenaltyPoints(result)}</td>
+                        <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>
+                          {hasPenaltyDetails(result) ? (
+                            <button type="button" className="score-penalty-link" onClick={() => setPenaltyDetailsResult(result)}>
+                              {formatPenaltyPoints(result)}
+                            </button>
+                          ) : (
+                            formatPenaltyPoints(result)
+                          )}
+                        </td>
                       ) : null}
                       <td className="results-table-total">{formatPointsWithComma(result.score_points)}</td>
                     </tr>
@@ -980,6 +1037,13 @@ export function PublicScoresClient() {
           )}
         </main>
       </div>
+      {penaltyDetailsResult ? (
+        <PenaltyDetailsModal
+          result={penaltyDetailsResult}
+          taskName={selectedTask?.name ?? "Task"}
+          onClose={() => setPenaltyDetailsResult(null)}
+        />
+      ) : null}
     </div>
   );
 }

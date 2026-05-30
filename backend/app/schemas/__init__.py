@@ -607,6 +607,23 @@ class BulkUploadItemResponse(BaseModel):
     message: str
 
 
+class ScorePenaltyCalculationLine(BaseModel):
+    kind: str
+    label: str
+    amount_points: float = 0
+    running_score_points: float | None = None
+    detail: str | None = None
+
+
+class ScorePenaltyCalculation(BaseModel):
+    raw_score_points: float = 0
+    final_score_points: float = 0
+    manual_penalty_points: float = 0
+    engine_penalty_points: float = 0
+    total_display_penalty_points: float = 0
+    lines: list[ScorePenaltyCalculationLine] = Field(default_factory=list)
+
+
 class ScoreResultResponse(BaseModel):
     id: int
     task_id: int
@@ -625,6 +642,9 @@ class ScoreResultResponse(BaseModel):
     score_points: float
     details_json: dict
     result_state: str = "official"
+    penalties: list[ScorePenaltyEntry] = Field(default_factory=list)
+    penalty_summary: str | None = None
+    penalty_calculation: ScorePenaltyCalculation | None = None
 
 
 class PilotSummaryResponse(BaseModel):

@@ -1426,6 +1426,157 @@ def _apply_penalties(raw_score: float, penalties: list[ScorePenalty]) -> float:
     return round(max(score, 0.0), 2)
 
 
+def _safe_float(value: object, default: float = 0.0) -> float:
+    try:
+        parsed = float(value or 0.0)
+    except (TypeError, ValueError):
+        return default
+    return parsed if math.isfinite(parsed) else default
+
+
+def _format_penalty_number(value: float) -> str:
+    return f"{int(value)}" if float(value).is_integer() else f"{value:g}"
+
+
+def _penalty_entry_payload(penalty: ScorePenalty) -> dict:
+    return {
+        "id": penalty.id,
+        "penalty_type": penalty.penalty_type,
+        "value": penalty.value,
+        "reason": penalty.reason,
+        "position": penalty.position,
+        "applied_by": None,
+        "applied_at": penalty.applied_at,
+    }
+
+
+def _engine_penalty_lines(details_json: dict | None) -> tuple[float, list[dict]]:
+    if not isinstance(details_json, dict):
+        return 0.0, []
+
+    lines: list[dict] = []
+    start_timing = details_json.get("start_timing")
+    start_points = 0.0
+    if isinstance(start_timing, dict):
+        start_points = _safe_float(start_timing.get("jump_the_gun_penalty_points"))
+        if start_points > 0:
+            parts: list[str] = []
+            jump_seconds = start_timing.get("jump_the_gun_seconds")
+            penalty_seconds = start_timing.get("jump_the_gun_penalty_seconds")
+            gate_index = start_timing.get("start_gate_index")
+            gate_time = start_timing.get("start_gate_time")
+            actual_start = start_timing.get("actual_start_crossing_at") or start_timing.get("actual_start_exit_after_at")
+            formula = details_json.get("gap", {}).get("formula", {}) if isinstance(details_json.get("gap"), dict) else {}
+            factor = formula.get("jump_the_gun_factor") if isinstance(formula, dict) else None
+            if actual_start:
+                parts.append(f"actual start {actual_start}")
+            if gate_index:
+                parts.append(f"gate {gate_index}{f' at {gate_time}' if gate_time else ''}")
+            if jump_seconds:
+                parts.append(f"{jump_seconds}s early")
+            if penalty_seconds and penalty_seconds != jump_seconds:
+                parts.append(f"capped at {penalty_seconds}s")
+            if factor:
+                parts.append(f"{_format_penalty_number(_safe_float(factor))} pts/s")
+            lines.append(
+                {
+                    "kind": "engine",
+                    "label": "Jump start",
+                    "amount_points": round(start_points, 2),
+                    "running_score_points": None,
+                    "detail": ", ".join(parts) if parts else None,
+                }
+            )
+
+    airscore_result = details_json.get("airscore_result")
+    airscore_points = _safe_float(airscore_result.get("penalty")) if isinstance(airscore_result, dict) else 0.0
+    if airscore_points > 0 and start_points <= 0:
+        lines.append(
+            {
+                "kind": "engine",
+                "label": "Scoring engine penalty",
+                "amount_points": round(airscore_points, 2),
+                "running_score_points": None,
+                "detail": "Penalty reported by AirScore verifier.",
+            }
+        )
+
+    return round(sum(line["amount_points"] for line in lines), 2), lines
+
+
+def _manual_penalty_lines(raw_score: float, penalties: list[ScorePenalty]) -> tuple[float, list[dict]]:
+    running = max(float(raw_score or 0.0), 0.0)
+    lines: list[dict] = []
+    for penalty in penalties:
+        if penalty.penalty_type != "percentage":
+            continue
+        value = max(float(penalty.value or 0.0), 0.0)
+        if value <= 0:
+            continue
+        delta = running * (value / 100.0)
+        running -= delta
+        lines.append(
+            {
+                "kind": "manual",
+                "label": penalty.reason or "Percentage penalty",
+                "amount_points": round(delta, 2),
+                "running_score_points": round(max(running, 0.0), 2),
+                "detail": f"-{_format_penalty_number(value)}%",
+            }
+        )
+    for penalty in penalties:
+        if penalty.penalty_type != "fixed":
+            continue
+        value = max(float(penalty.value or 0.0), 0.0)
+        if value <= 0:
+            continue
+        running -= value
+        lines.append(
+            {
+                "kind": "manual",
+                "label": penalty.reason or "Fixed penalty",
+                "amount_points": round(value, 2),
+                "running_score_points": round(max(running, 0.0), 2),
+                "detail": f"-{_format_penalty_number(value)} pts",
+            }
+        )
+    return round(max(raw_score - max(running, 0.0), 0.0), 2), lines
+
+
+def _result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty]) -> tuple[list[dict], str | None, dict | None]:
+    raw_score = float(result.raw_score_points or result.score_points or 0.0)
+    final_score = float(result.score_points or 0.0)
+    engine_points, engine_lines = _engine_penalty_lines(result.details_json)
+    manual_points, manual_lines = _manual_penalty_lines(raw_score, penalties)
+    lines = [*engine_lines, *manual_lines]
+    if not lines:
+        return [], None, None
+
+    summary_parts: list[str] = []
+    for line in lines:
+        amount = _safe_float(line.get("amount_points"))
+        if amount <= 0:
+            continue
+        if line.get("kind") == "engine":
+            summary_parts.append(f"{line.get('label') or 'Penalty'} -{_format_penalty_number(amount)} pts")
+        else:
+            detail = str(line.get("detail") or "").strip()
+            summary_parts.append(detail if detail else f"-{_format_penalty_number(amount)} pts")
+
+    return (
+        [_penalty_entry_payload(penalty) for penalty in penalties],
+        ", ".join(summary_parts) if summary_parts else None,
+        {
+            "raw_score_points": round(raw_score, 2),
+            "final_score_points": round(final_score, 2),
+            "manual_penalty_points": manual_points,
+            "engine_penalty_points": engine_points,
+            "total_display_penalty_points": round(engine_points + manual_points, 2),
+            "lines": lines,
+        },
+    )
+
+
 # ---------- AirScore GAP scoring pipeline ----------
 
 def _build_airscore_pilot_result(evaluation: dict, pilot_id: int, start_epoch: float = 0) -> dict:
@@ -2382,6 +2533,12 @@ def rescore_task(session: Session, task_id: int, apply_known_repairs: bool = Tru
 def build_result_payload(session: Session, result: ScoreResult) -> dict:
     pilot = session.get(Pilot, result.pilot_id)
     pilot_name = f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown"
+    penalties = session.scalars(
+        select(ScorePenalty)
+        .where(ScorePenalty.task_id == result.task_id, ScorePenalty.pilot_id == result.pilot_id)
+        .order_by(ScorePenalty.position.asc(), ScorePenalty.id.asc())
+    ).all()
+    penalty_entries, penalty_summary, penalty_calculation = _result_penalty_payload(result, penalties)
     return {
         "id": result.id,
         "task_id": result.task_id,
@@ -2400,4 +2557,7 @@ def build_result_payload(session: Session, result: ScoreResult) -> dict:
         "score_points": result.score_points,
         "details_json": result.details_json,
         "result_state": result.result_state,
+        "penalties": penalty_entries,
+        "penalty_summary": penalty_summary,
+        "penalty_calculation": penalty_calculation,
     }
