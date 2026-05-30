@@ -718,7 +718,7 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
 
     # Batch-load all per-task scores for these pilots in this event
     score_rows_query = (
-        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points, ScoreResult.result_state, Task.is_practice)
+        select(ScoreResult.pilot_id, ScoreResult.task_id, ScoreResult.score_points, ScoreResult.result_state, ScoreResult.status, Task.is_practice)
         .join(Task, Task.id == ScoreResult.task_id)
         .where(
             Task.event_id == event_id,
@@ -753,12 +753,14 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     # Build lookup structures
     task_scores_by_pilot: dict[int, dict[int, float]] = {}
     task_states_by_pilot: dict[int, dict[int, str]] = {}
+    task_statuses_by_pilot: dict[int, dict[int, str]] = {}
     practice_task_ids: set[int] = set()
-    for pid, tid, pts, result_state, is_practice in score_rows:
+    for pid, tid, pts, result_state, result_status, is_practice in score_rows:
         if is_practice:
             practice_task_ids.add(int(tid))
         task_scores_by_pilot.setdefault(pid, {})[int(tid)] = float(pts or 0)
         task_states_by_pilot.setdefault(pid, {})[int(tid)] = str(result_state or "official")
+        task_statuses_by_pilot.setdefault(pid, {})[int(tid)] = str(result_status or "")
 
     agg_by_pilot: dict[int, tuple] = {row[0]: row[1:] for row in agg_rows}
 
@@ -775,7 +777,7 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
     # Pre-compute per-task best score for FTV normalisation
     task_best_score: dict[int, float] = {}
     if use_ftv:
-        for _pid, tid, pts, _state, is_practice in score_rows:
+        for _pid, tid, pts, _state, _status, is_practice in score_rows:
             if is_practice:
                 continue
             tid_int = int(tid)
@@ -813,5 +815,6 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
             best_distance_km=float(agg[2] or 0),
             task_scores=pilot_task_scores,
             task_result_states=task_states_by_pilot.get(pilot_id, {}),
+            task_statuses=task_statuses_by_pilot.get(pilot_id, {}),
         ))
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

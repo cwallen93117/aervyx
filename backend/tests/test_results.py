@@ -18,18 +18,18 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
-def _score(task: Task, pilot: Pilot, quality: float | None, state: str = "official") -> ScoreResult:
+def _score(task: Task, pilot: Pilot, quality: float | None, state: str = "official", status: str = "goal", points: float = 900) -> ScoreResult:
     details_json = {}
     if quality is not None:
         details_json = {"gap": {"validity": {"overall": quality}}}
     return ScoreResult(
         task_id=task.id,
         pilot_id=pilot.id,
-        status="goal",
+        status=status,
         rank=1,
         distance_flown_km=40,
-        raw_score_points=900,
-        score_points=900,
+        raw_score_points=points,
+        score_points=points,
         details_json=details_json,
         result_state=state,
     )
@@ -256,6 +256,43 @@ def test_pilot_summary_keeps_practice_scores_out_of_totals() -> None:
     assert summaries[0].total_score_points == 900
     assert summaries[0].tasks_scored == 1
     assert summaries[0].task_scores == {practice_task.id: 900, competition_task.id: 900}
+    assert summaries[0].task_statuses == {practice_task.id: "goal", competition_task.id: "goal"}
+
+
+def test_pilot_summary_includes_absent_and_dnf_task_statuses() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(
+        name="Status Race",
+        location="Ridgeline",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+    )
+    absent_pilot = Pilot(first_name="Ada", last_name="Absent")
+    dnf_pilot = Pilot(first_name="Ben", last_name="Grounded")
+    session.add_all([admin, event, absent_pilot, dnf_pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1")
+    session.add_all([
+        task,
+        EventPilot(event_id=event.id, pilot_id=absent_pilot.id),
+        EventPilot(event_id=event.id, pilot_id=dnf_pilot.id),
+    ])
+    session.flush()
+    session.add_all([
+        _score(task, absent_pilot, 1.0, status="absent", points=0),
+        _score(task, dnf_pilot, 1.0, status="did_not_fly", points=0),
+    ])
+    session.flush()
+
+    summaries = pilot_summary(event.id, user=admin, session=session)
+    summaries_by_name = {summary.pilot_name: summary for summary in summaries}
+
+    assert summaries_by_name["Ada Absent"].task_scores == {task.id: 0}
+    assert summaries_by_name["Ada Absent"].task_statuses == {task.id: "absent"}
+    assert summaries_by_name["Ben Grounded"].task_scores == {task.id: 0}
+    assert summaries_by_name["Ben Grounded"].task_statuses == {task.id: "did_not_fly"}
 
 
 def _igc_content(pilot_name: str = "Charles Allen") -> bytes:

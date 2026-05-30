@@ -656,6 +656,7 @@ class PilotSummaryResponse(BaseModel):
     best_distance_km: float
     task_scores: dict[int, float] = Field(default_factory=dict)
     task_result_states: dict[int, str] = Field(default_factory=dict)
+    task_statuses: dict[int, str] = Field(default_factory=dict)
 
 
 class TaskResultSummaryResponse(BaseModel):

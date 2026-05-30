@@ -499,6 +499,7 @@ def _score(
     rank: int,
     points: float,
     state: str = "official",
+    status: str = "goal",
     quality: float | None = None,
     upload_id: int | None = None,
 ) -> ScoreResult:
@@ -509,7 +510,7 @@ def _score(
         task_id=task.id,
         pilot_id=pilot.id,
         upload_id=upload_id,
-        status="goal",
+        status=status,
         rank=rank,
         distance_flown_km=42,
         raw_score_points=points,
@@ -695,6 +696,47 @@ def test_public_pilot_summary_uses_only_official_scores() -> None:
         official_task.id: "official",
         provisional_task.id: "provisional",
     }
+    assert payload[0].task_statuses == {
+        practice_task.id: "goal",
+        official_task.id: "goal",
+        provisional_task.id: "goal",
+    }
+
+
+def test_public_pilot_summary_includes_absent_and_dnf_task_statuses() -> None:
+    session = _session()
+    event = Event(
+        name="Public Status Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+    )
+    absent_pilot = Pilot(first_name="Ada", last_name="Absent")
+    dnf_pilot = Pilot(first_name="Ben", last_name="Grounded")
+    session.add_all([event, absent_pilot, dnf_pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    session.add_all([
+        task,
+        EventPilot(event_id=event.id, pilot_id=absent_pilot.id),
+        EventPilot(event_id=event.id, pilot_id=dnf_pilot.id),
+    ])
+    session.flush()
+    session.add_all([
+        _score(task, absent_pilot, rank=1, points=0, status="absent"),
+        _score(task, dnf_pilot, rank=2, points=0, status="did_not_fly"),
+    ])
+    session.commit()
+
+    payload = public_pilot_summary(event.id, session=session)
+    summaries_by_name = {summary.pilot_name: summary for summary in payload}
+
+    assert summaries_by_name["Ada Absent"].task_scores == {task.id: 0}
+    assert summaries_by_name["Ada Absent"].task_statuses == {task.id: "absent"}
+    assert summaries_by_name["Ben Grounded"].task_scores == {task.id: 0}
+    assert summaries_by_name["Ben Grounded"].task_statuses == {task.id: "did_not_fly"}
 
 
 def test_public_task_result_summary_includes_provisional_scores() -> None:

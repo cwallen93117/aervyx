@@ -377,6 +377,17 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
                         .order_by(ScoreResult.task_id.asc())
                     ).all()
                 },
+                task_statuses={
+                    int(task_id): str(result_status or "")
+                    for task_id, result_status in session.execute(
+                        select(ScoreResult.task_id, ScoreResult.status)
+                        .where(
+                            ScoreResult.task_id.in_(published_task_ids),
+                            ScoreResult.pilot_id == pilot_id,
+                        )
+                        .order_by(ScoreResult.task_id.asc())
+                    ).all()
+                },
             )
         )
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))
