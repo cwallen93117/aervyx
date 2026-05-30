@@ -615,7 +615,7 @@ export function PublicScoresClient() {
       </div>
       {scoredTasks.length ? (
         <div className="results-table-wrap scores-summary-table-wrap">
-          <table className="results-table results-table-compact">
+          <table className="results-table results-table-compact overall-task-summary-table">
             <thead>
               <tr>
                 <th>Task</th>

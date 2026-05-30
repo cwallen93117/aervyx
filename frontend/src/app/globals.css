@@ -4029,6 +4029,44 @@ button[type="submit"]:hover,
   text-align: center;
 }
 
+.overall-task-summary-table {
+  table-layout: fixed;
+  min-width: 760px;
+}
+
+.overall-task-summary-table thead th:nth-child(1),
+.overall-task-summary-table tbody td:nth-child(1) {
+  position: static;
+  width: 28%;
+  min-width: 180px;
+  max-width: none;
+  text-align: left;
+}
+
+.overall-task-summary-table thead th:nth-child(2),
+.overall-task-summary-table tbody td:nth-child(2) {
+  position: static;
+  width: 16%;
+  min-width: 116px;
+  text-align: left;
+}
+
+.overall-task-summary-table thead th:nth-child(3),
+.overall-task-summary-table tbody td:nth-child(3) {
+  width: 16%;
+}
+
+.overall-task-summary-table thead th:nth-child(4),
+.overall-task-summary-table tbody td:nth-child(4) {
+  width: 16%;
+}
+
+.overall-task-summary-table thead th:nth-child(5),
+.overall-task-summary-table tbody td:nth-child(5) {
+  width: 24%;
+  text-align: left;
+}
+
 .results-table-task thead th {
   padding: 6px 8px;
   white-space: normal;
