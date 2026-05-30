@@ -453,7 +453,7 @@ export function PublicScoresClient() {
     [taskResults],
   );
   const trackableResults = useMemo(
-    () => taskResults.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null && result.result_state === "official"),
+    () => taskResults.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null && result.result_state !== "unscored"),
     [taskResults],
   );
   const resultByUploadId = useMemo(

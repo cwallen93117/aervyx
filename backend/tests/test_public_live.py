@@ -771,7 +771,7 @@ def test_public_task_result_summary_includes_provisional_scores() -> None:
     assert [(summary.task_id, summary.day_quality) for summary in payload] == [(official_task.id, 0.91), (provisional_task.id, 0.72)]
 
 
-def test_public_upload_track_is_available_for_public_official_results() -> None:
+def test_public_upload_track_is_available_for_public_scored_results() -> None:
     session = _session()
     event = Event(
         name="Public Track Comp",
@@ -836,7 +836,7 @@ def test_public_upload_track_is_available_for_public_official_results() -> None:
     assert feature["geometry"]["coordinates"] == [[-82.0, 35.0, 1010.0], [-82.1, 35.1, 1110.0]]
 
 
-def test_public_upload_track_requires_public_official_result() -> None:
+def test_public_upload_track_allows_public_provisional_results() -> None:
     session = _session()
     public_event = Event(
         name="Public Track Locks",
@@ -893,7 +893,47 @@ def test_public_upload_track_requires_public_official_result() -> None:
     )
     session.commit()
 
-    for upload_id in (provisional_upload.id, private_upload.id):
-        with pytest.raises(HTTPException) as caught:
-            get_public_upload_track(upload_id, session=session)
-        assert caught.value.status_code == 404
+    payload = get_public_upload_track(provisional_upload.id, session=session)
+
+    assert payload["features"][0]["properties"]["upload_id"] == provisional_upload.id
+
+    with pytest.raises(HTTPException) as caught:
+        get_public_upload_track(private_upload.id, session=session)
+    assert caught.value.status_code == 404
+
+
+def test_public_upload_track_requires_public_published_task() -> None:
+    session = _session()
+    event = Event(
+        name="Public Track Draft Lock",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+    )
+    pilot = Pilot(first_name="Finn", last_name="Lift")
+    user = User(username="uploader@example.com", full_name="Uploader", role="organizer")
+    session.add_all([event, pilot, user])
+    session.flush()
+    draft_task = Task(event_id=event.id, name="Draft Task", status="draft", task_date=date(2026, 5, 2))
+    session.add(draft_task)
+    session.flush()
+    upload = IGCUpload(
+        event_id=event.id,
+        task_id=draft_task.id,
+        pilot_id=pilot.id,
+        uploaded_by_user_id=user.id,
+        filename="draft.igc",
+        sha256="d" * 64,
+        stored_path="/tmp/draft.igc",
+        metadata_json={},
+    )
+    session.add(upload)
+    session.flush()
+    session.add(_score(draft_task, pilot, rank=1, points=800, state="official", upload_id=upload.id))
+    session.commit()
+
+    with pytest.raises(HTTPException) as caught:
+        get_public_upload_track(upload.id, session=session)
+    assert caught.value.status_code == 404
