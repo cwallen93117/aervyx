@@ -35,6 +35,14 @@ void main() async {
     // If anything goes wrong, proceed to login screen
   }
 
+  if (authService.isLoggedIn) {
+    try {
+      await trackingService.restoreActiveSession();
+    } catch (_) {
+      // Tracking resume is best effort; the app should still open normally.
+    }
+  }
+
   // Sync platform config (MQTT + device profiles) in background after auth
   final bleService = BleService(
     apiService,
