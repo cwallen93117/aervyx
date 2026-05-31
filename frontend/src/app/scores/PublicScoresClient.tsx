@@ -112,6 +112,22 @@ function formatDateLabel(value: string | null | undefined): string {
   return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
+function formatTaskClockLabel(value: string | null | undefined): string {
+  if (!value) return "-";
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return value;
+  const hours24 = Number(match[1]);
+  const minutes = match[2];
+  const suffix = hours24 >= 12 ? "PM" : "AM";
+  const hours12 = hours24 % 12 || 12;
+  return `${hours12}:${minutes} ${suffix}`;
+}
+
+function formatMeters(value: number): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.max(0, Math.round(value || 0)));
+}
+
 function compareTasksForScores(a: PublicTask, b: PublicTask): number {
   if (a.is_practice !== b.is_practice) return a.is_practice ? -1 : 1;
   const aHasDate = Boolean(a.task_date);
@@ -251,6 +267,28 @@ function taskTypeLabelWithGateCount(task: PublicTask): string {
     return `${label} with ${task.start_gate_count} start gates`;
   }
   return label;
+}
+
+function startGateLabelsForTask(task: PublicTask): string[] {
+  if (task.task_type !== "race_to_goal_with_gates" || !task.start_open_time || !task.start_gate_count) {
+    return [];
+  }
+  const [hoursText, minutesText] = task.start_open_time.split(":");
+  const baseMinutes = Number(hoursText) * 60 + Number(minutesText);
+  if (!Number.isFinite(baseMinutes)) return [];
+  if (task.start_gate_count === 1) {
+    return [formatTaskClockLabel(task.start_open_time)];
+  }
+  if (task.start_gate_interval_seconds == null) {
+    return [];
+  }
+  const intervalMinutes = task.start_gate_interval_seconds / 60;
+  return Array.from({ length: task.start_gate_count }, (_, index) => {
+    const totalMinutes = baseMinutes + index * intervalMinutes;
+    const hours = Math.floor(totalMinutes / 60) % 24;
+    const minutes = Math.round(totalMinutes % 60);
+    return formatTaskClockLabel(`${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`);
+  });
 }
 
 function statusAbbreviation(status: string): string | null {
@@ -434,11 +472,6 @@ export function PublicScoresClient() {
     }
     return states;
   }, [pilotSummary, scoredTasks]);
-  const selectedTaskResultState = useMemo(() => {
-    const scoredResults = taskResults.filter((result) => result.result_state !== "unscored");
-    if (!scoredResults.length) return null;
-    return scoredResults.some((result) => result.result_state === "provisional") ? "provisional" : "official";
-  }, [taskResults]);
   const taskResultsColumns = useMemo(() => {
     const columns: Array<"distance" | "speed" | "arrival" | "departure" | "leading"> = [];
     if (selectedEvent?.use_distance_points ?? true) columns.push("distance");
@@ -499,6 +532,41 @@ export function PublicScoresClient() {
     () => (selectedTask ? computeTaskOptimization(selectedTask.points) : null),
     [selectedTask],
   );
+  const selectedTaskDefinitionRows = useMemo(() => {
+    if (!selectedTask || !selectedTaskMetrics) return [];
+    let cumulativeDistance = 0;
+    return selectedTask.points.map((point, index) => {
+      if (index > 0) {
+        cumulativeDistance += selectedTaskMetrics.legMetrics[index - 1]?.optimizedDistanceKm ?? 0;
+      }
+      const pointType = point.point_type.toLowerCase();
+      const suffix = pointType === "launch" || pointType === "start"
+        ? "SS"
+        : pointType === "ess" || pointType === "goal"
+          ? "ES"
+          : "";
+      return {
+        label: `${index + 1}${suffix ? ` ${suffix}` : ""}`,
+        legDistanceKm: cumulativeDistance,
+        identifier: point.name,
+        radiusLabel: `${formatMeters(point.radius_m)} m`,
+        openLabel: formatTaskClockLabel(selectedTask.start_open_time || selectedTask.task_start_time || "-"),
+        closeLabel: formatTaskClockLabel(selectedTask.start_close_time || selectedTask.task_finish_time || "-"),
+      };
+    });
+  }, [selectedTask, selectedTaskMetrics]);
+  const selectedTaskStartGateLabels = useMemo(
+    () => (selectedTask ? startGateLabelsForTask(selectedTask) : []),
+    [selectedTask],
+  );
+  const selectedTaskDefinitionMetaParts = useMemo(() => {
+    if (!selectedTask) return [];
+    return [
+      taskTypeLabel(selectedTask.task_type),
+      formatDateLabel(selectedTask.task_date) !== "-" ? formatDateLabel(selectedTask.task_date) : null,
+      selectedTaskStartGateLabels.length ? `Start gates: ${selectedTaskStartGateLabels.join(", ")}` : null,
+    ].filter(Boolean);
+  }, [selectedTask, selectedTaskStartGateLabels]);
   const scoresMapOverlayConfig = useMemo<Record<string, boolean>>(() => ({
     turnpoints: true,
     task_route: true,
@@ -813,15 +881,39 @@ export function PublicScoresClient() {
 
   const renderTaskResults = () => {
     if (!selectedTask) return null;
-    const selectedState = resultStateLabel(selectedTaskResultState);
     return (
       <div className="scores-panel">
-        <div className="scores-panel-header">
-          <div>
-            <h1><span className={selectedTask.is_practice ? "practice-task-label" : undefined}>{selectedTask.name}</span> {selectedState ? <span className={`result-state-badge ${selectedState.className}`}>{selectedState.label}</span> : null}</h1>
-            <p>{formatDateLabel(selectedTask.task_date)} - {taskTypeLabelWithGateCount(selectedTask)}</p>
+        {selectedTaskDefinitionRows.length ? (
+          <div className="results-sheet task-definition-sheet">
+            {selectedTaskDefinitionMetaParts.length ? <p className="task-definition-meta">{selectedTaskDefinitionMetaParts.join(" - ")}</p> : null}
+            <div className="results-table-wrap">
+              <table className="results-table results-table-compact overall-task-summary-table">
+                <thead>
+                  <tr>
+                    <th>No</th>
+                    <th>Leg Dist.</th>
+                    <th>Id</th>
+                    <th>Radius</th>
+                    <th>Open</th>
+                    <th>Close</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedTaskDefinitionRows.map((row) => (
+                    <tr key={row.label}>
+                      <td><strong>{row.label}</strong></td>
+                      <td>{row.legDistanceKm.toFixed(1)} km</td>
+                      <td>{row.identifier}</td>
+                      <td>{row.radiusLabel}</td>
+                      <td>{row.openLabel}</td>
+                      <td>{row.closeLabel}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        ) : null}
         {loadingResults || taskResultsTaskId !== selectedTask.id ? (
           <div className="scores-empty">Loading task results...</div>
         ) : taskResults.length ? (

@@ -2918,6 +2918,10 @@ button[type="submit"]:hover,
   gap: 12px;
 }
 
+.results-sheet-toolbar {
+  justify-content: flex-end;
+}
+
 .results-sheet-header h3 {
   font-size: 1rem;
   font-weight: 600;
@@ -5816,9 +5820,11 @@ button[type="submit"]:hover,
   margin-top: 4px;
 }
 
-.task-definition-gates {
-  padding: 0 20px 18px;
+.task-definition-meta {
   margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 .login-panel {
