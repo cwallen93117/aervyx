@@ -2506,11 +2506,14 @@ export default function HomePage() {
     if (!token || !selectedEventId) return;
     try {
       setTaskFeedback(null);
+      const currentTaskStatus = taskDraft.id
+        ? selectedTask?.status ?? tasks.find((task) => task.id === taskDraft.id)?.status ?? "draft"
+        : "draft";
       const payload = {
         name: taskDraft.name,
         task_date: taskDraft.task_date || null,
         is_practice: taskDraft.is_practice,
-        status: "draft",
+        status: currentTaskStatus,
         task_type: taskDraft.task_type,
         task_start_time: timeOrNull(taskDraft.task_start_time),
         task_finish_time: timeOrNull(taskDraft.task_finish_time),
