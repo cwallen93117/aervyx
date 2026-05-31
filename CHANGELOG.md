@@ -13,6 +13,13 @@ production release.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.05.31]
+
+### Fixed
+- **Mobile v0.4.43+60** resumes active Android tracking after minimizing or
+  closing the app outside the in-app Shut Down button, and prevents duplicate
+  app instances from launcher or notification relaunches.
+
 ## [2026.05.29]
 
 ### Added

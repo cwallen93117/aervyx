@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.43+60 - 2026-05-31
+
+### Fixed
+- Android relaunch now resumes active tracking after minimizing or closing the
+  app outside the in-app Shut Down button, and launcher/notification relaunches
+  no longer create duplicate app instances.
+
 ## 0.4.42+59 - 2026-05-30
 
 ### Changed

@@ -101,9 +101,9 @@ class PersistentRuntimeService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val launchIntent =
-            packageManager.getLaunchIntentForPackage(packageName)
-                ?: Intent(this, MainActivity::class.java)
+        val launchIntent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
         val contentIntent = PendingIntent.getActivity(
             this,
             0,
@@ -262,9 +262,9 @@ class PersistentRuntimeService : Service() {
 
         fun showRestoreNotification(context: Context) {
             createNotificationChannel(context)
-            val launchIntent =
-                context.packageManager.getLaunchIntentForPackage(context.packageName)
-                    ?: Intent(context, MainActivity::class.java)
+            val launchIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
             val contentIntent = PendingIntent.getActivity(
                 context,
                 2,
@@ -298,9 +298,9 @@ class PersistentRuntimeService : Service() {
             threshold: Int,
         ) {
             createNotificationChannel(context)
-            val launchIntent =
-                context.packageManager.getLaunchIntentForPackage(context.packageName)
-                    ?: Intent(context, MainActivity::class.java)
+            val launchIntent = Intent(context, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
             val contentIntent = PendingIntent.getActivity(
                 context,
                 3,

@@ -17,6 +17,8 @@ import 'background_service.dart';
 import 'igc_service.dart';
 import 'persistent_runtime_service.dart';
 
+typedef TrackingSessionDirectoryProvider = Future<Directory> Function();
+
 /// GPS tracking zones — determines polling rate near course points.
 enum TrackingZone {
   /// On the ground / stationary — 5-second interval
@@ -53,6 +55,101 @@ enum NotificationLevel { success, warning, error }
 /// Sport type — determines takeoff detection thresholds.
 enum SportType { paraglider, hangGlider, glider }
 
+@visibleForTesting
+class TrackingSessionSnapshot {
+  final TrackingState trackingState;
+  final DateTime savedAt;
+  final DateTime? trackingStartTime;
+  final int positionCount;
+  final int flightNumberToday;
+  final double? takeoffLat;
+  final double? takeoffLon;
+  final bool driverMode;
+  final bool debugMode;
+  final bool multiFlightEnabled;
+  final model.Position? lastPosition;
+
+  const TrackingSessionSnapshot({
+    required this.trackingState,
+    required this.savedAt,
+    required this.trackingStartTime,
+    required this.positionCount,
+    required this.flightNumberToday,
+    required this.takeoffLat,
+    required this.takeoffLon,
+    required this.driverMode,
+    required this.debugMode,
+    required this.multiFlightEnabled,
+    required this.lastPosition,
+  });
+
+  bool get isRestorable =>
+      trackingState == TrackingState.preFlight ||
+      trackingState == TrackingState.inFlight ||
+      trackingState == TrackingState.monitoring;
+
+  bool isStale(DateTime now) => now.difference(savedAt).inHours >= 18;
+
+  Map<String, dynamic> toJson() => {
+        'trackingState': trackingState.name,
+        'savedAt': savedAt.toUtc().toIso8601String(),
+        if (trackingStartTime != null)
+          'trackingStartTime': trackingStartTime!.toUtc().toIso8601String(),
+        'positionCount': positionCount,
+        'flightNumberToday': flightNumberToday,
+        if (takeoffLat != null) 'takeoffLat': takeoffLat,
+        if (takeoffLon != null) 'takeoffLon': takeoffLon,
+        'driverMode': driverMode,
+        'debugMode': debugMode,
+        'multiFlightEnabled': multiFlightEnabled,
+        if (lastPosition != null) 'lastPosition': lastPosition!.toJson(),
+      };
+
+  static TrackingSessionSnapshot fromJson(Map<String, dynamic> json) {
+    final stateName = json['trackingState'] as String?;
+    final state = TrackingState.values
+        .where((value) => value.name == stateName)
+        .firstOrNull;
+    if (state == null) {
+      throw const FormatException('Unknown tracking state');
+    }
+
+    final lastPositionJson = json['lastPosition'];
+    return TrackingSessionSnapshot(
+      trackingState: state,
+      savedAt: DateTime.parse(json['savedAt'] as String).toUtc(),
+      trackingStartTime: json['trackingStartTime'] == null
+          ? null
+          : DateTime.parse(json['trackingStartTime'] as String).toUtc(),
+      positionCount: (json['positionCount'] as num?)?.toInt() ?? 0,
+      flightNumberToday: (json['flightNumberToday'] as num?)?.toInt() ?? 0,
+      takeoffLat: (json['takeoffLat'] as num?)?.toDouble(),
+      takeoffLon: (json['takeoffLon'] as num?)?.toDouble(),
+      driverMode: json['driverMode'] == true,
+      debugMode: json['debugMode'] == true,
+      multiFlightEnabled: json['multiFlightEnabled'] != false,
+      lastPosition: lastPositionJson is Map<String, dynamic>
+          ? _positionFromSnapshotJson(lastPositionJson)
+          : null,
+    );
+  }
+
+  static model.Position _positionFromSnapshotJson(Map<String, dynamic> json) {
+    return model.Position(
+      lat: (json['lat'] as num).toDouble(),
+      lon: (json['lon'] as num).toDouble(),
+      alt: (json['alt'] as num?)?.toDouble(),
+      speed: (json['speed'] as num?)?.toDouble(),
+      heading: (json['heading'] as num?)?.toDouble(),
+      accuracy: (json['accuracy'] as num?)?.toDouble(),
+      timestamp: DateTime.parse(json['timestamp'] as String).toUtc(),
+      source: json['source'] as String?,
+      deviceId: json['device_id'] as String?,
+      batteryLevel: json['battery_level'] as int?,
+    );
+  }
+}
+
 /// Takeoff detection thresholds per sport.
 class _TakeoffThresholds {
   final double altitudeGainMeters;
@@ -70,6 +167,7 @@ class TrackingService extends ChangeNotifier {
   final ApiService _api;
   final AuthService _auth;
   final IgcService _igc;
+  final TrackingSessionDirectoryProvider _sessionDirectoryProvider;
   final Battery _battery = Battery();
 
   // ── Core state ──
@@ -219,11 +317,180 @@ class TrackingService extends ChangeNotifier {
     _currentBatteryLevelSeenAt = level == null ? null : DateTime.now().toUtc();
   }
 
-  TrackingService(this._api, this._auth, this._igc) {
+  TrackingService(
+    this._api,
+    this._auth,
+    this._igc, {
+    TrackingSessionDirectoryProvider? sessionDirectoryProvider,
+  }) : _sessionDirectoryProvider =
+            sessionDirectoryProvider ?? getApplicationDocumentsDirectory {
     // Start server heartbeat immediately so the LED shows status on app open
     _startHeartbeat();
     // Retry any pending IGC uploads from previous sessions
     _retryPendingUploads();
+  }
+
+  Future<File> _trackingSessionFile() async {
+    final dir = await _sessionDirectoryProvider();
+    return File('${dir.path}/tracking_session.json');
+  }
+
+  TrackingSessionSnapshot _buildSessionSnapshot() {
+    return TrackingSessionSnapshot(
+      trackingState: _trackingState,
+      savedAt: DateTime.now().toUtc(),
+      trackingStartTime: _trackingStartTime,
+      positionCount: _positionCount,
+      flightNumberToday: _flightNumberToday,
+      takeoffLat: _takeoffLat,
+      takeoffLon: _takeoffLon,
+      driverMode: _driverMode,
+      debugMode: _debugMode,
+      multiFlightEnabled: _multiFlightEnabled,
+      lastPosition: _lastPosition,
+    );
+  }
+
+  Future<void> _persistTrackingSession() async {
+    if (_trackingState == TrackingState.idle) {
+      await _clearTrackingSession();
+      return;
+    }
+    final file = await _trackingSessionFile();
+    await file.writeAsString(jsonEncode(_buildSessionSnapshot().toJson()));
+  }
+
+  void _schedulePersistTrackingSession() {
+    unawaited(_persistTrackingSession());
+  }
+
+  Future<void> _clearTrackingSession() async {
+    final file = await _trackingSessionFile();
+    if (await file.exists()) {
+      await file.delete();
+    }
+  }
+
+  Future<TrackingSessionSnapshot?> _loadTrackingSession() async {
+    final file = await _trackingSessionFile();
+    if (!await file.exists()) return null;
+    try {
+      final decoded = jsonDecode(await file.readAsString());
+      if (decoded is! Map<String, dynamic>) {
+        throw const FormatException('Tracking session is not an object');
+      }
+      final snapshot = TrackingSessionSnapshot.fromJson(decoded);
+      if (!snapshot.isRestorable || snapshot.isStale(DateTime.now().toUtc())) {
+        await _clearTrackingSession();
+        return null;
+      }
+      return snapshot;
+    } catch (_) {
+      await _clearTrackingSession();
+      return null;
+    }
+  }
+
+  @visibleForTesting
+  Future<void> debugSaveTrackingSessionSnapshot(
+    TrackingSessionSnapshot snapshot,
+  ) async {
+    final file = await _trackingSessionFile();
+    await file.writeAsString(jsonEncode(snapshot.toJson()));
+  }
+
+  @visibleForTesting
+  Future<void> debugWriteRawTrackingSession(String content) async {
+    final file = await _trackingSessionFile();
+    await file.writeAsString(content);
+  }
+
+  @visibleForTesting
+  Future<bool> debugTrackingSessionExists() async {
+    final file = await _trackingSessionFile();
+    return file.exists();
+  }
+
+  Future<void> restoreActiveSession({
+    bool restartRuntimeServices = true,
+  }) async {
+    final snapshot = await _loadTrackingSession();
+    if (snapshot == null) return;
+
+    if (restartRuntimeServices) {
+      final permissionReady = await _ensureLocationPermission();
+      if (!permissionReady) {
+        await _clearTrackingSession();
+        _error = 'Location permission required to resume tracking';
+        notifyListeners();
+        return;
+      }
+    }
+
+    _flightResetTimer?.cancel();
+    _flightResetTimer = null;
+    _monitoringTimer?.cancel();
+    _monitoringTimer = null;
+    _positionHeartbeatTimer?.cancel();
+    _positionHeartbeatTimer = null;
+
+    _trackingState = snapshot.trackingState;
+    _trackingStartTime = snapshot.trackingStartTime;
+    _positionCount = snapshot.positionCount;
+    _flightNumberToday = snapshot.flightNumberToday;
+    _takeoffLat = snapshot.takeoffLat;
+    _takeoffLon = snapshot.takeoffLon;
+    _driverMode = snapshot.driverMode;
+    _debugMode = snapshot.debugMode;
+    _multiFlightEnabled = snapshot.multiFlightEnabled;
+    _lastPosition = snapshot.lastPosition;
+    _error = null;
+    _stoppedByBattery = false;
+
+    if (_trackingStartTime != null) {
+      _flightDuration = DateTime.now().difference(_trackingStartTime!);
+    }
+
+    notifyListeners();
+
+    if (!restartRuntimeServices) return;
+
+    await _fetchActiveTask();
+    await fetchFlightDetectionSettings();
+    unawaited(PersistentRuntimeService.setLocationActive(true));
+
+    if (_trackingState == TrackingState.monitoring) {
+      BackgroundTrackingService.updateNotification(
+        title: 'Aervyx - Monitoring',
+        content: 'Watching for re-launch...',
+      );
+      _startMonitoringGps();
+    } else {
+      if (_trackingState == TrackingState.inFlight) {
+        _startFlightTimer();
+        BackgroundTrackingService.updateNotification(
+          title: _driverMode ? 'Aervyx - Driver Mode' : 'Aervyx - In Flight',
+          content: _driverMode
+              ? 'Relaying driver position...'
+              : 'Resuming flight...',
+        );
+      } else {
+        BackgroundTrackingService.updateNotification(
+          title: 'Aervyx - Pre-Flight',
+          content: 'Waiting for takeoff...',
+        );
+      }
+      _startGpsStream();
+      _startPositionHeartbeat();
+    }
+
+    try {
+      await BackgroundTrackingService.start();
+    } catch (_) {
+      // Background service unavailable; foreground tracking still resumes.
+    }
+    _startBatteryMonitor();
+    _schedulePersistTrackingSession();
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -336,6 +603,24 @@ class TrackingService extends ChangeNotifier {
     }
   }
 
+  Future<bool> _ensureLocationPermission() async {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+    }
+    if (permission == LocationPermission.denied) {
+      _error = 'Location permission denied';
+      notifyListeners();
+      return false;
+    }
+    if (permission == LocationPermission.deniedForever) {
+      _error = 'Location permission permanently denied. Enable in settings.';
+      notifyListeners();
+      return false;
+    }
+    return true;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // Start / Stop / Force-Start
   // ═══════════════════════════════════════════════════════════════════════════
@@ -347,21 +632,7 @@ class TrackingService extends ChangeNotifier {
       return;
     }
 
-    // Check and request permissions
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        _error = 'Location permission denied';
-        notifyListeners();
-        return;
-      }
-    }
-    if (permission == LocationPermission.deniedForever) {
-      _error = 'Location permission permanently denied. Enable in settings.';
-      notifyListeners();
-      return;
-    }
+    if (!await _ensureLocationPermission()) return;
 
     _flightResetTimer?.cancel();
     _flightResetTimer = null;
@@ -416,6 +687,7 @@ class TrackingService extends ChangeNotifier {
     }
 
     unawaited(PersistentRuntimeService.setLocationActive(true));
+    _schedulePersistTrackingSession();
     notifyListeners();
 
     // Fetch settings from backend
@@ -503,6 +775,7 @@ class TrackingService extends ChangeNotifier {
     _currentZone = TrackingZone.stationary;
     _flightNumberToday = 0;
     _driverMode = false;
+    await _clearTrackingSession();
 
     // Stop background foreground service
     try {
@@ -767,6 +1040,7 @@ class TrackingService extends ChangeNotifier {
     _recentAltitudes.clear();
     _recentAltitudeTimes.clear();
 
+    _schedulePersistTrackingSession();
     notifyListeners();
   }
 
@@ -931,6 +1205,7 @@ class TrackingService extends ChangeNotifier {
 
       // Switch to low-power GPS
       _startMonitoringGps();
+      _schedulePersistTrackingSession();
       notifyListeners();
     } else {
       // Fully stop
@@ -943,6 +1218,7 @@ class TrackingService extends ChangeNotifier {
       _activeTask = null;
       _currentZone = TrackingZone.stationary;
       _flightNumberToday = 0;
+      unawaited(_clearTrackingSession());
       notifyListeners();
 
       // Reset flight timer display after 3 seconds
@@ -1074,6 +1350,7 @@ class TrackingService extends ChangeNotifier {
       _currentZone = TrackingZone.stationary;
       _flightNumberToday = 0;
       _error = 'Monitoring ended';
+      unawaited(_clearTrackingSession());
       notifyListeners();
 
       _flightResetTimer?.cancel();
@@ -1427,13 +1704,14 @@ class TrackingService extends ChangeNotifier {
 
   @override
   void dispose() {
-    stopTracking();
+    _locationSubscription?.cancel();
     _heartbeatTimer?.cancel();
     _batteryCheckTimer?.cancel();
     _flightTimer?.cancel();
     _adaptiveTimer?.cancel();
     _flightResetTimer?.cancel();
     _monitoringTimer?.cancel();
+    _positionHeartbeatTimer?.cancel();
     super.dispose();
   }
 }
