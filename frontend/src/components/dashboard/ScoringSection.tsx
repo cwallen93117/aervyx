@@ -537,6 +537,11 @@ export default function ScoringSection(props: ScoringSectionProps) {
   );
 
   if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
+  const taskDefinitionMetaParts = [
+    taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type),
+    formatDateLabel(selectedTask?.task_date) !== "-" ? formatDateLabel(selectedTask?.task_date) : null,
+    startGateLabels.length ? `Start gates: ${startGateLabels.join(", ")}` : null,
+  ].filter(Boolean);
   return (
     <div className="section-stack">
       {canManagePlatform ? (
@@ -585,10 +590,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
             <div className="stack form-block">
               {taskDefinitionRows.length ? (
                 <div className="results-sheet task-definition-sheet">
-                  <div className="results-sheet-header">
-                    <h3>Task definition {formatDateLabel(selectedTask?.task_date) !== "-" ? <span className="results-header-date">{formatDateLabel(selectedTask?.task_date)}</span> : null}</h3>
-                    <p>{selectedTask?.name ?? taskDraft.name} {taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type) ? `- ${taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type)}` : ""}</p>
-                  </div>
+                  {taskDefinitionMetaParts.length ? <p className="task-definition-meta">{taskDefinitionMetaParts.join(" - ")}</p> : null}
                   <div className="results-table-wrap">
                     <table className="results-table results-table-compact overall-task-summary-table">
                       <thead>
@@ -615,15 +617,11 @@ export default function ScoringSection(props: ScoringSectionProps) {
                       </tbody>
                     </table>
                   </div>
-                  {startGateLabels.length ? <p className="hint task-definition-gates">Start gates: {startGateLabels.join(", ")}</p> : null}
                 </div>
               ) : null}
               {results.length ? (
                 <div className="results-sheet">
-                  <div className="results-sheet-header results-sheet-header-actions">
-                    <div>
-                      <h3>{selectedTask?.name ?? "Task results"}</h3>
-                    </div>
+                  <div className="results-sheet-header-actions results-sheet-toolbar">
                     <div className="button-row">
                       <button
                         type="button"

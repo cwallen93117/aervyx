@@ -1044,9 +1044,10 @@ export default function HomePage() {
         cumulativeDistance += taskDistanceMetrics.legMetrics[index - 1]?.optimizedDistanceKm ?? 0;
       }
       const sourceTurnpoint = turnpoints.find((turnpoint) => turnpoint.id === point.turnpoint_id);
-      const suffix = point.point_type === "launch" || point.point_type === "start"
+      const pointType = point.point_type.toLowerCase();
+      const suffix = pointType === "launch" || pointType === "start"
         ? "SS"
-        : point.point_type === "ESS" || point.point_type === "goal"
+        : pointType === "ess" || pointType === "goal"
           ? "ES"
           : "";
       return {
