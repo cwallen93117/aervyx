@@ -1985,23 +1985,17 @@ export const TaskMap = React.memo(function TaskMap({
     }
     const takeoffAltitudeM = highlightedPaths
       .map((path) => {
-        const visibleLength = Math.min(path.originalPath.length, visibleTrackLengths[path.featureIndex] ?? 0);
-        if (visibleLength <= 0) {
-          return null;
-        }
         return finiteAltitudeM(path.originalPath[0]);
       })
       .find((altitude): altitude is number => altitude != null);
     if (takeoffAltitudeM == null) {
       return null;
     }
-    const altitudes = highlightedPaths.flatMap((path) => {
-      const visibleLength = Math.min(path.originalPath.length, visibleTrackLengths[path.featureIndex] ?? 0);
-      return path.originalPath
-        .slice(0, visibleLength)
+    const altitudes = highlightedPaths.flatMap((path) => (
+      path.originalPath
         .map(finiteAltitudeM)
-        .filter((altitude): altitude is number => altitude != null);
-    });
+        .filter((altitude): altitude is number => altitude != null)
+    ));
     if (!altitudes.length) {
       return null;
     }
@@ -2011,7 +2005,7 @@ export const TaskMap = React.memo(function TaskMap({
       maxAltitudeM,
       labels: buildAltitudeScaleLabels(takeoffAltitudeM, maxAltitudeM, units.altitude),
     };
-  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, units.altitude, visibleTrackLengths]);
+  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, units.altitude]);
   const altitudeTrackSegments = useMemo<AltitudeTrackSegment[]>(() => {
     if (effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.baseAltitudeM) {
       return [];
