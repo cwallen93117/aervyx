@@ -173,6 +173,10 @@ class HomeScreen extends StatelessWidget {
                   ),
                 ),
 
+              _ActiveTaskLabel(tracking: tracking),
+
+              if (tracking.activeTask != null) const SizedBox(height: 8),
+
               // SOS button
               _SosButton(ble: ble),
 
@@ -554,6 +558,49 @@ class _StatusRowState extends State<_StatusRow> {
 }
 
 // ── GPS Details (expanded content) ──
+
+class _ActiveTaskLabel extends StatelessWidget {
+  final TrackingService tracking;
+
+  const _ActiveTaskLabel({required this.tracking});
+
+  @override
+  Widget build(BuildContext context) {
+    final task = tracking.activeTask;
+    if (!tracking.isTracking || task == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withAlpha(150),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.primary.withAlpha(90)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.flag, size: 16, color: colorScheme.primary),
+          const SizedBox(width: 6),
+          Flexible(
+            child: Text(
+              'Task: ${task.taskName}',
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: colorScheme.onPrimaryContainer,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _GpsDetails extends StatelessWidget {
   final TrackingService tracking;

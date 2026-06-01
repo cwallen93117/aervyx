@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.45+62 - 2026-06-01
+
+### Changed
+- The home screen now shows the active task name above the SOS button while
+  tracking, so pilots can confirm task-mode recording is active.
+
 ## 0.4.44+61 - 2026-06-01
 
 ### Changed

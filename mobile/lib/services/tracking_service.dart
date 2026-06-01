@@ -1622,6 +1622,7 @@ class TrackingService extends ChangeNotifier {
     } catch (_) {
       _activeTask = null;
     }
+    notifyListeners();
   }
 
   double? _findNearestTurnpointDistance(double lat, double lon) {

@@ -16,6 +16,8 @@ and environment.
 ## [2026.06.01]
 
 ### Changed
+- **Mobile v0.4.45+62** shows the active task name above the SOS button while
+  tracking, so pilots can confirm task-mode recording is active.
 - **Mobile v0.4.44+61** records normal task-flight IGC track points every
   0.5 seconds while keeping live site uploads on the existing adaptive cadence.
 
