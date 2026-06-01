@@ -83,6 +83,7 @@ export type MapScoredTrackPoint = {
   color?: string | null;
 };
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
+export type MapClickPosition = { latitude: number; longitude: number; elevationM: number | null };
 export type TaskEditorOverlayRenderProps = {
   collapsed: boolean;
   contentId: string;
@@ -1426,7 +1427,7 @@ export const TaskMap = React.memo(function TaskMap({
   liveMarkerScale?: number;
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
-  onMapClick?: (position: { latitude: number; longitude: number }) => void;
+  onMapClick?: (position: MapClickPosition) => void;
   taskEditorOverlay?: TaskEditorOverlayContent;
   fullscreenSidebar?: FullscreenSidebarContent;
   fullscreenSidebarLabel?: string;
@@ -2629,7 +2630,15 @@ export const TaskMap = React.memo(function TaskMap({
           return;
         }
         if (onMapClickRef.current) {
-          onMapClickRef.current({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
+          const terrainMap = map as maplibregl.Map & {
+            queryTerrainElevation?: (lngLat: maplibregl.LngLatLike, options?: { exaggerated?: boolean }) => number | null;
+          };
+          const elevationM = terrainMap.queryTerrainElevation?.(event.lngLat, { exaggerated: false }) ?? null;
+          onMapClickRef.current({
+            latitude: event.lngLat.lat,
+            longitude: event.lngLat.lng,
+            elevationM: elevationM != null && Number.isFinite(elevationM) ? elevationM : null,
+          });
         }
       });
       const resizeObserver = new ResizeObserver(() => {

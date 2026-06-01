@@ -437,7 +437,7 @@ function turnpointSymbolLabel(symbol: unknown): string {
   return turnpointSymbolOptions.find((option) => option.value === normalizeEditableSymbol(symbol))?.label ?? "";
 }
 
-function turnpointToEditable(turnpoint?: TurnpointRecord | null, fallback?: { latitude: number; longitude: number }): EditableTurnpoint {
+function turnpointToEditable(turnpoint?: TurnpointRecord | null, fallback?: { latitude: number; longitude: number; elevationM?: number | null }): EditableTurnpoint {
   return {
     id: turnpoint?.id ?? null,
     name: turnpoint?.name ?? "",
@@ -445,7 +445,7 @@ function turnpointToEditable(turnpoint?: TurnpointRecord | null, fallback?: { la
     symbol: normalizeEditableSymbol(turnpoint?.symbol),
     latitude: String(turnpoint?.latitude ?? fallback?.latitude ?? ""),
     longitude: String(turnpoint?.longitude ?? fallback?.longitude ?? ""),
-    elevation_m: turnpoint?.elevation_m == null ? "" : String(turnpoint.elevation_m),
+    elevation_m: turnpoint?.elevation_m == null ? (fallback?.elevationM == null ? "" : String(Math.round(fallback.elevationM))) : String(turnpoint.elevation_m),
     extra_json: Object.fromEntries(Object.entries(turnpoint?.extra_json ?? {}).map(([key, value]) => [key, String(value ?? "")])),
   };
 }
