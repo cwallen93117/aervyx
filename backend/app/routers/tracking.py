@@ -274,11 +274,13 @@ class SosResponse(BaseModel):
 
 
 class ActiveTaskTurnpoint(BaseModel):
-    id: int
+    id: str
     name: str
+    type: str
     point_type: str
     lat: float
     lon: float
+    radius: float
     radius_meters: float
 
 
@@ -751,11 +753,13 @@ def get_active_task(
         task_name=task.name,
         turnpoints=[
             ActiveTaskTurnpoint(
-                id=tp.id,
+                id=str(tp.id),
                 name=tp.name,
+                type=tp.point_type,
                 point_type=tp.point_type,
                 lat=tp.latitude,
                 lon=tp.longitude,
+                radius=tp.radius_m,
                 radius_meters=tp.radius_m,
             )
             for tp in points

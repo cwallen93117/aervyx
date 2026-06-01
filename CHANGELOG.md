@@ -16,6 +16,8 @@ and environment.
 ## [2026.06.01]
 
 ### Changed
+- **Mobile v0.4.46+63** draws the active task course on the pilot live map with
+  turnpoint cylinders, numbered task point markers, and the course line.
 - **Mobile v0.4.45+62** shows the active task name above the SOS button while
   tracking, so pilots can confirm task-mode recording is active.
 - **Mobile v0.4.44+61** records normal task-flight IGC track points every
@@ -25,6 +27,9 @@ and environment.
 - Mobile active-task detection now treats published competition tasks as
   task-mode tracking targets, so pilots see the active task and use the
   adaptive task recording cadence after pressing Start.
+- The active-task API now includes mobile-compatible turnpoint fields, so
+  installed apps can parse the task instead of silently falling back to free
+  flight mode.
 
 ## [2026.05.31]
 

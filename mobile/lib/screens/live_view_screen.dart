@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/api_config.dart';
+import '../models/turnpoint.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/tracking_service.dart';
@@ -63,6 +64,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   Timer? _pollTimer;
   TrackingService? _trackingService;
   String? _taskName;
+  ActiveTask? _activeTask;
   bool _sseConnected = false;
   bool _hasActiveTask = false;
   bool _initialCenterDone = false;
@@ -106,6 +108,12 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     if (pilotId != null && _isCurrentUserPilot(pilotId)) return true;
     return subjectKey == 'user:$_currentUserId';
   }
+
+  List<LatLng> get _taskRoutePoints =>
+      _activeTask?.turnpoints
+          .map((turnpoint) => LatLng(turnpoint.lat, turnpoint.lon))
+          .toList() ??
+      const <LatLng>[];
 
   String _subjectKeyFor(Map<String, dynamic> json) {
     final subjectKey = json['subject_key'] as String?;
@@ -190,9 +198,11 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       final taskJson = await api.get(ApiConfig.activeTaskPath);
       if (taskJson.containsKey('task_id')) {
         final taskId = taskJson['task_id'];
+        final activeTask = ActiveTask.fromJson(taskJson);
         if (mounted) {
           setState(() {
-            _taskName = taskJson['task_name'] as String? ?? 'Task';
+            _activeTask = activeTask;
+            _taskName = activeTask.taskName;
             _hasActiveTask = true;
           });
         }
@@ -489,8 +499,48 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 maxZoom: _mapStyle.maxZoom,
                 userAgentPackageName: 'com.aervyx.aervyx_mobile',
               ),
+              if (_taskRoutePoints.length > 1)
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: _taskRoutePoints,
+                      strokeWidth: 3,
+                      color: Colors.deepOrange,
+                    ),
+                  ],
+                ),
+              if (_activeTask != null && _activeTask!.turnpoints.isNotEmpty)
+                CircleLayer(
+                  circles: [
+                    ..._activeTask!.turnpoints.map(
+                      (turnpoint) => CircleMarker(
+                        point: LatLng(turnpoint.lat, turnpoint.lon),
+                        radius: turnpoint.radiusMeters,
+                        useRadiusInMeter: true,
+                        color: Colors.deepOrange.withAlpha(35),
+                        borderColor: Colors.deepOrange,
+                        borderStrokeWidth: 2,
+                      ),
+                    ),
+                  ],
+                ),
               MarkerLayer(
                 markers: [
+                  if (_activeTask != null)
+                    ..._activeTask!.turnpoints.asMap().entries.map(
+                          (entry) => Marker(
+                            point: LatLng(
+                              entry.value.lat,
+                              entry.value.lon,
+                            ),
+                            width: 42,
+                            height: 48,
+                            child: _TaskPointMarker(
+                              index: entry.key + 1,
+                              turnpoint: entry.value,
+                            ),
+                          ),
+                        ),
                   // Other pilots
                   ..._pilots.values.map((pilot) => Marker(
                         point: LatLng(pilot.lat, pilot.lon),
@@ -696,6 +746,68 @@ class _InfoChip extends StatelessWidget {
           Text(text, style: theme.textTheme.labelSmall),
         ],
       ),
+    );
+  }
+}
+
+class _TaskPointMarker extends StatelessWidget {
+  final int index;
+  final Turnpoint turnpoint;
+
+  const _TaskPointMarker({
+    required this.index,
+    required this.turnpoint,
+  });
+
+  IconData get _icon {
+    switch (turnpoint.type) {
+      case 'start':
+        return Icons.flag;
+      case 'goal':
+      case 'ess':
+        return Icons.sports_score;
+      default:
+        return Icons.adjust;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: Colors.deepOrange,
+            shape: BoxShape.circle,
+            border: Border.all(color: Colors.white, width: 2),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withAlpha(70), blurRadius: 5),
+            ],
+          ),
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              Icon(_icon, color: Colors.white.withAlpha(210), size: 18),
+              Text(
+                '$index',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          Icons.arrow_drop_down,
+          color: Colors.deepOrange.shade700,
+          size: 18,
+        ),
+      ],
     );
   }
 }

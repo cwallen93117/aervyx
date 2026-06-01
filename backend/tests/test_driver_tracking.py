@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Pilot, Task, TrackingSession, User
+from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Pilot, Task, TaskPoint, TrackingSession, User
 from app.routers.auth import me, update_preferences
 from app.routers.public import public_event_positions
 from app.routers.tracking import PositionPayload, get_active_task, post_position
@@ -200,6 +200,17 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
         task_date=date(2026, 6, 1),
     )
     session.add_all([user, yesterday, today, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    turnpoint = TaskPoint(
+        task_id=today.id,
+        position=1,
+        name="Start Gate",
+        point_type="start",
+        latitude=35.123,
+        longitude=-82.456,
+        radius_m=750,
+    )
+    session.add(turnpoint)
     session.commit()
 
     response = get_active_task(user, session)
@@ -207,6 +218,11 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
     assert response is not None
     assert response.task_id == today.id
     assert response.task_name == "Task 2 (Day 3)"
+    assert response.turnpoints[0].id == str(turnpoint.id)
+    assert response.turnpoints[0].type == "start"
+    assert response.turnpoints[0].point_type == "start"
+    assert response.turnpoints[0].radius == 750
+    assert response.turnpoints[0].radius_meters == 750
 
 
 def test_driver_app_position_uses_user_subject_without_pilot_or_igc_identity() -> None:

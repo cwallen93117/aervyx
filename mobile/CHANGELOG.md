@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.46+63 - 2026-06-01
+
+### Added
+- The pilot live map now draws the active task course with turnpoint cylinders,
+  numbered task point markers, and the course line when task-mode tracking is
+  active.
+
 ## 0.4.45+62 - 2026-06-01
 
 ### Changed
