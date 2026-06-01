@@ -808,6 +808,14 @@ export default function EventsSection(props: EventsSectionProps) {
     return turnpointSort.direction === "asc" ? "A-Z" : "Z-A";
   }
 
+  function closeTurnpointSourceDetail() {
+    setSelectedTurnpointSourceId(null);
+    setSourceTurnpoints([]);
+    setEditingTurnpointId(null);
+    setTurnpointEdit(null);
+    setDraftTurnpoint(null);
+  }
+
   async function saveScoringPresets() {
     if (!token || !selectedEventId) return;
     try {
@@ -1473,6 +1481,7 @@ export default function EventsSection(props: EventsSectionProps) {
                     <div className="button-row">
                       <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(selectedTurnpointSource)}>Download</button>
                       <button type="button" className="ghost-button" onClick={() => void reloadSelectedSource()}>Refresh</button>
+                      <button type="button" className="turnpoint-detail-close" onClick={closeTurnpointSourceDetail} aria-label="Close turnpoint file detail">x</button>
                     </div>
                   </div>
                   <div className="turnpoint-file-layout">

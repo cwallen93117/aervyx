@@ -2869,6 +2869,28 @@ button[type="submit"]:hover,
     padding-top: 12px;
   }
 
+  .turnpoint-detail-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 50%;
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .turnpoint-detail-close:hover {
+    border-color: var(--ink-muted);
+    color: var(--ink);
+    background: var(--wash-alt);
+  }
+
   .turnpoint-file-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
