@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.44+61 - 2026-06-01
+
+### Changed
+- Normal task-flight IGC recording now logs track points every 0.5 seconds
+  while live site uploads keep their existing adaptive cadence.
+
 ## 0.4.43+60 - 2026-05-31
 
 ### Fixed

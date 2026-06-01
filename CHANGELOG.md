@@ -13,6 +13,12 @@ and environment.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.01]
+
+### Changed
+- **Mobile v0.4.44+61** records normal task-flight IGC track points every
+  0.5 seconds while keeping live site uploads on the existing adaptive cadence.
+
 ## [2026.05.31]
 
 ### Fixed

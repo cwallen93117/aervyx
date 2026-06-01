@@ -190,6 +190,7 @@ class TrackingService extends ChangeNotifier {
   /// Timestamp of the last position received from the GPS stream.
   /// Used by the heartbeat timer to decide when to re-send a synthesised fix.
   DateTime _lastStreamPositionAt = DateTime.fromMillisecondsSinceEpoch(0);
+  DateTime _lastIgcRecordTime = DateTime.fromMillisecondsSinceEpoch(0);
 
   // ── Offline position buffer ──
   final List<Map<String, dynamic>> _positionBuffer = [];
@@ -640,6 +641,7 @@ class TrackingService extends ChangeNotifier {
     _monitoringTimer = null;
 
     _positionCount = 0;
+    _lastIgcRecordTime = DateTime.fromMillisecondsSinceEpoch(0);
     _error = null;
     _stoppedByBattery = false;
     _flightDuration = Duration.zero;
@@ -1092,10 +1094,18 @@ class TrackingService extends ChangeNotifier {
         _currentZone = newZone;
       }
 
+      final recordIgcWithUpload = newZone != TrackingZone.normalFlight;
+      if (!recordIgcWithUpload) {
+        _recordIgcPointIfDue(
+          geoPos,
+          minInterval: const Duration(milliseconds: 500),
+        );
+      }
+
       final now = DateTime.now();
       if (now.difference(_lastSendTime) >= minInterval) {
         _lastSendTime = now;
-        await _sendPosition(geoPos);
+        await _sendPosition(geoPos, recordIgc: recordIgcWithUpload);
       }
     } else {
       // Free-flight — send every position
@@ -1367,9 +1377,17 @@ class TrackingService extends ChangeNotifier {
   // Position sending
   // ═══════════════════════════════════════════════════════════════════════════
 
+  void _recordIgcPointIfDue(Position geoPos, {required Duration minInterval}) {
+    final now = DateTime.now();
+    if (now.difference(_lastIgcRecordTime) < minInterval) return;
+    _lastIgcRecordTime = now;
+    _igc.addTrackPoint(geoPos);
+  }
+
   Future<void> _sendPosition(Position geoPos, {bool recordIgc = true}) async {
     if (recordIgc) {
       _igc.addTrackPoint(geoPos);
+      _lastIgcRecordTime = DateTime.now();
     }
     _positionCount++;
 
