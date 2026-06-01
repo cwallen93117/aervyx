@@ -595,9 +595,11 @@ function normalizeTaskPointsForMode(points: TaskPointRecord[], advanced: boolean
   return points.map((point, pointIndex) => {
     const pointType = advanced ? point.point_type : toSimplePointType(point.point_type);
     let nextPointType = pointType;
-    if (!advanced && pointIndex === lastPointIndex) {
+    if (!advanced && pointIndex === 0) {
+      nextPointType = "start";
+    } else if (!advanced && pointIndex === lastPointIndex && points.length > 1) {
       nextPointType = "goal";
-    } else if (!advanced && pointType === "goal") {
+    } else if (!advanced && (pointType === "goal" || pointType === "start")) {
       nextPointType = "turnpoint";
     }
     const pointTypeChanged = nextPointType !== point.point_type;
