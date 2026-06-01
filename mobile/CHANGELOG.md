@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.47+64 - 2026-06-01
+
+### Added
+- The pilot live map now downloads and displays the active task event's enabled
+  airspace and restricted-field overlays alongside the task course.
+
 ## 0.4.46+63 - 2026-06-01
 
 ### Added

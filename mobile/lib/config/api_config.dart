@@ -54,6 +54,12 @@ class ApiConfig {
   // Active task — returns turnpoints if pilot is in an active competition task
   static const String activeTaskPath = '/api/track/active-task';
 
+  static String eventAirspacesPath(int eventId) =>
+      '/api/events/$eventId/airspaces';
+
+  static String eventAirspaceSourcesPath(int eventId) =>
+      '/api/events/$eventId/airspace-sources';
+
   // Meshtastic mesh configuration
   static const String meshConfigPath = '/api/config/mesh';
   static const String meshProfilesPath = '/api/config/mesh-profiles';

@@ -286,7 +286,10 @@ class ActiveTaskTurnpoint(BaseModel):
 
 class ActiveTaskResponse(BaseModel):
     task_id: int
+    event_id: int
     task_name: str
+    visible_airspace_classes: list[str]
+    show_restricted_fields: bool
     turnpoints: list[ActiveTaskTurnpoint]
 
 
@@ -741,6 +744,7 @@ def get_active_task(
     task = session.get(Task, task_id)
     if task is None:
         return None
+    event = session.get(Event, task.event_id)
 
     points = session.scalars(
         select(TaskPoint)
@@ -750,7 +754,16 @@ def get_active_task(
 
     return ActiveTaskResponse(
         task_id=task.id,
+        event_id=task.event_id,
         task_name=task.name,
+        visible_airspace_classes=(
+            list(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"])
+            if event is not None
+            else ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]
+        ),
+        show_restricted_fields=True
+        if event is None or event.show_restricted_fields is None
+        else event.show_restricted_fields,
         turnpoints=[
             ActiveTaskTurnpoint(
                 id=str(tp.id),

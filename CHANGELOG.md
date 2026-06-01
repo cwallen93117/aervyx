@@ -16,6 +16,8 @@ and environment.
 ## [2026.06.01]
 
 ### Changed
+- **Mobile v0.4.47+64** downloads and displays the active task event's enabled
+  airspace and restricted-field overlays on the pilot live map.
 - **Mobile v0.4.46+63** draws the active task course on the pilot live map with
   turnpoint cylinders, numbered task point markers, and the course line.
 - **Mobile v0.4.45+62** shows the active task name above the SOS button while

@@ -176,6 +176,8 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
         starts_on=date(2026, 5, 31),
         ends_on=date(2026, 6, 2),
         timezone="UTC",
+        visible_airspace_classes_json=["R", "TFR"],
+        show_restricted_fields=False,
     )
     pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
     session.add_all([event, pilot])
@@ -217,7 +219,10 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
 
     assert response is not None
     assert response.task_id == today.id
+    assert response.event_id == event.id
     assert response.task_name == "Task 2 (Day 3)"
+    assert response.visible_airspace_classes == ["R", "TFR"]
+    assert response.show_restricted_fields is False
     assert response.turnpoints[0].id == str(turnpoint.id)
     assert response.turnpoints[0].type == "start"
     assert response.turnpoints[0].point_type == "start"

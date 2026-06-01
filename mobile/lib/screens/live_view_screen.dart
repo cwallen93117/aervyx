@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../config/api_config.dart';
+import '../models/airspace.dart';
 import '../models/turnpoint.dart';
 import '../services/api_service.dart';
 import '../services/auth_service.dart';
@@ -65,6 +66,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
   TrackingService? _trackingService;
   String? _taskName;
   ActiveTask? _activeTask;
+  List<AirspaceRegion> _airspaces = const [];
   bool _sseConnected = false;
   bool _hasActiveTask = false;
   bool _initialCenterDone = false;
@@ -114,6 +116,25 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
           .map((turnpoint) => LatLng(turnpoint.lat, turnpoint.lon))
           .toList() ??
       const <LatLng>[];
+
+  MaterialColor _airspaceColor(AirspaceRegion airspace) {
+    if (airspace.isRestrictedField) return Colors.red;
+    switch (airspace.displayCategory) {
+      case 'B':
+        return Colors.blue;
+      case 'C':
+        return Colors.purple;
+      case 'D':
+        return Colors.orange;
+      case 'P':
+      case 'Q':
+      case 'R':
+      case 'TFR':
+        return Colors.red;
+      default:
+        return Colors.teal;
+    }
+  }
 
   String _subjectKeyFor(Map<String, dynamic> json) {
     final subjectKey = json['subject_key'] as String?;
@@ -206,6 +227,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
             _hasActiveTask = true;
           });
         }
+        unawaited(_fetchTaskAirspaces(api, activeTask));
         _connectSse(api, taskId);
       }
     } catch (_) {
@@ -218,6 +240,39 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       const Duration(seconds: 10),
       (_) => _pollActivePilots(),
     );
+  }
+
+  Future<void> _fetchTaskAirspaces(
+    ApiService api,
+    ActiveTask activeTask,
+  ) async {
+    final eventId = activeTask.eventId;
+    if (eventId == null) return;
+    try {
+      final responses = await Future.wait([
+        api.getList(ApiConfig.eventAirspacesPath(eventId)),
+        api.getList(ApiConfig.eventAirspaceSourcesPath(eventId)),
+      ]);
+      final sourceIds = responses[1]
+          .map((item) => AirspaceSource.fromJson(item as Map<String, dynamic>))
+          .where((source) => source.enabled)
+          .map((source) => source.id)
+          .toSet();
+      final visibleCategories = activeTask.visibleAirspaceClasses.toSet();
+      final airspaces = responses[0]
+          .map((item) => AirspaceRegion.fromJson(item as Map<String, dynamic>))
+          .where((region) => region.outerRing.length >= 3)
+          .where((region) => sourceIds.contains(region.sourceId))
+          .where((region) => region.isRestrictedField
+              ? activeTask.showRestrictedFields
+              : visibleCategories.contains(region.displayCategory))
+          .toList();
+      if (!mounted) return;
+      setState(() => _airspaces = airspaces);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _airspaces = const []);
+    }
   }
 
   /// Fetch all active pilots from the backend.
@@ -499,6 +554,29 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                 maxZoom: _mapStyle.maxZoom,
                 userAgentPackageName: 'com.aervyx.aervyx_mobile',
               ),
+              if (_airspaces.isNotEmpty)
+                PolygonLayer(
+                  polygons: [
+                    ..._airspaces.map(
+                      (airspace) => Polygon(
+                        points: airspace.outerRing,
+                        holePointsList:
+                            airspace.holes.isNotEmpty ? airspace.holes : null,
+                        color: _airspaceColor(airspace).withAlpha(40),
+                        borderColor: _airspaceColor(airspace).withAlpha(210),
+                        borderStrokeWidth: 1.5,
+                        label: airspace.label,
+                        labelStyle: theme.textTheme.labelSmall?.copyWith(
+                              color: _airspaceColor(airspace).shade800,
+                              fontWeight: FontWeight.w700,
+                              backgroundColor:
+                                  theme.colorScheme.surface.withAlpha(210),
+                            ) ??
+                            const TextStyle(),
+                      ),
+                    ),
+                  ],
+                ),
               if (_taskRoutePoints.length > 1)
                 PolylineLayer(
                   polylines: [

@@ -33,8 +33,7 @@ class Turnpoint {
     final dLat = _toRad(lat2 - lat);
     final dLon = _toRad(lon2 - lon);
     final a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_toRad(lat)) * cos(_toRad(lat2)) *
-        sin(dLon / 2) * sin(dLon / 2);
+        cos(_toRad(lat)) * cos(_toRad(lat2)) * sin(dLon / 2) * sin(dLon / 2);
     final c = 2 * atan2(sqrt(a), sqrt(1 - a));
     return earthRadius * c;
   }
@@ -45,18 +44,40 @@ class Turnpoint {
 /// Active task info returned by the backend.
 class ActiveTask {
   final int taskId;
+  final int? eventId;
   final String taskName;
+  final List<String> visibleAirspaceClasses;
+  final bool showRestrictedFields;
   final List<Turnpoint> turnpoints;
 
   const ActiveTask({
     required this.taskId,
+    this.eventId,
     required this.taskName,
+    this.visibleAirspaceClasses = const [
+      'B',
+      'C',
+      'D',
+      'P',
+      'Q',
+      'R',
+      'TFR',
+      'OTHER'
+    ],
+    this.showRestrictedFields = true,
     required this.turnpoints,
   });
 
   factory ActiveTask.fromJson(Map<String, dynamic> json) => ActiveTask(
         taskId: json['task_id'] as int,
+        eventId: json['event_id'] as int?,
         taskName: json['task_name'] as String? ?? 'Task',
+        visibleAirspaceClasses:
+            (json['visible_airspace_classes'] as List<dynamic>?)
+                    ?.map((item) => item.toString())
+                    .toList() ??
+                const ['B', 'C', 'D', 'P', 'Q', 'R', 'TFR', 'OTHER'],
+        showRestrictedFields: json['show_restricted_fields'] as bool? ?? true,
         turnpoints: (json['turnpoints'] as List<dynamic>)
             .map((tp) => Turnpoint.fromJson(tp as Map<String, dynamic>))
             .toList(),
