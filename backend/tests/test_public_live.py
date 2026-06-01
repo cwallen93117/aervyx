@@ -695,7 +695,7 @@ def test_public_task_results_include_public_safe_penalty_details() -> None:
         location="Ridge",
         starts_on=date(2026, 5, 1),
         ends_on=date(2026, 5, 7),
-        timezone="UTC",
+        timezone="America/New_York",
         visibility="public",
     )
     pilot = Pilot(first_name="Ada", last_name="Cloud")
@@ -741,6 +741,7 @@ def test_public_task_results_include_public_safe_penalty_details() -> None:
     assert payload[0].penalty_calculation.engine_penalty_points == 30
     assert payload[0].penalty_calculation.manual_penalty_points == 45
     assert payload[0].penalty_calculation.total_display_penalty_points == 75
+    assert payload[0].penalty_calculation.lines[0].detail == "Started at 10:14:45 AM EDT, before start gate 1 at 10:15:00 AM EDT. Early by 15s. Charged 2 points per second."
 
 
 def test_public_pilot_summary_uses_only_official_scores() -> None:
