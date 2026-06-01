@@ -491,7 +491,12 @@ class TurnpointSourceResponse(BaseModel):
 
 
 class TurnpointSourceUpdate(BaseModel):
-    enabled: bool
+    enabled: bool | None = None
+    filename: str | None = None
+
+
+class TurnpointSourceSaveAs(BaseModel):
+    filename: str
 
 
 class AirspaceSourceResponse(BaseModel):

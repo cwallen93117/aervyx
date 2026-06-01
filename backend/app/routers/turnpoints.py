@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
@@ -12,7 +13,7 @@ from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_staff
 from app.models import Event, TaskPoint, Turnpoint, TurnpointSource, User
-from app.schemas import TurnpointResponse, TurnpointSourceResponse, TurnpointSourceUpdate, TurnpointUploadResponse, TurnpointWrite
+from app.schemas import TurnpointResponse, TurnpointSourceResponse, TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointUploadResponse, TurnpointWrite
 from app.services.audit import log_action
 from app.services.turnpoints import normalize_symbol, rewrite_turnpoint_source_file, validate_coordinate, parse_turnpoint_upload
 
@@ -99,6 +100,19 @@ def _source_or_404(session: Session, event_id: int, source_id: int) -> Turnpoint
 
 def _source_turnpoints(session: Session, source: TurnpointSource) -> list[Turnpoint]:
     return list(session.scalars(select(Turnpoint).where(Turnpoint.source_id == source.id).order_by(Turnpoint.source_row_index.asc(), Turnpoint.id.asc())).all())
+
+
+def _clean_source_filename(filename: str, file_format: str) -> str:
+    cleaned = filename.strip()
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Filename is required.")
+    if Path(cleaned).name != cleaned or "/" in cleaned or "\\" in cleaned:
+        raise HTTPException(status_code=400, detail="Filename must not include folders.")
+    suffix = Path(cleaned).suffix.lower()
+    if not suffix:
+        extension = ".geojson" if file_format == "geojson" else f".{file_format}"
+        cleaned = f"{cleaned}{extension}"
+    return cleaned[:255]
 
 
 def _turnpoint_response(turnpoint: Turnpoint) -> TurnpointResponse:
@@ -199,6 +213,47 @@ def delete_turnpoint(event_id: int, turnpoint_id: int, admin: User = Depends(req
     session.commit()
 
 
+@router.post("/api/events/{event_id}/turnpoint-sources/{source_id}/save-as", response_model=TurnpointSourceResponse)
+def save_turnpoint_source_as(event_id: int, source_id: int, payload: TurnpointSourceSaveAs, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
+    source = _source_or_404(session, event_id, source_id)
+    filename = _clean_source_filename(payload.filename, source.file_format)
+    settings = get_settings()
+    stored_path = Path(settings.upload_root) / "turnpoints" / f"version-{uuid.uuid4().hex}" / filename
+    duplicate = TurnpointSource(
+        event_id=event_id,
+        filename=filename,
+        content_type=source.content_type,
+        file_format=source.file_format,
+        sha256=source.sha256,
+        stored_path=str(stored_path),
+        schema_json=source.schema_json,
+        enabled=source.enabled,
+    )
+    session.add(duplicate)
+    session.flush()
+    for turnpoint in _source_turnpoints(session, source):
+        session.add(
+            Turnpoint(
+                event_id=event_id,
+                source_id=duplicate.id,
+                code=turnpoint.code,
+                symbol=turnpoint.symbol,
+                name=turnpoint.name,
+                latitude=turnpoint.latitude,
+                longitude=turnpoint.longitude,
+                elevation_m=turnpoint.elevation_m,
+                extra_json=turnpoint.extra_json,
+                source_row_index=turnpoint.source_row_index,
+            )
+        )
+    session.flush()
+    rewrite_turnpoint_source_file(duplicate, _source_turnpoints(session, duplicate))
+    log_action(session, actor_user_id=admin.id, action="turnpoint.save_as", entity_type="turnpoint_source", entity_id=str(duplicate.id), details={"event_id": event_id, "source_id": source.id, "filename": filename})
+    session.commit()
+    session.refresh(duplicate)
+    return _source_payload(session, duplicate)
+
+
 @router.post("/api/events/{event_id}/turnpoints/upload", response_model=TurnpointUploadResponse)
 async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
     if session.get(Event, event_id) is None:
@@ -252,8 +307,16 @@ def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSou
     source = session.get(TurnpointSource, source_id)
     if source is None or source.event_id != event_id:
         raise HTTPException(status_code=404, detail="Turnpoint source not found")
-    source.enabled = payload.enabled
-    log_action(session, actor_user_id=admin.id, action="turnpoint.toggle", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "enabled": payload.enabled, "filename": source.filename})
+    details: dict[str, object] = {"event_id": event_id, "filename": source.filename}
+    if payload.enabled is not None:
+        source.enabled = payload.enabled
+        details["enabled"] = payload.enabled
+    if payload.filename is not None:
+        source.filename = _clean_source_filename(payload.filename, source.file_format)
+        details["new_filename"] = source.filename
+    if payload.enabled is None and payload.filename is None:
+        raise HTTPException(status_code=400, detail="No turnpoint source changes provided.")
+    log_action(session, actor_user_id=admin.id, action="turnpoint.update_source", entity_type="turnpoint_source", entity_id=str(source.id), details=details)
     session.commit()
     session.refresh(source)
     return _source_payload(session, source)

@@ -781,6 +781,47 @@ export default function EventsSection(props: EventsSectionProps) {
     }
   }
 
+  async function renameTurnpointSource(source: TurnpointSourceRecord) {
+    if (!token || !selectedEventId) return;
+    const nextName = window.prompt("Rename turnpoint file", source.filename)?.trim();
+    if (!nextName || nextName === source.filename) return;
+    try {
+      const renamed = await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ filename: nextName }),
+      });
+      setMessage(`Renamed ${source.filename} to ${renamed.filename}.`);
+      await loadEvent(token, selectedEventId);
+      await refreshEvents(token);
+      if (selectedTurnpointSourceId === source.id) {
+        await loadSourceTurnpoints(source.id);
+      }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not rename that turnpoint file.");
+    }
+  }
+
+  async function saveTurnpointSourceAs(source: TurnpointSourceRecord) {
+    if (!token || !selectedEventId) return;
+    const stem = source.filename.replace(/\.[^.]+$/, "");
+    const suffix = source.filename.includes(".") ? source.filename.slice(source.filename.lastIndexOf(".")) : "";
+    const suggested = `${stem} v2${suffix}`;
+    const filename = window.prompt("Save turnpoint file as", suggested)?.trim();
+    if (!filename) return;
+    try {
+      const saved = await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}/save-as`, token, {
+        method: "POST",
+        body: JSON.stringify({ filename }),
+      });
+      setMessage(`Saved ${source.filename} as ${saved.filename}.`);
+      await loadEvent(token, selectedEventId);
+      await refreshEvents(token);
+      await loadSourceTurnpoints(saved.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not save that turnpoint file as a new version.");
+    }
+  }
+
   function updateEditableExtra(target: "edit" | "draft", key: string, value: string) {
     const setter = target === "edit" ? setTurnpointEdit : setDraftTurnpoint;
     setter((current) => current ? { ...current, extra_json: { ...current.extra_json, [key]: value } } : current);
@@ -1458,6 +1499,8 @@ export default function EventsSection(props: EventsSectionProps) {
                           {canManagePlatform ? (
                             <td className="participant-table-actions">
                               <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(source)}>Download</button>
+                              <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(source)}>Rename</button>
+                              <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(source)}>Save as</button>
                               <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
                             </td>
                           ) : null}
@@ -1479,7 +1522,13 @@ export default function EventsSection(props: EventsSectionProps) {
                       <p className="hint">{sourceTurnpoints.length} waypoint{sourceTurnpoints.length === 1 ? "" : "s"} in this file. Click the map to draft a new waypoint.</p>
                     </div>
                     <div className="button-row">
-                      <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(selectedTurnpointSource)}>Download</button>
+                      {canManagePlatform ? (
+                        <>
+                          <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(selectedTurnpointSource)}>Download</button>
+                          <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(selectedTurnpointSource)}>Rename</button>
+                          <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(selectedTurnpointSource)}>Save as</button>
+                        </>
+                      ) : null}
                       <button type="button" className="ghost-button" onClick={() => void reloadSelectedSource()}>Refresh</button>
                       <button type="button" className="turnpoint-detail-close" onClick={closeTurnpointSourceDetail} aria-label="Close turnpoint file detail">x</button>
                     </div>

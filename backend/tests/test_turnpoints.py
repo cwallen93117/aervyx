@@ -7,9 +7,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
+from app.core.config import get_settings
 from app.models import Event, Turnpoint, TurnpointSource, User
-from app.routers.turnpoints import create_source_turnpoint, update_turnpoint
-from app.schemas import TurnpointWrite
+from app.routers.turnpoints import create_source_turnpoint, save_turnpoint_source_as, update_turnpoint, update_turnpoint_source
+from app.schemas import TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
 from app.services.turnpoints import parse_csv_turnpoints, parse_csv_turnpoints_with_schema, parse_geojson_turnpoints, parse_gpx_turnpoints, serialize_csv_turnpoints
 
 
@@ -119,3 +120,58 @@ def test_create_turnpoint_rejects_cross_event_source(tmp_path: Path) -> None:
         create_source_turnpoint(other.id, source.id, TurnpointWrite(name="Nope", latitude=1, longitude=1), admin, session)
 
     assert exc.value.status_code == 404
+
+
+def test_rename_turnpoint_source_changes_download_filename_metadata(tmp_path: Path) -> None:
+    session = _session()
+    event = Event(name="Rename", location="Hills", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    path = tmp_path / "old.csv"
+    path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
+    session.add_all([event, admin])
+    session.flush()
+    source = TurnpointSource(event_id=event.id, filename="old.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
+    session.add(source)
+    session.commit()
+
+    updated = update_turnpoint_source(event.id, source.id, TurnpointSourceUpdate(filename="new-name"), admin, session)
+
+    assert updated.filename == "new-name.csv"
+    assert session.get(TurnpointSource, source.id).filename == "new-name.csv"
+
+
+def test_save_turnpoint_source_as_clones_file_and_waypoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UPLOAD_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    session = _session()
+    event = Event(name="Save As", location="Hills", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    original_path = tmp_path / "original.csv"
+    original_path.write_text("name,latitude,longitude,symbol\nA,1,2,bar\n", encoding="utf-8")
+    session.add_all([event, admin])
+    session.flush()
+    source = TurnpointSource(
+        event_id=event.id,
+        filename="original.csv",
+        file_format="csv",
+        sha256="old",
+        stored_path=str(original_path),
+        schema_json={"columns": ["name", "latitude", "longitude", "symbol"], "field_map": {"name": "name", "latitude": "latitude", "longitude": "longitude", "symbol": "symbol"}},
+        enabled=True,
+    )
+    session.add(source)
+    session.flush()
+    session.add(Turnpoint(event_id=event.id, source_id=source.id, name="A", latitude=1, longitude=2, symbol="bar", source_row_index=0))
+    session.commit()
+
+    saved = save_turnpoint_source_as(event.id, source.id, TurnpointSourceSaveAs(filename="copy"), admin, session)
+    cloned = session.get(TurnpointSource, saved.id)
+    cloned_points = session.query(Turnpoint).filter(Turnpoint.source_id == saved.id).all()
+
+    assert saved.filename == "copy.csv"
+    assert cloned is not None
+    assert Path(cloned.stored_path).exists()
+    assert "A,1,2,bar" in Path(cloned.stored_path).read_text(encoding="utf-8")
+    assert len(cloned_points) == 1
+    assert cloned_points[0].symbol == "bar"
+    get_settings.cache_clear()
