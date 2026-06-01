@@ -24,6 +24,17 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8000
 flutter build apk --release
 ```
 
+## Release Rule
+
+Every Android/mobile app change must complete the full release path before it is reported done:
+
+- Bump `mobile/pubspec.yaml` version/build.
+- Add user-facing notes to both root `CHANGELOG.md` and `mobile/CHANGELOG.md`.
+- Build the release APK.
+- Confirm `lib/config/api_config.dart` and any related API/download endpoints are correct for the release.
+- Upload the APK and release notes to the website app download endpoint.
+- Verify the website app download page shows the new version and notes.
+
 ## Project Structure
 
 ```

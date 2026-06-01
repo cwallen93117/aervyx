@@ -2,9 +2,12 @@
 
 ## Persistent User Rule
 
-Charles expects completed changes to be committed and pushed to `origin/staging` automatically so they appear on the live staging site. After verification, stage only the files/hunks intentionally changed, commit them, and push to `origin/staging` before saying the task is done unless Charles explicitly asks to keep work local or target another branch.
+Charles expects completed changes to be committed and pushed to `origin/main` automatically so they ship from the live site. After verification, stage only the files/hunks intentionally changed, commit them, and push to `origin/main` before saying the task is done unless Charles explicitly asks to keep work local or target another branch.
 
 This repo's source of truth is the tracked code on `main`.
+Let `staging` fall behind for now. Treat it as a backup branch/environment and update it only when Charles explicitly asks.
+
+For every Android/mobile app change, bump `mobile/pubspec.yaml` version/build, update both root `CHANGELOG.md` and `mobile/CHANGELOG.md`, build the release APK, confirm API/endpoints/config are correct, upload the APK plus release notes to the website app download endpoint, and verify the website download page before reporting done.
 
 ## What This Repo Is
 
@@ -92,12 +95,21 @@ The VM (192.168.87.94, 8 vCPU / 16 GB RAM / 120 GB disk) runs production and sta
 
 ### Development workflow
 1. Edit code locally with Claude Code CLI + gstack/VoltAgent agents
-2. Commit and push to `staging` — no PRs or approvals needed
-3. Webhook auto-deploys to `staging.aervyx.net` for review
-4. When happy, merge `staging` → `main` → auto-deploys to `aervyx.net`
+2. Commit and push to `main`
+3. Webhook auto-deploys to `aervyx.net`
+4. Leave `staging` behind as a backup unless Charles explicitly asks to refresh it
 
 ### Mobile development
-Flutter/Android stays on the desktop. Point `api_config.dart` at `https://api-staging.aervyx.net` for the staging backend.
+Flutter/Android stays on the desktop. Release builds should point at the live API/endpoints intended for the website APK release.
+
+For every Android/mobile app change:
+
+1. Bump `mobile/pubspec.yaml` version/build.
+2. Add user-facing release notes to root `CHANGELOG.md` and `mobile/CHANGELOG.md`.
+3. Build the release APK.
+4. Confirm `api_config.dart` and any related API/download endpoints are correct.
+5. Upload the APK and release notes to the website app download endpoint.
+6. Verify the website app download page exposes the new version and notes.
 
 - The current live deployment handoff is:
   - `docs/live-deployment-handoff.md`
@@ -106,8 +118,8 @@ Flutter/Android stays on the desktop. Point `api_config.dart` at `https://api-st
 
 - Never ask the user to run commands. Execute everything directly — including SSH, WSL, Docker, deploy scripts, and server management.
 - If a command fails, debug and retry. Only involve the user for credentials or physical actions (plugging in a device, opening a browser).
-- Always use feature branches. Create PRs targeting `staging` (not `main`) and merge them immediately — no approval needed for staging. Charles reviews on the live staging site.
-- Only the `staging` → `main` promotion requires user approval. Never merge to `main` without sign-off.
+- Routine completed work targets `main`, not `staging`. Do not create staging-first PRs or staging promotions unless Charles explicitly asks.
+- Do not update `staging` casually. It is allowed to fall behind and act as a backup for now.
 - When deploying to production, use the Proxmox API (guest agent file-write + exec via stdin) since direct SSH is firewalled.
 
 ## Repo Conventions

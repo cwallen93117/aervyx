@@ -21,7 +21,8 @@ Authentication is currently the app's own login flow.
 ## Current Live Branch Flow
 
 - `main` is the production branch.
-- `staging` is for pre-production testing.
+- `main` is the routine target for completed work.
+- `staging` is intentionally allowed to lag behind `main`; treat it as a backup branch/environment until Charles explicitly asks to refresh it.
 - The server-side webhook listener is configured to accept both `refs/heads/main` and `refs/heads/staging`.
 - The old safe snapshot is preserved as tag:
   - `archive/safe-working-state-2026-03-23`
@@ -29,9 +30,9 @@ Authentication is currently the app's own login flow.
 Current expected workflow:
 
 1. Edit code locally with Claude Code CLI + gstack/VoltAgent agents
-2. Commit and push to `staging`
-3. Webhook auto-deploys to `staging.aervyx.net` for review
-4. When happy, merge `staging` → `main` → auto-deploys to `aervyx.net`
+2. Commit and push to `main`
+3. Webhook auto-deploys to `aervyx.net`
+4. Leave `staging` behind as a backup unless Charles explicitly asks to refresh it
 
 ## Infrastructure Shape
 
@@ -191,7 +192,8 @@ Expected event:
 Current intended branch behavior:
 
 - pushes to `main` should deploy
-- pushes to other branches should be ignored by the listener
+- pushes to other branches should be ignored by the production listener
+- routine work should not push to `staging`
 
 ## Current Environment Values On The VM
 
@@ -268,8 +270,8 @@ Secrets are intentionally server-local now.
 - The Cloudflare tunnel is live via a token-managed connector container, not the older repo-draft credentials-file model.
 - If someone reads `docs/deployment-staging-proxmox.md` or `docs/deployment-cloudflare-tunnel.md` literally, they will be misled in places unless they cross-check this document.
 - The alpha stack, OpenClaw workflow, dev stack (hot-reload), code-server, and OpenHands have all been decommissioned and removed.
-- Development is done locally with Claude Code CLI, gstack, and VoltAgent agents. Code is pushed to staging for testing.
-- The staging stack starts on-demand when pushing to the staging branch.
+- Development is done locally with Claude Code CLI, gstack, and VoltAgent agents. Completed code is pushed to `main`.
+- The staging stack may still start on-demand when pushing to the staging branch, but that branch should be left behind as a backup unless Charles asks to refresh it.
 
 ## What Claude Should Trust First
 

@@ -1,34 +1,33 @@
 # Release Notes Workflow
 
-Aervyx ships continuously from `main` (production) and `staging`. Rather
-than cutting semver releases, we use calendar-versioned entries in
+Aervyx ships continuously from `main` (production). Rather than cutting
+semver releases, we use calendar-versioned entries in
 [`CHANGELOG.md`](../CHANGELOG.md) and matching GitHub Releases tagged
 `vYYYY.MM.DD`.
 
 ## When to Update
 
-Whenever a `staging → main` promotion PR is merged (i.e. production has
-changed).
+Whenever a completed change is merged or committed to `main`.
 
-If multiple promotions happen on the same day, combine them under a single
-dated entry and update the existing GitHub Release instead of creating a
+If multiple production changes happen on the same day, combine them under a
+single dated entry and update the existing GitHub Release instead of creating a
 new one.
 
 ## Who Updates It
 
-The developer (or agent) who merges the promotion PR is responsible for
+The developer (or agent) who ships the `main` change is responsible for
 extending `CHANGELOG.md` and cutting/updating the GitHub Release in the
 same branch or immediately after.
 
 ## Step-by-Step
 
-1. **Merge the promotion PR to `main`.**
+1. **Ship the change to `main`.**
 
 2. **Collect the shipped PRs.** From the repo root:
 
    ```bash
-   # PRs merged to staging since the previous promotion
-   gh pr list --state merged --base staging --limit 50 \
+   # PRs merged to main since the previous release entry
+   gh pr list --state merged --base main --limit 50 \
      --json number,title,mergedAt | jq '.[] | select(.mergedAt >= "YYYY-MM-DD")'
    ```
 
@@ -51,14 +50,11 @@ same branch or immediately after.
    Keep entries **user-facing** — skip refactors/chore PRs unless they
    affect operators.
 
-4. **Commit and push to `staging`** via a feature branch + PR
-   (`docs: changelog YYYY.MM.DD`) so the notes get reviewed on staging
-   before promoting. The changelog edit itself does not need a matching
-   main PR — it'll roll into the next promotion.
+4. **Commit and push to `main`** with the shipped change, or immediately
+   after it, so the release notes match the live production state.
 
-5. **Cut the GitHub Release.** Once the changelog PR has merged to
-   staging (and the contents are stable), create a release pointing at
-   the corresponding `main` commit:
+5. **Cut the GitHub Release.** Create a release pointing at the
+   corresponding `main` commit:
 
    ```bash
    gh release create vYYYY.MM.DD \
@@ -84,6 +80,11 @@ same branch or immediately after.
   matters ("mobile home screen", "dashboard Live Tracking dropdown").
 - **Version bumps**: when the Flutter app bumps its `pubspec.yaml`
   version, mention it alongside the relevant entry (`v0.2.7`).
+- **Android releases**: every Android/mobile app change must bump
+  `mobile/pubspec.yaml`, update root `CHANGELOG.md` and
+  `mobile/CHANGELOG.md`, build the release APK, confirm API/endpoints/config,
+  upload the APK plus release notes to the website app download endpoint, and
+  verify the website download page before the task is called done.
 
 ## Automation (future)
 
@@ -92,6 +93,6 @@ When the volume of releases justifies it, wire a GitHub Action on
 
 1. Diffs the PRs between the previous `vYYYY.MM.DD` tag and `HEAD`.
 2. Opens a draft changelog-update PR with the new section pre-filled.
-3. After merge, auto-creates the matching GitHub Release.
+3. After merge to `main`, auto-creates the matching GitHub Release.
 
 For now, the manual flow above is sufficient.

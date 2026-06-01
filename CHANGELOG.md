@@ -6,9 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases are dated (calendar-versioned `YYYY.MM.DD`) because Aervyx ships
 continuously from `main` rather than tagging semver milestones.
 
-Each dated section covers the PRs merged to `main` (production, `aervyx.net`)
-on that day. Staging-only PRs are listed inline where they fed into the same
-production release.
+Each dated section covers the work shipped to `main` (production, `aervyx.net`)
+on that day. `staging` is currently allowed to lag behind as a backup branch
+and environment.
 
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
@@ -278,6 +278,6 @@ and the [Pull Requests](https://github.com/cwallen93117/scoring-software-codex/p
 ## Keeping This File Current
 
 See [`docs/release-notes-workflow.md`](docs/release-notes-workflow.md) for
-the process. In short: after each staging → main promotion, add/update the
-`[YYYY.MM.DD]` section for the promotion date, then cut a matching GitHub
+the process. In short: when a completed change ships to `main`, add/update the
+`[YYYY.MM.DD]` section for that date, then cut or update a matching GitHub
 Release with the same notes.
