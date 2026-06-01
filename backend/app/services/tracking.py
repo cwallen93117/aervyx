@@ -12,7 +12,7 @@ from sqlalchemy import and_, not_, or_, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
-from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Task, TrackingSession, User
+from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, SiteSettings, Task, TrackingSession, User
 from app.services.mesh_ids import mesh_device_id_lookup_variants, normalize_mesh_device_id
 
 
@@ -270,6 +270,10 @@ def prune_old_live_positions(
 
     session = SessionLocal()
     try:
+        settings = session.get(SiteSettings, 1)
+        if settings is not None and settings.live_position_pruning_enabled is False:
+            logger.debug("Live position pruning skipped because retention pruning is disabled")
+            return 0
         deleted = (
             session.query(LivePosition)
             .filter(not_(_current_day_position_clause(session, now=reference_time)))
@@ -285,6 +289,17 @@ def prune_old_live_positions(
         return 0
     finally:
         session.close()
+
+
+def delete_all_live_tracking_data(session: Session) -> dict[str, int]:
+    """Delete raw live tracking rows and active session summaries."""
+    deleted_positions = session.query(LivePosition).delete(synchronize_session=False)
+    deleted_sessions = session.query(TrackingSession).delete(synchronize_session=False)
+    session.commit()
+    return {
+        "deleted_positions": int(deleted_positions),
+        "deleted_sessions": int(deleted_sessions),
+    }
 
 
 async def _live_position_prune_loop(

@@ -98,6 +98,7 @@ class SiteSettings(Base):
     telemetry_glide_ratio_smoothing_seconds: Mapped[int] = mapped_column(Integer, default=5)
     max_map_pitch_degrees: Mapped[int] = mapped_column(Integer, default=75)
     site_match_radius_m: Mapped[int] = mapped_column(Integer, default=1000)
+    live_position_pruning_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # MQTT broker settings
     mqtt_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     mqtt_broker_mode: Mapped[str] = mapped_column(String(20), default="local_mosquitto")

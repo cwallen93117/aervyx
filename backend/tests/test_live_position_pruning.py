@@ -5,7 +5,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.db import Base
-from app.models import Event, IGCUpload, LivePosition, Pilot, Task, TrackPoint, User
+from app.models import Event, IGCUpload, LivePosition, Pilot, SiteSettings, Task, TrackPoint, TrackingSession, User
 from app.services import tracking
 
 
@@ -170,6 +170,55 @@ def test_prune_old_live_positions_keeps_only_current_day_by_event_timezone(monke
             "taskless-utc-today",
         }
         assert session.scalar(select(TrackPoint)) is not None
+
+
+def test_prune_old_live_positions_skips_when_site_setting_disabled(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    now = datetime(2026, 5, 10, 18, 0, tzinfo=UTC)
+
+    with factory() as session:
+        session.add(SiteSettings(id=1, live_position_pruning_enabled=False))
+        session.add(
+            LivePosition(
+                lat=34.0,
+                lon=-119.0,
+                timestamp=now - timedelta(days=1),
+                source="app",
+                device_id="old-but-kept",
+            )
+        )
+        session.commit()
+
+    assert tracking.prune_old_live_positions(now=now) == 0
+
+    with factory() as session:
+        assert session.scalar(select(LivePosition).where(LivePosition.device_id == "old-but-kept")) is not None
+
+
+def test_delete_all_live_tracking_data_keeps_non_live_records(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    now = datetime(2026, 5, 10, 18, 0, tzinfo=UTC)
+
+    with factory() as session:
+        pilot = Pilot(first_name="Ari", last_name="Sky", email="ari@example.com")
+        user = User(username="ari@example.com", full_name="Ari Sky", role="pilot")
+        session.add_all([pilot, user])
+        session.flush()
+        session.add_all(
+            [
+                LivePosition(pilot_id=pilot.id, lat=34.0, lon=-119.0, timestamp=now, source="app", device_id="live-1"),
+                LivePosition(pilot_id=pilot.id, lat=34.1, lon=-119.1, timestamp=now, source="mqtt_gateway", device_id="live-2"),
+                TrackingSession(pilot_id=pilot.id, user_id=user.id, is_active=True, position_count=2),
+            ]
+        )
+        session.commit()
+
+        result = tracking.delete_all_live_tracking_data(session)
+        assert result == {"deleted_positions": 2, "deleted_sessions": 1}
+        assert session.scalars(select(LivePosition)).all() == []
+        assert session.scalars(select(TrackingSession)).all() == []
+        assert session.scalar(select(Pilot).where(Pilot.id == pilot.id)) is not None
+        assert session.scalar(select(User).where(User.id == user.id)) is not None
 
 
 def test_current_day_history_defaults_to_all_retained_points_and_allows_narrowing(monkeypatch) -> None:

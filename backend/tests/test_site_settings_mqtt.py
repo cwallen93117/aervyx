@@ -94,6 +94,22 @@ def test_legacy_private_settings_map_to_cloud_vm(monkeypatch) -> None:
     assert response.mqtt_broker_mode == "cloud_vm"
 
 
+def test_live_position_pruning_setting_persists(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.routers.site_settings.get_settings",
+        lambda: SimpleNamespace(mosquitto_password_file=None),
+    )
+    factory = _session_factory()
+
+    with factory() as session:
+        response = update_site_settings(payload=_payload(live_position_pruning_enabled=False), _=_admin(), session=session)
+        row = session.get(SiteSettings, 1)
+
+    assert response.live_position_pruning_enabled is False
+    assert row is not None
+    assert row.live_position_pruning_enabled is False
+
+
 def test_legacy_public_settings_normalize_to_local_mosquitto() -> None:
     factory = _session_factory()
 

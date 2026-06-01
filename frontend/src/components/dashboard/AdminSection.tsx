@@ -509,6 +509,8 @@ export default function AdminSection(props: AdminSectionProps) {
   const [faaLoading, setFaaLoading] = useState(false);
   const [cloudflareDdnsFeedback, setCloudflareDdnsFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
   const [cloudflareDdnsLoading, setCloudflareDdnsLoading] = useState(false);
+  const [liveDataFeedback, setLiveDataFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
+  const [liveDataBusy, setLiveDataBusy] = useState(false);
   const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
   const [liveTrackingNowMs, setLiveTrackingNowMs] = useState(() => Date.now());
   const mqttBrokerMode = normalizeMqttBrokerMode(siteSettings.mqtt_broker_mode);
@@ -729,6 +731,95 @@ export default function AdminSection(props: AdminSectionProps) {
       setCloudflareDdnsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not check Cloudflare DNS." });
     } finally {
       setCloudflareDdnsLoading(false);
+    }
+  }
+
+  async function saveLivePositionPruningEnabled(enabled: boolean) {
+    setLiveDataBusy(true);
+    setLiveDataFeedback({ type: "pending", text: enabled ? "Enabling live data pruning..." : "Disabling live data pruning..." });
+    const nextSettings = { ...siteSettings, live_position_pruning_enabled: enabled };
+    try {
+      const res = await fetch(`${apiBase}/api/site-settings`, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          telemetry_vario_smoothing_seconds: nextSettings.telemetry_vario_smoothing_seconds,
+          telemetry_altitude_smoothing_seconds: nextSettings.telemetry_altitude_smoothing_seconds,
+          telemetry_speed_smoothing_seconds: nextSettings.telemetry_speed_smoothing_seconds,
+          telemetry_glide_ratio_smoothing_seconds: nextSettings.telemetry_glide_ratio_smoothing_seconds,
+          max_map_pitch_degrees: nextSettings.max_map_pitch_degrees,
+          site_match_radius_m: nextSettings.site_match_radius_m,
+          live_position_pruning_enabled: nextSettings.live_position_pruning_enabled,
+          mqtt_enabled: nextSettings.mqtt_enabled,
+          mqtt_broker_mode: nextSettings.mqtt_broker_mode,
+          mqtt_host: nextSettings.mqtt_host,
+          mqtt_port: nextSettings.mqtt_port,
+          mqtt_tls_enabled: nextSettings.mqtt_tls_enabled,
+          mqtt_username: nextSettings.mqtt_username,
+          mqtt_password: nextSettings.mqtt_password,
+          mqtt_topic_prefix: nextSettings.mqtt_topic_prefix,
+          mqtt_channel_psk: nextSettings.mqtt_channel_psk,
+          cloudflare_ddns_enabled: nextSettings.cloudflare_ddns_enabled,
+          cloudflare_ddns_zone_id: nextSettings.cloudflare_ddns_zone_id,
+          cloudflare_ddns_api_token: nextSettings.cloudflare_ddns_api_token,
+          cloudflare_ddns_clear_api_token: nextSettings.cloudflare_ddns_clear_api_token,
+          cloudflare_ddns_record_names: nextSettings.cloudflare_ddns_record_names,
+          cloudflare_ddns_check_interval_hours: nextSettings.cloudflare_ddns_check_interval_hours,
+          mesh_profiles: nextSettings.mesh_profiles,
+        }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      const saved = (await res.json()) as SiteSettingsRecord;
+      setSiteSettings({
+        ...saved,
+        cloudflare_ddns_api_token: null,
+        cloudflare_ddns_clear_api_token: false,
+      });
+      setLiveDataFeedback({
+        type: "success",
+        text: saved.live_position_pruning_enabled
+          ? "Auto-prune live data is enabled."
+          : "Auto-prune live data is disabled. Raw live rows will be retained.",
+      });
+    } catch (caught) {
+      setLiveDataFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not update live data pruning." });
+    } finally {
+      setLiveDataBusy(false);
+    }
+  }
+
+  async function deleteAllLiveData() {
+    const confirmed = window.confirm(
+      "Delete all raw live tracking data and active tracking session summaries? This cannot be undone. IGC/logbook tracks, pilots, users, mesh device registrations, and mesh packet diagnostics will be preserved.",
+    );
+    if (!confirmed) return;
+    setLiveDataBusy(true);
+    setLiveDataFeedback({ type: "pending", text: "Deleting live tracking data..." });
+    try {
+      const res = await fetch(`${apiBase}/api/admin/live-data`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { detail?: string };
+        throw new Error(data.detail ?? `Server error ${res.status}`);
+      }
+      const payload = (await res.json()) as { deleted_positions: number; deleted_sessions: number };
+      setLiveDataFeedback({
+        type: "success",
+        text: `Deleted ${payload.deleted_positions.toLocaleString()} live positions and ${payload.deleted_sessions.toLocaleString()} tracking sessions.`,
+      });
+      refreshDebugStatus(captureServerClock);
+    } catch (caught) {
+      setLiveDataFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not delete live tracking data." });
+    } finally {
+      setLiveDataBusy(false);
     }
   }
 
@@ -1895,6 +1986,11 @@ export default function AdminSection(props: AdminSectionProps) {
           meshNodes={meshNodes}
           nowMs={liveTrackingNowMs}
           overlayConfig={mapOverlayConfig.config.dashboard_live}
+          livePositionPruningEnabled={siteSettings.live_position_pruning_enabled}
+          liveDataBusy={liveDataBusy}
+          liveDataFeedback={liveDataFeedback}
+          onToggleLivePositionPruning={saveLivePositionPruningEnabled}
+          onDeleteAllLiveData={deleteAllLiveData}
         />
       ) : (
         <SectionCard title="Site settings">
@@ -2433,11 +2529,21 @@ function LiveTrackingTab({
   meshNodes,
   nowMs,
   overlayConfig,
+  livePositionPruningEnabled,
+  liveDataBusy,
+  liveDataFeedback,
+  onToggleLivePositionPruning,
+  onDeleteAllLiveData,
 }: {
   debugStatus: import("./types").DebugStatusResponse | null;
   meshNodes: MeshNode[];
   nowMs: number;
   overlayConfig?: MapOverlayConfigRecord["config"]["dashboard_live"];
+  livePositionPruningEnabled: boolean;
+  liveDataBusy: boolean;
+  liveDataFeedback: { type: "success" | "error" | "pending"; text: string } | null;
+  onToggleLivePositionPruning: (enabled: boolean) => Promise<void>;
+  onDeleteAllLiveData: () => Promise<void>;
 }) {
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const [trackingSortField, setTrackingSortField] = useState<LiveTrackingSortField>("device_pilot");
@@ -2646,6 +2752,39 @@ function LiveTrackingTab({
   return (
     <SectionCard>
       <div className="stack form-block live-tracking-debugging-body">
+        <div
+          className="cluster-stack"
+          style={{
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "12px",
+            background: "var(--surface-muted)",
+          }}
+        >
+          <div className="settings-summary-row" style={{ alignItems: "center" }}>
+            <label className="settings-type-control">
+              <input
+                type="checkbox"
+                checked={livePositionPruningEnabled}
+                disabled={liveDataBusy}
+                onChange={(event) => void onToggleLivePositionPruning(event.target.checked)}
+              />
+              <span>Auto-prune live data</span>
+            </label>
+            <button
+              type="button"
+              className="ghost-button danger-button"
+              onClick={() => void onDeleteAllLiveData()}
+              disabled={liveDataBusy}
+            >
+              Delete all live data
+            </button>
+          </div>
+          <p className="hint" style={{ margin: 0 }}>
+            Disable auto-prune to preserve raw phone and mesh rows for merge analysis. The public live map still uses the fused display track; this setting only controls database retention deletion.
+          </p>
+          {liveDataFeedback ? <div className={`status-chip ${liveDataFeedback.type}`}>{liveDataFeedback.text}</div> : null}
+        </div>
         <div className="participant-table-wrap live-tracking-debugging-table-wrap">
           <table className="participant-table live-tracking-debugging-table">
             <thead>

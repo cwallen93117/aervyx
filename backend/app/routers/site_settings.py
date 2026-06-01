@@ -229,6 +229,7 @@ def _get_site_settings(session: Session) -> SiteSettings:
             telemetry_glide_ratio_smoothing_seconds=5,
             max_map_pitch_degrees=75,
             site_match_radius_m=1000,
+            live_position_pruning_enabled=True,
             mqtt_enabled=True,
             mqtt_broker_mode=LOCAL_MOSQUITTO,
             mqtt_port=1883,
@@ -325,6 +326,7 @@ def update_site_settings(
     settings.telemetry_glide_ratio_smoothing_seconds = payload.telemetry_glide_ratio_smoothing_seconds
     settings.max_map_pitch_degrees = payload.max_map_pitch_degrees
     settings.site_match_radius_m = payload.site_match_radius_m
+    settings.live_position_pruning_enabled = payload.live_position_pruning_enabled
     settings.mqtt_enabled = payload.mqtt_enabled
     settings.mqtt_broker_mode = broker_mode
     settings.mqtt_host = payload.mqtt_host

@@ -103,6 +103,7 @@ export type SiteSettingsRecord = {
   telemetry_glide_ratio_smoothing_seconds: number;
   max_map_pitch_degrees: number;
   site_match_radius_m: number;
+  live_position_pruning_enabled: boolean;
   mqtt_enabled: boolean;
   mqtt_broker_mode: MqttBrokerMode;
   mqtt_host: string | null;

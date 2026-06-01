@@ -764,6 +764,11 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_user_emails_user_id ON user_emails (user_id)"))
 
+        if "site_settings" in table_names:
+            site_settings_columns = {col["name"] for col in inspector.get_columns("site_settings")}
+            if "live_position_pruning_enabled" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN live_position_pruning_enabled BOOLEAN NOT NULL DEFAULT TRUE"))
+
         # Index for pilot-scoped queries (buddy group tracking)
         if "live_positions" in table_names:
             lp_columns = {col["name"]: col for col in inspector.get_columns("live_positions")}

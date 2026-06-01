@@ -16,6 +16,7 @@ from app.services.mesh_ids import (
     normalize_mesh_device_id,
     resolve_mesh_device_display_names,
 )
+from app.services.tracking import delete_all_live_tracking_data
 
 router = APIRouter(tags=["admin-debug"])
 
@@ -23,6 +24,15 @@ MESH_STATUS_LIVE_SECONDS = 10 * 60
 MESH_STATUS_STALE_SECONDS = 6 * 60 * 60
 MESH_GATEWAY_METADATA_TOLERANCE_SECONDS = 5 * 60
 PHONE_APP_POSITION_SOURCE = "app"
+
+
+@router.delete("/api/admin/live-data")
+def delete_admin_live_data(
+    _: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> dict[str, int]:
+    """Delete raw live positions and active tracking session summaries."""
+    return delete_all_live_tracking_data(session)
 
 
 def _age_seconds(now: datetime, value: datetime | None) -> float | None:

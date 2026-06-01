@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import LivePosition, MeshDevice, MeshNodeStatus, Pilot, TrackingSession, User
-from app.routers.admin_debug import admin_debug_status
+from app.routers.admin_debug import admin_debug_status, delete_admin_live_data
 
 
 def _sqlite_iso(value: datetime) -> str:
@@ -52,6 +52,30 @@ def test_admin_debug_status_lists_registered_mesh_device_without_recent_position
     assert devices[0]["last_packet_type"] is None
     assert devices[0]["packet_count"] == 0
     assert devices[0]["last_position"] is None
+
+
+def test_delete_admin_live_data_clears_positions_and_sessions_only() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    session.add_all([admin, pilot])
+    session.flush()
+    session.add_all(
+        [
+            LivePosition(pilot_id=pilot.id, lat=35.0, lon=-82.0, timestamp=datetime.now(UTC), source="app"),
+            TrackingSession(pilot_id=pilot.id, is_active=True, position_count=1),
+            MeshDevice(owner_user_id=admin.id, device_id="!abc123", label="Gateway", purpose="base_station", is_active=True),
+        ]
+    )
+    session.commit()
+
+    payload = delete_admin_live_data(admin, session)
+
+    assert payload == {"deleted_positions": 1, "deleted_sessions": 1}
+    assert session.query(LivePosition).count() == 0
+    assert session.query(TrackingSession).count() == 0
+    assert session.query(MeshDevice).count() == 1
+    assert session.query(Pilot).count() == 1
 
 
 def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
