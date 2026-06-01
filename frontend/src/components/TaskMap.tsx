@@ -6,7 +6,7 @@ import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import React, { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
-export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number };
+export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number; symbol?: string | null };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
 export type MapUnitPreferences = {
   altitude: "ft" | "m";
@@ -133,6 +133,29 @@ const ROLE_ICON_DATA_URIS: Record<LiveMapIconKey, string> = {
   driver: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.driver)}`,
   stationary_node: `data:image/svg+xml;utf8,${encodeURIComponent(ROLE_ICON_SVGS.stationary_node)}`,
 };
+
+const TURNPOINT_SYMBOL_SVGS: Record<string, string> = {
+  grass_strip:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path fill="#16a34a" stroke="#052e16" stroke-width="3" stroke-linejoin="round" d="M24 4l5 3v12l14 8v7l-14-4v8l5 4v4l-10-3-10 3v-4l5-4v-8L5 34v-7l14-8V7l5-3z"/></svg>',
+  paved_runway:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path fill="#111827" stroke="#ffffff" stroke-width="2" stroke-linejoin="round" d="M24 4l5 3v12l14 8v7l-14-4v8l5 4v4l-10-3-10 3v-4l5-4v-8L5 34v-7l14-8V7l5-3z"/></svg>',
+  bar:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path fill="#7c3aed" stroke="#ffffff" stroke-width="2" stroke-linejoin="round" d="M9 7h30L27 22v14h8v5H13v-5h8V22L9 7zm8 5l7 8 7-8H17z"/><circle cx="34" cy="12" r="4" fill="#ef4444" stroke="#ffffff" stroke-width="1.5"/></svg>',
+};
+
+function ensureTurnpointSymbolImages(map: maplibregl.Map) {
+  Object.entries(TURNPOINT_SYMBOL_SVGS).forEach(([id, svg]) => {
+    const imageId = `turnpoint-symbol-${id}`;
+    if (map.hasImage(imageId)) return;
+    const image = new Image(48, 48);
+    image.onload = () => {
+      if (!map.hasImage(imageId)) {
+        map.addImage(imageId, image);
+      }
+    };
+    image.src = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  });
+}
 
 function resolveLiveMapIconKey(
   profileType: "pilot" | "driver" | "stationary_node" | undefined,
@@ -978,6 +1001,7 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
+  ensureTurnpointSymbolImages(map);
   if (hasSource(map, "airspaces")) {
     if (isPerspective3D) {
       removeLayerIfPresent(map, "airspaces-fill");
@@ -1113,7 +1137,27 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
     });
   }
   if (hasSource(map, "turnpoints") && !map.getLayer("turnpoints-layer")) {
-    safeAddLayer(map, { id: "turnpoints-layer", type: "circle", source: "turnpoints", paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+    safeAddLayer(map, {
+      id: "turnpoints-layer",
+      type: "circle",
+      source: "turnpoints",
+      filter: ["!", ["in", ["get", "symbol"], ["literal", ["grass_strip", "paved_runway", "bar"]]]],
+      paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" },
+    });
+  }
+  if (hasSource(map, "turnpoints") && !map.getLayer("turnpoints-icons")) {
+    safeAddLayer(map, {
+      id: "turnpoints-icons",
+      type: "symbol",
+      source: "turnpoints",
+      filter: ["in", ["get", "symbol"], ["literal", ["grass_strip", "paved_runway", "bar"]]],
+      layout: {
+        "icon-image": ["concat", "turnpoint-symbol-", ["get", "symbol"]],
+        "icon-size": 0.72,
+        "icon-allow-overlap": true,
+        "icon-anchor": "center",
+      },
+    });
   }
   if (hasSource(map, "turnpoints") && !map.getLayer("turnpoints-labels")) {
     safeAddLayer(map, {
@@ -1346,6 +1390,7 @@ export const TaskMap = React.memo(function TaskMap({
   liveMarkerScale = 1,
   editable,
   onSelectTurnpoint,
+  onMapClick,
   taskEditorOverlay,
   fullscreenSidebar,
   fullscreenSidebarLabel = "Pilot list",
@@ -1381,6 +1426,7 @@ export const TaskMap = React.memo(function TaskMap({
   liveMarkerScale?: number;
   editable: boolean;
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
+  onMapClick?: (position: { latitude: number; longitude: number }) => void;
   taskEditorOverlay?: TaskEditorOverlayContent;
   fullscreenSidebar?: FullscreenSidebarContent;
   fullscreenSidebarLabel?: string;
@@ -1423,6 +1469,7 @@ export const TaskMap = React.memo(function TaskMap({
   const previousHighlightedTrackUploadIdRef = useRef<number | null | undefined>(undefined);
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
+  const onMapClickRef = useRef(onMapClick);
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
   const replayClockRef = useRef<number | null>(null);
@@ -1612,7 +1659,14 @@ export const TaskMap = React.memo(function TaskMap({
     };
   }, []);
 
-  const turnpointData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTurnpoints.map((turnpoint) => ({ type: "Feature", properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "" }, geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] } })) }), [effectiveTurnpoints]);
+  const turnpointData = useMemo(() => ({
+    type: "FeatureCollection",
+    features: effectiveTurnpoints.map((turnpoint) => ({
+      type: "Feature",
+      properties: { id: turnpoint.id, name: turnpoint.name, code: turnpoint.code ?? "", symbol: turnpoint.symbol ?? "" },
+      geometry: { type: "Point", coordinates: [turnpoint.longitude, turnpoint.latitude] },
+    })),
+  }), [effectiveTurnpoints]);
   const livePositionData = useMemo(() => ({
     type: "FeatureCollection",
     features: effectiveLivePositions.map((position) => ({
@@ -2407,7 +2461,8 @@ export const TaskMap = React.memo(function TaskMap({
   useEffect(() => {
     editableRef.current = editable;
     onSelectTurnpointRef.current = onSelectTurnpoint;
-  }, [editable, onSelectTurnpoint]);
+    onMapClickRef.current = onMapClick;
+  }, [editable, onSelectTurnpoint, onMapClick]);
 
   useEffect(() => {
     viewStateKeyRef.current = viewStateKey;
@@ -2563,17 +2618,18 @@ export const TaskMap = React.memo(function TaskMap({
       map.on("rotatestart", markManualInteraction);
       map.on("pitchstart", markManualInteraction);
       map.on("click", (event) => {
-        if (!editableRef.current || !onSelectTurnpointRef.current || !clickToAddTurnpointEnabledRef.current) {
+        if (!editableRef.current || (!onSelectTurnpointRef.current && !onMapClickRef.current) || !clickToAddTurnpointEnabledRef.current) {
           return;
         }
-        const features = map.queryRenderedFeatures(event.point, { layers: ["turnpoints-layer"] });
+        const features = map.queryRenderedFeatures(event.point, { layers: ["turnpoints-layer", "turnpoints-icons"] });
         const turnpointId = Number(features[0]?.properties?.id);
-        if (!turnpointId) {
+        const selectedTurnpoint = turnpointId ? turnpointsRef.current.find((turnpoint) => turnpoint.id === turnpointId) : null;
+        if (selectedTurnpoint && onSelectTurnpointRef.current) {
+          onSelectTurnpointRef.current(selectedTurnpoint);
           return;
         }
-        const selectedTurnpoint = turnpointsRef.current.find((turnpoint) => turnpoint.id === turnpointId);
-        if (selectedTurnpoint) {
-          onSelectTurnpointRef.current(selectedTurnpoint);
+        if (onMapClickRef.current) {
+          onMapClickRef.current({ latitude: event.lngLat.lat, longitude: event.lngLat.lng });
         }
       });
       const resizeObserver = new ResizeObserver(() => {

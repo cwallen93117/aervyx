@@ -2841,10 +2841,137 @@ button[type="submit"]:hover,
 }
 
 .participant-table-empty {
-  color: var(--muted);
-  text-align: center;
-  font-style: italic;
-}
+    color: var(--muted);
+    text-align: center;
+    font-style: italic;
+  }
+
+  .link-button {
+    display: inline;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .link-button:hover {
+    color: var(--accent-hover);
+    text-decoration: underline;
+  }
+
+  .turnpoint-file-detail {
+    display: grid;
+    gap: 12px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+
+  .turnpoint-file-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(240px, 320px);
+    gap: 12px;
+    align-items: stretch;
+  }
+
+  .turnpoint-editor-map .map-shell,
+  .turnpoint-editor-map .map-card {
+    min-height: 420px;
+    height: 420px;
+  }
+
+  .turnpoint-draft-panel {
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    padding: 12px;
+    background: var(--wash);
+  }
+
+  .turnpoint-edit-grid,
+  .turnpoint-extra-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .turnpoint-edit-grid label,
+  .turnpoint-extra-grid label {
+    display: grid;
+    gap: 4px;
+  }
+
+  .turnpoint-edit-table input,
+  .turnpoint-edit-table select {
+    min-width: 96px;
+  }
+
+  .turnpoint-symbol-cell {
+    white-space: nowrap;
+  }
+
+  .turnpoint-symbol-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    margin-right: 6px;
+    vertical-align: middle;
+    font-size: 13px;
+    line-height: 1;
+  }
+
+  .turnpoint-symbol-icon.grass_strip {
+    color: #16a34a;
+    text-shadow: 0 0 1px #052e16;
+  }
+
+  .turnpoint-symbol-icon.paved_runway {
+    color: #111827;
+  }
+
+  .turnpoint-symbol-icon.dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #0f766e;
+    box-shadow: 0 0 0 1px #fff, 0 0 0 2px rgba(15, 23, 42, 0.18);
+  }
+
+  .turnpoint-symbol-icon.bar {
+    position: relative;
+    color: #7c3aed;
+  }
+
+  .turnpoint-symbol-icon.bar::before {
+    content: "";
+    position: absolute;
+    top: 3px;
+    width: 14px;
+    height: 7px;
+    border: 2px solid currentColor;
+    border-top: 0;
+    transform: perspective(16px) rotateX(-28deg);
+  }
+
+  .turnpoint-symbol-icon.bar::after {
+    content: "";
+    position: absolute;
+    bottom: 2px;
+    width: 11px;
+    height: 8px;
+    border-bottom: 2px solid currentColor;
+    border-left: 2px solid currentColor;
+    transform: rotate(-45deg);
+  }
+
+  @media (max-width: 900px) {
+    .turnpoint-file-layout {
+      grid-template-columns: 1fr;
+    }
+  }
 
 .confirm-overlay {
   position: fixed;

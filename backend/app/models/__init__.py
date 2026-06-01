@@ -260,6 +260,7 @@ class TurnpointSource(Base):
     file_format: Mapped[str] = mapped_column(String(20))
     sha256: Mapped[str] = mapped_column(String(64), index=True)
     stored_path: Mapped[str] = mapped_column(Text)
+    schema_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -282,10 +283,13 @@ class Turnpoint(Base):
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     source_id: Mapped[int | None] = mapped_column(ForeignKey("turnpoint_sources.id", ondelete="SET NULL"), nullable=True)
     code: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    symbol: Mapped[str | None] = mapped_column(String(40), nullable=True)
     name: Mapped[str] = mapped_column(String(160), index=True)
     latitude: Mapped[float] = mapped_column(Float)
     longitude: Mapped[float] = mapped_column(Float)
     elevation_m: Mapped[float | None] = mapped_column(Float, nullable=True)
+    extra_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source_row_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
 

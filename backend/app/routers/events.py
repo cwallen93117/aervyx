@@ -201,6 +201,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
             file_format=source.file_format,
             sha256=source.sha256,
             stored_path=_copy_stored_file(source.stored_path, duplicated_event.id, source.id),
+            schema_json=source.schema_json,
             enabled=source.enabled,
         )
         session.add(duplicated_source)
@@ -222,10 +223,13 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
             event_id=duplicated_event.id,
             source_id=turnpoint_source_id_map.get(turnpoint.source_id) if turnpoint.source_id else None,
             code=turnpoint.code,
+            symbol=turnpoint.symbol,
             name=turnpoint.name,
             latitude=turnpoint.latitude,
             longitude=turnpoint.longitude,
             elevation_m=turnpoint.elevation_m,
+            extra_json=turnpoint.extra_json,
+            source_row_index=turnpoint.source_row_index,
         )
         session.add(duplicated_turnpoint)
         session.flush()

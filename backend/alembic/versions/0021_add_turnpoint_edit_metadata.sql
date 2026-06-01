@@ -1,0 +1,4 @@
+ALTER TABLE turnpoint_sources ADD COLUMN IF NOT EXISTS schema_json JSON;
+ALTER TABLE turnpoints ADD COLUMN IF NOT EXISTS symbol VARCHAR(40);
+ALTER TABLE turnpoints ADD COLUMN IF NOT EXISTS extra_json JSON;
+ALTER TABLE turnpoints ADD COLUMN IF NOT EXISTS source_row_index INTEGER;

@@ -463,6 +463,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     task_scoring_input_columns = {column["name"] for column in inspector.get_columns("task_scoring_inputs")} if "task_scoring_inputs" in table_names else set()
     score_penalty_columns = {column["name"] for column in inspector.get_columns("score_penalties")} if "score_penalties" in table_names else set()
     turnpoint_source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")} if "turnpoint_sources" in table_names else set()
+    turnpoint_columns = {column["name"] for column in inspector.get_columns("turnpoints")} if "turnpoints" in table_names else set()
     airspace_source_columns = {column["name"] for column in inspector.get_columns("airspace_sources")} if "airspace_sources" in table_names else set()
     pilot_flight_columns = {column["name"] for column in inspector.get_columns("pilot_flights")} if "pilot_flights" in table_names else set()
     statements = {
@@ -629,8 +630,19 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE score_penalties ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"))
         if "turnpoint_sources" in table_names and "enabled" not in turnpoint_source_columns:
             connection.execute(text("ALTER TABLE turnpoint_sources ADD COLUMN enabled BOOLEAN DEFAULT TRUE"))
+        if "turnpoint_sources" in table_names and "schema_json" not in turnpoint_source_columns:
+            connection.execute(text("ALTER TABLE turnpoint_sources ADD COLUMN schema_json JSON"))
         if "turnpoint_sources" in table_names:
             connection.execute(text("UPDATE turnpoint_sources SET enabled = TRUE WHERE enabled IS NULL"))
+        if "turnpoints" in table_names:
+            turnpoint_statements = {
+                "symbol": "ALTER TABLE turnpoints ADD COLUMN symbol VARCHAR(40)",
+                "extra_json": "ALTER TABLE turnpoints ADD COLUMN extra_json JSON",
+                "source_row_index": "ALTER TABLE turnpoints ADD COLUMN source_row_index INTEGER",
+            }
+            for column_name, statement in turnpoint_statements.items():
+                if column_name not in turnpoint_columns:
+                    connection.execute(text(statement))
         if "airspace_sources" not in table_names:
             connection.execute(
                 text(

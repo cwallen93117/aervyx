@@ -450,12 +450,25 @@ class TurnpointResponse(BaseModel):
     event_id: int
     source_id: int | None
     code: str | None
+    symbol: str | None = None
     name: str
     latitude: float
     longitude: float
     elevation_m: float | None
+    extra_json: dict | None = Field(default_factory=dict)
+    source_row_index: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class TurnpointWrite(BaseModel):
+    code: str | None = None
+    symbol: str | None = None
+    name: str
+    latitude: float
+    longitude: float
+    elevation_m: float | None = None
+    extra_json: dict = Field(default_factory=dict)
 
 
 class TurnpointUploadResponse(BaseModel):
