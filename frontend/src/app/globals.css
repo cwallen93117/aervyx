@@ -4012,6 +4012,41 @@ button[type="submit"]:hover,
   border-color: rgba(37, 99, 235, 0.36);
 }
 
+.map-altitude-scale {
+  display: grid;
+  grid-template-columns: auto 12px;
+  grid-template-rows: auto minmax(86px, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
+  width: max-content;
+  max-width: min(220px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow-md);
+}
+
+.map-altitude-scale-label {
+  grid-column: 1;
+  color: var(--ink);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.map-altitude-scale-ramp {
+  grid-column: 2;
+  grid-row: 1 / 4;
+  align-self: stretch;
+  min-height: 104px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 999px;
+  background: linear-gradient(to top, blue 0%, green 25%, yellow 50%, orange 75%, red 100%);
+}
+
 .results-task-map .results-sheet-header {
   padding: 16px 18px 0;
 }
