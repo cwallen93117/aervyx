@@ -4035,13 +4035,22 @@ button[type="submit"]:hover,
 .map-altitude-scale-label {
   position: absolute;
   right: 0;
-  transform: translateY(50%);
   color: var(--ink);
   font-size: 0.72rem;
   font-weight: 700;
   line-height: 1;
   text-align: right;
   white-space: nowrap;
+}
+
+.map-altitude-scale-label-max {
+  top: 0;
+  transform: translateY(-0.1em);
+}
+
+.map-altitude-scale-label-base {
+  bottom: 0;
+  transform: translateY(0.1em);
 }
 
 .map-altitude-scale-ramp {
