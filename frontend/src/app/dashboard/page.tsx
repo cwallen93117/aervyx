@@ -590,6 +590,27 @@ function normalizeTaskPoint(point: TaskPointRecord): TaskPointRecord {
   };
 }
 
+function normalizeTaskPointsForMode(points: TaskPointRecord[], advanced: boolean): TaskPointRecord[] {
+  const lastPointIndex = points.length - 1;
+  return points.map((point, pointIndex) => {
+    const pointType = advanced ? point.point_type : toSimplePointType(point.point_type);
+    let nextPointType = pointType;
+    if (!advanced && pointIndex === lastPointIndex) {
+      nextPointType = "goal";
+    } else if (!advanced && pointType === "goal") {
+      nextPointType = "turnpoint";
+    }
+    const pointTypeChanged = nextPointType !== point.point_type;
+    return normalizeTaskPoint({
+      ...point,
+      position: pointIndex + 1,
+      point_type: nextPointType,
+      direction: pointTypeChanged ? defaultTaskPointDirection(nextPointType) : point.direction,
+      radius_m: pointTypeChanged ? defaultTaskPointRadius(nextPointType) ?? point.radius_m : point.radius_m,
+    });
+  });
+}
+
 function taskDraftFromEvent(event: EventRecord | null | undefined): TaskDraftState {
   return blankTaskDraft({
     start_gate_count: event?.default_start_gate_count ?? 5,
@@ -1736,6 +1757,7 @@ export default function HomePage() {
 
   async function loadTask(activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData = true) {
     const task = loadedTask ?? (await apiFetch<TaskRecord>(`/api/tasks/${taskId}`, activeToken));
+    const hasAdvancedTaskPoints = task.points.some((point) => isAdvancedPointType(point.point_type));
     setSelectedTaskId(taskId);
     setTrack(null);
     setSelectedResultUploadIds([]);
@@ -1743,7 +1765,7 @@ export default function HomePage() {
     setHighlightedResultUploadId(null);
     setResultsDownloadFeedback(null);
     setRadiusDrafts({});
-    setTaskPointAdvanced(task.points.some((point) => isAdvancedPointType(point.point_type)));
+    setTaskPointAdvanced(hasAdvancedTaskPoints);
     setScoringFeedback(null);
     setTaskFeedback(null);
     setTaskDraft({
@@ -1763,7 +1785,7 @@ export default function HomePage() {
       nominal_launch: task.nominal_launch,
       minimum_distance_km: task.minimum_distance_km,
       penalties_text: JSON.stringify(task.penalties_json, null, 2),
-      points: task.points.map(normalizeTaskPoint),
+      points: normalizeTaskPointsForMode(task.points, hasAdvancedTaskPoints),
     });
     if (!includeScoringData) {
       setResults([]);
@@ -2402,25 +2424,26 @@ export default function HomePage() {
   }
 
   function addTurnpoint(turnpoint: MapTurnpoint) {
-      setRadiusDrafts({});
-      setTaskDraft((current) => {
-        const pointType = current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint";
-        const mappedRadius = defaultTaskPointRadius(pointType);
-        return {
-          ...current,
-          points: [
-            ...current.points,
-            {
-              position: current.points.length + 1,
-              point_type: pointType,
-              direction: defaultTaskPointDirection(pointType),
-              radius_m: mappedRadius ?? (current.points.length === 0 ? 300 : 400),
-              turnpoint_id: turnpoint.id,
-              name: turnpoint.name,
-            latitude: turnpoint.latitude,
-            longitude: turnpoint.longitude,
-          },
-        ],
+    setRadiusDrafts({});
+    setTaskDraft((current) => {
+      const pointType = current.points.length === 0 ? (taskPointAdvanced ? "launch" : "start") : "turnpoint";
+      const mappedRadius = defaultTaskPointRadius(pointType);
+      const points = [
+        ...current.points,
+        {
+          position: current.points.length + 1,
+          point_type: pointType,
+          direction: defaultTaskPointDirection(pointType),
+          radius_m: mappedRadius ?? (current.points.length === 0 ? 300 : 400),
+          turnpoint_id: turnpoint.id,
+          name: turnpoint.name,
+          latitude: turnpoint.latitude,
+          longitude: turnpoint.longitude,
+        },
+      ];
+      return {
+        ...current,
+        points: normalizeTaskPointsForMode(points, taskPointAdvanced),
       };
     });
   }
@@ -2428,8 +2451,8 @@ export default function HomePage() {
   function updatePoint(index: number, patch: Partial<TaskPointRecord>) {
     setTaskDraft((current) => ({
       ...current,
-      points: current.points
-        .map((point, pointIndex) => {
+      points: normalizeTaskPointsForMode(
+        current.points.map((point, pointIndex) => {
           if (pointIndex !== index) return point;
           const nextPoint = { ...point, ...patch };
           if (patch.point_type && patch.point_type !== point.point_type) {
@@ -2437,8 +2460,9 @@ export default function HomePage() {
             nextPoint.radius_m = defaultTaskPointRadius(patch.point_type) ?? nextPoint.radius_m;
           }
           return normalizeTaskPoint(nextPoint);
-        })
-        .map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })),
+        }),
+        taskPointAdvanced,
+      ),
     }));
   }
 
@@ -2487,7 +2511,10 @@ export default function HomePage() {
 
   function removePoint(index: number) {
     setRadiusDrafts({});
-    setTaskDraft((current) => ({ ...current, points: current.points.filter((_, pointIndex) => pointIndex !== index).map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) }));
+    setTaskDraft((current) => ({
+      ...current,
+      points: normalizeTaskPointsForMode(current.points.filter((_, pointIndex) => pointIndex !== index), taskPointAdvanced),
+    }));
   }
 
   function movePoint(fromIndex: number, toIndex: number) {
@@ -2499,7 +2526,7 @@ export default function HomePage() {
       const points = [...current.points];
       const [movedPoint] = points.splice(fromIndex, 1);
       points.splice(toIndex, 0, movedPoint);
-      return { ...current, points: points.map((point, pointIndex) => ({ ...point, position: pointIndex + 1 })) };
+      return { ...current, points: normalizeTaskPointsForMode(points, taskPointAdvanced) };
     });
   }
 
@@ -2527,7 +2554,7 @@ export default function HomePage() {
         nominal_launch: taskDraft.nominal_launch,
         minimum_distance_km: taskDraft.minimum_distance_km,
         penalties_json: JSON.parse(taskDraft.penalties_text || "{}"),
-        points: taskDraft.points.map((point, index) => ({ ...normalizeTaskPoint(point), position: index + 1 })),
+        points: normalizeTaskPointsForMode(taskDraft.points, taskPointAdvanced),
       };
       let savedTask: TaskRecord;
       if (taskDraft.id) {
@@ -2737,10 +2764,7 @@ export default function HomePage() {
     if (!checked) {
       setTaskDraft((current) => ({
         ...current,
-        points: current.points.map((point) => {
-          const pointType = toSimplePointType(point.point_type);
-          return normalizeTaskPoint({ ...point, point_type: pointType, direction: defaultTaskPointDirection(pointType) });
-        }),
+        points: normalizeTaskPointsForMode(current.points, false),
       }));
     }
   }
