@@ -4013,9 +4013,11 @@ button[type="submit"]:hover,
 }
 
 .map-altitude-scale {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: auto 12px;
+  grid-template-rows: auto minmax(86px, 1fr) auto;
+  align-items: center;
+  gap: 4px 8px;
   width: max-content;
   max-width: min(220px, calc(100vw - 24px));
   padding: 8px 10px;
@@ -4025,16 +4027,8 @@ button[type="submit"]:hover,
   box-shadow: var(--shadow-md);
 }
 
-.map-altitude-scale-labels {
-  position: relative;
-  width: 72px;
-  min-height: 116px;
-}
-
 .map-altitude-scale-label {
-  position: absolute;
-  right: 0;
-  transform: translateY(50%);
+  grid-column: 1;
   color: var(--ink);
   font-size: 0.72rem;
   font-weight: 700;
@@ -4044,8 +4038,10 @@ button[type="submit"]:hover,
 }
 
 .map-altitude-scale-ramp {
-  flex: 0 0 22px;
-  min-height: 116px;
+  grid-column: 2;
+  grid-row: 1 / 4;
+  align-self: stretch;
+  min-height: 104px;
   border: 1px solid rgba(15, 23, 42, 0.16);
   border-radius: 999px;
   background: linear-gradient(to top, blue 0%, green 25%, yellow 50%, orange 75%, red 100%);
@@ -4755,7 +4751,7 @@ button[type="submit"]:hover,
   color: white !important;
 }
 
-/* -- Watch Live page ------------------------------ */
+/* ── Watch Live page ────────────────────────────── */
 
 .live-page {
   display: flex;
@@ -7710,9 +7706,9 @@ details[open] > summary {
   }
 }
 
-/* -----------------------------------------------------------
+/* ═══════════════════════════════════════════════════════════
    Dark Mode
-   ----------------------------------------------------------- */
+   ═══════════════════════════════════════════════════════════ */
 
 html[data-theme="dark"] {
   --accent: #3b82f6;
@@ -7744,7 +7740,7 @@ html[data-theme="dark"] {
   --sb-line: rgba(255, 255, 255, 0.06);
 }
 
-/* -- Hero bar -- */
+/* ── Hero bar ── */
 html[data-theme="dark"] .hero-event-context {
   color: rgba(255, 255, 255, 0.42);
   border-left-color: rgba(255, 255, 255, 0.08);
@@ -7754,7 +7750,7 @@ html[data-theme="dark"] .hero-event-select select {
   color: rgba(255, 255, 255, 0.88);
 }
 
-/* -- Section cards -- */
+/* ── Section cards ── */
 html[data-theme="dark"] .section-card {
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
@@ -7765,7 +7761,7 @@ html[data-theme="dark"] .section-card-header {
   background: linear-gradient(180deg, #131c2e, #111827);
 }
 
-/* -- Event summary strip -- */
+/* ── Event summary strip ── */
 html[data-theme="dark"] .event-summary-strip {
   background: linear-gradient(180deg, #131c2e, #111827);
   border-top-color: rgba(255, 255, 255, 0.06);
@@ -7780,7 +7776,7 @@ html[data-theme="dark"] .record-card {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-/* -- Inputs -- */
+/* ── Inputs ── */
 html[data-theme="dark"] input:not([type]),
 html[data-theme="dark"] input[type="text"],
 html[data-theme="dark"] input[type="search"],
@@ -7801,7 +7797,7 @@ html[data-theme="dark"] textarea:focus {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
 }
 
-/* -- Fieldset clusters -- */
+/* ── Fieldset clusters ── */
 html[data-theme="dark"] .fieldset-cluster {
   border-color: rgba(255, 255, 255, 0.08);
   background: linear-gradient(180deg, #0f172a, #0d1322);
@@ -7817,7 +7813,7 @@ html[data-theme="dark"] .compact-labeled-row label.stack.compact > span {
   color: rgba(255, 255, 255, 0.6);
 }
 
-/* -- Event date picker -- */
+/* ── Event date picker ── */
 html[data-theme="dark"] .event-date-picker-button {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
@@ -7827,7 +7823,7 @@ html[data-theme="dark"] .event-date-picker-button:hover {
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
-/* -- Tab row -- */
+/* ── Tab row ── */
 html[data-theme="dark"] .tab-row {
   background: #1e293b;
   border-color: rgba(255, 255, 255, 0.08);
@@ -7891,12 +7887,12 @@ html[data-theme="dark"] .scoring-nav-overall.active {
   border-color: rgba(180, 155, 80, 0.3);
 }
 
-/* -- Hints -- */
+/* ── Hints ── */
 html[data-theme="dark"] .hint {
   color: rgba(255, 255, 255, 0.42);
 }
 
-/* -- Logbook -- */
+/* ── Logbook ── */
 html[data-theme="dark"] .logbook-star-button {
   color: rgba(255, 255, 255, 0.38);
 }
@@ -7927,7 +7923,7 @@ html[data-theme="dark"] .logbook-modal {
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
 }
 
-/* -- Map overlays stay light in dark mode --------------------
+/* ── Map overlays stay light in dark mode ────────────────────
    Controls sit on top of map imagery (typically light tiles),
    so we hold them in their light-mode appearance even when
    the rest of the app is dark. */
@@ -7965,7 +7961,7 @@ html[data-theme="dark"] .live-source-picker select {
   color: #0f172a;
 }
 
-/* -- Scoring ops panel -- */
+/* ── Scoring ops panel ── */
 html[data-theme="dark"] .scoring-ops-swatch.scored { background: rgba(34, 197, 94, 0.2); }
 html[data-theme="dark"] .scoring-ops-swatch.unscored { background: rgba(255, 255, 255, 0.06); }
 html[data-theme="dark"] .scoring-ops-swatch.penalty { background: rgba(245, 158, 11, 0.2); border-color: rgba(251, 191, 36, 0.3); }
@@ -8136,7 +8132,7 @@ html[data-theme="dark"] .scoring-ops-audit-row {
 
 html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accent-color: #f59e0b; }
 
-/* -- Theme toggle button -- */
+/* ── Theme toggle button ── */
 .theme-toggle {
   width: 34px;
   height: 34px;
@@ -8162,7 +8158,7 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   height: 18px;
 }
 
-/* -- Legal pages -- */
+/* ── Legal pages ── */
 
 .legal-page {
   max-width: 740px;
@@ -8329,12 +8325,12 @@ html[data-theme="dark"] .scoring-ops-penalty-wrap input[type="checkbox"] { accen
   transform: none;
 }
 .tracking-expand-toggle::before {
-  content: "?";
+  content: "▸";
   font-size: 1rem;
   font-weight: 700;
 }
 .tracking-expand-toggle.expanded::before {
-  content: "?";
+  content: "▾";
 }
 .tracking-expand-all {
   width: 22px;

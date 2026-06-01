@@ -5,7 +5,6 @@ import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from
 import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
 import type { EventRecord } from "../../components/dashboard/types";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
-import { formatCalendarDateLabel } from "../../lib/dateLabels";
 import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
 import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
@@ -153,7 +152,10 @@ async function fetchJson<T>(url: string): Promise<T> {
 }
 
 function formatDateLabel(value: string | null | undefined): string {
-  return formatCalendarDateLabel(value);
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
 function formatTaskClockLabel(value: string | null | undefined): string {

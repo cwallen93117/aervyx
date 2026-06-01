@@ -2,7 +2,6 @@
 
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
-import { formatCalendarDateLabel } from "../../lib/dateLabels";
 import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, prePenaltyTotalPoints } from "../../lib/scorePenalties";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
@@ -133,7 +132,10 @@ function formatSpeedKmh(distanceKm: number, elapsedSeconds: number | null | unde
 }
 
 function formatDateLabel(value: string | null | undefined): string {
-  return formatCalendarDateLabel(value);
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString([], { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
 function formatMeters(value: number): string {
