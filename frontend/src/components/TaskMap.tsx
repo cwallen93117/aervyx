@@ -819,10 +819,13 @@ type TaskCylinderVolume = {
 };
 
 type AltitudeGradientScale = {
-  minAltitudeM: number;
+  baseAltitudeM: number;
   maxAltitudeM: number;
-  minLabel: string;
-  maxLabel: string;
+  labels: Array<{
+    key: string;
+    label: string;
+    ratio: number;
+  }>;
 };
 
 type AltitudeTrackSegment = {
@@ -934,6 +937,55 @@ function lerpRgb(from: [number, number, number], to: [number, number, number], r
 
 function finiteAltitudeM(coordinate: TrackPosition | [number, number, number]) {
   return coordinate.length > 2 && Number.isFinite(coordinate[2]) ? coordinate[2] ?? null : null;
+}
+
+function altitudeValueForUnit(altitudeM: number, unit: MapUnitPreferences["altitude"]) {
+  return unit === "ft" ? altitudeM * 3.28084 : altitudeM;
+}
+
+function altitudeMFromUnit(value: number, unit: MapUnitPreferences["altitude"]) {
+  return unit === "ft" ? value / 3.28084 : value;
+}
+
+function niceAltitudeStep(range: number) {
+  if (range <= 0) {
+    return 1;
+  }
+  const magnitude = 10 ** Math.floor(Math.log10(range));
+  const normalized = range / magnitude;
+  const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return niceNormalized * magnitude;
+}
+
+function buildAltitudeScaleLabels(baseAltitudeM: number, maxAltitudeM: number, unit: MapUnitPreferences["altitude"]) {
+  const rangeM = maxAltitudeM - baseAltitudeM;
+  const labels = [
+    { key: "base", label: formatAltitudeLabel(baseAltitudeM, unit), ratio: 0 },
+    { key: "max", label: formatAltitudeLabel(maxAltitudeM, unit), ratio: 1 },
+  ];
+  if (rangeM <= 0) {
+    return labels;
+  }
+  const baseValue = altitudeValueForUnit(baseAltitudeM, unit);
+  const maxValue = altitudeValueForUnit(maxAltitudeM, unit);
+  const rangeValue = maxValue - baseValue;
+  const desiredIntermediateCount = rangeValue >= (unit === "ft" ? 1000 : 300) ? 2 : 1;
+  const step = niceAltitudeStep(rangeValue / (desiredIntermediateCount + 1));
+  const intermediateLabels: typeof labels = [];
+  let tickValue = Math.ceil(baseValue / step) * step;
+  if (tickValue <= baseValue) {
+    tickValue += step;
+  }
+  while (tickValue < maxValue && intermediateLabels.length < 2) {
+    const altitudeM = altitudeMFromUnit(tickValue, unit);
+    intermediateLabels.push({
+      key: `tick-${tickValue}`,
+      label: formatAltitudeLabel(altitudeM, unit),
+      ratio: (altitudeM - baseAltitudeM) / rangeM,
+    });
+    tickValue += step;
+  }
+  return [...labels, ...intermediateLabels].sort((left, right) => right.ratio - left.ratio);
 }
 
 function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: number) {
@@ -1931,6 +1983,18 @@ export const TaskMap = React.memo(function TaskMap({
     if (!highlightedPaths.length) {
       return null;
     }
+    const takeoffAltitudeM = highlightedPaths
+      .map((path) => {
+        const visibleLength = Math.min(path.originalPath.length, visibleTrackLengths[path.featureIndex] ?? 0);
+        if (visibleLength <= 0) {
+          return null;
+        }
+        return finiteAltitudeM(path.originalPath[0]);
+      })
+      .find((altitude): altitude is number => altitude != null);
+    if (takeoffAltitudeM == null) {
+      return null;
+    }
     const altitudes = highlightedPaths.flatMap((path) => {
       const visibleLength = Math.min(path.originalPath.length, visibleTrackLengths[path.featureIndex] ?? 0);
       return path.originalPath
@@ -1941,17 +2005,15 @@ export const TaskMap = React.memo(function TaskMap({
     if (!altitudes.length) {
       return null;
     }
-    const minAltitudeM = Math.min(...altitudes);
-    const maxAltitudeM = Math.max(...altitudes);
+    const maxAltitudeM = Math.max(...altitudes, takeoffAltitudeM);
     return {
-      minAltitudeM,
+      baseAltitudeM: takeoffAltitudeM,
       maxAltitudeM,
-      minLabel: formatAltitudeLabel(minAltitudeM, units.altitude),
-      maxLabel: formatAltitudeLabel(maxAltitudeM, units.altitude),
+      labels: buildAltitudeScaleLabels(takeoffAltitudeM, maxAltitudeM, units.altitude),
     };
   }, [effectiveHighlightedTrackUploadId, fullTrackPathData, units.altitude, visibleTrackLengths]);
   const altitudeTrackSegments = useMemo<AltitudeTrackSegment[]>(() => {
-    if (effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.minAltitudeM) {
+    if (effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.baseAltitudeM) {
       return [];
     }
     const highlightedPaths = fullTrackPathData.filter((item) => item.uploadId === effectiveHighlightedTrackUploadId);
@@ -1968,7 +2030,7 @@ export const TaskMap = React.memo(function TaskMap({
           continue;
         }
         const averageAltitudeM = (previousAltitudeM + currentAltitudeM) / 2;
-        const ratio = (averageAltitudeM - highlightedAltitudeScale.minAltitudeM) / (highlightedAltitudeScale.maxAltitudeM - highlightedAltitudeScale.minAltitudeM);
+        const ratio = (averageAltitudeM - highlightedAltitudeScale.baseAltitudeM) / (highlightedAltitudeScale.maxAltitudeM - highlightedAltitudeScale.baseAltitudeM);
         segments.push({
           uploadId: highlightedPath.uploadId,
           path: [highlightedPath.path[index - 1], highlightedPath.path[index]],
@@ -3180,9 +3242,18 @@ export const TaskMap = React.memo(function TaskMap({
   ) : null;
   const altitudeScaleOverlay = highlightedAltitudeScale ? (
     <div className="map-altitude-scale" aria-label="Selected track altitude scale">
-      <span className="map-altitude-scale-label">{highlightedAltitudeScale.maxLabel}</span>
+      <span className="map-altitude-scale-labels">
+        {highlightedAltitudeScale.labels.map((item) => (
+          <span
+            key={item.key}
+            className="map-altitude-scale-label"
+            style={{ bottom: `${Math.max(0, Math.min(1, item.ratio)) * 100}%` }}
+          >
+            {item.label}
+          </span>
+        ))}
+      </span>
       <span className="map-altitude-scale-ramp" aria-hidden="true" />
-      <span className="map-altitude-scale-label">{highlightedAltitudeScale.minLabel}</span>
     </div>
   ) : null;
 
