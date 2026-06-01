@@ -21,6 +21,11 @@ and environment.
 - **Mobile v0.4.44+61** records normal task-flight IGC track points every
   0.5 seconds while keeping live site uploads on the existing adaptive cadence.
 
+### Fixed
+- Mobile active-task detection now treats published competition tasks as
+  task-mode tracking targets, so pilots see the active task and use the
+  adaptive task recording cadence after pressing Start.
+
 ## [2026.05.31]
 
 ### Fixed

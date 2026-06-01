@@ -66,6 +66,7 @@ TRACKING_MESH_PURPOSE = "tracking"
 DRIVER_MESH_PURPOSES = {"driver_wifi", "driver_mesh"}
 STATIONARY_MESH_PURPOSES = {"base_station", "relay"}
 LIVE_POSITION_PRUNE_INTERVAL_SECONDS = 300
+TRACKING_ACTIVE_TASK_STATUSES = ("active", "published")
 TIMEZONE_ALIASES = {
     "eastern": "America/New_York",
     "est": "America/New_York",
@@ -325,9 +326,14 @@ def resolve_active_task_id(session: Session, pilot_id: int | None) -> int | None
         .join(EventPilot, EventPilot.event_id == Event.id)
         .where(
             EventPilot.pilot_id == pilot_id,
-            Task.status == "active",
+            Task.status.in_(TRACKING_ACTIVE_TASK_STATUSES),
         )
-        .order_by(Task.id.desc())
+        .order_by(
+            (Task.status == "active").desc(),
+            Task.task_date.is_(None).asc(),
+            Task.task_date.desc(),
+            Task.id.desc(),
+        )
         .limit(1)
     ).scalar_one_or_none()
     return task.id if task else None
@@ -349,17 +355,27 @@ def resolve_active_task_id_for_user(session: Session, user: User | None) -> int 
             .join(DriverAssignment, DriverAssignment.task_id == Task.id)
             .where(
                 DriverAssignment.driver_user_id == user.id,
-                Task.status == "active",
+                Task.status.in_(TRACKING_ACTIVE_TASK_STATUSES),
             )
-            .order_by(Task.id.desc())
+            .order_by(
+                (Task.status == "active").desc(),
+                Task.task_date.is_(None).asc(),
+                Task.task_date.desc(),
+                Task.id.desc(),
+            )
             .limit(1)
         ).scalar_one_or_none()
         if assigned_task is not None:
             return assigned_task.id
         fallback = session.scalar(
             select(Task)
-            .where(Task.status == "active")
-            .order_by(Task.id.desc())
+            .where(Task.status.in_(TRACKING_ACTIVE_TASK_STATUSES))
+            .order_by(
+                (Task.status == "active").desc(),
+                Task.task_date.is_(None).asc(),
+                Task.task_date.desc(),
+                Task.id.desc(),
+            )
             .limit(1)
         )
         return fallback.id if fallback is not None else None

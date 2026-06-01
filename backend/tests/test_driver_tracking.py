@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import DriverAssignment, Event, LivePosition, MeshDevice, Pilot, Task, TrackingSession, User
+from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Pilot, Task, TrackingSession, User
 from app.routers.auth import me, update_preferences
 from app.routers.public import public_event_positions
 from app.routers.tracking import PositionPayload, get_active_task, post_position
@@ -166,6 +166,47 @@ def test_driver_active_task_prefers_driver_assignment_for_non_pilot_account() ->
     assert response is not None
     assert response.task_id == task.id
     assert response.task_name == "Active task"
+
+
+def test_pilot_active_task_uses_newest_published_event_task() -> None:
+    session = _session()
+    event = Event(
+        name="Published Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 31),
+        ends_on=date(2026, 6, 2),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    user = User(
+        username="cwalle@example.com",
+        full_name="Charles Allen",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+    )
+    yesterday = Task(
+        event_id=event.id,
+        name="Task 1 (Day 2)",
+        status="published",
+        task_date=date(2026, 5, 31),
+    )
+    today = Task(
+        event_id=event.id,
+        name="Task 2 (Day 3)",
+        status="published",
+        task_date=date(2026, 6, 1),
+    )
+    session.add_all([user, yesterday, today, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.commit()
+
+    response = get_active_task(user, session)
+
+    assert response is not None
+    assert response.task_id == today.id
+    assert response.task_name == "Task 2 (Day 3)"
 
 
 def test_driver_app_position_uses_user_subject_without_pilot_or_igc_identity() -> None:
