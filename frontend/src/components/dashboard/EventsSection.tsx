@@ -688,7 +688,7 @@ export default function EventsSection(props: EventsSectionProps) {
 
   const selectedTurnpointSource = turnpointSources.find((source) => source.id === selectedTurnpointSourceId) ?? null;
   const selectedSourceExtraColumns = Array.from(new Set(sourceTurnpoints.flatMap((turnpoint) => Object.keys(turnpoint.extra_json ?? {}))));
-  const turnpointTableColSpan = 6 + selectedSourceExtraColumns.length + (canManagePlatform ? 1 : 0);
+  const turnpointTableColSpan = 5 + selectedSourceExtraColumns.length + (canManagePlatform ? 1 : 0);
   const sortedSourceTurnpoints = useMemo(() => {
     if (!turnpointSort) return sourceTurnpoints;
     const direction = turnpointSort.direction === "asc" ? 1 : -1;
@@ -1521,7 +1521,6 @@ export default function EventsSection(props: EventsSectionProps) {
                             <label><span>Latitude</span><input value={draftTurnpoint.latitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, latitude: event.target.value })} /></label>
                             <label><span>Longitude</span><input value={draftTurnpoint.longitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, longitude: event.target.value })} /></label>
                             <label><span>Altitude</span><input value={draftTurnpoint.elevation_m} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, elevation_m: event.target.value })} /></label>
-                            <label><span>Code</span><input value={draftTurnpoint.code} onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, code: event.target.value })} /></label>
                             <label><span>Symbol</span>{renderSymbolSelect(draftTurnpoint.symbol, (symbol) => setDraftTurnpoint({ ...draftTurnpoint, symbol }))}</label>
                           </div>
                           {selectedSourceExtraColumns.length ? (
@@ -1544,7 +1543,6 @@ export default function EventsSection(props: EventsSectionProps) {
                             <label><span>Latitude</span><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></label>
                             <label><span>Longitude</span><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></label>
                             <label><span>Altitude</span><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></label>
-                            <label><span>Code</span><input value={turnpointEdit.code} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, code: event.target.value })} /></label>
                             <label><span>Symbol</span>{renderSymbolSelect(turnpointEdit.symbol, (symbol) => setTurnpointEdit({ ...turnpointEdit, symbol }))}</label>
                           </div>
                           {selectedSourceExtraColumns.length ? (
@@ -1577,7 +1575,6 @@ export default function EventsSection(props: EventsSectionProps) {
                           <th>Lat</th>
                           <th>Long</th>
                           <th>Alt</th>
-                          <th>Code</th>
                           <th>
                             <button type="button" className="turnpoint-sort-button" onClick={() => toggleTurnpointSort("symbol")} aria-label={`Sort waypoints by symbol ${turnpointSort?.key === "symbol" && turnpointSort.direction === "asc" ? "descending" : "ascending"}`}>
                               <span>Symbol</span>
@@ -1602,7 +1599,6 @@ export default function EventsSection(props: EventsSectionProps) {
                                     <td><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></td>
                                     <td><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></td>
                                     <td><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></td>
-                                    <td><input value={turnpointEdit.code} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, code: event.target.value })} /></td>
                                     <td>{renderSymbolSelect(turnpointEdit.symbol, (symbol) => setTurnpointEdit({ ...turnpointEdit, symbol }))}</td>
                                     {selectedSourceExtraColumns.map((key) => (
                                       <td key={key}><input value={turnpointEdit.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("edit", key, event.target.value)} /></td>
@@ -1618,7 +1614,6 @@ export default function EventsSection(props: EventsSectionProps) {
                                     <td>{turnpoint.latitude.toFixed(6)}</td>
                                     <td>{turnpoint.longitude.toFixed(6)}</td>
                                     <td>{turnpoint.elevation_m == null ? "" : Math.round(turnpoint.elevation_m)}</td>
-                                    <td>{turnpoint.code ?? ""}</td>
                                     <td className="turnpoint-symbol-cell"><TurnpointSymbolIcon symbol={normalizeEditableSymbol(turnpoint.symbol)} /> {turnpointSymbolLabel(turnpoint.symbol)}</td>
                                     {selectedSourceExtraColumns.map((key) => <td key={key}>{String(turnpoint.extra_json?.[key] ?? "")}</td>)}
                                     {canManagePlatform ? (
