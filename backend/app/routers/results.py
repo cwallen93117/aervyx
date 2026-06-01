@@ -358,7 +358,7 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
         entry = scoring_input_by_pilot.get(pilot.id)
         result = results_by_pilot.get(pilot.id)
         pilot_penalties = penalties_by_pilot.get(pilot.id, [])
-        penalty_entries, penalty_summary, penalty_calculation = build_result_penalty_payload(result, pilot_penalties) if result else ([], _penalty_summary(pilot_penalties), None)
+        penalty_entries, penalty_summary, penalty_calculation = build_result_penalty_payload(result, pilot_penalties, event_tz) if result else ([], _penalty_summary(pilot_penalties), None)
         rows.append(
             ScoringOperationsRow(
                 pilot_id=pilot.id,

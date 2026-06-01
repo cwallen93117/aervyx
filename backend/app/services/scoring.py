@@ -1438,17 +1438,30 @@ def _format_penalty_number(value: float) -> str:
     return f"{int(value)}" if float(value).is_integer() else f"{value:g}"
 
 
-def _format_penalty_time(value: object) -> str | None:
+def _penalty_display_zone(event_timezone: str | None) -> ZoneInfo:
+    try:
+        return ZoneInfo(_resolve_timezone_name(event_timezone))
+    except ZoneInfoNotFoundError:
+        return ZoneInfo("UTC")
+
+
+def _format_penalty_time(value: object, event_timezone: str | None = None) -> str | None:
     if not value:
         return None
     try:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return str(value)
+    zone = _penalty_display_zone(event_timezone)
     if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(UTC)
-        return parsed.strftime("%H:%M:%S UTC")
-    return parsed.strftime("%H:%M:%S")
+        parsed = parsed.astimezone(zone)
+    else:
+        parsed = parsed.replace(tzinfo=UTC).astimezone(zone)
+    label = parsed.strftime("%I:%M:%S %p")
+    if label.startswith("0"):
+        label = label[1:]
+    zone_label = parsed.tzname()
+    return f"{label} {zone_label}" if zone_label else label
 
 
 def _format_penalty_duration(seconds: object) -> str | None:
@@ -1478,7 +1491,7 @@ def _penalty_entry_payload(penalty: ScorePenalty) -> dict:
     }
 
 
-def _engine_penalty_lines(details_json: dict | None) -> tuple[float, list[dict]]:
+def _engine_penalty_lines(details_json: dict | None, event_timezone: str | None = None) -> tuple[float, list[dict]]:
     if not isinstance(details_json, dict):
         return 0.0, []
 
@@ -1496,8 +1509,8 @@ def _engine_penalty_lines(details_json: dict | None) -> tuple[float, list[dict]]
             actual_start = start_timing.get("actual_start_crossing_at") or start_timing.get("actual_start_exit_after_at")
             formula = details_json.get("gap", {}).get("formula", {}) if isinstance(details_json.get("gap"), dict) else {}
             factor = formula.get("jump_the_gun_factor") if isinstance(formula, dict) else None
-            actual_start_label = _format_penalty_time(actual_start)
-            gate_time_label = _format_penalty_time(gate_time)
+            actual_start_label = _format_penalty_time(actual_start, event_timezone)
+            gate_time_label = _format_penalty_time(gate_time, event_timezone)
             if actual_start_label and gate_index and gate_time_label:
                 parts.append(f"Started at {actual_start_label}, before start gate {gate_index} at {gate_time_label}.")
             elif actual_start_label:
@@ -1577,10 +1590,10 @@ def _manual_penalty_lines(raw_score: float, penalties: list[ScorePenalty]) -> tu
     return round(max(raw_score - max(running, 0.0), 0.0), 2), lines
 
 
-def build_result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty]) -> tuple[list[dict], str | None, dict | None]:
+def build_result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty], event_timezone: str | None = None) -> tuple[list[dict], str | None, dict | None]:
     raw_score = float(result.raw_score_points or result.score_points or 0.0)
     final_score = float(result.score_points or 0.0)
-    engine_points, engine_lines = _engine_penalty_lines(result.details_json)
+    engine_points, engine_lines = _engine_penalty_lines(result.details_json, event_timezone)
     manual_points, manual_lines = _manual_penalty_lines(raw_score, penalties)
     lines = [*engine_lines, *manual_lines]
     if not lines:
@@ -2567,12 +2580,15 @@ def rescore_task(session: Session, task_id: int, apply_known_repairs: bool = Tru
 def build_result_payload(session: Session, result: ScoreResult) -> dict:
     pilot = session.get(Pilot, result.pilot_id)
     pilot_name = f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown"
+    task = session.get(Task, result.task_id)
+    event = session.get(Event, task.event_id) if task else None
+    event_timezone = event.timezone if event else None
     penalties = session.scalars(
         select(ScorePenalty)
         .where(ScorePenalty.task_id == result.task_id, ScorePenalty.pilot_id == result.pilot_id)
         .order_by(ScorePenalty.position.asc(), ScorePenalty.id.asc())
     ).all()
-    penalty_entries, penalty_summary, penalty_calculation = build_result_penalty_payload(result, penalties)
+    penalty_entries, penalty_summary, penalty_calculation = build_result_penalty_payload(result, penalties, event_timezone)
     return {
         "id": result.id,
         "task_id": result.task_id,

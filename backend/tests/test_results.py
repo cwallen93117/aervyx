@@ -159,7 +159,7 @@ def test_task_results_include_penalty_calculation_details() -> None:
         ("manual", "Cloud flying", 100.0),
         ("manual", "Late report", 10.0),
     ]
-    assert result.penalty_calculation.lines[0].detail == "Started at 14:14:30 UTC, before start gate 2 at 14:15:00 UTC. Early by 30s. Charged 2 points per second."
+    assert result.penalty_calculation.lines[0].detail == "Started at 10:14:30 AM EDT, before start gate 2 at 10:15:00 AM EDT. Early by 30s. Charged 2 points per second."
 
 
 def test_scoring_operations_include_automatic_penalty_summary() -> None:
@@ -224,7 +224,7 @@ def test_scoring_operations_include_automatic_penalty_summary() -> None:
     assert row.result is not None
     assert row.result.penalty_calculation is not None
     assert row.result.penalty_calculation.engine_penalty_points == 600
-    assert row.result.penalty_calculation.lines[0].detail == "Started at 14:09:08 UTC, before start gate 1 at 14:15:00 UTC. Early by 5m 52s; penalty was capped at 5m. Charged 2 points per second."
+    assert row.result.penalty_calculation.lines[0].detail == "Started at 10:09:08 AM EDT, before start gate 1 at 10:15:00 AM EDT. Early by 5m 52s; penalty was capped at 5m. Charged 2 points per second."
 
 
 def test_pilot_summary_keeps_practice_scores_out_of_totals() -> None:
