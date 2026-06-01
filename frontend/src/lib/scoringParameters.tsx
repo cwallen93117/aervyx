@@ -23,11 +23,11 @@ export const scoringFieldHelp = {
   },
   jump_the_gun_factor: {
     title: "Jump-the-gun factor",
-    body: "The penalty rate for starting early. CIVL guidance describes jump-the-gun as a points-per-second early-start penalty.",
+    body: "The penalty rate for starting early. It is multiplied by the charged early-start seconds to produce the jump-the-gun penalty points.",
   },
   jump_the_gun_max_seconds: {
     title: "Jump-the-gun max",
-    body: "The maximum early-start time scored or penalized under the jump-the-gun rule.",
+    body: "Caps the early-start time in seconds, not the final penalty points. Final penalty is min(early seconds, max seconds) * jump-the-gun factor, so a max of 300 with factor 2 can produce up to 600 points.",
   },
   use_distance_points: {
     title: "Distance points",
