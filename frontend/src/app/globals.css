@@ -5216,12 +5216,137 @@ button[type="submit"]:hover,
   letter-spacing: 0;
 }
 
+.public-overall-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.public-scoring-info-button {
+  flex: 0 0 auto;
+  border-color: rgba(251, 191, 36, 0.56);
+  background: rgba(251, 191, 36, 0.08);
+  color: #fbbf24;
+}
+
+.public-scoring-info-button:hover {
+  border-color: #fbbf24;
+  background: rgba(251, 191, 36, 0.16);
+}
 .scores-panel-header p {
   margin: 3px 0 0;
   color: rgba(226, 232, 240, 0.52);
   font-size: 0.875rem;
 }
 
+.public-scoring-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 22px;
+  background: rgba(2, 6, 23, 0.72);
+  backdrop-filter: blur(8px);
+}
+
+.public-scoring-modal {
+  width: min(780px, 100%);
+  max-height: min(760px, calc(100vh - 44px));
+  max-height: min(760px, calc(100svh - 44px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  background: #111827;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.4);
+}
+
+.public-scoring-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.public-scoring-modal-title {
+  color: #f8fafc;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.public-scoring-modal-subtitle {
+  margin-top: 3px;
+  color: rgba(226, 232, 240, 0.58);
+  font-size: 0.8125rem;
+}
+
+.public-scoring-modal-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: #0f172a;
+  color: rgba(226, 232, 240, 0.72);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.public-scoring-modal-close:hover {
+  border-color: rgba(251, 191, 36, 0.4);
+  color: #f8fafc;
+}
+
+.public-scoring-table-wrap {
+  overflow: auto;
+}
+
+.public-scoring-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+}
+
+.public-scoring-table th,
+.public-scoring-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  text-align: left;
+  vertical-align: top;
+}
+
+.public-scoring-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #111827;
+  color: rgba(226, 232, 240, 0.6);
+  font-size: 0.75rem;
+  text-transform: lowercase;
+}
+
+.public-scoring-table td {
+  color: rgba(226, 232, 240, 0.76);
+}
+
+.public-scoring-table td:first-child {
+  color: #f8fafc;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.78125rem;
+}
+
+.public-scoring-param-name {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
 .scores-sub-tabs {
   display: inline-flex;
   align-self: flex-start;
@@ -5432,7 +5557,21 @@ button[type="submit"]:hover,
   .scores-main {
     padding: 12px;
   }
-  .scores-map-panel {
+  .public-scoring-modal-overlay {
+    align-items: flex-start;
+    padding: 12px;
+  }
+  .public-scoring-modal {
+    max-height: calc(100vh - 24px);
+    max-height: calc(100svh - 24px);
+  }
+  .public-scoring-modal-header {
+    padding: 14px;
+  }
+  .public-scoring-table {
+    min-width: 480px;
+    font-size: 0.78125rem;
+  }  .scores-map-panel {
     height: 62vh;
     min-height: 360px;
   }

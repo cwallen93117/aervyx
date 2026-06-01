@@ -3,24 +3,13 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
 import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
+import type { EventRecord } from "../../components/dashboard/types";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
 import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
+import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
-type PublicEvent = {
-  id: number;
-  name: string;
-  location: string;
-  starts_on: string;
-  ends_on: string;
-  timezone: string;
-  use_distance_points?: boolean;
-  use_time_points?: boolean;
-  use_leading_points?: boolean;
-  use_arrival_position_points?: boolean;
-  use_arrival_time_points?: boolean;
-  use_departure_points?: boolean;
-};
+type PublicEvent = EventRecord;
 
 type PublicTaskPoint = MapTaskPoint & {
   id: number;
@@ -84,6 +73,63 @@ type TaskResultSummaryRecord = { task_id: number; day_quality: number | null };
 type TaskSubTab = "results" | "map";
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
+type ScoringParameterRow = { param: string; value: string; helpId: ScoringHelpId };
+type ScoringParameterDefinition = { param: string; field: keyof PublicEvent; helpId: ScoringHelpId };
+
+const scoringParameterDefinitions: ScoringParameterDefinition[] = [
+  { param: "id", field: "scoring_formula", helpId: "scoring_formula" },
+  { param: "day_quality_override", field: "day_quality_override", helpId: "day_quality_override" },
+  { param: "bonus_gr", field: "stopped_glide_bonus", helpId: "stopped_glide_bonus" },
+  { param: "jump_the_gun_factor", field: "jump_the_gun_factor", helpId: "jump_the_gun_factor" },
+  { param: "jump_the_gun_max", field: "jump_the_gun_max_seconds", helpId: "jump_the_gun_max_seconds" },
+  { param: "min_dist", field: "minimum_distance_km", helpId: "minimum_distance_km" },
+  { param: "nom_dist", field: "nominal_distance_km", helpId: "nominal_distance_km" },
+  { param: "nom_goal", field: "nominal_goal_percent", helpId: "nominal_goal_percent" },
+  { param: "nom_launch", field: "nominal_launch", helpId: "nominal_launch" },
+  { param: "nom_time", field: "nominal_time_hours", helpId: "nominal_time_hours" },
+  { param: "normalize_1000_before_day_quality", field: "normalize_1000_before_day_quality", helpId: "normalize_1000_before_day_quality" },
+  { param: "time_points_if_not_in_goal", field: "time_points_if_not_in_goal", helpId: "time_points_if_not_in_goal" },
+  { param: "use_1000_points_for_max_day_quality", field: "use_1000_points_for_max_day_quality", helpId: "use_1000_points_for_max_day_quality" },
+  { param: "use_arrival_position_points", field: "use_arrival_position_points", helpId: "use_arrival_position_points" },
+  { param: "use_arrival_time_points", field: "use_arrival_time_points", helpId: "use_arrival_time_points" },
+  { param: "use_departure_points", field: "use_departure_points", helpId: "use_departure_points" },
+  { param: "use_difficulty_for_distance_points", field: "use_difficulty_for_distance_points", helpId: "use_difficulty_for_distance_points" },
+  { param: "use_distance_points", field: "use_distance_points", helpId: "use_distance_points" },
+  { param: "use_distance_squared_for_lc", field: "use_distance_squared_for_lc", helpId: "use_distance_squared_for_lc" },
+  { param: "use_leading_points", field: "use_leading_points", helpId: "use_leading_points" },
+  { param: "use_semi_circle_control_zone_for_goal_line", field: "use_semi_circle_control_zone_for_goal_line", helpId: "use_semi_circle_control_zone_for_goal_line" },
+  { param: "use_time_points", field: "use_time_points", helpId: "use_time_points" },
+  { param: "scoring_altitude", field: "scoring_altitude", helpId: "scoring_altitude" },
+  { param: "final_glide_decelerator", field: "final_glide_decelerator", helpId: "final_glide_decelerator" },
+  { param: "no_final_glide_decelerator_reason", field: "no_final_glide_decelerator_reason", helpId: "no_final_glide_decelerator_reason" },
+  { param: "min_time_span_for_valid_task", field: "min_time_span_for_valid_task_minutes", helpId: "min_time_span_for_valid_task_minutes" },
+  { param: "score_back_time", field: "score_back_time_minutes", helpId: "score_back_time_minutes" },
+  { param: "use_proportional_leading_weight_if_nobody_in_goal", field: "use_proportional_leading_weight_if_nobody_in_goal", helpId: "use_proportional_leading_weight_if_nobody_in_goal" },
+  { param: "leading_weight_factor", field: "leading_weight_factor", helpId: "leading_weight_factor" },
+  { param: "turnpoint_radius_tolerance", field: "turnpoint_radius_tolerance", helpId: "turnpoint_radius_tolerance" },
+  { param: "turnpoint_radius_minimum_absolute_tolerance", field: "turnpoint_radius_minimum_absolute_tolerance_m", helpId: "turnpoint_radius_minimum_absolute_tolerance_m" },
+  { param: "number_of_decimals_task_results", field: "number_of_decimals_task_results", helpId: "number_of_decimals_task_results" },
+  { param: "number_of_decimals_competition_results", field: "number_of_decimals_competition_results", helpId: "number_of_decimals_competition_results" },
+  { param: "redistribute_removed_time_points_as_distance_points", field: "redistribute_removed_time_points_as_distance_points", helpId: "redistribute_removed_time_points_as_distance_points" },
+  { param: "use_best_score_for_ftv_validity", field: "use_best_score_for_ftv_validity", helpId: "use_best_score_for_ftv_validity" },
+  { param: "use_constant_leading_weight", field: "use_constant_leading_weight", helpId: "use_constant_leading_weight" },
+  { param: "use_flat_decline_of_timepoints", field: "use_flat_decline_of_timepoints", helpId: "use_flat_decline_of_timepoints" },
+];
+
+function formatScoringParameterValue(value: PublicEvent[keyof PublicEvent]): string {
+  if (typeof value === "boolean") return value ? "1" : "0";
+  if (value == null) return "";
+  if (Array.isArray(value)) return value.join(", ");
+  return String(value);
+}
+
+function scoringParameterRows(event: PublicEvent): ScoringParameterRow[] {
+  return scoringParameterDefinitions.map((definition) => ({
+    param: definition.param,
+    value: formatScoringParameterValue(event[definition.field]),
+    helpId: definition.helpId,
+  }));
+}
 
 function readNumericSearchParam(name: string): number | null {
   if (typeof window === "undefined") {
@@ -403,6 +449,56 @@ function PenaltyDetailsModal({
   );
 }
 
+function ScoringParametersModal({
+  event,
+  activeHelpId,
+  setActiveHelpId,
+  onClose,
+}: {
+  event: PublicEvent;
+  activeHelpId: ScoringHelpId | null;
+  setActiveHelpId: (value: ScoringHelpId | null) => void;
+  onClose: () => void;
+}) {
+  const rows = scoringParameterRows(event);
+  return (
+    <div className="public-scoring-modal-overlay active" onClick={onClose}>
+      <div className="public-scoring-modal" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+        <div className="public-scoring-modal-header">
+          <div>
+            <div className="public-scoring-modal-title">Scoring formula settings</div>
+            <div className="public-scoring-modal-subtitle">{event.name}</div>
+          </div>
+          <button type="button" className="public-scoring-modal-close" onClick={onClose} aria-label="Close scoring parameters">x</button>
+        </div>
+        <div className="public-scoring-table-wrap">
+          <table className="public-scoring-table">
+            <thead>
+              <tr>
+                <th>param</th>
+                <th>value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.param}>
+                  <td>
+                    <span className="public-scoring-param-name scoring-help-open-right">
+                      <span>{row.param}</span>
+                      <FieldHelp helpId={row.helpId} activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
+                    </span>
+                  </td>
+                  <td>{row.value}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PublicScoresClient() {
   const apiBase = useMemo(() => resolveApiBase(), []);
   const pilotTracksContentId = useId();
@@ -427,6 +523,8 @@ export function PublicScoresClient() {
   const [hasRequestedEventParam, setHasRequestedEventParam] = useState(false);
   const [requestedEventId, setRequestedEventId] = useState<number | null>(null);
   const [hasAppliedRequestedEvent, setHasAppliedRequestedEvent] = useState(false);
+  const [showScoringParameters, setShowScoringParameters] = useState(false);
+  const [activeScoringParameterHelpId, setActiveScoringParameterHelpId] = useState<ScoringHelpId | null>(null);
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -710,6 +808,8 @@ export function PublicScoresClient() {
     setSelectedResultUploadIds([]);
     setResultTracksByUploadId({});
     setHighlightedResultUploadId(null);
+    setShowScoringParameters(false);
+    setActiveScoringParameterHelpId(null);
     (async () => {
       try {
         const [loadedTasks, loadedPilotSummary, loadedTaskResultSummary] = await Promise.all([
@@ -818,7 +918,22 @@ export function PublicScoresClient() {
     <div className="scores-panel">
       <div className="scores-panel-header">
         <div>
-          <h1>Overall</h1>
+          <div className="public-overall-title-row">
+            <h1>Overall</h1>
+            <button
+              type="button"
+              className="field-help-button public-scoring-info-button"
+              aria-label="Show scoring parameters"
+              aria-haspopup="dialog"
+              aria-expanded={showScoringParameters}
+              onClick={() => {
+                setActiveScoringParameterHelpId(null);
+                setShowScoringParameters(true);
+              }}
+            >
+              i
+            </button>
+          </div>
           <p>{selectedEvent?.name ?? "Competition"} {selectedEvent?.location ? `- ${selectedEvent.location}` : ""}</p>
         </div>
       </div>
@@ -1171,6 +1286,17 @@ export function PublicScoresClient() {
           result={penaltyDetailsResult}
           taskName={selectedTask?.name ?? "Task"}
           onClose={() => setPenaltyDetailsResult(null)}
+        />
+      ) : null}
+      {showScoringParameters && selectedEvent ? (
+        <ScoringParametersModal
+          event={selectedEvent}
+          activeHelpId={activeScoringParameterHelpId}
+          setActiveHelpId={setActiveScoringParameterHelpId}
+          onClose={() => {
+            setShowScoringParameters(false);
+            setActiveScoringParameterHelpId(null);
+          }}
         />
       ) : null}
     </div>
