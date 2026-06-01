@@ -960,6 +960,9 @@ function finiteAltitudeM(coordinate: TrackPosition | [number, number, number]) {
   return coordinate.length > 2 && Number.isFinite(coordinate[2]) ? coordinate[2] ?? null : null;
 }
 
+const MAX_ALTITUDE_GRADIENT_SEGMENTS = 5000;
+const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] } as const;
+
 function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: number) {
   if (!timestamps.length) {
     return -1;
@@ -967,11 +970,17 @@ function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: numb
   if (currentReplayTime < timestamps[0]) {
     return -1;
   }
-  let index = 0;
-  while (index + 1 < timestamps.length && timestamps[index + 1] <= currentReplayTime) {
-    index += 1;
+  let low = 0;
+  let high = timestamps.length - 1;
+  while (low <= high) {
+    const midpoint = Math.floor((low + high) / 2);
+    if (timestamps[midpoint] <= currentReplayTime) {
+      low = midpoint + 1;
+    } else {
+      high = midpoint - 1;
+    }
   }
-  return index;
+  return high;
 }
 
 function pointTypeColor(pointType: string): [number, number, number] {
@@ -1960,24 +1969,6 @@ export const TaskMap = React.memo(function TaskMap({
       }];
     });
   }, [effectiveAltitudeMultiplier, effectiveHighlightedLiveSubjectKey, effectiveHighlightedTrackUploadId, effectiveTrack]);
-  const displayTrack = useMemo<TrackCollection | null>(() => {
-    if (!effectiveTrack) {
-      return null;
-    }
-    return {
-      type: "FeatureCollection",
-      features: effectiveTrack.features.map((feature, featureIndex) => ({
-        ...feature,
-        geometry: {
-          ...feature.geometry,
-          coordinates:
-            feature.geometry.type === "LineString"
-              ? fullTrackPathData.find((item) => item.featureIndex === featureIndex)?.path.slice(0, visibleTrackLengths[featureIndex] ?? 0) ?? []
-              : feature.geometry.coordinates,
-        },
-      })),
-    };
-  }, [effectiveTrack, fullTrackPathData, visibleTrackLengths]);
   const highlightedAltitudeScale = useMemo<AltitudeGradientScale | null>(() => {
     if (effectiveHighlightedTrackUploadId == null) {
       return null;
@@ -1994,15 +1985,21 @@ export const TaskMap = React.memo(function TaskMap({
     if (takeoffAltitudeM == null) {
       return null;
     }
-    const altitudes = highlightedPaths.flatMap((path) => (
-      path.originalPath
-        .map(finiteAltitudeM)
-        .filter((altitude): altitude is number => altitude != null)
-    ));
-    if (!altitudes.length) {
+    let maxAltitudeM = takeoffAltitudeM;
+    let hasAltitude = false;
+    for (const path of highlightedPaths) {
+      for (const coordinate of path.originalPath) {
+        const altitudeM = finiteAltitudeM(coordinate);
+        if (altitudeM == null) {
+          continue;
+        }
+        hasAltitude = true;
+        maxAltitudeM = Math.max(maxAltitudeM, altitudeM);
+      }
+    }
+    if (!hasAltitude) {
       return null;
     }
-    const maxAltitudeM = Math.max(...altitudes, takeoffAltitudeM);
     return {
       baseAltitudeM: takeoffAltitudeM,
       maxAltitudeM,
@@ -2011,17 +2008,28 @@ export const TaskMap = React.memo(function TaskMap({
     };
   }, [effectiveHighlightedTrackUploadId, fullTrackPathData, units.altitude]);
   const altitudeTrackSegments = useMemo<AltitudeTrackSegment[]>(() => {
-    if (effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.baseAltitudeM) {
+    if (isReplaying || effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.baseAltitudeM) {
       return [];
     }
     const highlightedPaths = fullTrackPathData.filter((item) => item.uploadId === effectiveHighlightedTrackUploadId);
     if (!highlightedPaths.length) {
       return [];
     }
+    const visibleSegmentTotal = highlightedPaths.reduce((total, highlightedPath) => {
+      const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
+      return total + Math.max(0, visibleLength - 1);
+    }, 0);
+    const stride = Math.max(1, Math.ceil(visibleSegmentTotal / MAX_ALTITUDE_GRADIENT_SEGMENTS));
     const segments: AltitudeTrackSegment[] = [];
+    let segmentCursor = 0;
     for (const highlightedPath of highlightedPaths) {
       const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
       for (let index = 1; index < visibleLength; index += 1) {
+        const shouldKeepSegment = segmentCursor % stride === 0 || index === visibleLength - 1;
+        segmentCursor += 1;
+        if (!shouldKeepSegment) {
+          continue;
+        }
         const previousAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index - 1]);
         const currentAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index]);
         if (previousAltitudeM == null || currentAltitudeM == null) {
@@ -2037,7 +2045,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
     }
     return segments;
-  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, highlightedAltitudeScale, visibleTrackLengths]);
+  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, highlightedAltitudeScale, isReplaying, visibleTrackLengths]);
   const replayMarkerData = useMemo(() => {
     if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
@@ -2153,14 +2161,15 @@ export const TaskMap = React.memo(function TaskMap({
         }),
       );
     }
-    if (displayTrack) {
+    if (fullTrackPathData.length) {
       const pathData = fullTrackPathData
         .filter((item) => !(item.uploadId === effectiveHighlightedTrackUploadId && altitudeTrackSegments.length > 0))
         .map((item) => ({
           ...item,
           visibleLength: visibleTrackLengths[item.featureIndex] ?? 0,
+          visiblePath: item.path.slice(0, visibleTrackLengths[item.featureIndex] ?? 0),
         }))
-        .filter((item) => item.path.length > 1 && item.visibleLength > 0);
+        .filter((item) => item.visiblePath.length > 1);
       if (pathData.length) {
         /*
         Previous 3D ribbon experiment, kept here for later tuning if we want to revisit
@@ -2228,7 +2237,7 @@ export const TaskMap = React.memo(function TaskMap({
               data: pathData,
               coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
               positionFormat: "XYZ",
-              getPath: (item: { path: [number, number, number][]; visibleLength: number }) => item.path.slice(0, item.visibleLength),
+              getPath: (item: { visiblePath: [number, number, number][] }) => item.visiblePath,
               getColor: (item: { color: [number, number, number] }) => item.color,
               getWidth: (item: { highlighted: boolean }) =>
                 item.highlighted ? HIGHLIGHTED_TRACK_WIDTH_PIXELS : TRACK_WIDTH_PIXELS,
@@ -2428,7 +2437,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [altitudeTrackSegments, cylinderVolumes, displayTrack, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -2911,7 +2920,7 @@ export const TaskMap = React.memo(function TaskMap({
       return;
     }
     const sync = () => {
-      ensureGeoJsonSource(map, "track", (displayTrack ?? { type: "FeatureCollection", features: [] }) as never);
+      ensureGeoJsonSource(map, "track", EMPTY_FEATURE_COLLECTION as never);
       ensureGeoJsonSource(map, "replay-marker", replayMarkerData as never);
       ensureGeoJsonSource(map, "scored-track-points", scoredTrackPointData as never);
       ensureMapLayers(map, isPerspective3D);
@@ -2921,7 +2930,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [displayTrack, replayMarkerData, scoredTrackPointData, isPerspective3D, styleGeneration]);
+  }, [replayMarkerData, scoredTrackPointData, isPerspective3D, styleGeneration]);
 
   useEffect(() => {
     const map = mapRef.current;
