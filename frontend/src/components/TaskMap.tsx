@@ -818,6 +818,19 @@ type TaskCylinderVolume = {
   pointType: string;
 };
 
+type AltitudeGradientScale = {
+  minAltitudeM: number;
+  maxAltitudeM: number;
+  minLabel: string;
+  maxLabel: string;
+};
+
+type AltitudeTrackSegment = {
+  uploadId: number;
+  path: [[number, number, number], [number, number, number]];
+  color: [number, number, number];
+};
+
 function trackFeatureSubjectKey(feature: TrackCollection["features"][number]) {
   const value = feature.properties?.subject_key;
   return typeof value === "string" && value ? value : null;
@@ -895,6 +908,32 @@ function buildTrackTelemetrySeries(
     verticalSpeedMps: averageWithinWindow(verticalSpeedSamples, timestamps, smoothing.telemetry_vario_smoothing_seconds * 1000),
     glideRatio: averageWithinWindow(glideRatioSamples, timestamps, smoothing.telemetry_glide_ratio_smoothing_seconds * 1000),
   };
+}
+
+function altitudeColorForRatio(ratio: number): [number, number, number] {
+  const clamped = Math.max(0, Math.min(1, ratio));
+  if (clamped < 0.25) {
+    return lerpRgb([0, 0, 255], [0, 128, 0], clamped / 0.25);
+  }
+  if (clamped < 0.5) {
+    return lerpRgb([0, 128, 0], [255, 255, 0], (clamped - 0.25) / 0.25);
+  }
+  if (clamped < 0.75) {
+    return lerpRgb([255, 255, 0], [255, 165, 0], (clamped - 0.5) / 0.25);
+  }
+  return lerpRgb([255, 165, 0], [255, 0, 0], (clamped - 0.75) / 0.25);
+}
+
+function lerpRgb(from: [number, number, number], to: [number, number, number], ratio: number): [number, number, number] {
+  return [
+    Math.round(from[0] + (to[0] - from[0]) * ratio),
+    Math.round(from[1] + (to[1] - from[1]) * ratio),
+    Math.round(from[2] + (to[2] - from[2]) * ratio),
+  ];
+}
+
+function finiteAltitudeM(coordinate: TrackPosition | [number, number, number]) {
+  return coordinate.length > 2 && Number.isFinite(coordinate[2]) ? coordinate[2] ?? null : null;
 }
 
 function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: number) {
@@ -1842,22 +1881,29 @@ export const TaskMap = React.memo(function TaskMap({
   const fullTrackPathData = useMemo(() => {
     if (!effectiveTrack) {
       return [] as Array<{
+        featureIndex: number;
         uploadId: number;
         path: [number, number, number][];
+        originalPath: TrackPosition[];
         color: [number, number, number];
         highlighted: boolean;
       }>;
     }
-    return effectiveTrack.features
-      .filter((feature) => feature.geometry.type === "LineString")
-      .map((feature, featureIndex) => ({
+    return effectiveTrack.features.flatMap((feature, featureIndex) => {
+      if (feature.geometry.type !== "LineString") {
+        return [];
+      }
+      return [{
+        featureIndex,
         uploadId: Number(feature.properties?.upload_id ?? 0),
         path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
+        originalPath: feature.geometry.coordinates,
         color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
         highlighted:
           Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId ||
           trackFeatureSubjectKey(feature) === effectiveHighlightedLiveSubjectKey,
-      }));
+      }];
+    });
   }, [effectiveAltitudeMultiplier, effectiveHighlightedLiveSubjectKey, effectiveHighlightedTrackUploadId, effectiveTrack]);
   const displayTrack = useMemo<TrackCollection | null>(() => {
     if (!effectiveTrack) {
@@ -1871,12 +1917,67 @@ export const TaskMap = React.memo(function TaskMap({
           ...feature.geometry,
           coordinates:
             feature.geometry.type === "LineString"
-              ? fullTrackPathData[featureIndex]?.path.slice(0, visibleTrackLengths[featureIndex] ?? 0) ?? []
+              ? fullTrackPathData.find((item) => item.featureIndex === featureIndex)?.path.slice(0, visibleTrackLengths[featureIndex] ?? 0) ?? []
               : feature.geometry.coordinates,
         },
       })),
     };
   }, [effectiveTrack, fullTrackPathData, visibleTrackLengths]);
+  const highlightedAltitudeScale = useMemo<AltitudeGradientScale | null>(() => {
+    if (effectiveHighlightedTrackUploadId == null) {
+      return null;
+    }
+    const highlightedPaths = fullTrackPathData.filter((item) => item.uploadId === effectiveHighlightedTrackUploadId);
+    if (!highlightedPaths.length) {
+      return null;
+    }
+    const altitudes = highlightedPaths.flatMap((path) => {
+      const visibleLength = Math.min(path.originalPath.length, visibleTrackLengths[path.featureIndex] ?? 0);
+      return path.originalPath
+        .slice(0, visibleLength)
+        .map(finiteAltitudeM)
+        .filter((altitude): altitude is number => altitude != null);
+    });
+    if (!altitudes.length) {
+      return null;
+    }
+    const minAltitudeM = Math.min(...altitudes);
+    const maxAltitudeM = Math.max(...altitudes);
+    return {
+      minAltitudeM,
+      maxAltitudeM,
+      minLabel: formatAltitudeLabel(minAltitudeM, units.altitude),
+      maxLabel: formatAltitudeLabel(maxAltitudeM, units.altitude),
+    };
+  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, units.altitude, visibleTrackLengths]);
+  const altitudeTrackSegments = useMemo<AltitudeTrackSegment[]>(() => {
+    if (effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.minAltitudeM) {
+      return [];
+    }
+    const highlightedPaths = fullTrackPathData.filter((item) => item.uploadId === effectiveHighlightedTrackUploadId);
+    if (!highlightedPaths.length) {
+      return [];
+    }
+    const segments: AltitudeTrackSegment[] = [];
+    for (const highlightedPath of highlightedPaths) {
+      const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
+      for (let index = 1; index < visibleLength; index += 1) {
+        const previousAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index - 1]);
+        const currentAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index]);
+        if (previousAltitudeM == null || currentAltitudeM == null) {
+          continue;
+        }
+        const averageAltitudeM = (previousAltitudeM + currentAltitudeM) / 2;
+        const ratio = (averageAltitudeM - highlightedAltitudeScale.minAltitudeM) / (highlightedAltitudeScale.maxAltitudeM - highlightedAltitudeScale.minAltitudeM);
+        segments.push({
+          uploadId: highlightedPath.uploadId,
+          path: [highlightedPath.path[index - 1], highlightedPath.path[index]],
+          color: altitudeColorForRatio(ratio),
+        });
+      }
+    }
+    return segments;
+  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, highlightedAltitudeScale, visibleTrackLengths]);
   const replayMarkerData = useMemo(() => {
     if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
@@ -1994,9 +2095,10 @@ export const TaskMap = React.memo(function TaskMap({
     }
     if (displayTrack) {
       const pathData = fullTrackPathData
-        .map((item, index) => ({
+        .filter((item) => !(item.uploadId === effectiveHighlightedTrackUploadId && altitudeTrackSegments.length > 0))
+        .map((item) => ({
           ...item,
-          visibleLength: visibleTrackLengths[index] ?? 0,
+          visibleLength: visibleTrackLengths[item.featureIndex] ?? 0,
         }))
         .filter((item) => item.path.length > 1 && item.visibleLength > 0);
       if (pathData.length) {
@@ -2081,6 +2183,27 @@ export const TaskMap = React.memo(function TaskMap({
           }),
         );
         // }
+      }
+      if (altitudeTrackSegments.length) {
+        layers.push(
+          new PathLayer({
+            id: "igc-track-altitude-gradient",
+            data: altitudeTrackSegments,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            positionFormat: "XYZ",
+            getPath: (item: AltitudeTrackSegment) => item.path,
+            getColor: (item: AltitudeTrackSegment) => item.color,
+            getWidth: HIGHLIGHTED_TRACK_WIDTH_PIXELS,
+            widthUnits: "pixels",
+            widthMinPixels: 1,
+            pickable: false,
+            jointRounded: true,
+            capRounded: true,
+            parameters: {
+              depthTest: false,
+            },
+          }),
+        );
       }
     }
     if (scoredTrackDeckPointData.length) {
@@ -2245,7 +2368,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [cylinderVolumes, displayTrack, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, displayTrack, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -3055,6 +3178,13 @@ export const TaskMap = React.memo(function TaskMap({
       ) : null}
     </div>
   ) : null;
+  const altitudeScaleOverlay = highlightedAltitudeScale ? (
+    <div className="map-altitude-scale" aria-label="Selected track altitude scale">
+      <span className="map-altitude-scale-label">{highlightedAltitudeScale.maxLabel}</span>
+      <span className="map-altitude-scale-ramp" aria-hidden="true" />
+      <span className="map-altitude-scale-label">{highlightedAltitudeScale.minLabel}</span>
+    </div>
+  ) : null;
 
   const hasFullscreenTaskEditorOverlay = isFullscreen && hasTaskEditorOverlay;
   const taskEditorToggleLabel = isTaskEditorOverlayCollapsed ? "Expand task turnpoints overlay" : "Collapse task turnpoints overlay";
@@ -3109,6 +3239,7 @@ export const TaskMap = React.memo(function TaskMap({
         </div>
       ) : null}
       {telemetryOverlay}
+      {altitudeScaleOverlay}
     </div>
   ) : null;
   const hasFullscreenSidebar = isFullscreen && Boolean(fullscreenSidebar);
@@ -3197,6 +3328,7 @@ export const TaskMap = React.memo(function TaskMap({
         {fullscreenCompositeOverlay ?? (
           <>
             {telemetryOverlay}
+            {altitudeScaleOverlay}
           </>
         )}
       </div>
