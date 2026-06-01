@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import { TaskMap } from "../TaskMap";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
@@ -293,6 +293,8 @@ const airspaceCategoryOptions = [
 
 type PresetFeedback = { type: "success" | "error" | "pending"; text: string } | null;
 type TurnpointSymbol = "" | "grass_strip" | "paved_runway" | "dot" | "bar";
+type TurnpointSortKey = "name" | "symbol";
+type TurnpointSortState = { key: TurnpointSortKey; direction: "asc" | "desc" } | null;
 type EditableTurnpoint = {
   id: number | null;
   name: string;
@@ -429,6 +431,10 @@ function parseLongDate(value: string): string | null {
 
 function normalizeEditableSymbol(value: unknown): TurnpointSymbol {
   return value === "grass_strip" || value === "paved_runway" || value === "dot" || value === "bar" ? value : "";
+}
+
+function turnpointSymbolLabel(symbol: unknown): string {
+  return turnpointSymbolOptions.find((option) => option.value === normalizeEditableSymbol(symbol))?.label ?? "";
 }
 
 function turnpointToEditable(turnpoint?: TurnpointRecord | null, fallback?: { latitude: number; longitude: number }): EditableTurnpoint {
@@ -582,6 +588,7 @@ export default function EventsSection(props: EventsSectionProps) {
   const [editingTurnpointId, setEditingTurnpointId] = useState<number | null>(null);
   const [turnpointEdit, setTurnpointEdit] = useState<EditableTurnpoint | null>(null);
   const [draftTurnpoint, setDraftTurnpoint] = useState<EditableTurnpoint | null>(null);
+  const [turnpointSort, setTurnpointSort] = useState<TurnpointSortState>(null);
   const startsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const endsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const scoringTemplateOptions = events.filter((event) => event.id !== eventEditorId);
@@ -681,6 +688,16 @@ export default function EventsSection(props: EventsSectionProps) {
 
   const selectedTurnpointSource = turnpointSources.find((source) => source.id === selectedTurnpointSourceId) ?? null;
   const selectedSourceExtraColumns = Array.from(new Set(sourceTurnpoints.flatMap((turnpoint) => Object.keys(turnpoint.extra_json ?? {}))));
+  const turnpointTableColSpan = 6 + selectedSourceExtraColumns.length + (canManagePlatform ? 1 : 0);
+  const sortedSourceTurnpoints = useMemo(() => {
+    if (!turnpointSort) return sourceTurnpoints;
+    const direction = turnpointSort.direction === "asc" ? 1 : -1;
+    return [...sourceTurnpoints].sort((left, right) => {
+      const leftValue = turnpointSort.key === "name" ? left.name : turnpointSymbolLabel(left.symbol);
+      const rightValue = turnpointSort.key === "name" ? right.name : turnpointSymbolLabel(right.symbol);
+      return leftValue.localeCompare(rightValue, undefined, { sensitivity: "base" }) * direction;
+    });
+  }, [sourceTurnpoints, turnpointSort]);
 
   async function loadSourceTurnpoints(sourceId: number) {
     if (!token || !selectedEventId) return;
@@ -777,6 +794,18 @@ export default function EventsSection(props: EventsSectionProps) {
         ))}
       </select>
     );
+  }
+
+  function toggleTurnpointSort(key: TurnpointSortKey) {
+    setTurnpointSort((current) => {
+      if (!current || current.key !== key) return { key, direction: "asc" };
+      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+    });
+  }
+
+  function sortLabel(key: TurnpointSortKey) {
+    if (turnpointSort?.key !== key) return "Sort";
+    return turnpointSort.direction === "asc" ? "A-Z" : "Z-A";
   }
 
   async function saveScoringPresets() {
@@ -1454,8 +1483,18 @@ export default function EventsSection(props: EventsSectionProps) {
                         taskPoints={[]}
                         track={null}
                         editable={canManagePlatform}
+                        onSelectTurnpoint={(turnpoint) => {
+                          if (!canManagePlatform) return;
+                          const sourceTurnpoint = sourceTurnpoints.find((candidate) => candidate.id === turnpoint.id);
+                          if (!sourceTurnpoint) return;
+                          setDraftTurnpoint(null);
+                          setEditingTurnpointId(sourceTurnpoint.id);
+                          setTurnpointEdit(turnpointToEditable(sourceTurnpoint));
+                        }}
                         onMapClick={(position) => {
                           if (!canManagePlatform) return;
+                          setEditingTurnpointId(null);
+                          setTurnpointEdit(null);
                           setDraftTurnpoint(turnpointToEditable(null, position));
                         }}
                         fitKey={`${selectedTurnpointSource.id}-${sourceTurnpoints.length}`}
@@ -1488,30 +1527,63 @@ export default function EventsSection(props: EventsSectionProps) {
                             <button type="button" className="ghost-button" onClick={() => setDraftTurnpoint(null)}>Cancel</button>
                           </div>
                         </>
+                      ) : turnpointEdit && editingTurnpointId ? (
+                        <>
+                          <strong>Edit waypoint</strong>
+                          <div className="turnpoint-edit-grid">
+                            <label><span>Name</span><input value={turnpointEdit.name} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, name: event.target.value })} /></label>
+                            <label><span>Latitude</span><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></label>
+                            <label><span>Longitude</span><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></label>
+                            <label><span>Altitude</span><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></label>
+                            <label><span>Code</span><input value={turnpointEdit.code} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, code: event.target.value })} /></label>
+                            <label><span>Symbol</span>{renderSymbolSelect(turnpointEdit.symbol, (symbol) => setTurnpointEdit({ ...turnpointEdit, symbol }))}</label>
+                          </div>
+                          {selectedSourceExtraColumns.length ? (
+                            <div className="turnpoint-extra-grid">
+                              {selectedSourceExtraColumns.map((key) => (
+                                <label key={key}><span>{key}</span><input value={turnpointEdit.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("edit", key, event.target.value)} /></label>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="button-row">
+                            <button type="button" className="primary-button" onClick={() => void saveTurnpointEdit()}>Save waypoint</button>
+                            <button type="button" className="ghost-button" onClick={() => { setEditingTurnpointId(null); setTurnpointEdit(null); }}>Cancel</button>
+                          </div>
+                        </>
                       ) : (
-                        <p className="hint">Click the map to place a new waypoint draft.</p>
+                        <p className="hint">Click a waypoint to edit it, or click open map space to place a new waypoint draft.</p>
                       )}
                     </div>
                   </div>
-                  <div className="participant-table-wrap">
+                  <div className="participant-table-wrap turnpoint-table-scroll">
                     <table className="participant-table turnpoint-edit-table">
                       <thead>
                         <tr>
-                          <th>Name</th>
+                          <th>
+                            <button type="button" className="turnpoint-sort-button" onClick={() => toggleTurnpointSort("name")} aria-label={`Sort waypoints by name ${turnpointSort?.key === "name" && turnpointSort.direction === "asc" ? "descending" : "ascending"}`}>
+                              <span>Name</span>
+                              <span>{sortLabel("name")}</span>
+                            </button>
+                          </th>
                           <th>Lat</th>
                           <th>Long</th>
                           <th>Alt</th>
                           <th>Code</th>
-                          <th>Symbol</th>
+                          <th>
+                            <button type="button" className="turnpoint-sort-button" onClick={() => toggleTurnpointSort("symbol")} aria-label={`Sort waypoints by symbol ${turnpointSort?.key === "symbol" && turnpointSort.direction === "asc" ? "descending" : "ascending"}`}>
+                              <span>Symbol</span>
+                              <span>{sortLabel("symbol")}</span>
+                            </button>
+                          </th>
                           {selectedSourceExtraColumns.map((key) => <th key={key}>{key}</th>)}
                           {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
                         </tr>
                       </thead>
                       <tbody>
                         {sourceTurnpointsLoading ? (
-                          <tr><td colSpan={7 + selectedSourceExtraColumns.length} className="participant-table-empty">Loading waypoints...</td></tr>
-                        ) : sourceTurnpoints.length ? (
-                          sourceTurnpoints.map((turnpoint) => {
+                          <tr><td colSpan={turnpointTableColSpan} className="participant-table-empty">Loading waypoints...</td></tr>
+                        ) : sortedSourceTurnpoints.length ? (
+                          sortedSourceTurnpoints.map((turnpoint) => {
                             const isEditing = editingTurnpointId === turnpoint.id && turnpointEdit;
                             return (
                               <tr key={turnpoint.id}>
@@ -1538,7 +1610,7 @@ export default function EventsSection(props: EventsSectionProps) {
                                     <td>{turnpoint.longitude.toFixed(6)}</td>
                                     <td>{turnpoint.elevation_m == null ? "" : Math.round(turnpoint.elevation_m)}</td>
                                     <td>{turnpoint.code ?? ""}</td>
-                                    <td className="turnpoint-symbol-cell"><TurnpointSymbolIcon symbol={normalizeEditableSymbol(turnpoint.symbol)} /> {turnpointSymbolOptions.find((option) => option.value === normalizeEditableSymbol(turnpoint.symbol))?.label ?? ""}</td>
+                                    <td className="turnpoint-symbol-cell"><TurnpointSymbolIcon symbol={normalizeEditableSymbol(turnpoint.symbol)} /> {turnpointSymbolLabel(turnpoint.symbol)}</td>
                                     {selectedSourceExtraColumns.map((key) => <td key={key}>{String(turnpoint.extra_json?.[key] ?? "")}</td>)}
                                     {canManagePlatform ? (
                                       <td className="participant-table-actions">
@@ -1552,7 +1624,7 @@ export default function EventsSection(props: EventsSectionProps) {
                             );
                           })
                         ) : (
-                          <tr><td colSpan={7 + selectedSourceExtraColumns.length} className="participant-table-empty">No waypoints in this file.</td></tr>
+                          <tr><td colSpan={turnpointTableColSpan} className="participant-table-empty">No waypoints in this file.</td></tr>
                         )}
                       </tbody>
                     </table>

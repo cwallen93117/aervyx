@@ -2907,6 +2907,46 @@ button[type="submit"]:hover,
     min-width: 96px;
   }
 
+  .turnpoint-table-scroll {
+    max-height: min(560px, 70vh);
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+  }
+
+  .turnpoint-table-scroll .participant-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    box-shadow: 0 1px 0 var(--line);
+  }
+
+  .turnpoint-sort-button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .turnpoint-sort-button span:last-child {
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  .turnpoint-sort-button:hover span:first-child {
+    color: var(--accent);
+  }
+
   .turnpoint-symbol-cell {
     white-space: nowrap;
   }
