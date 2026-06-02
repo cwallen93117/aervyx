@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.49+66 - 2026-06-02
+
+### Added
+- On first app open, Aervyx now checks the published Android release and shows
+  an Update button when a newer APK is available. The button downloads the APK
+  and opens Android's installer automatically.
+
 ## 0.4.48+65 - 2026-06-02
 
 ### Changed

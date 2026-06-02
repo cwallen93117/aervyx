@@ -16,4 +16,9 @@ void main() {
       'http://192.168.1.10:8000/api/app/download',
     );
   });
+
+  test('app release endpoints are configured', () {
+    expect(ApiConfig.appVersionPath, '/api/app/version');
+    expect(ApiConfig.appDownloadPath, '/api/app/download');
+  });
 }

@@ -32,6 +32,10 @@ class ApiConfig {
 
   static String get appDownloadPageUrl => appDownloadPageUrlForBaseUrl(baseUrl);
 
+  // App release metadata and APK download.
+  static const String appVersionPath = '/api/app/version';
+  static const String appDownloadPath = '/api/app/download';
+
   // Auth
   static const String loginPath = '/api/auth/login';
   static const String registerPath = '/api/auth/register';

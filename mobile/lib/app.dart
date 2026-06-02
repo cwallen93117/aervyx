@@ -11,6 +11,7 @@ import 'services/auth_service.dart';
 import 'services/ble_service.dart';
 import 'services/persistent_runtime_service.dart';
 import 'services/tracking_service.dart';
+import 'services/update_service.dart';
 import 'utils/app_shutdown.dart';
 import 'widgets/aervyx_logo.dart';
 
@@ -24,6 +25,8 @@ class AervyxApp extends StatefulWidget {
 class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   bool _runtimeStartRequested = false;
   bool _runtimeBatteryShutdownStarted = false;
+  bool _updateCheckRequested = false;
+  bool _updateDialogShowing = false;
   AuthService? _authService;
   Timer? _runtimeBatteryTimer;
 
@@ -32,6 +35,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _ensureRuntime());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkForAppUpdate());
     _runtimeBatteryTimer = Timer.periodic(
       const Duration(minutes: 1),
       (_) => _checkRuntimeBatteryThreshold(),
@@ -104,6 +108,112 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
       // If Android blocks startup, opening the app again retries from a visible state.
     } finally {
       _runtimeStartRequested = false;
+    }
+  }
+
+  Future<void> _checkForAppUpdate() async {
+    if (_updateCheckRequested || _updateDialogShowing || !mounted) return;
+    _updateCheckRequested = true;
+    try {
+      final release = await context.read<UpdateService>().checkForUpdate();
+      if (release == null || !mounted) return;
+      await _showUpdateDialog(release);
+    } catch (_) {
+      // Update checks should never block app startup.
+    }
+  }
+
+  Future<void> _showUpdateDialog(AppReleaseInfo release) async {
+    if (_updateDialogShowing) return;
+    _updateDialogShowing = true;
+    var downloading = false;
+    var progress = 0.0;
+
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: !downloading,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              Future<void> startUpdate() async {
+                setDialogState(() {
+                  downloading = true;
+                  progress = 0;
+                });
+                try {
+                  await context.read<UpdateService>().downloadAndInstall(
+                    release,
+                    onProgress: (value) {
+                      if (!mounted) return;
+                      setDialogState(() => progress = value.clamp(0, 1));
+                    },
+                  );
+                  if (dialogContext.mounted) Navigator.of(dialogContext).pop();
+                } on UpdateInstallPermissionException {
+                  setDialogState(() => downloading = false);
+                  await UpdateService.openInstallPermissionSettings();
+                  if (!dialogContext.mounted) return;
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'Allow installs from Aervyx, then tap Update again.',
+                      ),
+                    ),
+                  );
+                } catch (_) {
+                  setDialogState(() => downloading = false);
+                  if (!dialogContext.mounted) return;
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text('Update download failed. Try again.'),
+                    ),
+                  );
+                }
+              }
+
+              return AlertDialog(
+                title: const Text('Update available'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Aervyx ${release.version}+${release.versionCode} is available.',
+                    ),
+                    if (release.releaseNotes.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        release.releaseNotes.trim(),
+                        maxLines: 5,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                    if (downloading) ...[
+                      const SizedBox(height: 16),
+                      LinearProgressIndicator(value: progress),
+                    ],
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed:
+                        downloading ? null : () => Navigator.of(context).pop(),
+                    child: const Text('Later'),
+                  ),
+                  FilledButton.icon(
+                    onPressed: downloading ? null : startUpdate,
+                    icon: const Icon(Icons.system_update_alt),
+                    label: Text(downloading ? 'Downloading' : 'Update'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      _updateDialogShowing = false;
     }
   }
 

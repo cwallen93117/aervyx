@@ -12,6 +12,7 @@ import 'services/igc_service.dart';
 import 'services/driver_service.dart';
 import 'services/routing_service.dart';
 import 'services/tracking_service.dart';
+import 'services/update_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +25,7 @@ void main() async {
   }
 
   final apiService = ApiService();
+  final updateService = UpdateService(apiService);
   final authService = AuthService(apiService);
   final igcService = IgcService();
   late final TrackingService trackingService;
@@ -68,6 +70,7 @@ void main() async {
     MultiProvider(
       providers: [
         Provider<ApiService>.value(value: apiService),
+        Provider<UpdateService>.value(value: updateService),
         ChangeNotifierProvider<AuthService>.value(value: authService),
         ChangeNotifierProvider<IgcService>.value(value: igcService),
         ChangeNotifierProvider<TrackingService>.value(value: trackingService),

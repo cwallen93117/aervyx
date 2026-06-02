@@ -15,6 +15,11 @@ and environment.
 
 ## [2026.06.02]
 
+### Added
+- **Mobile v0.4.49+66** checks the published Android release on first app open
+  and shows an Update button when a newer APK is available. The app downloads
+  the APK and opens Android's installer automatically.
+
 ### Changed
 - **Mobile v0.4.48+65** improves Meshtastic reliability by forcing a saved
   Bluetooth reconnect when tracking starts, making second-flight monitoring
