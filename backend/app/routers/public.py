@@ -298,6 +298,49 @@ def _gap_day_quality(details_json: dict | None) -> float | None:
     return value if math.isfinite(value) else None
 
 
+def _gap_task_statistics(details_json: dict | None) -> dict:
+    if not isinstance(details_json, dict):
+        return {}
+    gap = details_json.get("gap")
+    if not isinstance(gap, dict):
+        return {}
+    stats: dict = {}
+    task_stats = gap.get("task_stats")
+    if isinstance(task_stats, dict):
+        stats.update(task_stats)
+    available_points = gap.get("available_points")
+    if isinstance(available_points, dict):
+        for key, value in available_points.items():
+            stats[f"available_points_{key}"] = value
+    validity = gap.get("validity")
+    if isinstance(validity, dict):
+        validity_keys = {
+            "launch": "launch_validity",
+            "distance": "distance_validity",
+            "time": "time_validity",
+            "stopped": "stop_validity",
+            "overall": "day_quality",
+        }
+        for key, label in validity_keys.items():
+            if key in validity:
+                stats[label] = validity[key]
+    formula = gap.get("formula")
+    if isinstance(formula, dict):
+        formula_keys = {
+            "weightarrival": "arrival_weight",
+            "weightstart": "leading_weight",
+            "weightspeed": "time_weight",
+            "weightdist": "distance_weight",
+        }
+        for key, label in formula_keys.items():
+            if key in formula:
+                stats[label] = formula[key]
+    leading_coefficients = gap.get("leading_coefficients")
+    if isinstance(leading_coefficients, dict) and "minimum" in leading_coefficients:
+        stats["smallest_leading_coefficient"] = leading_coefficients["minimum"]
+    return stats
+
+
 @router.get("/events/{event_id}/task-result-summary", response_model=list[TaskResultSummaryResponse])
 def public_task_result_summary(event_id: int, session: Session = Depends(get_session)) -> list[TaskResultSummaryResponse]:
     event = session.get(Event, event_id)
@@ -313,17 +356,19 @@ def public_task_result_summary(event_id: int, session: Session = Depends(get_ses
         .order_by(ScoreResult.task_id.asc(), ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
 
-    summaries_by_task: dict[int, float | None] = {}
+    summaries_by_task: dict[int, dict] = {}
     for task_id, details_json in rows:
         task_id_int = int(task_id)
-        summaries_by_task.setdefault(task_id_int, None)
+        summary = summaries_by_task.setdefault(task_id_int, {"day_quality": None, "statistics": {}})
         day_quality = _gap_day_quality(details_json)
-        if summaries_by_task[task_id_int] is None and day_quality is not None:
-            summaries_by_task[task_id_int] = day_quality
+        if summary["day_quality"] is None and day_quality is not None:
+            summary["day_quality"] = day_quality
+        if not summary["statistics"]:
+            summary["statistics"] = _gap_task_statistics(details_json)
 
     return [
-        TaskResultSummaryResponse(task_id=task_id, day_quality=day_quality)
-        for task_id, day_quality in sorted(summaries_by_task.items())
+        TaskResultSummaryResponse(task_id=task_id, day_quality=summary["day_quality"], statistics=summary["statistics"])
+        for task_id, summary in sorted(summaries_by_task.items())
     ]
 
 

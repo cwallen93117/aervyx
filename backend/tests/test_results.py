@@ -51,11 +51,21 @@ def test_task_result_summary_returns_day_quality_for_each_scored_task() -> None:
     tasks = [Task(event_id=event.id, name=f"Task {index}") for index in range(1, 4)]
     session.add_all(tasks)
     session.flush()
+    first_score = _score(tasks[0], pilot, 1.0)
     session.add_all([
-        _score(tasks[0], pilot, 1.0),
+        first_score,
         _score(tasks[1], pilot, 0.5805),
         _score(tasks[2], pilot, None),
     ])
+    first_score.details_json = {
+        "gap": {
+            "task_stats": {"task_distance": 55.307, "no_of_pilots_flying": 19},
+            "available_points": {"distance": 318.654},
+            "validity": {"overall": 1.0, "launch": 1},
+            "formula": {"weightdist": 0.3838},
+            "leading_coefficients": {"minimum": 0.9651},
+        }
+    }
     session.flush()
 
     summaries = task_result_summary(event.id, user=admin, session=session)
@@ -65,6 +75,15 @@ def test_task_result_summary_returns_day_quality_for_each_scored_task() -> None:
         (tasks[1].id, 0.5805),
         (tasks[2].id, None),
     ]
+    assert summaries[0].statistics == {
+        "task_distance": 55.307,
+        "no_of_pilots_flying": 19,
+        "available_points_distance": 318.654,
+        "launch_validity": 1,
+        "day_quality": 1.0,
+        "distance_weight": 0.3838,
+        "smallest_leading_coefficient": 0.9651,
+    }
 
 
 def test_task_result_summary_hides_provisional_scores_from_pilots() -> None:

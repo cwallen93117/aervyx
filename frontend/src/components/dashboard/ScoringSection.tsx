@@ -147,6 +147,43 @@ function formatDayQualityPercent(value: number | null | undefined): string {
   return `${percent.toFixed(2).replace(/\.00$/, "").replace(/(\.\d)0$/, "$1")}%`;
 }
 
+function formatTaskStatisticLabel(key: string): string {
+  const acronyms = new Map([
+    ["ss", "SS"],
+    ["ess", "ESS"],
+    ["es", "ES"],
+    ["qnh", "QNH"],
+    ["ftv", "FTV"],
+    ["lc", "LC"],
+  ]);
+  return key
+    .replace(/^no_of_/, "number_of_")
+    .split("_")
+    .filter(Boolean)
+    .map((part) => acronyms.get(part.toLowerCase()) ?? part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function formatTaskStatisticValue(value: unknown): string {
+  if (value == null) return "-";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "-";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(parsed.getTime())) {
+      return parsed.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    }
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+function taskStatisticRows(statistics: Record<string, unknown> | undefined): Array<{ param: string; value: string }> {
+  return Object.entries(statistics ?? {})
+    .filter(([, value]) => value !== undefined)
+    .map(([param, value]) => ({ param, value: formatTaskStatisticValue(value) }));
+}
+
 function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
   switch (key) {
     case "distance":
@@ -167,6 +204,31 @@ function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departu
 function gapAwardedPoints(result: ResultRecord, key: "distance" | "speed" | "arrival" | "departure" | "leading") {
   const gap = result.details_json?.gap as { awarded_points?: Record<string, number> } | undefined;
   return Number(gap?.awarded_points?.[key] ?? 0);
+}
+
+function TaskStatisticsButton({
+  taskName,
+  statistics,
+  onClick,
+}: {
+  taskName: string;
+  statistics: Record<string, unknown> | undefined;
+  onClick: (title: string, statistics: Record<string, unknown> | undefined) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="field-help-button public-scoring-info-button task-statistics-info-button"
+      aria-label={`Show statistics for ${taskName}`}
+      aria-haspopup="dialog"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick(taskName, statistics);
+      }}
+    >
+      i
+    </button>
+  );
 }
 
 function overallTaskHeader(task: TaskRecord, resultState: string | null): ReactNode {
@@ -252,6 +314,53 @@ function PenaltyDetailsModal({
         ) : (
           <div className="score-penalty-empty">{formatPenaltyPoints(result)}</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TaskStatisticsModal({
+  title,
+  statistics,
+  onClose,
+}: {
+  title: string;
+  statistics: Record<string, unknown> | undefined;
+  onClose: () => void;
+}) {
+  const rows = taskStatisticRows(statistics);
+  return (
+    <div className="public-scoring-modal-overlay active" onClick={onClose}>
+      <div className="public-scoring-modal task-statistics-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="public-scoring-modal-header">
+          <div>
+            <div className="public-scoring-modal-title">Task statistics</div>
+            <div className="public-scoring-modal-subtitle">{title}</div>
+          </div>
+          <button type="button" className="public-scoring-modal-close" onClick={onClose} aria-label="Close task statistics">x</button>
+        </div>
+        <div className="public-scoring-table-wrap">
+          <table className="public-scoring-table">
+            <thead>
+              <tr>
+                <th>param</th>
+                <th>value</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length ? rows.map((row) => (
+                <tr key={row.param}>
+                  <td>{formatTaskStatisticLabel(row.param)}</td>
+                  <td>{row.value}</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td colSpan={2}>No task statistics are available yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
@@ -386,11 +495,13 @@ export default function ScoringSection(props: ScoringSectionProps) {
   const fullscreenPilotTracksContentId = useId();
   const [isFullscreenPilotTracksCollapsed, setIsFullscreenPilotTracksCollapsed] = useState(false);
   const [penaltyDetailsResult, setPenaltyDetailsResult] = useState<ResultRecord | null>(null);
+  const [taskStatisticsModal, setTaskStatisticsModal] = useState<{ title: string; statistics?: Record<string, unknown> } | null>(null);
   const publishedTasks = tasks.filter((task) => task.status === "published");
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
   const scoringTaskMetrics = computeTaskOptimization(scoringTaskPoints);
   const taskResultSummaryById = useMemo(() => new Map(taskResultSummary.map((summary) => [summary.task_id, summary])), [taskResultSummary]);
+  const showTaskStatistics = (title: string, statistics: Record<string, unknown> | undefined) => setTaskStatisticsModal({ title, statistics });
   const overallTaskResultStates = useMemo(() => {
     const states = new Map<number, string>();
     for (const task of scoredTasks) {
@@ -540,6 +651,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
     formatDateLabel(selectedTask?.task_date) !== "-" ? formatDateLabel(selectedTask?.task_date) : null,
     startGateLabels.length ? `Start gates: ${startGateLabels.join(", ")}` : null,
   ].filter(Boolean);
+  const selectedTaskSummary = selectedTask ? taskResultSummaryById.get(selectedTask.id) : undefined;
   return (
     <div className="section-stack">
       {canManagePlatform ? (
@@ -588,7 +700,18 @@ export default function ScoringSection(props: ScoringSectionProps) {
             <div className="stack form-block">
               {taskDefinitionRows.length ? (
                 <div className="results-sheet task-definition-sheet">
-                  {taskDefinitionMetaParts.length ? <p className="task-definition-meta">{taskDefinitionMetaParts.join(" - ")}</p> : null}
+                  {taskDefinitionMetaParts.length ? (
+                    <div className="task-definition-meta task-definition-meta-row">
+                      <span>{taskDefinitionMetaParts.join(" - ")}</span>
+                      {selectedTask ? (
+                        <TaskStatisticsButton
+                          taskName={selectedTask.name}
+                          statistics={selectedTaskSummary?.statistics}
+                          onClick={showTaskStatistics}
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
                   <div className="results-table-wrap">
                     <table className="results-table results-table-compact overall-task-summary-table">
                       <thead>
@@ -766,15 +889,23 @@ export default function ScoringSection(props: ScoringSectionProps) {
                         </tr>
                       </thead>
                       <tbody>
-                        {scoredTasks.map((task) => (
+                        {scoredTasks.map((task) => {
+                          const summary = taskResultSummaryById.get(task.id);
+                          return (
                           <tr key={task.id}>
-                            <td><strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong></td>
+                            <td>
+                              <span className="task-statistics-label-row">
+                                <strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong>
+                                <TaskStatisticsButton taskName={task.name} statistics={summary?.statistics} onClick={showTaskStatistics} />
+                              </span>
+                            </td>
                             <td>{formatDateLabel(task.task_date) !== "-" ? formatDateLabel(task.task_date) : formatDateLabel(task.published_at)}</td>
                             <td>{(taskMetricsById.get(task.id)?.optimizedDistanceKm ?? 0).toFixed(1)}</td>
-                            <td>{formatDayQualityPercent(taskResultSummaryById.get(task.id)?.day_quality)}</td>
+                            <td>{formatDayQualityPercent(summary?.day_quality)}</td>
                             <td>{taskTypeLabelWithGateCount(task)}</td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -818,6 +949,13 @@ export default function ScoringSection(props: ScoringSectionProps) {
           result={penaltyDetailsResult}
           taskName={selectedTask?.name ?? "Task"}
           onClose={() => setPenaltyDetailsResult(null)}
+        />
+      ) : null}
+      {taskStatisticsModal ? (
+        <TaskStatisticsModal
+          title={taskStatisticsModal.title}
+          statistics={taskStatisticsModal.statistics}
+          onClose={() => setTaskStatisticsModal(null)}
         />
       ) : null}
     </div>

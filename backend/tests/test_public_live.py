@@ -925,18 +925,35 @@ def test_public_task_result_summary_includes_provisional_scores() -> None:
     draft_task = Task(event_id=event.id, name="Draft Task", status="draft", task_date=date(2026, 5, 4))
     session.add_all([official_task, provisional_task, draft_task])
     session.flush()
+    provisional_score = _score(provisional_task, pilot, rank=1, points=880, state="provisional", quality=0.72)
     session.add_all(
         [
             _score(official_task, pilot, rank=1, points=920, state="official", quality=0.91),
-            _score(provisional_task, pilot, rank=1, points=880, state="provisional", quality=0.72),
+            provisional_score,
             _score(draft_task, pilot, rank=1, points=840, state="official", quality=0.66),
         ]
     )
+    provisional_score.details_json = {
+        "gap": {
+            "task_stats": {"ss_distance": 52.707, "goal": 12},
+            "available_points": {"time": 358.0655},
+            "validity": {"overall": 0.72, "time": 0.8302},
+            "formula": {"weightspeed": 0.4313},
+        }
+    }
     session.commit()
 
     payload = public_task_result_summary(event.id, session=session)
 
     assert [(summary.task_id, summary.day_quality) for summary in payload] == [(official_task.id, 0.91), (provisional_task.id, 0.72)]
+    assert payload[1].statistics == {
+        "ss_distance": 52.707,
+        "goal": 12,
+        "available_points_time": 358.0655,
+        "time_validity": 0.8302,
+        "day_quality": 0.72,
+        "time_weight": 0.4313,
+    }
 
 
 def test_public_upload_track_is_available_for_public_scored_results() -> None:

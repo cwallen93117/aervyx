@@ -680,6 +680,7 @@ class PilotSummaryResponse(BaseModel):
 class TaskResultSummaryResponse(BaseModel):
     task_id: int
     day_quality: float | None = None
+    statistics: dict = Field(default_factory=dict)
 
 
 class TaskScoringInputUpdate(BaseModel):
