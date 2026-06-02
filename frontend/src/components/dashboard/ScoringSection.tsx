@@ -646,11 +646,12 @@ export default function ScoringSection(props: ScoringSectionProps) {
   );
 
   if (!selectedEventId) return <SectionCard title="Scoring" description="Create or select an event first."><p className="hint">Scoring depends on an event and, usually, a selected task.</p></SectionCard>;
-  const taskDefinitionMetaParts = [
+  const taskDefinitionTitle = selectedTask?.name ?? taskDraft.name;
+  const taskDefinitionPrimaryMetaParts = [
     taskTypeLabel(selectedTask?.task_type ?? taskDraft.task_type),
     formatDateLabel(selectedTask?.task_date) !== "-" ? formatDateLabel(selectedTask?.task_date) : null,
-    startGateLabels.length ? `Start gates: ${startGateLabels.join(", ")}` : null,
   ].filter(Boolean);
+  const taskDefinitionGatesLabel = startGateLabels.length ? `Start gates: ${startGateLabels.join(", ")}` : null;
   const selectedTaskSummary = selectedTask ? taskResultSummaryById.get(selectedTask.id) : undefined;
   return (
     <div className="section-stack">
@@ -700,16 +701,22 @@ export default function ScoringSection(props: ScoringSectionProps) {
             <div className="stack form-block">
               {taskDefinitionRows.length ? (
                 <div className="results-sheet task-definition-sheet">
-                  {taskDefinitionMetaParts.length ? (
-                    <div className="task-definition-meta task-definition-meta-row">
-                      <span>{taskDefinitionMetaParts.join(" - ")}</span>
-                      {selectedTask ? (
-                        <TaskStatisticsButton
-                          taskName={selectedTask.name}
-                          statistics={selectedTaskSummary?.statistics}
-                          onClick={showTaskStatistics}
-                        />
+                  {taskDefinitionTitle || taskDefinitionPrimaryMetaParts.length || taskDefinitionGatesLabel ? (
+                    <div className="task-definition-heading">
+                      {taskDefinitionTitle ? (
+                        <div className="task-definition-title-row">
+                          <span className="task-definition-title">{taskDefinitionTitle}</span>
+                          {selectedTask ? (
+                            <TaskStatisticsButton
+                              taskName={selectedTask.name}
+                              statistics={selectedTaskSummary?.statistics}
+                              onClick={showTaskStatistics}
+                            />
+                          ) : null}
+                        </div>
                       ) : null}
+                      {taskDefinitionPrimaryMetaParts.length ? <div className="task-definition-meta">{taskDefinitionPrimaryMetaParts.join(" - ")}</div> : null}
+                      {taskDefinitionGatesLabel ? <div className="task-definition-meta">{taskDefinitionGatesLabel}</div> : null}
                     </div>
                   ) : null}
                   <div className="results-table-wrap">

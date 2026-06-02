@@ -4412,11 +4412,24 @@ button[type="submit"]:hover,
   margin-top: 4px;
 }
 
-.task-definition-meta-row {
+.task-definition-heading {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.task-definition-title-row {
+  display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+}
+
+.task-definition-title {
+  color: #fbbf24;
+  font-size: 0.9375rem;
+  font-weight: 800;
+  line-height: 1.2;
 }
 
 .task-statistics-label-row {

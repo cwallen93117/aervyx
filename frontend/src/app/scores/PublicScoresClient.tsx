@@ -766,14 +766,14 @@ export function PublicScoresClient() {
     () => (selectedTask ? startGateLabelsForTask(selectedTask) : []),
     [selectedTask],
   );
-  const selectedTaskDefinitionMetaParts = useMemo(() => {
+  const selectedTaskDefinitionPrimaryMetaParts = useMemo(() => {
     if (!selectedTask) return [];
     return [
       taskTypeLabel(selectedTask.task_type),
       formatDateLabel(selectedTask.task_date) !== "-" ? formatDateLabel(selectedTask.task_date) : null,
-      selectedTaskStartGateLabels.length ? `Start gates: ${selectedTaskStartGateLabels.join(", ")}` : null,
     ].filter(Boolean);
-  }, [selectedTask, selectedTaskStartGateLabels]);
+  }, [selectedTask]);
+  const selectedTaskDefinitionGatesLabel = selectedTaskStartGateLabels.length ? `Start gates: ${selectedTaskStartGateLabels.join(", ")}` : null;
   const scoresMapOverlayConfig = useMemo<Record<string, boolean>>(() => ({
     turnpoints: true,
     task_route: true,
@@ -1117,14 +1117,20 @@ export function PublicScoresClient() {
       <div className="scores-panel">
         {selectedTaskDefinitionRows.length ? (
           <div className="results-sheet task-definition-sheet">
-            {selectedTaskDefinitionMetaParts.length ? (
-              <div className="task-definition-meta task-definition-meta-row">
-                <span>{selectedTaskDefinitionMetaParts.join(" - ")}</span>
-                <TaskStatisticsButton
-                  taskName={selectedTask.name}
-                  statistics={taskResultSummaryById.get(selectedTask.id)?.statistics}
-                  onClick={showTaskStatistics}
-                />
+            {selectedTask.name || selectedTaskDefinitionPrimaryMetaParts.length || selectedTaskDefinitionGatesLabel ? (
+              <div className="task-definition-heading">
+                <div className="task-definition-title-row">
+                  <span className="task-definition-title">{selectedTask.name}</span>
+                  <TaskStatisticsButton
+                    taskName={selectedTask.name}
+                    statistics={taskResultSummaryById.get(selectedTask.id)?.statistics}
+                    onClick={showTaskStatistics}
+                  />
+                </div>
+                {selectedTaskDefinitionPrimaryMetaParts.length ? (
+                  <div className="task-definition-meta">{selectedTaskDefinitionPrimaryMetaParts.join(" - ")}</div>
+                ) : null}
+                {selectedTaskDefinitionGatesLabel ? <div className="task-definition-meta">{selectedTaskDefinitionGatesLabel}</div> : null}
               </div>
             ) : null}
             <div className="results-table-wrap">
