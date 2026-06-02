@@ -33,6 +33,7 @@ from app.services.task_uploads import select_upload_for_scoring, store_task_uplo
 router = APIRouter(tags=["results"])
 
 STATUS_ONLY_VALUES = {"minimum_distance", "did_not_fly", "absent"}
+DISPLAY_STATUS_ORDER = {"did_not_fly": 1, "absent": 2}
 
 
 def _is_late_start(task: Task, event_tz: str, first_fix_time: datetime | None) -> bool:
@@ -94,6 +95,15 @@ def _row_classification(result: ScoreResult | None, status_override: str | None)
     if status_override in STATUS_ONLY_VALUES:
         return status_override
     return "unscored"
+
+
+def _task_result_sort_key(row: ScoreResultResponse) -> tuple:
+    if row.result_state == "unscored":
+        return (3, 0, 10**9, row.pilot_name.lower())
+    status_bucket = DISPLAY_STATUS_ORDER.get(row.status)
+    if status_bucket is not None:
+        return (status_bucket, 0, row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
+    return (0, -float(row.score_points or 0), row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
 
 
 def _penalty_audit_entries(session: Session, task_id: int, pilot_id: int) -> list[PenaltyAuditEntry]:
@@ -242,12 +252,7 @@ def get_task_results(task_id: int, user: User = Depends(get_current_user), sessi
             )
         )
 
-    def row_sort_key(row: ScoreResultResponse) -> tuple:
-        if row.result_state == "unscored":
-            return (1, row.pilot_name.lower())
-        return (0, row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
-
-    return sorted(rows, key=row_sort_key)
+    return sorted(rows, key=_task_result_sort_key)
 
 
 @router.post("/api/tasks/{task_id}/rescore", response_model=list[ScoreResultResponse])

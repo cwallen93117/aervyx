@@ -50,6 +50,17 @@ from app.services.tracking import (
 router = APIRouter(prefix="/api/public", tags=["public"])
 logger = logging.getLogger("aervyx.public")
 
+DISPLAY_STATUS_ORDER = {"did_not_fly": 1, "absent": 2}
+
+
+def _task_result_sort_key(row: ScoreResultResponse) -> tuple:
+    if row.result_state == "unscored":
+        return (3, 0, 10**9, row.pilot_name.lower())
+    status_bucket = DISPLAY_STATUS_ORDER.get(row.status)
+    if status_bucket is not None:
+        return (status_bucket, 0, row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
+    return (0, -float(row.score_points or 0), row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
+
 
 # ---------------------------------------------------------------------------
 # Response schemas for live tracking endpoints (local to this router)
@@ -211,12 +222,7 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
             )
         )
 
-    def row_sort_key(row: ScoreResultResponse) -> tuple:
-        if row.result_state == "unscored":
-            return (1, row.pilot_name.lower())
-        return (0, row.rank if row.rank is not None else 10**9, row.pilot_name.lower())
-
-    return sorted(rows, key=row_sort_key)
+    return sorted(rows, key=_task_result_sort_key)
 
 
 @router.get("/uploads/{upload_id}/track")

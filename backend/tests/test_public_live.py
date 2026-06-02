@@ -688,6 +688,88 @@ def test_public_task_results_include_provisional_scores() -> None:
     assert payload[2].score_points == 0
 
 
+def test_public_task_results_sort_minimum_distance_by_points_before_dnf_absent() -> None:
+    session = _session()
+    event = Event(
+        name="Public Status Sort Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+    )
+    pilots = [
+        Pilot(first_name="Fast", last_name="Pilot"),
+        Pilot(first_name="Minimum", last_name="Distance"),
+        Pilot(first_name="Did", last_name="Notfly"),
+        Pilot(first_name="Absent", last_name="Pilot"),
+        Pilot(first_name="Unscored", last_name="Pilot"),
+    ]
+    session.add_all([event, *pilots])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    session.add(task)
+    session.add_all([EventPilot(event_id=event.id, pilot_id=pilot.id) for pilot in pilots])
+    session.flush()
+    session.add_all([
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[0].id,
+            status="partial",
+            rank=1,
+            distance_flown_km=12,
+            raw_score_points=200,
+            score_points=200,
+            details_json={},
+            result_state="official",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[1].id,
+            status="minimum_distance",
+            rank=None,
+            distance_flown_km=5,
+            raw_score_points=140,
+            score_points=140,
+            details_json={},
+            result_state="provisional",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[2].id,
+            status="did_not_fly",
+            rank=None,
+            distance_flown_km=0,
+            raw_score_points=0,
+            score_points=0,
+            details_json={},
+            result_state="official",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[3].id,
+            status="absent",
+            rank=None,
+            distance_flown_km=0,
+            raw_score_points=0,
+            score_points=0,
+            details_json={},
+            result_state="official",
+        ),
+    ])
+    session.commit()
+
+    payload = get_public_task_results(task.id, session=session)
+
+    assert [result.pilot_name for result in payload] == [
+        "Fast Pilot",
+        "Minimum Distance",
+        "Did Notfly",
+        "Absent Pilot",
+        "Unscored Pilot",
+    ]
+
+
 def test_public_task_results_include_public_safe_penalty_details() -> None:
     session = _session()
     event = Event(

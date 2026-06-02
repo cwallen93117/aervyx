@@ -162,6 +162,88 @@ def test_task_results_include_penalty_calculation_details() -> None:
     assert result.penalty_calculation.lines[0].detail == "Started at 10:14:30 AM EDT, before start gate 2 at 10:15:00 AM EDT. Early by 30s. Charged 2 points per second."
 
 
+def test_task_results_sort_minimum_distance_by_points_before_dnf_absent() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(
+        name="Status Sort Race",
+        location="Ridgeline",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="America/New_York",
+    )
+    pilots = [
+        Pilot(first_name="Fast", last_name="Pilot"),
+        Pilot(first_name="Minimum", last_name="Distance"),
+        Pilot(first_name="Did", last_name="Notfly"),
+        Pilot(first_name="Absent", last_name="Pilot"),
+        Pilot(first_name="Unscored", last_name="Pilot"),
+    ]
+    session.add_all([admin, event, *pilots])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1")
+    session.add(task)
+    session.add_all([EventPilot(event_id=event.id, pilot_id=pilot.id) for pilot in pilots])
+    session.flush()
+    session.add_all([
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[0].id,
+            status="partial",
+            rank=1,
+            distance_flown_km=12,
+            raw_score_points=200,
+            score_points=200,
+            details_json={},
+            result_state="official",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[1].id,
+            status="minimum_distance",
+            rank=None,
+            distance_flown_km=5,
+            raw_score_points=140,
+            score_points=140,
+            details_json={},
+            result_state="official",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[2].id,
+            status="did_not_fly",
+            rank=None,
+            distance_flown_km=0,
+            raw_score_points=0,
+            score_points=0,
+            details_json={},
+            result_state="official",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilots[3].id,
+            status="absent",
+            rank=None,
+            distance_flown_km=0,
+            raw_score_points=0,
+            score_points=0,
+            details_json={},
+            result_state="official",
+        ),
+    ])
+    session.flush()
+
+    payload = get_task_results(task.id, user=admin, session=session)
+
+    assert [result.pilot_name for result in payload] == [
+        "Fast Pilot",
+        "Minimum Distance",
+        "Did Notfly",
+        "Absent Pilot",
+        "Unscored Pilot",
+    ]
+
+
 def test_scoring_operations_include_automatic_penalty_summary() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
