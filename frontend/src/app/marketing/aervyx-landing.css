@@ -27,9 +27,9 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 .nav-links a{padding:.4rem .6rem;border-radius:8px;color:var(--muted);font-size:.875rem;font-weight:500;text-decoration:none;transition:color .18s,background .18s}
 .nav-links a:hover{color:var(--white);background:rgba(255,255,255,0.05)}
 .nav-right{display:flex;align-items:center;gap:.55rem;flex:0 1 auto;min-width:0}
-.nav-live,.nav-scores,.nav-gh,.nav-cta{box-sizing:border-box;height:var(--nav-action-height);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;line-height:1;white-space:nowrap}
-.nav-gh{display:inline-flex;align-items:center;gap:.38rem;padding:.42rem .82rem;border-radius:8px;border:1px solid var(--border-hi);background:transparent;color:var(--muted);font-family:'Barlow',sans-serif;font-size:.84rem;font-weight:500;cursor:pointer;text-decoration:none;transition:color .18s,border-color .18s,background .18s}
-.nav-gh:hover{color:var(--white);border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.04)}
+.nav-live,.nav-scores,.nav-app,.nav-gh,.nav-cta{box-sizing:border-box;height:var(--nav-action-height);display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;line-height:1;white-space:nowrap}
+.nav-app,.nav-gh{display:inline-flex;align-items:center;gap:.38rem;padding:.42rem .82rem;border-radius:8px;border:1px solid var(--border-hi);background:transparent;color:var(--muted);font-family:'Barlow',sans-serif;font-size:.84rem;font-weight:500;cursor:pointer;text-decoration:none;transition:color .18s,border-color .18s,background .18s}
+.nav-app:hover,.nav-gh:hover{color:var(--white);border-color:rgba(255,255,255,.24);background:rgba(255,255,255,.04)}
 .nav-cta{padding:.46rem 1.1rem;border-radius:8px;background:var(--cyan);color:var(--void);font-family:'Barlow',sans-serif;font-size:.875rem;font-weight:700;cursor:pointer;border:none;text-decoration:none;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 18px rgba(0,229,255,.26)}
 .nav-cta:hover{background:#1aecff;transform:translateY(-1px);box-shadow:0 0 28px rgba(0,229,255,.44)}
 .nav-live{padding:.46rem 1.1rem;border-radius:8px;background:var(--green);color:var(--void);font-family:'Barlow',sans-serif;font-size:.875rem;font-weight:700;text-decoration:none;display:inline-flex;align-items:center;gap:.38rem;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 18px rgba(0,230,118,.26)}
@@ -391,7 +391,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .nav-links a{padding:.36rem .42rem;font-size:.82rem}
   .nav-right{gap:.42rem}
   .nav-live,.nav-scores,.nav-cta{padding:.42rem .82rem;font-size:.82rem}
-  .nav-gh{padding:.42rem .62rem;font-size:.8rem}
+  .nav-app,.nav-gh{padding:.42rem .62rem;font-size:.8rem}
 }
 @media(max-width:1280px){
   nav{padding:0 1rem;gap:.6rem}
@@ -399,7 +399,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .nav-links a{padding:.34rem .34rem;font-size:.78rem}
   .nav-live-watch,.nav-scores-prefix{display:none}
   .nav-live,.nav-scores,.nav-cta{padding:.4rem .68rem;font-size:.78rem}
-  .nav-gh{padding:.4rem .52rem}
+  .nav-app,.nav-gh{padding:.4rem .52rem}
 }
 @media(max-width:1160px){
   .nav-links{display:none}
@@ -421,7 +421,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .logbook-features{grid-template-columns:1fr}
   .driver-info{border-left:none;border-top:1px solid var(--border)}
   .oss-grid{grid-template-columns:1fr}.sf-2c{grid-template-columns:1fr}.footer-inner{grid-template-columns:1fr}
-  /* Nav: hide secondary buttons, keep Watch Live, Scores + CTA */
+  /* Nav: hide GitHub, keep app download and primary account actions */
   .nav-gh{display:none}
   .nav-right{gap:.4rem}
   /* New sections responsive */
@@ -437,12 +437,15 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .wf-desc{max-width:100%;font-size:.71rem}
 }
 @media(max-width:560px){
+  nav{justify-content:flex-start;padding:0 .75rem;gap:.75rem}
   .beta-banner{font-size:.75rem;padding:6px 12px}
   .beta-chip{font-size:.6rem;padding:1px 6px;margin-right:4px}
-  /* Nav: shorten login text, tighten Watch Live + CTA to fit alongside brand */
+  /* Nav: keep Live, Get App, and account access on narrow phones */
   .nav-cta-long{display:none}
+  .nav-tld{display:none}
+  .nav-scores{display:none}
   .nav-live{font-size:.78rem;padding:.42rem .72rem;gap:.38rem}
-  .nav-scores{font-size:.78rem;padding:.42rem .72rem;gap:.35rem}
+  .nav-app{font-size:.78rem;padding:.42rem .66rem}
   .nav-cta{font-size:.8rem;padding:.42rem .82rem}
   .nav-right{gap:.35rem}
   /* Get Started section CTA: prevent oversized button overflow */
@@ -458,11 +461,15 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
 }
 @media(max-width:380px){
   /* Nav: tighten brand for very small screens */
+  nav{padding:0 .65rem}
   .nav-brand{gap:.32rem}
   .nav-wordmark{font-size:1rem}
   .nav-icon svg{width:24px;height:24px}
   .nav-live{font-size:.72rem;padding:.36rem .6rem}
   .nav-live-watch,.nav-scores-prefix{display:none}
-  .nav-scores{font-size:.72rem;padding:.36rem .6rem}
+  .nav-app{font-size:.72rem;padding:.36rem .52rem}
   .nav-cta{font-size:.76rem;padding:.36rem .7rem}
+}
+@media(max-width:340px){
+  .nav-cta{display:none}
 }
