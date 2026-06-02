@@ -30,6 +30,9 @@ and environment.
 - Live tracking now resolves owned pilot mesh trackers through the canonical
   user/pilot identity even when the legacy single-device pointer is stale, and
   driver WiFi mesh devices render as driver/car subjects.
+- Mobile task-mode recording now prefers the current day's unpublished task
+  while a pilot's competition is still running, and only falls back to the prior
+  published task before the competition end date.
 - IGC upload auto-selection now fills an empty scoring selection and scores it,
   but no longer replaces an already selected upload.
 

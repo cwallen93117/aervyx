@@ -67,6 +67,7 @@ DRIVER_MESH_PURPOSES = {"driver_wifi", "driver_mesh"}
 STATIONARY_MESH_PURPOSES = {"base_station", "relay"}
 LIVE_POSITION_PRUNE_INTERVAL_SECONDS = 300
 TRACKING_ACTIVE_TASK_STATUSES = ("active", "published")
+TRACKING_UNPUBLISHED_TASK_STATUSES = ("draft",)
 TIMEZONE_ALIASES = {
     "eastern": "America/New_York",
     "est": "America/New_York",
@@ -129,6 +130,11 @@ def _current_day_window_utc(timezone_name: str, now: datetime | None = None) -> 
     local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
     local_end = local_start + timedelta(days=1)
     return local_start.astimezone(UTC), local_end.astimezone(UTC)
+
+
+def _current_local_date(timezone_name: str | None, now: datetime | None = None):
+    zone = ZoneInfo(resolve_tracking_timezone_name(timezone_name))
+    return _as_utc(now).astimezone(zone).date()
 
 
 def _event_timezone_groups(session: Session) -> dict[str, list[str | None]]:
@@ -318,29 +324,70 @@ def mesh_purpose_to_profile_type(purpose: str | None) -> str:
     return "pilot"
 
 
-def resolve_active_task_id(session: Session, pilot_id: int | None) -> int | None:
-    if pilot_id is None:
-        return None
-    task = session.execute(
-        select(Task)
+def _pilot_competition_task_candidates(
+    session: Session,
+    pilot_id: int,
+    *,
+    now: datetime | None = None,
+) -> list[tuple[Task, Event, int, int]]:
+    rows = session.execute(
+        select(Task, Event)
         .join(Event, Task.event_id == Event.id)
         .join(EventPilot, EventPilot.event_id == Event.id)
         .where(
             EventPilot.pilot_id == pilot_id,
-            Task.status.in_(TRACKING_ACTIVE_TASK_STATUSES),
+            Task.status.in_(TRACKING_ACTIVE_TASK_STATUSES + TRACKING_UNPUBLISHED_TASK_STATUSES),
         )
-        .order_by(
-            (Task.status == "active").desc(),
-            Task.task_date.is_(None).asc(),
-            Task.task_date.desc(),
-            Task.id.desc(),
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-    return task.id if task else None
+    ).all()
+    candidates: list[tuple[Task, Event, int, int]] = []
+    for task, event in rows:
+        local_date = _current_local_date(event.timezone, now)
+        if not (event.starts_on <= local_date <= event.ends_on):
+            continue
+        if task.status == "active":
+            bucket = 0
+        elif task.status in TRACKING_UNPUBLISHED_TASK_STATUSES and task.task_date == local_date:
+            bucket = 1
+        elif task.status in TRACKING_ACTIVE_TASK_STATUSES and (
+            task.task_date is None or task.task_date <= local_date
+        ):
+            bucket = 2
+        else:
+            continue
+        days_from_today = 0 if task.task_date is None else abs((local_date - task.task_date).days)
+        candidates.append((task, event, bucket, days_from_today))
+    return candidates
 
 
-def resolve_active_task_id_for_user(session: Session, user: User | None) -> int | None:
+def resolve_active_task_id(
+    session: Session,
+    pilot_id: int | None,
+    *,
+    now: datetime | None = None,
+) -> int | None:
+    if pilot_id is None:
+        return None
+    candidates = _pilot_competition_task_candidates(session, pilot_id, now=now)
+    if not candidates:
+        return None
+    candidates.sort(
+        key=lambda item: (
+            item[2],
+            item[0].task_date is None,
+            item[3],
+            -(item[0].task_date or item[1].starts_on).toordinal(),
+            -item[0].id,
+        )
+    )
+    return candidates[0][0].id
+
+
+def resolve_active_task_id_for_user(
+    session: Session,
+    user: User | None,
+    *,
+    now: datetime | None = None,
+) -> int | None:
     """Resolve the active task relevant to a user.
 
     Pilot profiles use event participation. Driver profiles first use explicit
@@ -380,7 +427,7 @@ def resolve_active_task_id_for_user(session: Session, user: User | None) -> int 
             .limit(1)
         )
         return fallback.id if fallback is not None else None
-    return resolve_active_task_id(session, user.pilot_id)
+    return resolve_active_task_id(session, user.pilot_id, now=now)
 
 
 def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> tuple[User | None, MeshDevice | None]:

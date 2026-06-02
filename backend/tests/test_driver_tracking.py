@@ -11,7 +11,13 @@ from app.routers.auth import me, update_preferences
 from app.routers.public import public_event_positions
 from app.routers.tracking import PositionPayload, get_active_task, post_position
 from app.schemas import AccountPreferencesUpdate
-from app.services.tracking import get_all_active_positions, get_all_recent_positions, get_live_positions, store_position
+from app.services.tracking import (
+    get_all_active_positions,
+    get_all_recent_positions,
+    get_live_positions,
+    resolve_active_task_id,
+    store_position,
+)
 
 
 def _session() -> Session:
@@ -228,6 +234,102 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
     assert response.turnpoints[0].point_type == "start"
     assert response.turnpoints[0].radius == 750
     assert response.turnpoints[0].radius_meters == 750
+
+
+def test_pilot_active_task_prefers_unpublished_same_day_task_during_comp() -> None:
+    session = _session()
+    event = Event(
+        name="Task Draft Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 31),
+        ends_on=date(2026, 6, 3),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    yesterday = Task(
+        event_id=event.id,
+        name="Task 1",
+        status="published",
+        task_date=date(2026, 6, 1),
+    )
+    today_draft = Task(
+        event_id=event.id,
+        name="Task 2 Notes",
+        status="draft",
+        task_date=date(2026, 6, 2),
+    )
+    session.add_all([yesterday, today_draft, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.commit()
+
+    task_id = resolve_active_task_id(
+        session,
+        pilot.id,
+        now=datetime(2026, 6, 2, 14, tzinfo=UTC),
+    )
+
+    assert task_id == today_draft.id
+
+
+def test_pilot_active_task_falls_back_to_prior_task_before_comp_ends() -> None:
+    session = _session()
+    event = Event(
+        name="No Draft Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 31),
+        ends_on=date(2026, 6, 3),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    prior_task = Task(
+        event_id=event.id,
+        name="Task 1",
+        status="published",
+        task_date=date(2026, 6, 1),
+    )
+    session.add_all([prior_task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.commit()
+
+    task_id = resolve_active_task_id(
+        session,
+        pilot.id,
+        now=datetime(2026, 6, 2, 14, tzinfo=UTC),
+    )
+
+    assert task_id == prior_task.id
+
+
+def test_pilot_active_task_does_not_fall_back_after_comp_end_date() -> None:
+    session = _session()
+    event = Event(
+        name="Finished Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 31),
+        ends_on=date(2026, 6, 2),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    prior_task = Task(
+        event_id=event.id,
+        name="Task 1",
+        status="published",
+        task_date=date(2026, 6, 1),
+    )
+    session.add_all([prior_task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.commit()
+
+    task_id = resolve_active_task_id(
+        session,
+        pilot.id,
+        now=datetime(2026, 6, 3, 14, tzinfo=UTC),
+    )
+
+    assert task_id is None
 
 
 def test_driver_app_position_uses_user_subject_without_pilot_or_igc_identity() -> None:
