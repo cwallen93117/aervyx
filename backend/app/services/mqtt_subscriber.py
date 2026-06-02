@@ -49,6 +49,7 @@ from app.models import MeshNodeStatus, SiteSettings, User
 from app.services.mesh_ids import normalize_mesh_device_id
 from app.services.mqtt_config import LOCAL_MOSQUITTO, clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
+    mesh_purpose_to_profile_type,
     prune_old_live_positions,
     resolve_active_task_id,
     resolve_active_task_id_for_user,
@@ -794,10 +795,13 @@ def _handle_message(payload: bytes, topic: str | None = None) -> None:
         if parsed is not None:
             mesh_user, mesh_device = resolve_mesh_device_assignment(session, parsed.get("device_id"))
             if mesh_user is not None or mesh_device is not None:
+                mesh_profile_type = mesh_purpose_to_profile_type(mesh_device.purpose) if mesh_device is not None else None
                 parsed["user_id"] = mesh_user.id if mesh_user is not None else None
                 parsed["pilot_id"] = (
                     mesh_user.pilot_id
-                    if mesh_user is not None and (mesh_user.profile_type or "pilot").strip().lower() != "driver"
+                    if mesh_user is not None
+                    and (mesh_user.profile_type or "pilot").strip().lower() != "driver"
+                    and mesh_profile_type != "driver"
                     else None
                 )
                 if parsed.get("task_id") is None and mesh_user is not None:

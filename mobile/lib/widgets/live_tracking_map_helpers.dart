@@ -41,6 +41,10 @@ bool isLivePositionStale(DateTime value, {DateTime? now}) {
   return (now ?? DateTime.now()).difference(value.toLocal()).inMinutes >= 5;
 }
 
+bool livePositionSourceUsesDashedBorder(String? positionSource) {
+  return positionSource == 'mesh';
+}
+
 Uri liveDirectionsGeoUri(double lat, double lon, {String? label}) {
   final encoded = Uri.encodeComponent(
       label?.trim().isNotEmpty == true ? label!.trim() : 'Destination');
@@ -58,6 +62,7 @@ class LiveSubjectMarker extends StatelessWidget {
   final Iterable<String> orderedSubjectKeys;
   final String? aircraftIcon;
   final String profileType;
+  final String positionSource;
   final DateTime lastSeen;
   final double glyphSize;
 
@@ -68,6 +73,7 @@ class LiveSubjectMarker extends StatelessWidget {
     required this.orderedSubjectKeys,
     required this.profileType,
     required this.lastSeen,
+    this.positionSource = 'cellular',
     this.aircraftIcon,
     this.glyphSize = 22,
   });
@@ -78,28 +84,41 @@ class LiveSubjectMarker extends StatelessWidget {
     final stale = isLivePositionStale(lastSeen);
     final markerColor = stale ? color.withAlpha(135) : color;
     final labelColor = stale ? Colors.black54 : Colors.black87;
+    final borderColor =
+        positionSource == 'other' ? markerColor.withAlpha(170) : markerColor;
+    final useDashedBorder = livePositionSourceUsesDashedBorder(positionSource);
+    final marker = Container(
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        shape: BoxShape.circle,
+        border:
+            useDashedBorder ? null : Border.all(color: borderColor, width: 2),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 3),
+        ],
+      ),
+      child: LiveRoleGlyph(
+        profileType: profileType,
+        aircraftIcon: aircraftIcon,
+        color: markerColor,
+        size: glyphSize,
+      ),
+    );
     return Opacity(
       opacity: stale ? 0.72 : 1,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            padding: const EdgeInsets.all(5),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: markerColor, width: 2),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withAlpha(40), blurRadius: 3),
-              ],
-            ),
-            child: LiveRoleGlyph(
-              profileType: profileType,
-              aircraftIcon: aircraftIcon,
-              color: markerColor,
-              size: glyphSize,
-            ),
-          ),
+          useDashedBorder
+              ? CustomPaint(
+                  painter: _DashedCircleBorderPainter(
+                    color: borderColor,
+                    strokeWidth: 2,
+                  ),
+                  child: marker,
+                )
+              : marker,
           Container(
             constraints: const BoxConstraints(maxWidth: 82),
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
@@ -120,6 +139,44 @@ class LiveSubjectMarker extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+class _DashedCircleBorderPainter extends CustomPainter {
+  final Color color;
+  final double strokeWidth;
+
+  const _DashedCircleBorderPainter({
+    required this.color,
+    required this.strokeWidth,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    final inset = strokeWidth / 2;
+    final path = Path()..addOval(rect.deflate(inset));
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+
+    const dashLength = 4.0;
+    const gapLength = 3.0;
+    for (final metric in path.computeMetrics()) {
+      var distance = 0.0;
+      while (distance < metric.length) {
+        final end = (distance + dashLength).clamp(0.0, metric.length);
+        canvas.drawPath(metric.extractPath(distance, end), paint);
+        distance += dashLength + gapLength;
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _DashedCircleBorderPainter oldDelegate) {
+    return oldDelegate.color != color || oldDelegate.strokeWidth != strokeWidth;
   }
 }
 

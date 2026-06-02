@@ -13,6 +13,21 @@ and environment.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.02]
+
+### Changed
+- **Mobile v0.4.48+65** improves Meshtastic reliability by forcing a saved
+  Bluetooth reconnect when tracking starts, making second-flight monitoring
+  actively poll for re-launch fixes, and matching the website's dashed mesh
+  marker rings on the app map.
+
+### Fixed
+- Live tracking now resolves owned pilot mesh trackers through the canonical
+  user/pilot identity even when the legacy single-device pointer is stale, and
+  driver WiFi mesh devices render as driver/car subjects.
+- IGC upload auto-selection now fills an empty scoring selection and scores it,
+  but no longer replaces an already selected upload.
+
 ## [2026.06.01]
 
 ### Changed

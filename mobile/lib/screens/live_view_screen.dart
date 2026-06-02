@@ -30,6 +30,7 @@ class _LivePilot {
   final double? speed;
   final String? aircraftIcon;
   final String profileType;
+  final String positionSource;
   final int? batteryLevel;
   DateTime lastSeen;
 
@@ -44,6 +45,7 @@ class _LivePilot {
     this.speed,
     this.aircraftIcon,
     this.profileType = 'pilot',
+    this.positionSource = 'other',
     this.batteryLevel,
     DateTime? lastSeen,
   }) : lastSeen = lastSeen ?? DateTime.now();
@@ -379,6 +381,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
     // Preserve name from polling data if SSE doesn't include it
     final existing = _pilots[subjectKey];
     final profileType = json['profile_type'] as String? ?? 'pilot';
+    final positionSource = json['position_source'] as String? ?? 'other';
     return _LivePilot(
       subjectKey: subjectKey,
       pilotId: pilotId,
@@ -396,6 +399,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
       speed: (json['speed'] as num?)?.toDouble(),
       aircraftIcon: json['aircraft_icon'] as String?,
       profileType: profileType,
+      positionSource: positionSource,
       batteryLevel: json['battery_level'] as int?,
       lastSeen: DateTime.tryParse(json['timestamp'] as String? ?? '') ??
           existing?.lastSeen,
@@ -632,6 +636,7 @@ class _LiveViewScreenState extends State<LiveViewScreen> {
                             orderedSubjectKeys: orderedSubjectKeys,
                             aircraftIcon: pilot.aircraftIcon,
                             profileType: pilot.profileType,
+                            positionSource: pilot.positionSource,
                             lastSeen: pilot.lastSeen,
                           ),
                         ),

@@ -208,25 +208,16 @@ def _auto_select_and_rescore(
         or 0
     ) > 0
 
-    existing_input = session.scalar(
-        select(TaskScoringInput).where(
-            TaskScoringInput.task_id == task.id,
-            TaskScoringInput.pilot_id == pilot_id,
-        )
-    )
-    if existing_input is None and not has_scored:
-        return
-
     changed = _select_upload_for_scoring(session, task, pilot_id, upload, uploaded_by_user_id)
-    if changed and has_scored:
+    if changed:
         rescore_task(session, task.id)
         log_action(
             session,
             actor_user_id=uploaded_by_user_id,
-            action="task.auto_rescore",
+            action="task.auto_score",
             entity_type="task",
             entity_id=str(task.id),
-            details={"pilot_id": pilot_id, "upload_id": upload.id, "trigger": "new_upload"},
+            details={"pilot_id": pilot_id, "upload_id": upload.id, "trigger": "new_upload", "previously_scored": has_scored},
         )
 
 

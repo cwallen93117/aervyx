@@ -222,6 +222,7 @@ def _apply_live_position_history_window(
     limit: int | None = None,
     now: datetime | None = None,
     include_received_app_positions: bool = False,
+    include_received_app_timestamp_fallback: bool = False,
 ):
     reference_time = _as_utc(now)
     visibility_clause = (
@@ -232,7 +233,7 @@ def _apply_live_position_history_window(
     query = query.where(visibility_clause)
     since_cutoff = _optional_since(since, minutes, reference_time)
     if since_cutoff is not None:
-        if include_received_app_positions:
+        if include_received_app_timestamp_fallback:
             query = query.where(
                 or_(
                     LivePosition.timestamp >= since_cutoff,
@@ -396,15 +397,12 @@ def resolve_mesh_device_assignment(session: Session, device_id: str | None) -> t
             break
     if device is not None:
         owner = session.get(User, device.owner_user_id)
-        owner_tracker_ids = set(mesh_device_id_lookup_variants(owner.mesh_device_id if owner else None))
-        if (
-            device.purpose != TRACKING_MESH_PURPOSE
-            or normalized not in owner_tracker_ids
-            or owner is None
-            or not owner.is_active
-        ):
+        if owner is None or not owner.is_active or not device.is_active:
             return None, device
-        return owner, device
+        purpose = (device.purpose or TRACKING_MESH_PURPOSE).strip().lower()
+        if purpose == TRACKING_MESH_PURPOSE or purpose in DRIVER_MESH_PURPOSES:
+            return owner, device
+        return None, device
 
     legacy_owner = None
     for candidate in mesh_device_id_lookup_variants(normalized):
@@ -556,6 +554,14 @@ def _position_payload(
     if device is not None and pos.pilot_id is None and pos.user_id is None:
         profile_type = mesh_purpose_to_profile_type(device.purpose)
         pilot_name = device.label
+    elif device is not None and pos.pilot_id is None:
+        device_profile_type = mesh_purpose_to_profile_type(device.purpose)
+        if device_profile_type != "pilot":
+            profile_type = device_profile_type
+            if device_profile_type == "driver":
+                pilot_id = None
+            if device.label:
+                pilot_name = device.label
 
     subject_key = (
         f"pilot:{pilot_id}"
@@ -1106,6 +1112,7 @@ def get_all_recent_positions(
         limit=limit,
         now=now,
         include_received_app_positions=True,
+        include_received_app_timestamp_fallback=True,
     ).order_by(LivePosition.timestamp.desc())
     rows = session.scalars(query).all()
 
@@ -1150,6 +1157,7 @@ def get_position_history_for_subjects(
     minutes: int | None = None,
     limit: int | None = None,
     now: datetime | None = None,
+    include_received_app_timestamp_fallback: bool = False,
 ) -> list[dict[str, Any]]:
     """Return position history for a mix of pilot and user subjects."""
     conditions = []
@@ -1169,6 +1177,7 @@ def get_position_history_for_subjects(
         limit=limit,
         now=now,
         include_received_app_positions=True,
+        include_received_app_timestamp_fallback=include_received_app_timestamp_fallback,
     )
     query = query.order_by(LivePosition.timestamp.asc())
 

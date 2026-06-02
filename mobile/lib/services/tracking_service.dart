@@ -18,6 +18,7 @@ import 'igc_service.dart';
 import 'persistent_runtime_service.dart';
 
 typedef TrackingSessionDirectoryProvider = Future<Directory> Function();
+typedef MeshReconnectRequester = Future<void> Function({bool force});
 
 /// GPS tracking zones — determines polling rate near course points.
 enum TrackingZone {
@@ -168,6 +169,7 @@ class TrackingService extends ChangeNotifier {
   final AuthService _auth;
   final IgcService _igc;
   final TrackingSessionDirectoryProvider _sessionDirectoryProvider;
+  final MeshReconnectRequester? _meshReconnectRequester;
   final Battery _battery = Battery();
 
   // ── Core state ──
@@ -180,6 +182,7 @@ class TrackingService extends ChangeNotifier {
   Timer? _flightResetTimer;
   Timer? _monitoringTimer;
   Timer? _positionHeartbeatTimer;
+  bool _monitoringPollInProgress = false;
   int _positionCount = 0;
   String? _error;
   NotificationLevel _notificationLevel = NotificationLevel.error;
@@ -323,8 +326,10 @@ class TrackingService extends ChangeNotifier {
     this._auth,
     this._igc, {
     TrackingSessionDirectoryProvider? sessionDirectoryProvider,
-  }) : _sessionDirectoryProvider =
-            sessionDirectoryProvider ?? getApplicationDocumentsDirectory {
+    MeshReconnectRequester? meshReconnectRequester,
+  })  : _sessionDirectoryProvider =
+            sessionDirectoryProvider ?? getApplicationDocumentsDirectory,
+        _meshReconnectRequester = meshReconnectRequester {
     // Start server heartbeat immediately so the LED shows status on app open
     _startHeartbeat();
     // Retry any pending IGC uploads from previous sessions
@@ -634,6 +639,7 @@ class TrackingService extends ChangeNotifier {
     }
 
     if (!await _ensureLocationPermission()) return;
+    unawaited(_requestMeshReconnectForTracking());
 
     _flightResetTimer?.cancel();
     _flightResetTimer = null;
@@ -715,6 +721,16 @@ class TrackingService extends ChangeNotifier {
   }
 
   /// Force-start recording immediately — bypass takeoff detection.
+  Future<void> _requestMeshReconnectForTracking() async {
+    final requester = _meshReconnectRequester;
+    if (requester == null) return;
+    try {
+      await requester(force: true);
+    } catch (e) {
+      debugPrint('Mesh reconnect on tracking start failed: $e');
+    }
+  }
+
   Future<void> startDriverTracking() async {
     if (_trackingState != TrackingState.idle &&
         _trackingState != TrackingState.monitoring) {
@@ -870,8 +886,32 @@ class TrackingService extends ChangeNotifier {
     _monitoringTimer?.cancel();
     _monitoringTimer = Timer.periodic(
       const Duration(seconds: 15),
-      (_) => _checkMonitoringConditions(),
+      (_) => _pollMonitoringPosition(),
     );
+  }
+
+  Future<void> _pollMonitoringPosition() async {
+    _checkMonitoringConditions();
+    if (_trackingState != TrackingState.monitoring ||
+        _monitoringPollInProgress) {
+      return;
+    }
+    _monitoringPollInProgress = true;
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.low,
+          timeLimit: Duration(seconds: 10),
+        ),
+      );
+      if (_trackingState == TrackingState.monitoring) {
+        _onMonitoringPositionUpdate(position);
+      }
+    } catch (_) {
+      // Keep monitoring on stream updates if an individual poll times out.
+    } finally {
+      _monitoringPollInProgress = false;
+    }
   }
 
   /// Start a position heartbeat that synthesises a position update when the
@@ -1526,8 +1566,9 @@ class TrackingService extends ChangeNotifier {
   /// Attempt a single upload. Returns true on success.
   Future<bool> _attemptUpload(String filePath, int? taskId) async {
     try {
-      if (!File(filePath).existsSync())
+      if (!File(filePath).existsSync()) {
         return true; // file gone, nothing to upload
+      }
       if (taskId != null) {
         await _api.uploadFile(
           ApiConfig.taskUploadPath(taskId),

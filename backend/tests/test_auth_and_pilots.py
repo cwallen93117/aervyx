@@ -789,7 +789,7 @@ def test_admin_can_edit_user_mesh_device_fields() -> None:
     assert response.mesh_devices[0].is_pilot_tracker is False
 
 
-def test_unselected_tracking_mesh_device_does_not_resolve_as_pilot_assignment() -> None:
+def test_owned_tracking_mesh_device_resolves_even_when_legacy_pointer_is_missing() -> None:
     session = _session()
     user = User(username="pilot@example.com", full_name="Pilot User", role="pilot", password_hash="hash", mesh_device_id=None)
     session.add(user)
@@ -799,7 +799,7 @@ def test_unselected_tracking_mesh_device_does_not_resolve_as_pilot_assignment() 
 
     resolved_user, resolved_device = resolve_mesh_device_assignment(session, "!tracker")
 
-    assert resolved_user is None
+    assert resolved_user is user
     assert resolved_device is not None
     assert resolved_device.device_id == "!tracker"
 

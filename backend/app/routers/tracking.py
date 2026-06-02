@@ -344,18 +344,25 @@ def post_position(
     response_pilot_name: str | None = user.full_name
     if source in MESH_POSITION_SOURCES:
         mesh_user, mesh_device = resolve_mesh_device_assignment(session, payload_device_id)
+        mesh_profile_type = mesh_purpose_to_profile_type(mesh_device.purpose) if mesh_device is not None else None
         user_id = mesh_user.id if mesh_user is not None else None
         pilot_id = (
             mesh_user.pilot_id
-            if mesh_user is not None and (mesh_user.profile_type or "pilot").strip().lower() != "driver"
+            if mesh_user is not None
+            and (mesh_user.profile_type or "pilot").strip().lower() != "driver"
+            and mesh_profile_type != "driver"
             else None
         )
-        if mesh_user is not None:
+        if mesh_user is not None and mesh_profile_type == "driver":
+            response_profile_type = "driver"
+            response_aircraft_icon = mesh_user.aircraft_icon or "hang_glider"
+            response_pilot_name = mesh_device.label if mesh_device is not None else mesh_user.full_name
+        elif mesh_user is not None:
             response_profile_type = mesh_user.profile_type or "pilot"
             response_aircraft_icon = mesh_user.aircraft_icon or "hang_glider"
             response_pilot_name = mesh_user.full_name
         elif mesh_device is not None:
-            response_profile_type = mesh_purpose_to_profile_type(mesh_device.purpose)
+            response_profile_type = mesh_profile_type or "pilot"
             response_pilot_name = mesh_device.label
         if task_id is None:
             if mesh_user is not None:

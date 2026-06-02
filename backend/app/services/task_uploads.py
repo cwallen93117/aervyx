@@ -108,13 +108,14 @@ def select_upload_for_scoring(
         session.flush()
         return True
 
-    changed = existing_input.selected_upload_id != upload.id or existing_input.status_override is not None
-    if changed:
-        existing_input.selected_upload_id = upload.id
-        existing_input.status_override = None
-        existing_input.updated_by_user_id = updated_by_user_id
-        session.flush()
-    return changed
+    if existing_input.selected_upload_id is not None:
+        return False
+
+    existing_input.selected_upload_id = upload.id
+    existing_input.status_override = None
+    existing_input.updated_by_user_id = updated_by_user_id
+    session.flush()
+    return True
 
 
 def auto_select_and_rescore(
@@ -139,25 +140,16 @@ def auto_select_and_rescore(
         or 0
     ) > 0
 
-    existing_input = session.scalar(
-        select(TaskScoringInput).where(
-            TaskScoringInput.task_id == task.id,
-            TaskScoringInput.pilot_id == pilot_id,
-        )
-    )
-    if existing_input is None and not has_scored:
-        return
-
     changed = select_upload_for_scoring(session, task, pilot_id, upload, uploaded_by_user_id)
-    if changed and has_scored:
+    if changed:
         rescore_task(session, task.id)
         log_action(
             session,
             actor_user_id=uploaded_by_user_id,
-            action="task.auto_rescore",
+            action="task.auto_score",
             entity_type="task",
             entity_id=str(task.id),
-            details={"pilot_id": pilot_id, "upload_id": upload.id, "trigger": "new_upload"},
+            details={"pilot_id": pilot_id, "upload_id": upload.id, "trigger": "new_upload", "previously_scored": has_scored},
         )
 
 

@@ -1,5 +1,15 @@
 # Aervyx Mobile Changelog
 
+## 0.4.48+65 - 2026-06-02
+
+### Changed
+- Starting tracking now force-requests reconnect to the saved Meshtastic
+  Bluetooth device when the mesh radio is not already connected.
+- Second-flight monitoring now actively polls for fresh low-power GPS fixes so
+  re-launch detection is less dependent on platform stream emissions.
+- Mesh-sourced pilots on the live map now use dashed marker rings to match the
+  website map.
+
 ## 0.4.47+64 - 2026-06-01
 
 ### Added

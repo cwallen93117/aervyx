@@ -26,7 +26,21 @@ void main() async {
   final apiService = ApiService();
   final authService = AuthService(apiService);
   final igcService = IgcService();
-  final trackingService = TrackingService(apiService, authService, igcService);
+  late final TrackingService trackingService;
+  final bleService = BleService(
+    apiService,
+    batteryThresholdProvider: () => trackingService.batteryThreshold,
+  );
+  trackingService = TrackingService(
+    apiService,
+    authService,
+    igcService,
+    meshReconnectRequester: ({bool force = false}) async {
+      if (!bleService.isConnected) {
+        await bleService.restoreAutoReconnect(force: force);
+      }
+    },
+  );
 
   // Restore session with a safety net — app must never hang on startup
   try {
@@ -44,10 +58,6 @@ void main() async {
   }
 
   // Sync platform config (MQTT + device profiles) in background after auth
-  final bleService = BleService(
-    apiService,
-    batteryThresholdProvider: () => trackingService.batteryThreshold,
-  );
   if (authService.isLoggedIn) {
     // Don't await — let it run in background so app opens immediately
     unawaited(bleService.syncPlatformConfig());

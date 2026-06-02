@@ -478,3 +478,129 @@ def test_driver_mesh_device_positions_are_classified_as_driver_subjects() -> Non
     assert rows[0]["pilot_name"] == "Driver Car"
     assert rows[0]["profile_type"] == "driver"
     assert rows[0]["position_source"] == "mesh"
+
+
+def test_driver_wifi_mesh_ingest_uses_owner_user_subject_and_car_profile() -> None:
+    session = _session()
+    event = Event(
+        name="Tahoe Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 3),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Active task", status="active", task_date=date(2026, 5, 2))
+    user = User(
+        username="charles@example.com",
+        full_name="Charles Allen",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+    )
+    session.add_all([task, user, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    session.add(
+        MeshDevice(
+            owner_user_id=user.id,
+            device_id="!tahoe01",
+            label="Tahoe",
+            purpose="driver_wifi",
+            is_active=True,
+        )
+    )
+    session.commit()
+
+    response = post_position(
+        PositionPayload(
+            source="mqtt_gateway",
+            device_id="!tahoe01",
+            lat=35.0,
+            lon=-82.0,
+            timestamp=datetime.now(UTC),
+        ),
+        user,
+        session,
+    )
+
+    assert response.subject_key == f"user:{user.id}"
+    assert response.pilot_id is None
+    assert response.user_id == user.id
+    assert response.profile_type == "driver"
+    assert response.pilot_name == "Tahoe"
+
+    rows = get_all_active_positions(session, minutes=10)
+    assert len(rows) == 1
+    assert rows[0]["subject_key"] == f"user:{user.id}"
+    assert rows[0]["pilot_id"] is None
+    assert rows[0]["profile_type"] == "driver"
+    assert rows[0]["pilot_name"] == "Tahoe"
+
+
+def test_pilot_phone_and_owned_mesh_positions_collapse_to_one_subject() -> None:
+    session = _session()
+    event = Event(
+        name="Pilot Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 3),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Jim", last_name="Messina", email="jim@example.com")
+    session.add_all([event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Active task", status="active", task_date=date(2026, 5, 2))
+    user = User(
+        username="jim@example.com",
+        full_name="Jim Messina",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+        mesh_device_id=None,
+    )
+    session.add_all([task, user, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    session.add(
+        MeshDevice(
+            owner_user_id=user.id,
+            device_id="!0abc1234",
+            label="Jim Mesh",
+            purpose="tracking",
+            is_active=True,
+        )
+    )
+    session.commit()
+
+    phone = post_position(
+        PositionPayload(
+            source="app",
+            lat=35.0,
+            lon=-82.0,
+            timestamp=datetime.now(UTC) - timedelta(seconds=5),
+        ),
+        user,
+        session,
+    )
+    mesh = post_position(
+        PositionPayload(
+            source="mesh_relay",
+            device_id="!0abc1234",
+            lat=35.1,
+            lon=-82.1,
+            timestamp=datetime.now(UTC),
+        ),
+        user,
+        session,
+    )
+
+    assert phone.subject_key == mesh.subject_key == f"pilot:{pilot.id}"
+    assert mesh.pilot_id == pilot.id
+    assert mesh.user_id == user.id
+
+    rows = get_all_active_positions(session, minutes=10)
+    assert {row["subject_key"] for row in rows} == {f"pilot:{pilot.id}"}
+    sessions = session.scalars(select(TrackingSession).where(TrackingSession.is_active.is_(True))).all()
+    assert len(sessions) == 1
+    assert sessions[0].pilot_id == pilot.id

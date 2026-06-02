@@ -201,6 +201,42 @@ def test_bulk_upload_duplicate_files_reuse_existing_uploads(monkeypatch, tmp_pat
     assert rescore_calls == [task.id]
 
 
+def test_single_upload_auto_selects_only_when_no_upload_is_selected(monkeypatch, tmp_path) -> None:
+    session = _session()
+    admin, task, pilots = _bulk_upload_fixture(session)
+    pilot = pilots[0]
+    rescore_calls: list[int] = []
+    monkeypatch.setattr(uploads_router, "get_settings", lambda: SimpleNamespace(max_upload_size_mb=10, upload_root=str(tmp_path)))
+    monkeypatch.setattr(uploads_router, "_publish", lambda task_id, payload: None)
+    monkeypatch.setattr(uploads_router, "rescore_task", lambda active_session, task_id: rescore_calls.append(task_id) or [])
+
+    first = asyncio.run(uploads_router.upload_igc(
+        task.id,
+        _upload_file("first.igc", _igc_content("Charles Allen", 1)),
+        pilot.id,
+        "manual",
+        admin,
+        session,
+    ))
+    second = asyncio.run(uploads_router.upload_igc(
+        task.id,
+        _upload_file("second.igc", _igc_content("Charles Allen", 2)),
+        pilot.id,
+        "manual",
+        admin,
+        session,
+    ))
+
+    scoring_input = session.scalar(select(TaskScoringInput).where(
+        TaskScoringInput.task_id == task.id,
+        TaskScoringInput.pilot_id == pilot.id,
+    ))
+    assert scoring_input is not None
+    assert scoring_input.selected_upload_id == first.id
+    assert second.id != first.id
+    assert rescore_calls == [task.id]
+
+
 def test_bulk_upload_review_candidate_is_uploaded_but_not_selected(monkeypatch, tmp_path) -> None:
     session = _session()
     admin, task, pilots = _bulk_upload_fixture(session)

@@ -40,6 +40,13 @@ void main() {
         isTrue);
   });
 
+  test('mesh positions use dashed marker borders', () {
+    expect(livePositionSourceUsesDashedBorder('mesh'), isTrue);
+    expect(livePositionSourceUsesDashedBorder('cellular'), isFalse);
+    expect(livePositionSourceUsesDashedBorder('other'), isFalse);
+    expect(livePositionSourceUsesDashedBorder(null), isFalse);
+  });
+
   test('directions URIs target default map apps with web fallback', () {
     expect(
       liveDirectionsGeoUri(35.1, -82.2, label: 'Pat Pilot').toString(),

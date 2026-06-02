@@ -648,7 +648,14 @@ def public_event_positions(
     if not pilot_ids and not user_ids:
         return []
 
-    rows = get_position_history_for_subjects(session, pilot_ids, user_ids, minutes=minutes, limit=limit)
+    rows = get_position_history_for_subjects(
+        session,
+        pilot_ids,
+        user_ids,
+        minutes=minutes,
+        limit=limit,
+        include_received_app_timestamp_fallback=True,
+    )
     return [PublicPositionResponse(**row) for row in rows]
 
 
@@ -862,5 +869,12 @@ def public_all_positions(
 ) -> list[PublicPositionResponse]:
     """Return retained current-day position records for registered public users."""
     pilot_ids, user_ids = _public_registered_live_subject_ids(session)
-    rows = get_position_history_for_subjects(session, pilot_ids, user_ids, minutes=minutes, limit=limit)
+    rows = get_position_history_for_subjects(
+        session,
+        pilot_ids,
+        user_ids,
+        minutes=minutes,
+        limit=limit,
+        include_received_app_timestamp_fallback=True,
+    )
     return [PublicPositionResponse(**row) for row in rows]
