@@ -320,7 +320,7 @@ export default function TasksSection(props: TasksSectionProps) {
                     <>
                       <div className="cluster-stack">
                         <label className="stack compact">
-                          <span>Task start</span>
+                          <span>Start Open</span>
                           <input type="time" step={60} value={taskDraft.task_start_time} onChange={(event) => setTaskDraft({ ...taskDraft, task_start_time: event.target.value })} disabled={!canManagePlatform} />
                         </label>
                         <label className="stack compact">

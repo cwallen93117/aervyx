@@ -381,6 +381,13 @@ def _normalized_task_type_for_scoring(task_type: str | None) -> str:
     return legacy_map.get(task_type, task_type)
 
 
+def _effective_start_open_clock(task: Task) -> str | None:
+    task_type = _normalized_task_type_for_scoring(getattr(task, "task_type", None))
+    if task_type in {"elapsed_time", "open_distance"}:
+        return task.task_start_time or task.start_open_time
+    return task.start_open_time or task.task_start_time
+
+
 def _jump_the_gun_penalty(formula: dict, jump_seconds: int) -> tuple[int, float]:
     max_jump_seconds = max(int(formula.get("jump_the_gun_max_seconds", 0) or 0), 0)
     penalty_seconds = min(jump_seconds, max_jump_seconds) if max_jump_seconds > 0 else jump_seconds
@@ -963,7 +970,7 @@ def evaluate_task(
             airscore_waypoints = computed_waypoints
 
     timezone_name = _effective_timezone_name(event_timezone, ordered_points)
-    start_open_at = _resolve_task_time_utc(task.start_open_time or task.task_start_time, trackpoints, timezone_name)
+    start_open_at = _resolve_task_time_utc(_effective_start_open_clock(task), trackpoints, timezone_name)
     start_close_at = _resolve_task_time_utc(task.start_close_time or task.task_finish_time, trackpoints, timezone_name)
     configured_start_close_at = _resolve_task_time_utc(task.start_close_time, trackpoints, timezone_name)
     task_finish_at = _resolve_task_time_utc(task.task_finish_time, trackpoints, timezone_name)
@@ -1771,19 +1778,20 @@ def _score_evaluations(
             sfinish_epoch = sstart_epoch + 86400
             break
     # Try to get more accurate times from task fields
-    if task.start_open_time and evaluations:
+    effective_start_open_time = _effective_start_open_clock(task)
+    if effective_start_open_time and evaluations:
         for entry in evaluations:
             ev = entry.get("evaluation", {})
             sa = ev.get("started_at")
             if sa is not None:
-                # Resolve start_open_time to epoch using the flight date
+                # Resolve the effective start open to epoch using the flight date.
                 from datetime import datetime as dt_cls
                 try:
                     zone = ZoneInfo(_resolve_timezone_name(scoring_timezone_name))
                 except (ZoneInfoNotFoundError, AttributeError):
                     zone = ZoneInfo("UTC")
                 flight_date = sa.astimezone(zone).date()
-                open_time = _parse_clock_time(task.start_open_time)
+                open_time = _parse_clock_time(effective_start_open_time)
                 finish_time = _parse_clock_time(task.task_finish_time)
                 if open_time:
                     sstart_epoch = dt_cls.combine(flight_date, open_time, tzinfo=zone).timestamp()
@@ -2186,7 +2194,7 @@ def build_task_scoring_audit(session: Session, task_id: int) -> dict:
     distance_waypoints, _ = _prepare_waypoints_for_distance(airscore_waypoints, _build_formula(task, event))
     timezone_name = _effective_timezone_name(event.timezone if event else None, task_points)
     local_date = _event_task_local_date(task, event, None, timezone_name)
-    first_gate_utc = _resolve_clock_time_utc(task.start_open_time or task.task_start_time, local_date, timezone_name)
+    first_gate_utc = _resolve_clock_time_utc(_effective_start_open_clock(task), local_date, timezone_name)
     finish_utc = _resolve_clock_time_utc(task.start_close_time or task.task_finish_time, local_date, timezone_name)
     gates = _start_gate_times(task, first_gate_utc)
 
@@ -2262,7 +2270,7 @@ def build_task_scoring_audit(session: Session, task_id: int) -> dict:
             "task_type": task.task_type,
             "task_start_time": task.task_start_time,
             "task_finish_time": task.task_finish_time,
-            "start_open_time": task.start_open_time,
+            "start_open_time": _effective_start_open_clock(task),
             "start_close_time": task.start_close_time,
             "start_gate_count": task.start_gate_count,
             "start_gate_interval_seconds": task.start_gate_interval_seconds,

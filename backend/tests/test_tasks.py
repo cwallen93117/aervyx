@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import Event, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.tasks import _task_response, create_task, delete_task, list_tasks, unpublish_task
+from app.routers.tasks import _task_response, create_task, delete_task, list_tasks, unpublish_task, update_task
 from app.schemas import TaskInput
 
 
@@ -305,6 +305,75 @@ def test_task_response_maps_legacy_task_types_to_new_labels() -> None:
     response = _task_response(session, task)
 
     assert response.task_type == "elapsed_time"
+
+
+def test_elapsed_task_response_uses_task_start_as_effective_start_open() -> None:
+    session = _session()
+    event = Event(
+        name="Elapsed Event",
+        location="Tow Ridge",
+        starts_on=date(2026, 3, 18),
+        ends_on=date(2026, 3, 19),
+        timezone="America/New_York",
+    )
+    session.add(event)
+    session.flush()
+
+    task = Task(
+        event_id=event.id,
+        name="Elapsed Task",
+        task_type="elapsed_time",
+        task_start_time="13:30:00",
+        start_open_time="14:30:00",
+    )
+    session.add(task)
+    session.commit()
+
+    response = _task_response(session, task)
+
+    assert response.task_type == "elapsed_time"
+    assert response.task_start_time == "13:30:00"
+    assert response.start_open_time == "13:30:00"
+
+
+def test_elapsed_task_update_clears_stale_start_open_storage() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin User", role="admin")
+    event = Event(
+        name="Elapsed Update Event",
+        location="Tow Ridge",
+        starts_on=date(2026, 3, 18),
+        ends_on=date(2026, 3, 19),
+        timezone="America/New_York",
+    )
+    session.add_all([admin, event])
+    session.flush()
+    task = Task(
+        event_id=event.id,
+        name="Elapsed Task",
+        task_type="elapsed_time",
+        task_start_time="13:30:00",
+        start_open_time="14:30:00",
+    )
+    session.add(task)
+    session.commit()
+
+    response = update_task(
+        task.id,
+        TaskInput(
+            name="Elapsed Task",
+            task_type="elapsed_time",
+            task_start_time="13:30:00",
+            start_open_time="14:30:00",
+            points=[],
+        ),
+        admin=admin,
+        session=session,
+    )
+
+    session.refresh(task)
+    assert task.start_open_time is None
+    assert response.start_open_time == "13:30:00"
 
 
 def test_task_response_normalizes_legacy_race_to_goal_to_gated_race() -> None:

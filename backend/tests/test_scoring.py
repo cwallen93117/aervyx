@@ -158,6 +158,31 @@ def test_start_time_uses_exit_of_start_cylinder_after_open_time() -> None:
     assert result["goal_at"] == track_points[3].recorded_at
 
 
+def test_elapsed_scoring_ignores_stale_start_open_time() -> None:
+    task = _task()
+    task.task_type = "elapsed_time"
+    task.task_start_time = "13:30:00"
+    task.start_open_time = "14:30:00"
+    task.start_close_time = "20:00:00"
+    task.task_finish_time = "20:00:00"
+    task_points = [
+        _task_point(1, 1, "start", 39.09639, -75.89061, 5000),
+        _task_point(2, 2, "goal", 38.68586, -75.07051, 400),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 5, 4, 13, 25, 0, tzinfo=UTC), 39.09703, -75.89203),
+        _track_point_at(2, datetime(2026, 5, 4, 13, 35, 0, tzinfo=UTC), 39.096, -75.94),
+        _track_point_at(3, datetime(2026, 5, 4, 13, 50, 0, tzinfo=UTC), 38.68586, -75.07051),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["details"]["start_timing"]["actual_start_crossing_at"] == track_points[1].recorded_at.isoformat()
+    assert result["details"]["start_timing"]["scored_start_at"] == track_points[1].recorded_at.isoformat()
+    assert result["started_at"] == track_points[1].recorded_at
+    assert result["goal_at"] == track_points[2].recorded_at
+
+
 def test_elapsed_enter_start_uses_outside_fix_before_entry_as_start_time() -> None:
     task = _task()
     task.task_type = "elapsed_time"

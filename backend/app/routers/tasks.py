@@ -26,6 +26,20 @@ def _normalize_task_type(task_type: str | None) -> str:
     return legacy_map.get(task_type, task_type)  # type: ignore[arg-type]
 
 
+def _uses_independent_start_open(task_type: str | None) -> bool:
+    return _normalize_task_type(task_type) == "race_to_goal_with_gates"
+
+
+def _task_start_open_for_response(task: Task) -> str | None:
+    if _uses_independent_start_open(task.task_type):
+        return task.start_open_time
+    return task.task_start_time or task.start_open_time
+
+
+def _start_open_for_storage(task_type: str | None, start_open_time: str | None) -> str | None:
+    return start_open_time if _uses_independent_start_open(task_type) else None
+
+
 def _normalize_task_point_direction(direction: str | None, point_type: str) -> str:
     return direction if direction in {"enter", "exit"} else default_task_point_direction(point_type)
 
@@ -69,6 +83,7 @@ def _task_points_for_response(session: Session, task: Task) -> list[TaskPoint]:
 
 def _task_response(session: Session, task: Task) -> TaskResponse:
     points = _task_points_for_response(session, task)
+    task_type = _normalize_task_type(task.task_type)
     return TaskResponse(
         id=task.id,
         event_id=task.event_id,
@@ -76,10 +91,10 @@ def _task_response(session: Session, task: Task) -> TaskResponse:
         task_date=task.task_date,
         is_practice=bool(task.is_practice),
         status=task.status,
-        task_type=_normalize_task_type(task.task_type),
+        task_type=task_type,
         task_start_time=task.task_start_time,
         task_finish_time=task.task_finish_time,
-        start_open_time=task.start_open_time,
+        start_open_time=_task_start_open_for_response(task),
         start_close_time=task.start_close_time,
         start_gate_count=task.start_gate_count or 1,
         start_gate_interval_seconds=task.start_gate_interval_seconds,
@@ -118,16 +133,17 @@ def list_tasks(event_id: int, user: User = Depends(get_current_user), session: S
 def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
+    task_type = _normalize_task_type(payload.task_type)
     task = Task(
         event_id=event_id,
         name=payload.name,
         task_date=payload.task_date,
         is_practice=payload.is_practice,
         status=payload.status,
-        task_type=_normalize_task_type(payload.task_type),
+        task_type=task_type,
         task_start_time=payload.task_start_time,
         task_finish_time=payload.task_finish_time,
-        start_open_time=payload.start_open_time,
+        start_open_time=_start_open_for_storage(task_type, payload.start_open_time),
         start_close_time=payload.start_close_time,
         start_gate_count=payload.start_gate_count,
         start_gate_interval_seconds=payload.start_gate_interval_seconds,
@@ -157,14 +173,15 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    task_type = _normalize_task_type(payload.task_type)
     task.name = payload.name
     task.task_date = payload.task_date
     task.is_practice = payload.is_practice
     task.status = payload.status
-    task.task_type = _normalize_task_type(payload.task_type)
+    task.task_type = task_type
     task.task_start_time = payload.task_start_time
     task.task_finish_time = payload.task_finish_time
-    task.start_open_time = payload.start_open_time
+    task.start_open_time = _start_open_for_storage(task_type, payload.start_open_time)
     task.start_close_time = payload.start_close_time
     task.start_gate_count = payload.start_gate_count
     task.start_gate_interval_seconds = payload.start_gate_interval_seconds

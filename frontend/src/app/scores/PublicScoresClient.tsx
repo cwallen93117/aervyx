@@ -757,7 +757,7 @@ export function PublicScoresClient() {
         legDistanceKm: cumulativeDistance,
         identifier: point.name,
         radiusLabel: `${formatMeters(point.radius_m)} m`,
-        openLabel: formatTaskClockLabel(selectedTask.start_open_time || selectedTask.task_start_time || "-"),
+        openLabel: formatTaskClockLabel((selectedTask.task_type === "race_to_goal_with_gates" ? selectedTask.start_open_time : selectedTask.task_start_time) || selectedTask.task_start_time || "-"),
         closeLabel: formatTaskClockLabel(selectedTask.start_close_time || selectedTask.task_finish_time || "-"),
       };
     });

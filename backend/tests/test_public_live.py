@@ -645,6 +645,38 @@ def test_public_tasks_include_only_published_tasks_for_public_events() -> None:
     assert caught.value.status_code == 404
 
 
+def test_public_elapsed_task_uses_task_start_as_effective_start_open() -> None:
+    session = _session()
+    event = Event(
+        name="Public Elapsed Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+    )
+    session.add(event)
+    session.flush()
+    session.add(
+        Task(
+            event_id=event.id,
+            name="Elapsed Published",
+            status="published",
+            task_type="elapsed_time",
+            task_date=date(2026, 5, 4),
+            task_start_time="13:30:00",
+            start_open_time="14:30:00",
+        )
+    )
+    session.commit()
+
+    payload = list_public_tasks(event.id, session=session)
+
+    assert payload[0].task_type == "elapsed_time"
+    assert payload[0].task_start_time == "13:30:00"
+    assert payload[0].start_open_time == "13:30:00"
+
+
 def test_public_task_results_include_provisional_scores() -> None:
     session = _session()
     event = Event(

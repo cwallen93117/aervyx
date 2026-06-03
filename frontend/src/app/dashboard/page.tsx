@@ -1078,11 +1078,11 @@ export default function HomePage() {
         legDistanceKm: cumulativeDistance,
         identifier: sourceTurnpoint?.code || point.name,
         radiusLabel: `${formatMeters(point.radius_m)} m`,
-        openLabel: formatTaskClockLabel(taskDraft.start_open_time || taskDraft.task_start_time || "-"),
+        openLabel: formatTaskClockLabel((currentTaskTypeBehavior.usesStartWindow ? taskDraft.start_open_time : taskDraft.task_start_time) || taskDraft.task_start_time || "-"),
         closeLabel: formatTaskClockLabel(taskDraft.start_close_time || taskDraft.task_finish_time || "-"),
       };
     });
-  }, [taskDistanceMetrics.legMetrics, taskDraft.points, taskDraft.start_open_time, taskDraft.start_close_time, taskDraft.task_finish_time, taskDraft.task_start_time, turnpoints]);
+  }, [currentTaskTypeBehavior.usesStartWindow, taskDistanceMetrics.legMetrics, taskDraft.points, taskDraft.start_open_time, taskDraft.start_close_time, taskDraft.task_finish_time, taskDraft.task_start_time, turnpoints]);
   const startGateLabels = useMemo(() => {
     if (!currentTaskTypeBehavior.usesMultipleGates || !taskDraft.start_open_time || !taskDraft.start_gate_count || taskDraft.start_gate_interval_minutes === "") {
       return [];
@@ -2547,7 +2547,7 @@ export default function HomePage() {
         task_type: taskDraft.task_type,
         task_start_time: timeOrNull(taskDraft.task_start_time),
         task_finish_time: timeOrNull(taskDraft.task_finish_time),
-        start_open_time: timeOrNull(taskDraft.start_open_time),
+        start_open_time: currentTaskTypeBehavior.usesStartWindow ? timeOrNull(taskDraft.start_open_time) : null,
         start_close_time: timeOrNull(taskDraft.start_close_time),
         start_gate_count: taskDraft.start_gate_count,
         start_gate_interval_seconds: taskDraft.start_gate_interval_minutes === "" ? null : taskDraft.start_gate_interval_minutes * 60,
