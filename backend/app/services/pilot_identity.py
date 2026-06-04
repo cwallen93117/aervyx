@@ -130,6 +130,7 @@ def merge_user_accounts(session: Session, *, source_user_id: int, target_user_id
         raise ValueError("Both source and target users must exist before merging")
 
     changed = 0
+    source_mesh_device_id = source.mesh_device_id
     try:
         if add_user_email_alias(session, target, source.username) is not None:
             changed += 1
@@ -156,8 +157,18 @@ def merge_user_accounts(session: Session, *, source_user_id: int, target_user_id
         session.add(device)
     if devices:
         changed += len(devices)
-        if not target.mesh_device_id:
-            target.mesh_device_id = source.mesh_device_id
+        if source_mesh_device_id:
+            source.mesh_device_id = None
+            session.add(source)
+            session.flush()
+            mesh_holder = session.scalar(
+                select(User).where(
+                    User.mesh_device_id == source_mesh_device_id,
+                    User.id != target.id,
+                )
+            )
+            if not target.mesh_device_id and mesh_holder is None:
+                target.mesh_device_id = source_mesh_device_id
 
     if source.pilot_id and not target.pilot_id:
         target.pilot_id = source.pilot_id

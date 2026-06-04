@@ -546,6 +546,32 @@ def test_startup_repair_merges_jim_and_james_messina_user_records() -> None:
     assert session.scalar(select(TrackingSession).where(TrackingSession.pilot_id == jim_id, TrackingSession.user_id == jim_user.id)) is not None
 
 
+def test_startup_repair_moves_mesh_device_pointer_without_unique_violation() -> None:
+    session = _session()
+    jim_pilot = Pilot(first_name="Jim", last_name="Messina", email="jim@example.com")
+    james_pilot = Pilot(first_name="James", last_name="Messina", email="james@example.com")
+    session.add_all([jim_pilot, james_pilot])
+    session.flush()
+    jim_user = User(username="jim@example.com", full_name="Jim Messina", role="pilot", pilot_id=jim_pilot.id, password_hash="hash")
+    james_user = User(username="james@example.com", full_name="James Messina", role="pilot", pilot_id=james_pilot.id, password_hash="hash", mesh_device_id="!4671f393")
+    session.add_all([jim_user, james_user])
+    session.flush()
+    session.add(MeshDevice(owner_user_id=james_user.id, device_id="!tracker", label="Messina tracker", purpose="tracking"))
+    session.commit()
+
+    changed = repair_pilot_email_identities(session)
+    session.commit()
+
+    session.refresh(jim_user)
+    session.refresh(james_user)
+    device = session.scalar(select(MeshDevice).where(MeshDevice.device_id == "!tracker"))
+    assert changed > 0
+    assert jim_user.mesh_device_id == "!4671f393"
+    assert james_user.is_active is False
+    assert device is not None
+    assert device.owner_user_id == jim_user.id
+
+
 def test_update_settings_updates_pilot_profile_and_username_email() -> None:
     session = _session()
     pilot = Pilot(first_name="Robin", last_name="Wing", email="robin@example.com", nation="US")
