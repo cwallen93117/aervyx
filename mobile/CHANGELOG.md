@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.51+68 - 2026-06-04
+
+### Fixed
+- Foreground-service GPS updates now feed the active IGC recording when the
+  foreground location stream goes quiet, keeping tracklogs recording while the
+  app is backgrounded or the screen is off.
+- Backend-offline upload errors no longer hide an active landing countdown
+  message.
+
 ## 0.4.50+67 - 2026-06-04
 
 ### Fixed

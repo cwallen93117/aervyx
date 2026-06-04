@@ -6,12 +6,15 @@ import 'package:aervyx_mobile/services/auth_service.dart';
 import 'package:aervyx_mobile/services/igc_service.dart';
 import 'package:aervyx_mobile/services/tracking_service.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class _FakeApiService extends ApiService {
   final List<String> uploadPaths = [];
   final List<Map<String, String>?> uploadFields = [];
+  int postCalls = 0;
   Object? getError;
+  Object? postError;
 
   @override
   Future<Map<String, dynamic>> get(
@@ -33,6 +36,16 @@ class _FakeApiService extends ApiService {
     uploadFields.add(fields);
     return <String, dynamic>{};
   }
+
+  @override
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    postCalls += 1;
+    if (postError != null) throw postError!;
+    return <String, dynamic>{};
+  }
 }
 
 class _FakeIgcService extends IgcService {
@@ -49,6 +62,15 @@ class _FakeIgcService extends IgcService {
     int? flightNumber,
   }) async {
     return savedPath;
+  }
+}
+
+class _RecordingIgcService extends IgcService {
+  int recordedPoints = 0;
+
+  @override
+  void addTrackPoint(Position pos) {
+    recordedPoints += 1;
   }
 }
 
@@ -110,6 +132,31 @@ void main() {
 
     expect(tracking.backendConnected, isTrue);
     expect(tracking.error, isNull);
+    tracking.dispose();
+  });
+
+  test(
+      'background service positions continue IGC recording when backend post fails',
+      () async {
+    final api = _FakeApiService()..postError = const SocketException('offline');
+    final igc = _RecordingIgcService();
+    final tracking = _trackingService(api, igc);
+
+    tracking.debugSetTrackingStateForRecordingTest(TrackingState.inFlight);
+    await tracking.debugHandleBackgroundPositionForTest({
+      'lat': 36.123,
+      'lon': -118.456,
+      'alt': 1200,
+      'speed': 12,
+      'heading': 90,
+      'accuracy': 4,
+      'timestamp': '2026-06-04T18:00:00Z',
+    });
+
+    expect(igc.recordedPoints, 1);
+    expect(api.postCalls, 1);
+    expect(tracking.error, startsWith('Backend offline'));
+    expect(tracking.trackingState, TrackingState.inFlight);
     tracking.dispose();
   });
 }

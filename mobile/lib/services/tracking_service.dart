@@ -176,6 +176,7 @@ class TrackingService extends ChangeNotifier {
   TrackingState _trackingState = TrackingState.idle;
   model.Position? _lastPosition;
   StreamSubscription<Position>? _locationSubscription;
+  StreamSubscription<Map<String, dynamic>?>? _backgroundPositionSubscription;
   Timer? _batteryCheckTimer;
   Timer? _flightTimer;
   Timer? _adaptiveTimer;
@@ -334,6 +335,17 @@ class TrackingService extends ChangeNotifier {
   @visibleForTesting
   Future<void> debugSaveCurrentFlightForUploadTest(int? taskId) =>
       _saveCurrentFlight(taskId);
+
+  @visibleForTesting
+  void debugSetTrackingStateForRecordingTest(TrackingState state) {
+    _trackingState = state;
+  }
+
+  @visibleForTesting
+  Future<void> debugHandleBackgroundPositionForTest(
+    Map<String, dynamic> data,
+  ) =>
+      _handleBackgroundPositionUpdate(data, ignoreRecentForeground: true);
 
   TrackingService(
     this._api,
@@ -506,6 +518,7 @@ class TrackingService extends ChangeNotifier {
 
     try {
       await BackgroundTrackingService.start();
+      _startBackgroundPositionListener();
     } catch (_) {
       // Background service unavailable; foreground tracking still resumes.
     }
@@ -734,6 +747,7 @@ class TrackingService extends ChangeNotifier {
     // Start background foreground service (keeps GPS alive when app is backgrounded)
     try {
       await BackgroundTrackingService.start();
+      _startBackgroundPositionListener();
     } catch (_) {
       // Background service unavailable — foreground-only mode
     }
@@ -791,6 +805,8 @@ class TrackingService extends ChangeNotifier {
 
     _locationSubscription?.cancel();
     _locationSubscription = null;
+    _backgroundPositionSubscription?.cancel();
+    _backgroundPositionSubscription = null;
     _adaptiveTimer?.cancel();
     _adaptiveTimer = null;
     _batteryCheckTimer?.cancel();
@@ -891,6 +907,52 @@ class TrackingService extends ChangeNotifier {
           Geolocator.getPositionStream(locationSettings: settings)
               .listen(_onPositionUpdate, onError: _onLocationError);
     }
+  }
+
+  void _startBackgroundPositionListener() {
+    if (_backgroundPositionSubscription != null) return;
+    _backgroundPositionSubscription = BackgroundTrackingService.onPositionUpdate
+        .listen(_handleBackgroundPositionUpdate, onError: _onLocationError);
+  }
+
+  Future<void> _handleBackgroundPositionUpdate(
+    Map<String, dynamic>? data, {
+    bool ignoreRecentForeground = false,
+  }) async {
+    if (data == null) return;
+    if (_trackingState != TrackingState.preFlight &&
+        _trackingState != TrackingState.inFlight) {
+      return;
+    }
+    if (!ignoreRecentForeground &&
+        DateTime.now().difference(_lastStreamPositionAt) <
+            const Duration(seconds: 2)) {
+      return;
+    }
+    final position = _positionFromBackgroundData(data);
+    if (position == null) return;
+    await _onPositionUpdate(position);
+  }
+
+  Position? _positionFromBackgroundData(Map<String, dynamic> data) {
+    final lat = (data['lat'] as num?)?.toDouble();
+    final lon = (data['lon'] as num?)?.toDouble();
+    if (lat == null || lon == null) return null;
+    final timestamp =
+        DateTime.tryParse(data['timestamp'] as String? ?? '')?.toUtc() ??
+            DateTime.now().toUtc();
+    return Position(
+      latitude: lat,
+      longitude: lon,
+      altitude: (data['alt'] as num?)?.toDouble() ?? 0,
+      altitudeAccuracy: 0,
+      speed: (data['speed'] as num?)?.toDouble() ?? 0,
+      heading: (data['heading'] as num?)?.toDouble() ?? 0,
+      accuracy: (data['accuracy'] as num?)?.toDouble() ?? 0,
+      headingAccuracy: 0,
+      speedAccuracy: 0,
+      timestamp: timestamp,
+    );
   }
 
   /// Start a low-power GPS stream for monitoring mode.
@@ -1284,6 +1346,8 @@ class TrackingService extends ChangeNotifier {
       // Fully stop
       _locationSubscription?.cancel();
       _locationSubscription = null;
+      _backgroundPositionSubscription?.cancel();
+      _backgroundPositionSubscription = null;
       _batteryCheckTimer?.cancel();
       _batteryCheckTimer = null;
       _trackingState = TrackingState.idle;
@@ -1486,8 +1550,10 @@ class TrackingService extends ChangeNotifier {
       if (_positionBuffer.length < _maxBufferSize) {
         _positionBuffer.add(payload);
       }
-      _error = 'Backend offline — recording locally'
-          '${_positionBuffer.isNotEmpty ? ' (${_positionBuffer.length} buffered)' : ''}';
+      if (_error?.startsWith('Landing detected') != true) {
+        _error = 'Backend offline — recording locally'
+            '${_positionBuffer.isNotEmpty ? ' (${_positionBuffer.length} buffered)' : ''}';
+      }
     }
   }
 
@@ -1787,6 +1853,7 @@ class TrackingService extends ChangeNotifier {
   @override
   void dispose() {
     _locationSubscription?.cancel();
+    _backgroundPositionSubscription?.cancel();
     _heartbeatTimer?.cancel();
     _batteryCheckTimer?.cancel();
     _flightTimer?.cancel();

@@ -16,6 +16,11 @@ and environment.
 ## [2026.06.04]
 
 ### Fixed
+- **Mobile v0.4.51+68** records foreground-service GPS updates into the active
+  IGC when the foreground location stream goes quiet, so flight recording keeps
+  going while the app is backgrounded or the screen is off.
+- Mobile no longer lets backend-offline upload errors hide an active landing
+  countdown message.
 - **Mobile v0.4.50+67** preserves the active task when saving a completed
   mobile flight, so task tracklogs upload to scoring instead of falling back to
   logbook-only uploads.
