@@ -10,15 +10,17 @@ from starlette.requests import Request
 from app.core.security import create_access_token, create_refresh_token, decode_access_token
 from app.db import Base
 from app.deps import get_current_user, token_subject_for_user
-from app.models import Event, EventPilot, LivePosition, MeshDevice, Pilot, ScoreResult, Task, TaskScoringInput, TrackingSession, User
+from app.models import Event, EventPilot, LivePosition, MeshDevice, Pilot, ScoreResult, Task, TaskScoringInput, TrackingSession, User, UserEmail
 from app.routers.auth import (
     admin_delete_user_mesh_device,
     admin_set_user_tracking_mesh_device,
     admin_update_user_mesh_device,
+    add_email,
     change_password,
     claim_pilot,
     create_mesh_device,
     delete_user_account,
+    login,
     list_mesh_devices,
     list_users,
     register,
@@ -30,7 +32,7 @@ from app.routers.auth import (
 )
 from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RefreshRequest, RegisterRequest
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import backfill_user_subject_pilot_links, merge_pilots, repair_pilot_email_identities
 
@@ -468,6 +470,80 @@ def test_claim_pilot_merges_existing_duplicate_user_pilot() -> None:
     assert user.pilot_id == roster_id
     assert session.get(Pilot, duplicate_id) is None
     assert session.scalar(select(LivePosition).where(LivePosition.pilot_id == roster_id)) is not None
+
+
+def test_additional_email_login_and_merges_matching_imported_pilot() -> None:
+    session = _session()
+    roster_pilot = Pilot(first_name="James", last_name="Messina", email="james@example.com")
+    user_pilot = Pilot(first_name="Jim", last_name="Messina", email="jim@example.com")
+    event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 5, 29), ends_on=date(2026, 6, 6), timezone="UTC")
+    session.add_all([roster_pilot, user_pilot, event])
+    session.flush()
+    user = User(username="jim@example.com", full_name="Jim Messina", role="pilot", pilot_id=user_pilot.id, password_hash="hashed")
+    session.add_all(
+        [
+            user,
+            EventPilot(event_id=event.id, pilot_id=roster_pilot.id),
+            LivePosition(pilot_id=roster_pilot.id, user_id=None, lat=40.0, lon=-75.0, timestamp=datetime(2026, 5, 28, 12, 0, tzinfo=UTC)),
+        ]
+    )
+    session.commit()
+
+    add_email(UserEmailCreate(email="James@Example.com"), user, session)
+
+    session.refresh(user)
+    assert user.pilot_id == user_pilot.id
+    assert session.get(Pilot, roster_pilot.id) is None
+    assert session.scalar(select(UserEmail).where(UserEmail.user_id == user.id, UserEmail.email == "james@example.com")) is not None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == user_pilot.id)) is not None
+    assert session.scalar(select(LivePosition).where(LivePosition.pilot_id == user_pilot.id)) is not None
+
+    with patch("app.routers.auth.verify_password", return_value=True):
+        response = login(_request(), LoginRequest(username="james@example.com", password="secret123"), session)
+
+    assert response.user.id == user.id
+
+
+def test_startup_repair_merges_jim_and_james_messina_user_records() -> None:
+    session = _session()
+    jim_pilot = Pilot(first_name="Jim", last_name="Messina", email="jim@example.com")
+    james_pilot = Pilot(first_name="James", last_name="Messina", email="james@example.com")
+    event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 5, 29), ends_on=date(2026, 6, 6), timezone="UTC", is_public_tracking=True)
+    session.add_all([jim_pilot, james_pilot, event])
+    session.flush()
+    jim_user = User(username="jim@example.com", full_name="Jim Messina", role="pilot", pilot_id=jim_pilot.id, password_hash="hash")
+    james_user = User(username="james@example.com", full_name="James Messina", role="pilot", pilot_id=james_pilot.id, password_hash="hash")
+    session.add_all([jim_user, james_user])
+    session.flush()
+    session.add_all(
+        [
+            EventPilot(event_id=event.id, pilot_id=jim_pilot.id),
+            EventPilot(event_id=event.id, pilot_id=james_pilot.id),
+            LivePosition(pilot_id=james_pilot.id, user_id=james_user.id, lat=40.0, lon=-75.0, timestamp=datetime(2026, 5, 28, 12, 0, tzinfo=UTC)),
+            TrackingSession(pilot_id=james_pilot.id, user_id=james_user.id),
+        ]
+    )
+    session.commit()
+    jim_id = jim_pilot.id
+    james_id = james_pilot.id
+
+    changed = repair_pilot_email_identities(session)
+    session.commit()
+
+    session.refresh(jim_user)
+    session.refresh(james_user)
+    assert changed > 0
+    assert jim_user.is_active is True
+    assert jim_user.pilot_id == jim_id
+    assert jim_user.full_name == "Jim Messina"
+    assert james_user.is_active is False
+    assert james_user.pilot_id is None
+    assert session.get(Pilot, james_id) is None
+    assert session.scalar(select(UserEmail).where(UserEmail.user_id == jim_user.id, UserEmail.email == "james@example.com")) is not None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == jim_id)) is not None
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == james_id)) is None
+    assert session.scalar(select(LivePosition).where(LivePosition.pilot_id == jim_id, LivePosition.user_id == jim_user.id)) is not None
+    assert session.scalar(select(TrackingSession).where(TrackingSession.pilot_id == jim_id, TrackingSession.user_id == jim_user.id)) is not None
 
 
 def test_update_settings_updates_pilot_profile_and_username_email() -> None:

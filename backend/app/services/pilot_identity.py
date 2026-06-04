@@ -13,6 +13,7 @@ from app.models import (
     EventPilot,
     IGCUpload,
     LivePosition,
+    MeshDevice,
     Pilot,
     PilotFlight,
     PilotLanding,
@@ -83,6 +84,90 @@ def find_pilot_user_by_email(session: Session, email: str | None) -> User | None
             User.is_active.is_(True),
         )
     )
+
+
+def find_user_by_login_email(session: Session, email: str | None, *, role: str | None = None) -> User | None:
+    normalized = normalize_email(email)
+    if normalized is None:
+        return None
+    filters = [User.is_active.is_(True)]
+    if role is not None:
+        filters.append(User.role == role)
+    user = session.scalar(select(User).where(func.lower(User.username) == normalized, *filters))
+    if user is not None:
+        return user
+    email_row = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == normalized))
+    if email_row is None:
+        return None
+    owner = session.get(User, email_row.user_id)
+    if owner is None or not owner.is_active:
+        return None
+    if role is not None and owner.role != role:
+        return None
+    return owner
+
+
+def add_user_email_alias(session: Session, user: User, email: str | None) -> UserEmail | None:
+    normalized = normalize_email(email)
+    if normalized is None or normalize_email(user.username) == normalized:
+        return None
+    existing = session.scalar(select(UserEmail).where(func.lower(UserEmail.email) == normalized))
+    if existing is not None:
+        if existing.user_id == user.id:
+            return existing
+        raise ValueError("Email already belongs to another account")
+    row = UserEmail(user_id=user.id, email=normalized)
+    session.add(row)
+    return row
+
+
+def merge_user_accounts(session: Session, *, source_user_id: int, target_user_id: int) -> int:
+    if source_user_id == target_user_id:
+        return 0
+    source = session.get(User, source_user_id)
+    target = session.get(User, target_user_id)
+    if source is None or target is None:
+        raise ValueError("Both source and target users must exist before merging")
+
+    changed = 0
+    try:
+        if add_user_email_alias(session, target, source.username) is not None:
+            changed += 1
+    except ValueError:
+        pass
+    for alias in session.scalars(select(UserEmail).where(UserEmail.user_id == source.id)).all():
+        try:
+            add_user_email_alias(session, target, alias.email)
+        except ValueError:
+            pass
+        session.delete(alias)
+        changed += 1
+
+    for model in (LivePosition, TrackingSession):
+        rows = session.scalars(select(model).where(model.user_id == source.id)).all()
+        for row in rows:
+            row.user_id = target.id
+            session.add(row)
+        changed += len(rows)
+
+    devices = session.scalars(select(MeshDevice).where(MeshDevice.owner_user_id == source.id)).all()
+    for device in devices:
+        device.owner_user_id = target.id
+        session.add(device)
+    if devices:
+        changed += len(devices)
+        if not target.mesh_device_id:
+            target.mesh_device_id = source.mesh_device_id
+
+    if source.pilot_id and not target.pilot_id:
+        target.pilot_id = source.pilot_id
+    if not target.full_name and source.full_name:
+        target.full_name = source.full_name
+    source.is_active = False
+    source.pilot_id = None
+    source.mesh_device_id = None
+    session.add_all([source, target])
+    return changed + 1
 
 
 def _best_pilot_candidate(session: Session, candidates: list[Pilot], preferred: Pilot | None = None) -> Pilot | None:
@@ -250,13 +335,14 @@ def participant_event_ids_for_user(session: Session, user: User) -> set[int]:
     event_ids: set[int] = set()
     if user.pilot_id is not None:
         event_ids.update(session.scalars(select(EventPilot.event_id).where(EventPilot.pilot_id == user.pilot_id)).all())
-    email = normalize_email(user.username)
-    if email:
+    emails = {email for email in [normalize_email(user.username)] if email}
+    emails.update(session.scalars(select(UserEmail.email).where(UserEmail.user_id == user.id)).all())
+    for email in emails:
         event_ids.update(
             session.scalars(
                 select(EventPilot.event_id)
                 .join(Pilot, Pilot.id == EventPilot.pilot_id)
-                .where(func.lower(Pilot.email) == email)
+                .where(func.lower(Pilot.email) == email.lower())
             ).all()
         )
     return event_ids
@@ -391,6 +477,35 @@ def repair_user_email_identity(session: Session, user: User) -> PilotIdentityRes
     return result
 
 
+def repair_user_email_alias_identity(session: Session, user: User, email: str | None) -> int:
+    normalized = normalize_email(email)
+    if user.role != "pilot" or normalized is None:
+        return 0
+
+    changed = 0
+    pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
+    candidates = session.scalars(
+        select(Pilot).where(func.lower(Pilot.email) == normalized).order_by(Pilot.id.asc())
+    ).all()
+    if pilot is None:
+        candidate = _best_pilot_candidate(session, candidates)
+        if candidate is not None:
+            user.pilot_id = candidate.id
+            session.add(user)
+            changed += 1
+            pilot = candidate
+
+    if pilot is not None:
+        for candidate in candidates:
+            if candidate.id != pilot.id:
+                merge_pilots(session, source_pilot_id=candidate.id, target_pilot_id=pilot.id)
+                changed += 1
+        pilot.email = normalize_email(user.username) or pilot.email
+        session.add(pilot)
+        backfill_user_subject_pilot_links(session, user)
+    return changed
+
+
 def backfill_user_subject_pilot_links(session: Session, user: User) -> int:
     profile_type = (user.profile_type or "pilot").strip().lower()
     if user.pilot_id is None or profile_type == "driver":
@@ -427,7 +542,74 @@ def repair_pilot_email_identities(session: Session) -> int:
             result = ensure_pilot_login_identity(session, pilot, create_user=False)
             if result.pilot.id != pilot.id:
                 changed += 1
+    changed += repair_known_messina_identity(session)
     return changed
+
+
+def repair_known_messina_identity(session: Session) -> int:
+    pilots = session.scalars(
+        select(Pilot).where(
+            func.lower(Pilot.last_name) == "messina",
+            func.lower(Pilot.first_name).in_(("jim", "james")),
+        ).order_by(Pilot.id.asc())
+    ).all()
+    users = session.scalars(
+        select(User).where(
+            User.role == "pilot",
+            User.is_active.is_(True),
+            func.lower(User.full_name).in_(("jim messina", "james messina")),
+        ).order_by(User.id.asc())
+    ).all()
+    if len(pilots) < 2 and len(users) < 2:
+        return 0
+
+    changed = 0
+    target_pilot = _select_messina_target_pilot(session, pilots)
+    if target_pilot is not None:
+        for pilot in list(pilots):
+            if pilot.id != target_pilot.id:
+                merge_pilots(session, source_pilot_id=pilot.id, target_pilot_id=target_pilot.id)
+                changed += 1
+        target_pilot.first_name = "Jim"
+        target_pilot.last_name = "Messina"
+        session.add(target_pilot)
+        session.flush()
+
+    if target_pilot is not None:
+        users = session.scalars(select(User).where(User.pilot_id == target_pilot.id, User.is_active.is_(True)).order_by(User.id.asc())).all()
+    target_user = _select_messina_target_user(users)
+    if target_user is not None:
+        for user in list(users):
+            if user.id != target_user.id:
+                changed += merge_user_accounts(session, source_user_id=user.id, target_user_id=target_user.id)
+        if target_pilot is not None:
+            target_user.pilot_id = target_pilot.id
+            target_pilot.email = normalize_email(target_user.username) or target_pilot.email
+            session.add(target_pilot)
+        target_user.full_name = "Jim Messina"
+        session.add(target_user)
+    return changed
+
+
+def _select_messina_target_pilot(session: Session, pilots: list[Pilot]) -> Pilot | None:
+    if not pilots:
+        return None
+    jim = [pilot for pilot in pilots if (pilot.first_name or "").strip().lower() == "jim"]
+    pool = jim or pilots
+    return max(pool, key=lambda pilot: (_event_membership_count(session, pilot.id), _has_pilot_history(session, pilot.id), -pilot.id))
+
+
+def _select_messina_target_user(users: list[User]) -> User | None:
+    if not users:
+        return None
+    return max(
+        users,
+        key=lambda user: (
+            normalize_email(user.username) is not None,
+            "jim" in (user.username or "").lower() or (user.full_name or "").strip().lower() == "jim messina",
+            -user.id,
+        ),
+    )
 
 
 def _ensure_portal_identity(

@@ -40,7 +40,14 @@ from app.schemas import (
     UserEmailResponse,
     UserSummary,
 )
-from app.services.pilot_identity import find_canonical_pilot, merge_pilots, repair_user_email_identity
+from app.services.pilot_identity import (
+    add_user_email_alias,
+    find_canonical_pilot,
+    find_user_by_login_email,
+    merge_pilots,
+    repair_user_email_alias_identity,
+    repair_user_email_identity,
+)
 from app.services.mesh_ids import normalize_mesh_device_id
 
 logger = logging.getLogger(__name__)
@@ -368,7 +375,7 @@ def _delete_owned_mesh_device(device_id: str, user: User, session: Session) -> M
 @limiter.limit("10/minute")
 def login(request: Request, payload: LoginRequest, session: Session = Depends(get_session)) -> TokenResponse:
     submitted_username = payload.username.strip().lower()
-    user = session.scalar(select(User).where(User.username == submitted_username, User.is_active.is_(True)))
+    user = find_user_by_login_email(session, submitted_username)
     if user is None:
         user = session.scalar(select(User).where(User.username == payload.username.strip(), User.is_active.is_(True)))
     if user is None or not user.password_hash or not verify_password(payload.password, user.password_hash):
@@ -423,10 +430,15 @@ def google_auth(request: Request, payload: GoogleAuthRequest, session: Session =
 
     if user is None:
         # 2. Check if there's an existing account with the same email — link it
-        user = session.scalar(select(User).where(User.username == email, User.is_active.is_(True)))
+        user = find_user_by_login_email(session, email)
         if user is not None:
             user.oauth_provider = "google"
             user.oauth_id = google_id
+            if user.username.lower() != email:
+                try:
+                    add_user_email_alias(session, user, email)
+                except ValueError:
+                    pass
             session.add(user)
             session.commit()
             session.refresh(user)
@@ -495,7 +507,7 @@ def register(request: Request, payload: RegisterRequest, session: Session = Depe
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Choose either pilot or organizer for the new account")
 
     # Check if an account with this email as username already exists
-    existing_by_email = session.scalar(select(User).where(User.username == email))
+    existing_by_email = find_user_by_login_email(session, email)
     if existing_by_email is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with that email already exists")
 
@@ -624,7 +636,9 @@ def update_settings(
         normalized_email_identity = user.username
     username = normalized_email_identity
 
-    existing_user = session.scalar(select(User).where(User.username == username, User.id != user.id))
+    existing_user = find_user_by_login_email(session, username)
+    if existing_user is not None and existing_user.id == user.id:
+        existing_user = None
     if existing_user is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That username / email is already in use")
 
@@ -646,7 +660,8 @@ def update_settings(
         if email:
             existing_pilot = session.scalar(select(Pilot).where(func.lower(Pilot.email) == email, Pilot.id != pilot.id))
             if existing_pilot is not None:
-                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That email is already linked to another pilot")
+                merge_pilots(session, source_pilot_id=existing_pilot.id, target_pilot_id=pilot.id)
+                session.flush()
         pilot.email = email
         pilot.first_name = (payload.first_name or pilot.first_name or "").strip() or pilot.first_name
         pilot.last_name = (payload.last_name or pilot.last_name or "").strip() or pilot.last_name
@@ -838,18 +853,18 @@ def add_email(
     if not email or "@" not in email:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email address")
     # Check against users.username (primary email) and user_emails.email
-    existing_user = session.scalar(
-        select(User).where(func.lower(User.username) == email)
-    )
-    if existing_user is not None:
+    existing_user = find_user_by_login_email(session, email)
+    if existing_user is not None and existing_user.id != user.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
-    existing_ue = session.scalar(
-        select(UserEmail).where(func.lower(UserEmail.email) == email)
-    )
-    if existing_ue is not None:
+    if existing_user is not None and existing_user.id == user.id:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
-    ue = UserEmail(user_id=user.id, email=email)
-    session.add(ue)
+    try:
+        ue = add_user_email_alias(session, user, email)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use") from None
+    if ue is None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+    repair_user_email_alias_identity(session, user, email)
     session.commit()
     session.refresh(ue)
     return UserEmailResponse.model_validate(ue)
@@ -1234,9 +1249,9 @@ def update_user_credentials(
     if target is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if payload.username and payload.username.strip() and payload.username.strip() != target.username:
-        new_username = payload.username.strip()
-        conflict = session.scalar(select(User).where(User.username == new_username, User.id != target.id))
-        if conflict is not None:
+        new_username = payload.username.strip().lower()
+        conflict = find_user_by_login_email(session, new_username)
+        if conflict is not None and conflict.id != target.id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Username already taken")
         target.username = new_username
     if payload.password and payload.password.strip():
