@@ -321,6 +321,20 @@ class TrackingService extends ChangeNotifier {
     _currentBatteryLevelSeenAt = level == null ? null : DateTime.now().toUtc();
   }
 
+  @visibleForTesting
+  void debugSetBackendOfflineError() {
+    _backendConnected = false;
+    _error = 'Backend offline — recording locally';
+    _notificationLevel = NotificationLevel.error;
+  }
+
+  @visibleForTesting
+  Future<void> debugCheckServerHealth() => _checkServerHealth();
+
+  @visibleForTesting
+  Future<void> debugSaveCurrentFlightForUploadTest(int? taskId) =>
+      _saveCurrentFlight(taskId);
+
   TrackingService(
     this._api,
     this._auth,
@@ -521,9 +535,11 @@ class TrackingService extends ChangeNotifier {
     try {
       await _api.get(ApiConfig.mePath);
       _backendConnected = true;
+      _clearBackendOfflineError();
     } on ApiException {
       // Server reachable but returned an error (e.g. 401) — still "connected"
       _backendConnected = true;
+      _clearBackendOfflineError();
     } catch (_) {
       // Network error — server unreachable
       _backendConnected = false;
@@ -534,6 +550,12 @@ class TrackingService extends ChangeNotifier {
   // ═══════════════════════════════════════════════════════════════════════════
   // Settings
   // ═══════════════════════════════════════════════════════════════════════════
+
+  void _clearBackendOfflineError() {
+    if (_error?.startsWith('Backend offline') == true) {
+      _error = null;
+    }
+  }
 
   /// Set the battery threshold percentage. null to disable.
   void setBatteryThreshold(int? threshold) {
@@ -765,6 +787,7 @@ class TrackingService extends ChangeNotifier {
   Future<void> stopTracking() async {
     final wasInFlight = _trackingState == TrackingState.inFlight;
     final wasDriverMode = _driverMode;
+    final taskIdForSavedFlight = _activeTask?.taskId;
 
     _locationSubscription?.cancel();
     _locationSubscription = null;
@@ -806,7 +829,7 @@ class TrackingService extends ChangeNotifier {
 
     // Save flight if we were recording
     if (wasInFlight && !wasDriverMode) {
-      await _saveCurrentFlight();
+      await _saveCurrentFlight(taskIdForSavedFlight);
     } else {
       _igc.discardCurrentTrack();
     }
@@ -1240,7 +1263,7 @@ class TrackingService extends ChangeNotifier {
     // Heartbeat no longer needed once we leave inFlight
     _positionHeartbeatTimer?.cancel();
     _positionHeartbeatTimer = null;
-    await _saveCurrentFlight();
+    await _saveCurrentFlight(_activeTask?.taskId);
 
     // Check if we should enter monitoring mode
     if (_multiFlightEnabled && _isMonitoringEligible()) {
@@ -1525,10 +1548,7 @@ class TrackingService extends ChangeNotifier {
   // Flight saving
   // ═══════════════════════════════════════════════════════════════════════════
 
-  Future<void> _saveCurrentFlight() async {
-    // Capture task reference before save — it could be cleared during state transitions
-    final taskId = _activeTask?.taskId;
-
+  Future<void> _saveCurrentFlight(int? taskId) async {
     try {
       final trackPoints = _igc.currentTrackPointCount;
       _lastSavedIgcPath = await _igc.saveCurrentFlight(
@@ -1581,6 +1601,7 @@ class TrackingService extends ChangeNotifier {
           filePath: filePath,
         );
       }
+      _clearBackendOfflineError();
       return true;
     } catch (e) {
       debugPrint('IGC upload failed: $e');
@@ -1639,6 +1660,7 @@ class TrackingService extends ChangeNotifier {
         if (!success) {
           remaining.add(entry);
         } else {
+          _clearBackendOfflineError();
           debugPrint('IGC upload retry succeeded: $filePath');
         }
       }

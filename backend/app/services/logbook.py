@@ -5,7 +5,7 @@ import hashlib
 import math
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, time as dt_time
 from pathlib import Path
 from typing import Callable, Iterable, Literal, Sequence
 
@@ -453,6 +453,33 @@ def _same_day_task_candidates(session: Session, *, pilot_id: int, flight_date: d
     ).all()
 
 
+def _auto_link_task_candidate(
+    session: Session,
+    *,
+    user: User,
+    flight_date: date,
+    task_candidates: Sequence[Task],
+) -> Task | None:
+    active_candidates = [task for task in task_candidates if task.status == "active"]
+    if len(active_candidates) == 1:
+        return active_candidates[0]
+    if len(task_candidates) == 1:
+        return task_candidates[0]
+
+    from app.services.tracking import resolve_active_task_id_for_user
+
+    resolver_now = datetime.combine(flight_date, dt_time(12, 0), tzinfo=UTC)
+    resolved_task_id = resolve_active_task_id_for_user(session, user, now=resolver_now)
+    if resolved_task_id is None:
+        return None
+    resolved = next((task for task in task_candidates if task.id == resolved_task_id), None)
+    if resolved is None:
+        return None
+    if resolved.status in {"active", "draft"} and resolved.task_date == flight_date:
+        return resolved
+    return None
+
+
 def sync_task_upload_to_logbook(
     session: Session,
     *,
@@ -505,12 +532,13 @@ async def create_app_upload_flight(
     sha256 = hashlib.sha256(content).hexdigest()
     flight_date = _parsed_flight_date(parsed, flight_date_override)
     task_candidates = _same_day_task_candidates(session, pilot_id=user.pilot_id, flight_date=flight_date)
-    if len(task_candidates) == 1:
+    task_candidate = _auto_link_task_candidate(session, user=user, flight_date=flight_date, task_candidates=task_candidates)
+    if task_candidate is not None:
         from app.services.task_uploads import store_task_upload
 
         stored = await store_task_upload(
             session,
-            task_candidates[0],
+            task_candidate,
             filename=filename,
             content=content,
             pilot_id=user.pilot_id,
@@ -623,12 +651,13 @@ async def import_logbook_folder_files(
 
         flight_date = _parsed_flight_date(parsed)
         task_candidates = _same_day_task_candidates(session, pilot_id=user.pilot_id, flight_date=flight_date)
-        if len(task_candidates) == 1:
+        task_candidate = _auto_link_task_candidate(session, user=user, flight_date=flight_date, task_candidates=task_candidates)
+        if task_candidate is not None:
             from app.services.task_uploads import store_task_upload
 
             stored = await store_task_upload(
                 session,
-                task_candidates[0],
+                task_candidate,
                 filename=filename,
                 content=content,
                 pilot_id=user.pilot_id,

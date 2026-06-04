@@ -127,3 +127,30 @@ def test_logbook_upload_with_multiple_same_day_tasks_stays_logbook_only_with_amb
     assert session.scalar(select(func.count(IGCUpload.id))) == 0
     assert flight.metadata_json["task_link_status"] == "ambiguous"
     assert flight.metadata_json["task_link_candidate_ids"] == [task.id, second_task.id]
+
+
+def test_logbook_upload_with_multiple_same_day_tasks_uses_active_task(monkeypatch, tmp_path) -> None:
+    session = _session()
+    user, task = _user_with_task(session)
+    task.status = "active"
+    second_event = Event(name="HC 2026 Duplicate", location="Myles", starts_on=date(2026, 1, 1), ends_on=date(2026, 1, 7), timezone="UTC")
+    session.add(second_event)
+    session.flush()
+    second_task = Task(event_id=second_event.id, name="Practice Day Copy", task_date=task.task_date, status="published")
+    session.add_all([second_task, EventPilot(event_id=second_event.id, pilot_id=user.pilot_id)])
+    session.add(ScoreResult(task_id=task.id, pilot_id=user.pilot_id, score_points=25))
+    session.commit()
+    rescore_calls: list[int] = []
+    _patch_task_upload_runtime(monkeypatch, tmp_path, rescore_calls)
+
+    flight = asyncio.run(create_app_upload_flight(session, user=user, filename="Charles_Allen.igc", content=_igc_content()))
+    session.commit()
+
+    assert flight.source_kind == "task_upload"
+    assert flight.task_id == task.id
+    assert flight.igc_upload_id is not None
+    assert session.scalar(select(func.count(IGCUpload.id))) == 1
+    scoring_input = session.scalar(select(TaskScoringInput).where(TaskScoringInput.task_id == task.id, TaskScoringInput.pilot_id == user.pilot_id))
+    assert scoring_input is not None
+    assert scoring_input.selected_upload_id == flight.igc_upload_id
+    assert rescore_calls == [task.id]

@@ -13,6 +13,18 @@ and environment.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.04]
+
+### Fixed
+- **Mobile v0.4.50+67** preserves the active task when saving a completed
+  mobile flight, so task tracklogs upload to scoring instead of falling back to
+  logbook-only uploads.
+- Mobile now clears stale "Backend offline" warnings after the server becomes
+  reachable again.
+- Server-side logbook IGC uploads now promote to the active same-day task when
+  one exists, so auto-scoring still works even if the mobile app uploaded the
+  file through the logbook fallback.
+
 ## [2026.06.02]
 
 ### Added

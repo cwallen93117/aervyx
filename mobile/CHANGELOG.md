@@ -1,5 +1,13 @@
 # Aervyx Mobile Changelog
 
+## 0.4.50+67 - 2026-06-04
+
+### Fixed
+- Completed task flights now upload their IGC tracklogs to task scoring even
+  after tracking state is cleared during stop/landing.
+- Stale "Backend offline" warnings now clear after the server is reachable
+  again.
+
 ## 0.4.49+66 - 2026-06-02
 
 ### Added
