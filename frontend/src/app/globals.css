@@ -5238,6 +5238,10 @@ button[type="submit"]:hover,
   flex: 0 0 auto;
 }
 
+.live-map-legend {
+  display: none;
+}
+
 .live-pilot-row {
   width: 100%;
   color: inherit;
@@ -5830,10 +5834,101 @@ button[type="submit"]:hover,
   }
   .live-sidebar {
     width: 100%;
-    max-height: 35vh;
+    max-height: 148px;
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     order: -1;
+  }
+  .live-sidebar-header {
+    padding: 7px 10px;
+    gap: 8px;
+  }
+  .live-sidebar-title {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    min-width: 0;
+  }
+  .live-sidebar-header strong {
+    min-width: 0;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+  }
+  .live-sidebar-title span {
+    flex: 0 0 auto;
+    font-size: 0.6875rem;
+    line-height: 1.25;
+  }
+  .live-track-master-toggle {
+    gap: 4px;
+    font-size: 0.6875rem;
+  }
+  .live-pilot-list {
+    flex: 0 1 auto;
+    max-height: 96px;
+    padding: 2px 0;
+  }
+  .live-pilot-row {
+    min-height: 48px;
+    padding: 0 10px;
+    gap: 8px;
+  }
+  .live-pilot-main {
+    padding: 7px 0;
+    gap: 8px;
+  }
+  .live-sidebar > .live-sidebar-legend {
+    display: none;
+  }
+  .live-map-legend {
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 10px;
+    z-index: 11;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 6px 12px;
+    padding: 7px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: rgba(6, 9, 15, 0.82);
+    backdrop-filter: blur(8px);
+  }
+  .live-map-legend .live-sidebar-legend-title {
+    margin: 0;
+    font-size: 0.625rem;
+  }
+  .live-map-legend .live-sidebar-legend-row {
+    gap: 8px 10px;
+  }
+  .live-map-legend .live-sidebar-legend-item {
+    font-size: 0.6875rem;
+  }
+  .live-map .map-control-stack {
+    top: 10px;
+    right: 10px;
+  }
+  .live-map .map-picker-stack {
+    top: 78px;
+    right: 10px;
+    bottom: auto;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .live-map .map-style-picker {
+    padding: 6px 8px;
+  }
+  .live-map .map-style-picker span {
+    font-size: 0.75rem;
+  }
+  .live-map .map-style-picker select {
+    min-height: 29px;
+    max-width: 116px;
   }
   .live-source-picker select {
     min-width: 140px;
