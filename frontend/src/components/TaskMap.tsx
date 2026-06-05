@@ -167,12 +167,12 @@ function resolveLiveMapIconKey(
   return aircraftType ?? "hang_glider";
 }
 
-// Keep live/replay marker rings solid so pilot track displays do not read as dashed track logs.
+// Marker rings show the latest live-position source: solid for cellular, dashed for mesh.
 const RING_ICON_SVGS: Record<"cellular" | "mesh" | "other", string> = {
   cellular:
     '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
   mesh:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
   other:
     '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20"/></svg>',
 };
@@ -2418,9 +2418,9 @@ export const TaskMap = React.memo(function TaskMap({
           getPosition: (item: { position: [number, number, number] }) => item.position,
           getText: (item: { altitudeLabel: string }) => item.altitudeLabel,
           getColor: (item: { color: [number, number, number] }) => [...item.color, 255],
-          getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 11 : 10),
+          getSize: (item: { highlighted?: boolean }) => (item.highlighted ? 14 : 12),
           sizeUnits: "pixels",
-          sizeMinPixels: 10,
+          sizeMinPixels: 12,
           getPixelOffset: mode === "live" ? [0, -16] : [0, -3],
           getTextAnchor: "middle",
           getAlignmentBaseline: "bottom",
@@ -2429,6 +2429,10 @@ export const TaskMap = React.memo(function TaskMap({
           fontWeight: 400,
           outlineWidth: 2,
           outlineColor: [255, 255, 255, 230],
+          background: true,
+          getBackgroundColor: [255, 255, 255, 170],
+          backgroundPadding: [4, 2],
+          backgroundBorderRadius: 4,
           pickable: false,
           parameters: {
             depthTest: false,
