@@ -450,3 +450,28 @@ test("live fused track keeps cellular when a nearby mesh point is only a close t
   const track = buildTrackCollection(new Map([["pilot:1", [appA, meshTie]]]), new Map([["pilot:1", "Charles Allen"]]));
   assert.equal(track, null);
 });
+
+test("latest live position uses newest fix even when track fusion prefers another source", () => {
+  const appA = position({
+    id: "app-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+  });
+  const meshNewer = position({
+    id: "mesh-newer",
+    lat: 40.00001,
+    lon: -75.00001,
+    timestamp: "2026-05-28T20:00:01Z",
+    received_at: "2026-05-28T20:00:01Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+
+  const latest = latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, meshNewer]]])).get("pilot:1");
+  assert.equal(latest.id, "mesh-newer");
+
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, meshNewer]]]), new Map([["pilot:1", "Charles Allen"]]));
+  assert.equal(track, null);
+});

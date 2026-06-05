@@ -428,8 +428,7 @@ export function latestDisplayPositionsBySubject(
 ): Map<string, LivePositionRecord> {
   const latest = new Map<string, LivePositionRecord>();
   for (const [subjectKey, positions] of positionsBySubject) {
-    const segments = fusedSegmentsForLiveTrack(displayPositionsForLiveTrack(positions), true);
-    const position = latestByTimestamp(segments.flat());
+    const position = latestByTimestamp(positions);
     if (position) {
       latest.set(subjectKey, position);
     }
