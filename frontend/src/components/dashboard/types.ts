@@ -142,8 +142,8 @@ export type LogbookFlightStatsRecord = {
 };
 export type LogbookFlightSummaryRecord = {
   id: number;
-  source_kind: "task_upload" | "app_upload" | "manual" | string;
-  flight_date: string;
+  source_kind: "task_upload" | "app_upload" | "manual" | string | null;
+  flight_date: string | null;
   starred: boolean;
   site_id?: number | null;
   site_name: string;

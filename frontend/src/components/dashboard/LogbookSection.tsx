@@ -58,10 +58,22 @@ function blankManualFlightForm(): LogbookFlightFormRecord {
   };
 }
 
-function formatFlightDate(value: string) {
-  const parsed = Date.parse(value);
+function safeText(value: unknown) {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function flightDateText(value: LogbookFlightSummaryRecord["flight_date"] | undefined) {
+  return safeText(value);
+}
+
+function formatFlightDate(value: LogbookFlightSummaryRecord["flight_date"] | undefined) {
+  const text = flightDateText(value);
+  if (!text) {
+    return "--";
+  }
+  const parsed = Date.parse(text);
   if (!Number.isFinite(parsed)) {
-    return value;
+    return text;
   }
   return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(new Date(parsed));
 }
@@ -96,8 +108,9 @@ function formatVario(valueMps: number | null | undefined, unit: MapUnitPreferenc
   return `${valueMps.toFixed(1)} m/s`;
 }
 
-function sourceLabel(kind: LogbookFlightSummaryRecord["source_kind"]) {
-  switch (kind) {
+function sourceLabel(kind: LogbookFlightSummaryRecord["source_kind"] | undefined) {
+  const normalizedKind = safeText(kind);
+  switch (normalizedKind) {
     case "task_upload":
       return "Task upload";
     case "app_upload":
@@ -105,7 +118,7 @@ function sourceLabel(kind: LogbookFlightSummaryRecord["source_kind"]) {
     case "manual":
       return "Manual";
     default:
-      return kind.replace(/_/g, " ");
+      return normalizedKind ? normalizedKind.replace(/_/g, " ") : "Unknown";
   }
 }
 
@@ -159,52 +172,53 @@ export default function LogbookSection(props: LogbookSectionProps) {
   const [filterSite, setFilterSite] = useState<string>("all");
   const [siteDraft, setSiteDraft] = useState("");
   const [siteSaving, setSiteSaving] = useState(false);
+  const safeFlights = useMemo(() => (Array.isArray(flights) ? flights : []), [flights]);
 
   const hasPilotProfile = Boolean(user?.pilot_id);
 
   const availableYears = useMemo(() => {
-    let list = flights;
+    let list = safeFlights;
     if (filterSite !== "all") list = list.filter((f) => f.site_name === filterSite);
     const years = new Set<string>();
     list.forEach((f) => {
-      const y = Number.parseInt(f.flight_date.slice(0, 4), 10);
+      const y = Number.parseInt(flightDateText(f.flight_date).slice(0, 4), 10);
       if (Number.isFinite(y)) years.add(String(y));
     });
     return [...years].sort((a, b) => Number(b) - Number(a));
-  }, [flights, filterSite]);
+  }, [filterSite, safeFlights]);
 
   const availableSites = useMemo(() => {
-    let list = flights;
-    if (filterYear !== "all") list = list.filter((f) => f.flight_date.startsWith(filterYear));
+    let list = safeFlights;
+    if (filterYear !== "all") list = list.filter((f) => flightDateText(f.flight_date).startsWith(filterYear));
     const sites = new Map<string, string>();
     list.forEach((f) => {
       if (f.site_name) sites.set(f.site_name, f.site_city_state ?? "");
     });
     return [...sites.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [flights, filterYear]);
+  }, [filterYear, safeFlights]);
 
   const allSiteNames = useMemo(() => {
     const sites = new Set<string>();
-    flights.forEach((f) => { if (f.site_name) sites.add(f.site_name); });
+    safeFlights.forEach((f) => { if (f.site_name) sites.add(f.site_name); });
     return [...sites].sort((a, b) => a.localeCompare(b));
-  }, [flights]);
+  }, [safeFlights]);
 
   const filteredFlights = useMemo(() => {
-    let list = flights;
+    let list = safeFlights;
     if (filterYear !== "all") {
-      list = list.filter((f) => f.flight_date.startsWith(filterYear));
+      list = list.filter((f) => flightDateText(f.flight_date).startsWith(filterYear));
     }
     if (filterSite !== "all") {
       list = list.filter((f) => f.site_name === filterSite);
     }
     return list;
-  }, [flights, filterYear, filterSite]);
+  }, [filterYear, filterSite, safeFlights]);
 
   const groupedFlights = useMemo(() => {
     const groups: Array<{ year: string; flights: LogbookFlightSummaryRecord[] }> = [];
     const groupMap = new Map<string, LogbookFlightSummaryRecord[]>();
     filteredFlights.forEach((flight) => {
-      const parsedYear = Number.parseInt(flight.flight_date.slice(0, 4), 10);
+      const parsedYear = Number.parseInt(flightDateText(flight.flight_date).slice(0, 4), 10);
       const year = Number.isFinite(parsedYear) ? String(parsedYear) : "Unknown year";
       const existing = groupMap.get(year);
       if (existing) {
@@ -217,7 +231,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
     });
     return groups;
   }, [filteredFlights]);
-  const allFlightIds = useMemo(() => flights.map((flight) => flight.id), [flights]);
+  const allFlightIds = useMemo(() => safeFlights.map((flight) => flight.id), [safeFlights]);
   const selectedCount = useMemo(
     () => allFlightIds.filter((flightId) => selectedFlightIds[flightId]).length,
     [allFlightIds, selectedFlightIds],
@@ -268,7 +282,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
     if (!file || flightId == null) {
       return;
     }
-    const flight = flights.find((entry) => entry.id === flightId);
+    const flight = safeFlights.find((entry) => entry.id === flightId);
     if (!flight) {
       return;
     }
@@ -322,7 +336,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
   }
 
   async function handleDeleteSelectedFlights() {
-    const selectedFlights = flights.filter((flight) => selectedFlightIds[flight.id]);
+    const selectedFlights = safeFlights.filter((flight) => selectedFlightIds[flight.id]);
     if (!selectedFlights.length) {
       return;
     }
@@ -477,7 +491,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                 <option value="all">All sites</option>
                 {availableSites.map(([name]) => <option key={name} value={name}>{name}</option>)}
               </select>
-              <span className="hint">{filteredFlights.length} of {flights.length} flights</span>
+              <span className="hint">{filteredFlights.length} of {safeFlights.length} flights</span>
             </div>
             <div className="logbook-bulk-actions">
               <div className="button-row compact">
