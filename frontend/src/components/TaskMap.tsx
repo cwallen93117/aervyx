@@ -1423,6 +1423,9 @@ export const TaskMap = React.memo(function TaskMap({
   showGpsButton = false,
   overlayConfig,
   focusPosition,
+  debugInitialBasemapMode,
+  debugInitialPerspective3D = false,
+  debugAutoStartReplay = false,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1454,6 +1457,9 @@ export const TaskMap = React.memo(function TaskMap({
   showGpsButton?: boolean;
   overlayConfig?: Record<string, boolean>;
   focusPosition?: { lat: number; lon: number; key: string | number } | null;
+  debugInitialBasemapMode?: BasemapMode;
+  debugInitialPerspective3D?: boolean;
+  debugAutoStartReplay?: boolean;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -1484,12 +1490,13 @@ export const TaskMap = React.memo(function TaskMap({
   const lastFrameTimeRef = useRef<number | null>(null);
   const replayClockRef = useRef<number | null>(null);
   const replayIndexRef = useRef(0);
-  const [basemapMode, setBasemapMode] = useState<BasemapMode>("streets");
+  const debugAutoStartReplayKeyRef = useRef("");
+  const [basemapMode, setBasemapMode] = useState<BasemapMode>(debugInitialBasemapMode ?? "streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isTaskEditorOverlayCollapsed, setIsTaskEditorOverlayCollapsed] = useState(false);
   const [isFullscreenSidebarCollapsed, setIsFullscreenSidebarCollapsed] = useState(false);
-  const [isPerspective3D, setIsPerspective3D] = useState(false);
+  const [isPerspective3D, setIsPerspective3D] = useState(debugInitialPerspective3D);
   const taskEditorOverlayId = useId();
   const taskEditorOverlayContentId = useId();
   const fullscreenSidebarContentId = useId();
@@ -2509,6 +2516,26 @@ export const TaskMap = React.memo(function TaskMap({
   }, [effectiveTrack, replayTimeline, replayTotal]);
 
   useEffect(() => {
+    if (!debugAutoStartReplay || replayTotal <= 1) {
+      return;
+    }
+    const replayKey = `${replayTimeline[0] ?? ""}:${replayTimeline[replayTotal - 1] ?? ""}:${replayTotal}`;
+    if (debugAutoStartReplayKeyRef.current === replayKey) {
+      return;
+    }
+    debugAutoStartReplayKeyRef.current = replayKey;
+    const start = window.setTimeout(() => {
+      setReplayIndex(0);
+      setReplayHasInteracted(true);
+      replayIndexRef.current = 0;
+      replayClockRef.current = replayTimeline[0] ?? null;
+      lastFrameTimeRef.current = null;
+      setIsReplaying(true);
+    }, 500);
+    return () => window.clearTimeout(start);
+  }, [debugAutoStartReplay, replayTimeline, replayTotal]);
+
+  useEffect(() => {
     if (!isReplaying || replayTotal <= 1) {
       if (animationFrameRef.current !== null) {
         window.cancelAnimationFrame(animationFrameRef.current);
@@ -2586,9 +2613,12 @@ export const TaskMap = React.memo(function TaskMap({
               center: persistedViewState.center,
               zoom: persistedViewState.zoom,
               bearing: persistedViewState.bearing,
-              pitch: persistedViewState.pitch,
+              pitch: debugInitialPerspective3D ? maxMapPitch : persistedViewState.pitch,
             }
-          : buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? fitMaxZoom : 5)),
+          : {
+              ...buildBoundsOptions(fitBounds, USA_FIT_BOUNDS, fitBounds.length ? 72 : 32, fitBounds.length ? fitMaxZoom : 5),
+              ...(debugInitialPerspective3D ? { pitch: maxMapPitch } : {}),
+            }),
         maxPitch: maxMapPitch,
         attributionControl: false,
       });
