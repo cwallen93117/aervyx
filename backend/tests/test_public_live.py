@@ -379,6 +379,37 @@ def test_public_all_positions_include_recently_received_stale_app_fix() -> None:
     assert _parse_iso_utc(row.timestamp) == now - timedelta(hours=7)
 
 
+def test_public_all_positions_sanitizes_implausible_altitude() -> None:
+    session = _session()
+    now = datetime.now(UTC)
+    pilot = Pilot(first_name="Pete", last_name="Lehmann", email="pete@example.com")
+    session.add(pilot)
+    session.flush()
+    user = User(username="pete@example.com", full_name="Pete Lehmann", role="pilot", pilot_id=pilot.id)
+    session.add(user)
+    session.flush()
+    session.add(
+        LivePosition(
+            pilot_id=pilot.id,
+            user_id=user.id,
+            lat=39.09632,
+            lon=-75.89077,
+            alt=1.8446744073709552e19,
+            timestamp=now - timedelta(minutes=2),
+            source="mqtt_gateway",
+            device_id="!898a5010",
+        )
+    )
+    session.commit()
+
+    payload = public_all_positions(minutes=10, limit=100, session=session)
+
+    assert len(payload) == 1
+    row = payload[0]
+    assert row.subject_key == f"pilot:{pilot.id}"
+    assert row.alt is None
+
+
 def test_public_event_positions_use_linked_pilot_for_user_only_app_rows() -> None:
     session = _session()
     now = datetime.now(UTC)

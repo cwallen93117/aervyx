@@ -50,6 +50,7 @@ from app.services.mesh_ids import normalize_mesh_device_id
 from app.services.mqtt_config import LOCAL_MOSQUITTO, clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
     mesh_purpose_to_profile_type,
+    plausible_live_altitude_or_none,
     prune_old_live_positions,
     resolve_active_task_id,
     resolve_active_task_id_for_user,
@@ -72,8 +73,6 @@ mqtt_reconnect_event: threading.Event | None = None
 _battery_cache: dict[str, tuple[int, float]] = {}
 _BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
 _MESHTASTIC_DEFAULT_PSK = bytes.fromhex("d4f1bb3a20290759f0bcffabcf4e6901")
-_MIN_PLAUSIBLE_ALTITUDE_M = -500
-_MAX_PLAUSIBLE_ALTITUDE_M = 15000
 
 PORTNUM_PACKET_TYPES = {
     3: "POSITION_APP",
@@ -310,16 +309,6 @@ def _get_sfixed32(fields: dict, field_number: int) -> int | None:
     wt, val = entries[0]
     if wt == 5 and isinstance(val, (bytes, bytearray)) and len(val) == 4:
         return struct.unpack("<i", val)[0]
-    return None
-
-
-def _plausible_altitude_or_none(value: int | float | None) -> float | None:
-    if value is None:
-        return None
-    altitude = float(value)
-    if _MIN_PLAUSIBLE_ALTITUDE_M <= altitude <= _MAX_PLAUSIBLE_ALTITUDE_M:
-        return altitude
-    logger.debug("Ignoring implausible Meshtastic altitude: %s m", altitude)
     return None
 
 
@@ -677,7 +666,7 @@ def _parse_protobuf_position(raw: bytes | None = None, decoded: DecodedMeshEnvel
         alt_raw = _get_int32(pos_fields, 3)
         if alt_raw is None:
             alt_raw = _get_sint32(pos_fields, 9)
-        alt = _plausible_altitude_or_none(alt_raw)
+        alt = plausible_live_altitude_or_none(alt_raw)
 
         # timestamp = field 7, actual GPS solution timestamp. Field 4 is a
         # fallback time value commonly present in older/smaller packets.

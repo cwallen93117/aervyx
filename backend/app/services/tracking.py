@@ -68,6 +68,8 @@ STATIONARY_MESH_PURPOSES = {"base_station", "relay"}
 LIVE_POSITION_PRUNE_INTERVAL_SECONDS = 300
 TRACKING_ACTIVE_TASK_STATUSES = ("active", "published")
 TRACKING_UNPUBLISHED_TASK_STATUSES = ("draft",)
+MIN_PLAUSIBLE_LIVE_ALTITUDE_M = -500
+MAX_PLAUSIBLE_LIVE_ALTITUDE_M = 15000
 TIMEZONE_ALIASES = {
     "eastern": "America/New_York",
     "est": "America/New_York",
@@ -108,6 +110,16 @@ def _max_datetime(left: datetime | None, right: datetime | None) -> datetime:
 
 def _iso_or_none(value: datetime | None) -> str | None:
     return _as_utc(value).isoformat() if value is not None else None
+
+
+def plausible_live_altitude_or_none(value: float | int | None) -> float | None:
+    if value is None:
+        return None
+    altitude = float(value)
+    if MIN_PLAUSIBLE_LIVE_ALTITUDE_M <= altitude <= MAX_PLAUSIBLE_LIVE_ALTITUDE_M:
+        return altitude
+    logger.debug("Ignoring implausible live altitude: %s m", altitude)
+    return None
 
 
 def resolve_tracking_timezone_name(value: str | None) -> str:
@@ -640,7 +652,7 @@ def _position_payload(
         "task_id": pos.task_id,
         "lat": pos.lat,
         "lon": pos.lon,
-        "alt": pos.alt,
+        "alt": plausible_live_altitude_or_none(pos.alt),
         "speed": pos.speed,
         "heading": pos.heading,
         "accuracy": pos.accuracy,
@@ -932,7 +944,7 @@ def store_position(
         task_id=task_id,
         lat=lat,
         lon=lon,
-        alt=alt,
+        alt=plausible_live_altitude_or_none(alt),
         speed=speed,
         heading=heading,
         accuracy=accuracy,
