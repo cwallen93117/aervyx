@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.schemas import BulkUploadItemResponse, UploadResponse
 from app.services import task_uploads as task_upload_service
 from app.services.audit import log_action
@@ -248,6 +248,32 @@ async def _store_upload(
     return StoredUpload(upload=stored.upload, created=stored.created)
 
 
+def _detach_upload_from_logbook(session: Session, upload_id: int) -> list[PilotFlight]:
+    flights = session.scalars(select(PilotFlight).where(PilotFlight.igc_upload_id == upload_id)).all()
+    if not flights:
+        return []
+    points = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload_id).order_by(TrackPoint.sequence.asc())).all()
+    for flight in flights:
+        existing_points = session.scalar(select(func.count(PilotFlightTrackPoint.id)).where(PilotFlightTrackPoint.flight_id == flight.id))
+        if not existing_points:
+            for point in points:
+                session.add(
+                    PilotFlightTrackPoint(
+                        flight_id=flight.id,
+                        sequence=point.sequence,
+                        recorded_at=point.recorded_at,
+                        latitude=point.latitude,
+                        longitude=point.longitude,
+                        pressure_altitude_m=point.pressure_altitude_m,
+                        gps_altitude_m=point.gps_altitude_m,
+                    )
+                )
+        flight.igc_upload_id = None
+        session.add(flight)
+    session.flush()
+    return flights
+
+
 @router.post("/api/tasks/{task_id}/uploads", response_model=UploadResponse)
 async def upload_igc(
     task_id: int,
@@ -390,6 +416,8 @@ def delete_upload(upload_id: int, user: User = Depends(get_current_user), sessio
         raise HTTPException(status_code=403, detail="Pilots can only delete their own uploads")
 
     stored_path = Path(upload.stored_path)
+    linked_logbook_flights = _detach_upload_from_logbook(session, upload_id)
+    preserve_stored_path = any(flight.stored_path == upload.stored_path for flight in linked_logbook_flights)
     session.execute(
         update(TaskScoringInput)
         .where(TaskScoringInput.selected_upload_id == upload_id)
@@ -401,7 +429,7 @@ def delete_upload(upload_id: int, user: User = Depends(get_current_user), sessio
     log_action(session, actor_user_id=user.id, action="igc.delete", entity_type="igc_upload", entity_id=str(upload_id), details={"task_id": upload.task_id, "pilot_id": upload.pilot_id, "sha256": upload.sha256})
     session.commit()
 
-    if stored_path.exists():
+    if not preserve_stored_path and stored_path.exists():
         stored_path.unlink()
         try:
             stored_path.parent.rmdir()
@@ -422,7 +450,12 @@ def delete_all_uploads_for_task(task_id: int, user: User = Depends(get_current_u
     uploads = session.scalars(select(IGCUpload).where(IGCUpload.task_id == task_id)).all()
     upload_ids = [upload.id for upload in uploads]
     stored_paths = [Path(upload.stored_path) for upload in uploads]
+    preserved_paths: set[str] = set()
     if upload_ids:
+        for upload in uploads:
+            linked_logbook_flights = _detach_upload_from_logbook(session, upload.id)
+            if any(flight.stored_path == upload.stored_path for flight in linked_logbook_flights):
+                preserved_paths.add(upload.stored_path)
         session.execute(
             update(TaskScoringInput)
             .where(TaskScoringInput.task_id == task_id, TaskScoringInput.selected_upload_id.in_(upload_ids))
@@ -442,6 +475,8 @@ def delete_all_uploads_for_task(task_id: int, user: User = Depends(get_current_u
     session.commit()
 
     for stored_path in stored_paths:
+        if str(stored_path) in preserved_paths:
+            continue
         if stored_path.exists():
             stored_path.unlink()
             try:

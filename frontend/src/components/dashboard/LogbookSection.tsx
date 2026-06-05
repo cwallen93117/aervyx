@@ -937,6 +937,7 @@ export default function LogbookSection(props: LogbookSectionProps) {
                   telemetrySmoothing={telemetrySmoothing}
                   mode="replay"
                   overlayConfig={overlayConfig}
+                  forceTrackAltitudeGradient
                 />
               </div>
             )}

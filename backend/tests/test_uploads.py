@@ -1,6 +1,6 @@
 import asyncio
 import io
-from datetime import date
+from datetime import date, datetime as dt, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, func, select
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.datastructures import UploadFile
 
 from app.db import Base
-from app.models import Event, EventPilot, IGCUpload, Pilot, Task, TaskScoringInput, User
+from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.routers import uploads as uploads_router
 from app.routers.uploads import _match_pilot_candidate_for_upload, _match_pilot_for_upload
 
@@ -265,3 +265,55 @@ def test_bulk_upload_review_candidate_is_uploaded_but_not_selected(monkeypatch, 
     assert session.scalar(select(func.count(IGCUpload.id))) == 1
     assert session.scalars(select(TaskScoringInput).where(TaskScoringInput.task_id == task.id)).all() == []
     assert rescore_calls == []
+
+
+def test_delete_upload_keeps_linked_logbook_flight_replayable(tmp_path) -> None:
+    session = _session()
+    admin, task, pilots = _bulk_upload_fixture(session)
+    pilot = pilots[0]
+    stored_path = tmp_path / "task-upload.igc"
+    stored_path.write_bytes(_igc_content("Charles Allen", 1))
+    upload = IGCUpload(
+        event_id=task.event_id,
+        task_id=task.id,
+        pilot_id=pilot.id,
+        uploaded_by_user_id=admin.id,
+        filename="task-upload.igc",
+        sha256="abc123",
+        stored_path=str(stored_path),
+        metadata_json={"flight_date": str(task.task_date)},
+    )
+    session.add(upload)
+    session.flush()
+    session.add_all([
+        TrackPoint(upload_id=upload.id, sequence=1, recorded_at=dt(2026, 1, 1, 12, 0, tzinfo=timezone.utc), latitude=36.1, longitude=-118.1, pressure_altitude_m=1000, gps_altitude_m=1000),
+        TrackPoint(upload_id=upload.id, sequence=2, recorded_at=dt(2026, 1, 1, 12, 1, tzinfo=timezone.utc), latitude=36.2, longitude=-118.2, pressure_altitude_m=1100, gps_altitude_m=1100),
+    ])
+    scoring_input = TaskScoringInput(task_id=task.id, pilot_id=pilot.id, selected_upload_id=upload.id)
+    flight = PilotFlight(
+        pilot_id=pilot.id,
+        source_kind="task_upload",
+        event_id=task.event_id,
+        task_id=task.id,
+        igc_upload_id=upload.id,
+        flight_date=task.task_date,
+        site_name="Task site",
+        filename=upload.filename,
+        sha256=upload.sha256,
+        stored_path=upload.stored_path,
+        metadata_json={},
+    )
+    session.add_all([scoring_input, flight, ScoreResult(task_id=task.id, pilot_id=pilot.id, upload_id=upload.id, score_points=100)])
+    session.commit()
+
+    result = uploads_router.delete_upload(upload.id, admin, session)
+
+    assert result == {"status": "deleted", "upload_id": upload.id}
+    assert session.get(IGCUpload, upload.id) is None
+    assert stored_path.exists()
+    session.refresh(flight)
+    assert flight.igc_upload_id is None
+    assert flight.stored_path == str(stored_path)
+    assert session.scalar(select(func.count(PilotFlightTrackPoint.id)).where(PilotFlightTrackPoint.flight_id == flight.id)) == 2
+    session.refresh(scoring_input)
+    assert scoring_input.selected_upload_id is None

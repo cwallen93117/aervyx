@@ -1440,6 +1440,7 @@ export const TaskMap = React.memo(function TaskMap({
   debugInitialBasemapMode,
   debugInitialPerspective3D = false,
   debugAutoStartReplay = false,
+  forceTrackAltitudeGradient = false,
 }: {
   turnpoints: MapTurnpoint[];
   airspaces?: MapAirspaceRegion[];
@@ -1474,6 +1475,7 @@ export const TaskMap = React.memo(function TaskMap({
   debugInitialBasemapMode?: BasemapMode;
   debugInitialPerspective3D?: boolean;
   debugAutoStartReplay?: boolean;
+  forceTrackAltitudeGradient?: boolean;
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -2045,7 +2047,7 @@ export const TaskMap = React.memo(function TaskMap({
     };
   }, [effectiveHighlightedTrackUploadId, fullTrackPathData, units.altitude]);
   const altitudeTrackSegments = useMemo<AltitudeTrackSegment[]>(() => {
-    if (isReplaying || effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.baseAltitudeM) {
+    if ((!forceTrackAltitudeGradient && isReplaying) || effectiveHighlightedTrackUploadId == null || !highlightedAltitudeScale || highlightedAltitudeScale.maxAltitudeM <= highlightedAltitudeScale.baseAltitudeM) {
       return [];
     }
     const highlightedPaths = fullTrackPathData.filter((item) => item.uploadId === effectiveHighlightedTrackUploadId);
@@ -2056,7 +2058,7 @@ export const TaskMap = React.memo(function TaskMap({
       const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
       return total + Math.max(0, visibleLength - 1);
     }, 0);
-    const stride = Math.max(1, Math.ceil(visibleSegmentTotal / MAX_ALTITUDE_GRADIENT_SEGMENTS));
+    const stride = forceTrackAltitudeGradient ? 1 : Math.max(1, Math.ceil(visibleSegmentTotal / MAX_ALTITUDE_GRADIENT_SEGMENTS));
     const segments: AltitudeTrackSegment[] = [];
     let segmentCursor = 0;
     for (const highlightedPath of highlightedPaths) {
@@ -2082,7 +2084,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
     }
     return segments;
-  }, [effectiveHighlightedTrackUploadId, fullTrackPathData, highlightedAltitudeScale, isReplaying, visibleTrackLengths]);
+  }, [effectiveHighlightedTrackUploadId, forceTrackAltitudeGradient, fullTrackPathData, highlightedAltitudeScale, isReplaying, visibleTrackLengths]);
   const replayMarkerData = useMemo(() => {
     if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
