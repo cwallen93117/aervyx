@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { TaskMap, type TrackCollection } from "../../../components/TaskMap";
 import { type EventRecord, type ResultRecord, type TaskRecord, type UploadRecord } from "../../../components/dashboard/types";
 import { computeTaskOptimization } from "../../../lib/taskOptimization";
+import { collectTerrainBounds, estimateTerrainTileCount } from "../../../lib/terrain-bounds";
 
 const TOKEN_KEY = "flightcomp-platform-token";
 type BasemapMode = "streets" | "satellite" | "terrain";
@@ -33,7 +34,9 @@ type ResourceSummary = {
   totalCount: number;
   transferBytes: number;
   basemapTiles: number;
+  basemapTransferBytes: number;
   demTiles: number;
+  demTransferBytes: number;
 };
 
 type MemorySample = {
@@ -54,6 +57,7 @@ type ScenarioResult = {
   trackPayloadBytes: number;
   trackPointCount: number;
   trackCount: number;
+  estimatedBoundedDemTiles: number;
   before: MemorySample;
   afterLoad: MemorySample;
   afterClose: MemorySample;
@@ -193,6 +197,20 @@ function pointCountForTrack(track: TrackCollection | null) {
   return track?.features.reduce((total, feature) => total + (feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0), 0) ?? 0;
 }
 
+function estimatedBoundedDemTilesForScenario(task: TaskRecord | null, track: TrackCollection | null) {
+  if (!task) {
+    return 0;
+  }
+  const taskMetrics = computeTaskOptimization(task.points);
+  const terrainBounds = collectTerrainBounds({
+    track,
+    taskPoints: task.points,
+    optimizedRoute: taskMetrics.routeCoordinates,
+    livePositions: [],
+  });
+  return estimateTerrainTileCount(terrainBounds, 10);
+}
+
 function mergeTracks(
   uploadIds: number[],
   tracksByUploadId: Record<number, TrackCollection>,
@@ -229,6 +247,7 @@ function summarizeResources(startTime: number): ResourceSummary {
         summary.transferBytes += Number.isFinite(entry.transferSize) ? entry.transferSize : 0;
         if (url.includes("elevation-tiles-prod") || url.includes("terrarium")) {
           summary.demTiles += 1;
+          summary.demTransferBytes += Number.isFinite(entry.transferSize) ? entry.transferSize : 0;
         } else if (
           url.includes("tile.openstreetmap.org") ||
           url.includes("opentopomap.org") ||
@@ -236,10 +255,11 @@ function summarizeResources(startTime: number): ResourceSummary {
           url.includes("mapserver/tile")
         ) {
           summary.basemapTiles += 1;
+          summary.basemapTransferBytes += Number.isFinite(entry.transferSize) ? entry.transferSize : 0;
         }
         return summary;
       },
-      { totalCount: 0, transferBytes: 0, basemapTiles: 0, demTiles: 0 },
+      { totalCount: 0, transferBytes: 0, basemapTiles: 0, basemapTransferBytes: 0, demTiles: 0, demTransferBytes: 0 },
     );
 }
 
@@ -397,7 +417,7 @@ export default function ReplayMemoryProfilerClient() {
     await sleep(1000);
   }
 
-  async function runScenario(definition: ScenarioDefinition, uploadIds: number[]) {
+  async function runScenario(definition: ScenarioDefinition, uploadIds: number[], taskForEstimate: TaskRecord) {
     await unmountMap();
     const resourceStartTime = performance.now();
     const before = await captureSample("Before scenario", resourceStartTime);
@@ -431,6 +451,7 @@ export default function ReplayMemoryProfilerClient() {
       trackPayloadBytes,
       trackPointCount,
       trackCount: uploadIds.length,
+      estimatedBoundedDemTiles: definition.initial3D ? estimatedBoundedDemTilesForScenario(taskForEstimate, mergedTrack) : 0,
       before,
       afterLoad,
       afterClose,
@@ -459,7 +480,7 @@ export default function ReplayMemoryProfilerClient() {
       for (const scenario of SCENARIOS) {
         setStatus(`Running: ${scenario.label}`);
         try {
-          const result = await runScenario(scenario, uploadIds);
+          const result = await runScenario(scenario, uploadIds, loaded.task);
           setScenarioResults((current) => [...current, result]);
         } catch (error) {
           const resourceStartTime = performance.now();
@@ -475,6 +496,7 @@ export default function ReplayMemoryProfilerClient() {
               trackPayloadBytes: 0,
               trackPointCount: 0,
               trackCount: uploadIds.length,
+              estimatedBoundedDemTiles: scenario.initial3D ? estimatedBoundedDemTilesForScenario(loaded.task, null) : 0,
               before: sample,
               afterLoad: sample,
               afterClose: sample,
@@ -572,7 +594,9 @@ export default function ReplayMemoryProfilerClient() {
                   "JS heap after",
                   "UA memory after",
                   "Resources",
-                  "Basemap/DEM tiles",
+                  "Basemap tiles/bytes",
+                  "DEM tiles/bytes",
+                  "Bounded DEM estimate",
                   "After close heap",
                   "Status",
                 ].map((heading) => (
@@ -594,7 +618,13 @@ export default function ReplayMemoryProfilerClient() {
                     {result.afterLoad.resources.totalCount} / {formatBytes(result.afterLoad.resources.transferBytes)}
                   </td>
                   <td style={{ padding: 10, borderBottom: "1px solid #e2e8f0" }}>
-                    {result.afterLoad.resources.basemapTiles} / {result.afterLoad.resources.demTiles}
+                    {result.afterLoad.resources.basemapTiles} / {formatBytes(result.afterLoad.resources.basemapTransferBytes)}
+                  </td>
+                  <td style={{ padding: 10, borderBottom: "1px solid #e2e8f0" }}>
+                    {result.afterLoad.resources.demTiles} / {formatBytes(result.afterLoad.resources.demTransferBytes)}
+                  </td>
+                  <td style={{ padding: 10, borderBottom: "1px solid #e2e8f0" }}>
+                    {result.estimatedBoundedDemTiles ? result.estimatedBoundedDemTiles.toLocaleString() : "n/a"}
                   </td>
                   <td style={{ padding: 10, borderBottom: "1px solid #e2e8f0" }}>{formatBytes(result.afterClose.jsHeapUsedBytes)}</td>
                   <td style={{ padding: 10, borderBottom: "1px solid #e2e8f0", color: result.status === "ok" ? "#166534" : "#b91c1c" }}>
@@ -603,7 +633,7 @@ export default function ReplayMemoryProfilerClient() {
                 </tr>
               )) : (
                 <tr>
-                  <td colSpan={11} style={{ padding: 18, color: "#64748b" }}>No measurements yet.</td>
+                  <td colSpan={13} style={{ padding: 18, color: "#64748b" }}>No measurements yet.</td>
                 </tr>
               )}
             </tbody>
@@ -611,8 +641,8 @@ export default function ReplayMemoryProfilerClient() {
         </section>
 
         <p style={{ color: "#64748b", fontSize: 13 }}>
-          Note: normal web pages cannot reliably read Chrome GPU/process memory. The UA memory column is filled only when Chromium exposes
-          `measureUserAgentSpecificMemory`; otherwise use Chrome Task Manager alongside this table for process/GPU confirmation.
+          Note: normal web pages cannot reliably read Chrome GPU/process memory, and JS heap excludes much of MapLibre terrain mesh memory.
+          DEM tile counts and transfer bytes are the best browser-visible proxy unless Chromium exposes process memory.
         </p>
 
         {activeScenario && task && taskMetrics ? (

@@ -5,6 +5,14 @@ import { IconLayer, PathLayer, PolygonLayer, ScatterplotLayer, TextLayer } from 
 import { MapboxOverlay } from "@deck.gl/mapbox";
 import maplibregl, { GeoJSONSource } from "maplibre-gl";
 import React, { type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import {
+  DEFAULT_TERRAIN_TILE_WARNING_THRESHOLD,
+  collectTerrainBounds,
+  estimateTerrainTileCount,
+  intersectTerrainBounds,
+  terrainBoundsKey,
+  type TerrainBounds,
+} from "../lib/terrain-bounds";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number; symbol?: string | null };
 export type MapTaskPoint = { position: number; point_type: string; radius_m: number; name: string; latitude: number; longitude: number };
@@ -193,7 +201,7 @@ const RING_ICON_DATA_URIS: Record<"cellular" | "mesh" | "other", string> = {
   other: `data:image/svg+xml;utf8,${encodeURIComponent(RING_ICON_SVGS.other)}`,
 };
 
-function createBasemapStyle(basemapMode: BasemapMode, includeTerrain = false) {
+function createBasemapStyle(basemapMode: BasemapMode, includeTerrain = false, terrainBounds: TerrainBounds | null = null) {
   const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
     streets: {
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
@@ -221,6 +229,7 @@ function createBasemapStyle(basemapMode: BasemapMode, includeTerrain = false) {
     sources[TERRAIN_SOURCE_ID] = {
       type: "raster-dem",
       tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+      ...(terrainBounds ? { bounds: terrainBounds } : {}),
       tileSize: 256,
       encoding: "terrarium",
       maxzoom: 15,
@@ -1507,7 +1516,7 @@ export const TaskMap = React.memo(function TaskMap({
   const replayClockRef = useRef<number | null>(null);
   const replayIndexRef = useRef(0);
   const debugAutoStartReplayKeyRef = useRef("");
-  const renderedBasemapStyleRef = useRef<{ basemapMode: BasemapMode; includeTerrain: boolean } | null>(null);
+  const renderedBasemapStyleRef = useRef<{ basemapMode: BasemapMode; includeTerrain: boolean; terrainBoundsKey: string } | null>(null);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>(debugInitialBasemapMode ?? "streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -1554,6 +1563,16 @@ export const TaskMap = React.memo(function TaskMap({
   const effectiveScoredTrackPoints = oc?.flight_track === false ? [] : scoredTrackPoints;
   const effectiveTelemetryTrack = telemetryTrack ?? track;
   const clickToAddTurnpointEnabledRef = useRef(oc?.click_to_add_turnpoint !== false);
+  const terrainBounds = useMemo(
+    () => collectTerrainBounds({
+      track: effectiveTrack,
+      taskPoints: effectiveTaskRoutePoints,
+      optimizedRoute: effectiveOptimizedRoute,
+      livePositions: effectiveLivePositions,
+    }),
+    [effectiveTrack, effectiveTaskRoutePoints, effectiveOptimizedRoute, effectiveLivePositions],
+  );
+  const currentTerrainBoundsKey = useMemo(() => terrainBoundsKey(terrainBounds), [terrainBounds]);
 
   const stopGpsFollowing = useCallback((map: maplibregl.Map) => {
     gpsLocateRequestIdRef.current += 1;
@@ -1955,11 +1974,28 @@ export const TaskMap = React.memo(function TaskMap({
       { featureCount: 0, pointCount: 0 },
     );
   }, [effectiveTrack]);
-  const largeReplay3dRisk = mode === "replay" && (
-    replayTrackLoad.pointCount >= LARGE_REPLAY_3D_POINT_THRESHOLD ||
-    replayTrackLoad.featureCount >= LARGE_REPLAY_3D_TRACK_THRESHOLD
-  );
   const maxMapPitch = Math.max(0, Math.min(85, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
+  const estimateVisibleTerrainTiles = useCallback((map: maplibregl.Map) => {
+    const bounds = map.getBounds();
+    const viewportBounds: TerrainBounds = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];
+    return estimateTerrainTileCount(intersectTerrainBounds(viewportBounds, terrainBounds), map.getZoom());
+  }, [terrainBounds]);
+  const build3dWarningMessage = useCallback((map: maplibregl.Map) => {
+    const estimatedTerrainTiles = estimateVisibleTerrainTiles(map);
+    const terrainRisk = estimatedTerrainTiles >= DEFAULT_TERRAIN_TILE_WARNING_THRESHOLD;
+    const replayRisk = mode === "replay" && (
+      replayTrackLoad.pointCount >= LARGE_REPLAY_3D_POINT_THRESHOLD ||
+      replayTrackLoad.featureCount >= LARGE_REPLAY_3D_TRACK_THRESHOLD
+    );
+    if (!terrainRisk && !replayRisk) {
+      return null;
+    }
+    const reasons = [
+      terrainRisk ? `${estimatedTerrainTiles.toLocaleString()} estimated DEM terrain tiles` : null,
+      replayRisk ? `${replayTrackLoad.featureCount} tracks and ${replayTrackLoad.pointCount.toLocaleString()} replay points` : null,
+    ].filter(Boolean).join(", ");
+    return `3D terrain may use substantially more browser memory for this view (${reasons}). Continue?`;
+  }, [estimateVisibleTerrainTiles, mode, replayTrackLoad.featureCount, replayTrackLoad.pointCount]);
   const visibleTrackLengths = useMemo(() => {
     if (!effectiveTrack) {
       return [] as number[];
@@ -2640,7 +2676,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
       const map = new maplibregl.Map({
         container,
-        style: createBasemapStyle(basemapMode, debugInitialPerspective3D) as never,
+        style: createBasemapStyle(basemapMode, debugInitialPerspective3D, terrainBounds) as never,
         ...(persistedViewState
           ? {
               center: persistedViewState.center,
@@ -2655,7 +2691,11 @@ export const TaskMap = React.memo(function TaskMap({
         maxPitch: maxMapPitch,
         attributionControl: false,
       });
-      renderedBasemapStyleRef.current = { basemapMode, includeTerrain: debugInitialPerspective3D };
+      renderedBasemapStyleRef.current = {
+        basemapMode,
+        includeTerrain: debugInitialPerspective3D,
+        terrainBoundsKey: debugInitialPerspective3D ? currentTerrainBoundsKey : "2d",
+      };
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
       const deckOverlay = new MapboxOverlay({ interleaved: false, layers: [] });
@@ -2816,9 +2856,13 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
-    const nextStyle = { basemapMode, includeTerrain: isPerspective3D };
+    const nextStyle = { basemapMode, includeTerrain: isPerspective3D, terrainBoundsKey: isPerspective3D ? currentTerrainBoundsKey : "2d" };
     const previousStyle = renderedBasemapStyleRef.current;
-    if (previousStyle?.basemapMode === nextStyle.basemapMode && previousStyle.includeTerrain === nextStyle.includeTerrain) {
+    if (
+      previousStyle?.basemapMode === nextStyle.basemapMode &&
+      previousStyle.includeTerrain === nextStyle.includeTerrain &&
+      previousStyle.terrainBoundsKey === nextStyle.terrainBoundsKey
+    ) {
       return;
     }
     const setMapStyle = () => {
@@ -2828,7 +2872,7 @@ export const TaskMap = React.memo(function TaskMap({
         map.once("styledata", () => {
           setStyleGeneration((prev) => prev + 1);
         });
-        map.setStyle(createBasemapStyle(nextStyle.basemapMode, nextStyle.includeTerrain) as never);
+        map.setStyle(createBasemapStyle(nextStyle.basemapMode, nextStyle.includeTerrain, terrainBounds) as never);
         renderedBasemapStyleRef.current = nextStyle;
       } catch (error) {
         console.warn("Map style update was skipped.", error);
@@ -2839,7 +2883,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", setMapStyle);
     }
-  }, [basemapMode, isPerspective3D]);
+  }, [basemapMode, isPerspective3D, terrainBounds, currentTerrainBoundsKey]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -3517,10 +3561,9 @@ export const TaskMap = React.memo(function TaskMap({
             if (!map) {
               return;
             }
-            if (!isPerspective3D && largeReplay3dRisk) {
-              const confirmed = window.confirm(
-                `This replay has ${replayTrackLoad.featureCount} tracks and ${replayTrackLoad.pointCount.toLocaleString()} points. 3D terrain can use substantially more browser memory. Continue?`,
-              );
+            if (!isPerspective3D) {
+              const warningMessage = build3dWarningMessage(map);
+              const confirmed = warningMessage == null || window.confirm(warningMessage);
               if (!confirmed) {
                 return;
               }
