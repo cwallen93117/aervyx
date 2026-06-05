@@ -5039,10 +5039,10 @@ button[type="submit"]:hover,
   color: #0f172a;
   border: 1px solid #cad7e8;
   border-radius: 6px;
-  padding: 10px 12px;
+  padding: 6px 12px;
   font-size: 0.8125rem;
   min-width: 200px;
-  min-height: 44px;
+  min-height: 36px;
   cursor: pointer;
 }
 
