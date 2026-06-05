@@ -38,9 +38,12 @@ void main() async {
     authService,
     igcService,
     meshReconnectRequester: ({bool force = false}) async {
-      if (!bleService.isConnected) {
-        await bleService.restoreAutoReconnect(force: force);
+      if (bleService.isConnected) {
+        return const BleReconnectResult(
+          BleReconnectStatus.alreadyConnected,
+        );
       }
+      return bleService.restoreAutoReconnect(force: force);
     },
   );
 

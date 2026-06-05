@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -117,6 +118,102 @@ void main() {
       expect(ble.deviceBatteryLevel, isNull);
       expect(ble.deviceBatteryLevelReceivedAt, isNull);
       expect(api.posts, isEmpty);
+    });
+  });
+
+  group('BleService auto-reconnect', () {
+    test('forced reconnect uses direct saved-device connect', () async {
+      final api = _RecordingApiService();
+      final calls = <String>[];
+      final ble = BleService(
+        api,
+        debugDirectReconnectHandler: (remoteId, name) async {
+          calls.add('$remoteId|$name');
+          return const BleReconnectResult(BleReconnectStatus.connected);
+        },
+      )..debugSetSavedBleReconnectTarget(
+          remoteId: 'AA:BB:CC:DD:EE:FF',
+          name: 'Meshtastic_1234',
+        );
+
+      final result = await ble.restoreAutoReconnect(force: true);
+
+      expect(result.status, BleReconnectStatus.connected);
+      expect(calls, ['AA:BB:CC:DD:EE:FF|Meshtastic_1234']);
+    });
+
+    test('passive reconnect respects disabled auto-reconnect target', () async {
+      final api = _RecordingApiService();
+      var directCalls = 0;
+      final ble = BleService(
+        api,
+        debugDirectReconnectHandler: (_, __) async {
+          directCalls++;
+          return const BleReconnectResult(BleReconnectStatus.connected);
+        },
+      )..debugSetSavedBleReconnectTarget(
+          remoteId: 'AA:BB:CC:DD:EE:FF',
+          autoReconnectEnabled: false,
+        );
+
+      final result = await ble.restoreAutoReconnect();
+
+      expect(result.status, BleReconnectStatus.noSavedDevice);
+      expect(directCalls, 0);
+    });
+
+    test('forced reconnect falls back after direct saved-device failure',
+        () async {
+      final api = _RecordingApiService();
+      var directCalls = 0;
+      var discoveryCalls = 0;
+      final ble = BleService(
+        api,
+        debugDirectReconnectHandler: (_, __) async {
+          directCalls++;
+          return const BleReconnectResult(
+            BleReconnectStatus.failed,
+            message: 'direct failed',
+          );
+        },
+        debugDiscoveryReconnectHandler: () async {
+          discoveryCalls++;
+          return const BleReconnectResult(BleReconnectStatus.connected);
+        },
+      )..debugSetSavedBleReconnectTarget(
+          remoteId: 'AA:BB:CC:DD:EE:FF',
+          name: 'Meshtastic_1234',
+        );
+
+      final result = await ble.restoreAutoReconnect(force: true);
+
+      expect(result.status, BleReconnectStatus.connected);
+      expect(directCalls, 1);
+      expect(discoveryCalls, 1);
+    });
+
+    test('concurrent forced reconnect requests share one direct attempt',
+        () async {
+      final api = _RecordingApiService();
+      final completer = Completer<BleReconnectResult>();
+      var directCalls = 0;
+      final ble = BleService(
+        api,
+        debugDirectReconnectHandler: (_, __) {
+          directCalls++;
+          return completer.future;
+        },
+      )..debugSetSavedBleReconnectTarget(remoteId: 'AA:BB:CC:DD:EE:FF');
+
+      final first = ble.restoreAutoReconnect(force: true);
+      final second = ble.restoreAutoReconnect(force: true);
+      completer.complete(
+        const BleReconnectResult(BleReconnectStatus.connected),
+      );
+
+      expect((await first).status, BleReconnectStatus.connected);
+      expect((await second).status, BleReconnectStatus.connected);
+      expect(directCalls, 1);
     });
   });
 }

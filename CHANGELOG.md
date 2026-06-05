@@ -13,6 +13,16 @@ and environment.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.05]
+
+### Fixed
+- **Mobile v0.4.52+69** makes Meshtastic Bluetooth reconnects explicit and
+  immediate when pilots tap reconnect or start recording, using the same direct
+  foreground connect path as manual pairing before falling back to scan.
+- Start Recording now waits briefly for the saved mesh radio to connect and
+  shows a non-fatal warning when Bluetooth is off, the saved radio is not found,
+  or reconnect fails, while cellular/GPS recording continues.
+
 ## [2026.06.04]
 
 ### Fixed

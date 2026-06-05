@@ -13,12 +13,14 @@ import '../models/position.dart' as model;
 import '../models/turnpoint.dart';
 import 'api_service.dart';
 import 'auth_service.dart';
+import 'ble_service.dart';
 import 'background_service.dart';
 import 'igc_service.dart';
 import 'persistent_runtime_service.dart';
 
 typedef TrackingSessionDirectoryProvider = Future<Directory> Function();
-typedef MeshReconnectRequester = Future<void> Function({bool force});
+typedef MeshReconnectRequester = Future<BleReconnectResult> Function(
+    {bool force});
 
 /// GPS tracking zones — determines polling rate near course points.
 enum TrackingZone {
@@ -186,6 +188,7 @@ class TrackingService extends ChangeNotifier {
   bool _monitoringPollInProgress = false;
   int _positionCount = 0;
   String? _error;
+  String? _meshReconnectWarning;
   NotificationLevel _notificationLevel = NotificationLevel.error;
   bool _backendConnected = false;
   Timer? _heartbeatTimer;
@@ -282,6 +285,7 @@ class TrackingService extends ChangeNotifier {
   model.Position? get lastPosition => _lastPosition;
   int get positionCount => _positionCount;
   String? get error => _error;
+  String? get meshReconnectWarning => _meshReconnectWarning;
   NotificationLevel get notificationLevel => _notificationLevel;
   bool get backendConnected => _backendConnected;
   int? get batteryThreshold => _batteryThreshold;
@@ -441,6 +445,12 @@ class TrackingService extends ChangeNotifier {
   Future<bool> debugTrackingSessionExists() async {
     final file = await _trackingSessionFile();
     return file.exists();
+  }
+
+  @visibleForTesting
+  Future<void> debugRequestMeshReconnectForTracking() async {
+    _meshReconnectWarning = null;
+    await _requestMeshReconnectForTracking();
   }
 
   Future<void> restoreActiveSession({
@@ -674,7 +684,8 @@ class TrackingService extends ChangeNotifier {
     }
 
     if (!await _ensureLocationPermission()) return;
-    unawaited(_requestMeshReconnectForTracking());
+    _meshReconnectWarning = null;
+    await _requestMeshReconnectForTracking();
 
     _flightResetTimer?.cancel();
     _flightResetTimer = null;
@@ -761,9 +772,41 @@ class TrackingService extends ChangeNotifier {
     final requester = _meshReconnectRequester;
     if (requester == null) return;
     try {
-      await requester(force: true);
+      final result = await requester(force: true).timeout(
+        const Duration(seconds: 12),
+        onTimeout: () => const BleReconnectResult(
+          BleReconnectStatus.failed,
+          message: 'Mesh reconnect timed out',
+        ),
+      );
+      if (!result.isConnected) {
+        _meshReconnectWarning = _meshReconnectMessage(result);
+        notifyListeners();
+      }
     } catch (e) {
+      _meshReconnectWarning = 'Mesh radio did not connect: $e';
       debugPrint('Mesh reconnect on tracking start failed: $e');
+      notifyListeners();
+    }
+  }
+
+  String _meshReconnectMessage(BleReconnectResult result) {
+    switch (result.status) {
+      case BleReconnectStatus.bluetoothOff:
+        return 'Mesh radio did not connect because Bluetooth is off.';
+      case BleReconnectStatus.noSavedDevice:
+        return 'Mesh radio did not connect; pair a Meshtastic device first.';
+      case BleReconnectStatus.permissionDenied:
+        return 'Mesh radio did not connect; Bluetooth scan permission is needed.';
+      case BleReconnectStatus.notFound:
+        return 'Mesh radio did not connect; saved Meshtastic device was not found.';
+      case BleReconnectStatus.failed:
+        return result.message == null || result.message!.isEmpty
+            ? 'Mesh radio did not connect.'
+            : 'Mesh radio did not connect: ${result.message}';
+      case BleReconnectStatus.connected:
+      case BleReconnectStatus.alreadyConnected:
+        return '';
     }
   }
 

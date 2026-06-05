@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.52+69 - 2026-06-05
+
+### Fixed
+- Meshtastic Bluetooth reconnect now uses an immediate foreground connect when
+  pilots tap reconnect or start recording, then falls back to discovery if the
+  saved radio cannot be reached directly.
+- Start Recording waits briefly for the mesh radio and shows a non-fatal
+  warning when reconnect fails while continuing cellular/GPS recording.
+
 ## 0.4.51+68 - 2026-06-04
 
 ### Fixed

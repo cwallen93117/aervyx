@@ -220,6 +220,32 @@ class HomeScreen extends StatelessWidget {
               const SizedBox(height: 12),
 
               // Notification message (success / warning / error)
+              if (tracking.meshReconnectWarning != null)
+                Card(
+                  color: colorScheme.tertiaryContainer,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Icon(Icons.bluetooth_disabled,
+                            color: colorScheme.onTertiaryContainer, size: 18),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            tracking.meshReconnectWarning!,
+                            style: TextStyle(
+                              color: colorScheme.onTertiaryContainer,
+                              fontSize: 12,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+
               if (tracking.error != null &&
                   !tracking.error!.startsWith('Landing detected'))
                 Builder(builder: (_) {

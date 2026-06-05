@@ -61,6 +61,27 @@ class NetworkDevice {
   });
 }
 
+enum BleReconnectStatus {
+  connected,
+  alreadyConnected,
+  noSavedDevice,
+  bluetoothOff,
+  permissionDenied,
+  notFound,
+  failed,
+}
+
+class BleReconnectResult {
+  final BleReconnectStatus status;
+  final String? message;
+
+  const BleReconnectResult(this.status, {this.message});
+
+  bool get isConnected =>
+      status == BleReconnectStatus.connected ||
+      status == BleReconnectStatus.alreadyConnected;
+}
+
 class _SavedBleDevice {
   final String remoteId;
   final String name;
@@ -159,12 +180,19 @@ class BleService extends ChangeNotifier {
   bool _userDisconnected = false;
   bool _isReconnecting = false;
   bool _isRestoringReconnect = false;
+  Future<BleReconnectResult>? _restoreReconnectFuture;
   int _reconnectAttempts = 0;
   Timer? _reconnectTimer;
   Timer? _bleHealthTimer;
   _SavedBleDevice? _lastBleDevice;
   StreamSubscription<BluetoothConnectionState>? _connectionStateSubscription;
   StreamSubscription<BluetoothAdapterState>? _adapterStateSubscription;
+
+  @visibleForTesting
+  Future<BleReconnectResult?> Function(String remoteId, String name)?
+      debugDirectReconnectHandler;
+  @visibleForTesting
+  Future<BleReconnectResult?> Function()? debugDiscoveryReconnectHandler;
 
   // ── Mesh position relay ──
   StreamSubscription<void>? _dataAvailableSubscription;
@@ -280,6 +308,8 @@ class BleService extends ChangeNotifier {
     this._api, {
     BatteryThresholdProvider? batteryThresholdProvider,
     BatteryLevelProvider? batteryLevelProvider,
+    this.debugDirectReconnectHandler,
+    this.debugDiscoveryReconnectHandler,
   })  : _batteryThresholdProvider = batteryThresholdProvider,
         _batteryLevelProvider =
             batteryLevelProvider ?? (() async => Battery().batteryLevel);
@@ -461,6 +491,20 @@ class BleService extends ChangeNotifier {
       debugPrint('Saved BLE device update failed: $e');
     }
     notifyListeners();
+  }
+
+  @visibleForTesting
+  void debugSetSavedBleReconnectTarget({
+    required String remoteId,
+    String name = 'Meshtastic device',
+    bool autoReconnectEnabled = true,
+  }) {
+    _lastBleDevice = _SavedBleDevice(
+      remoteId: remoteId,
+      name: name,
+      autoReconnectEnabled: autoReconnectEnabled,
+      lastConnectedAt: DateTime.now().toUtc(),
+    );
   }
 
   Future<void> forgetSavedBleDevice() async {
@@ -1416,18 +1460,54 @@ class BleService extends ChangeNotifier {
     });
   }
 
-  Future<void> restoreAutoReconnect({bool force = false}) async {
-    if (_transport != null ||
-        _isConnecting ||
-        _isReconnecting ||
-        _isRestoringReconnect) {
-      return;
+  Future<BleReconnectResult> restoreAutoReconnect({bool force = false}) {
+    final active = _restoreReconnectFuture;
+    if (active != null) return active;
+
+    final future = _restoreAutoReconnect(force: force);
+    _restoreReconnectFuture = future;
+    return future.whenComplete(() {
+      if (identical(_restoreReconnectFuture, future)) {
+        _restoreReconnectFuture = null;
+      }
+    });
+  }
+
+  Future<BleReconnectResult> _restoreAutoReconnect(
+      {required bool force}) async {
+    if (_transport?.isConnected == true) {
+      return const BleReconnectResult(BleReconnectStatus.alreadyConnected);
+    }
+
+    if (_isConnecting || _isRestoringReconnect) {
+      return const BleReconnectResult(
+        BleReconnectStatus.failed,
+        message: 'Reconnect already in progress',
+      );
+    }
+
+    if (_isReconnecting && !force) {
+      return const BleReconnectResult(
+        BleReconnectStatus.failed,
+        message: 'Background reconnect already in progress',
+      );
     }
 
     _isRestoringReconnect = true;
     try {
+      if (force) {
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
+        _isReconnecting = false;
+      }
+
       var saved = await _loadSavedBleDevice();
       if (saved == null) {
+        final discoveryHandler = debugDiscoveryReconnectHandler;
+        if (force && discoveryHandler != null) {
+          final result = await discoveryHandler();
+          if (result != null) return result;
+        }
         saved = await _discoverBleReconnectTarget();
         if (saved == null) {
           if (_statusMessage == null ||
@@ -1437,17 +1517,16 @@ class BleService extends ChangeNotifier {
                 'No Meshtastic Bluetooth device found yet. Pair once if this is a new install.';
           }
           notifyListeners();
-          return;
+          return const BleReconnectResult(BleReconnectStatus.noSavedDevice);
         }
-        _lastBleDevice = saved;
-        try {
-          final file = await _lastBleDeviceFile;
-          await file.writeAsString(jsonEncode(saved.toJson()));
-        } catch (e) {
-          debugPrint('Saved BLE auto-discovery target write failed: $e');
-        }
+        await _persistDiscoveredBleReconnectTarget(saved);
       }
-      if (!force && !saved.autoReconnectEnabled) return;
+      if (!force && !saved.autoReconnectEnabled) {
+        return const BleReconnectResult(
+          BleReconnectStatus.noSavedDevice,
+          message: 'Auto-reconnect is disabled for the saved device',
+        );
+      }
 
       final target = force ? saved.copyWith(autoReconnectEnabled: true) : saved;
       _lastBleDevice = target;
@@ -1456,16 +1535,117 @@ class BleService extends ChangeNotifier {
       }
 
       _userDisconnected = false;
-      _isReconnecting = true;
       _reconnectAttempts = 0;
       _error = null;
-      _statusMessage = 'Reconnecting to ${target.name}...';
       unawaited(PersistentRuntimeService.setBleActive(true));
+
+      if (debugDirectReconnectHandler == null &&
+          await FlutterBluePlus.adapterState.first !=
+              BluetoothAdapterState.on) {
+        _statusMessage =
+            'Bluetooth is off. Turn it on to connect to ${target.name}.';
+        notifyListeners();
+        return const BleReconnectResult(BleReconnectStatus.bluetoothOff);
+      }
+
+      if (force) {
+        final direct = await _connectSavedBleTargetForeground(target);
+        if (direct.isConnected) return direct;
+
+        final discoveryHandler = debugDiscoveryReconnectHandler;
+        if (discoveryHandler != null) {
+          final result = await discoveryHandler();
+          if (result != null) return result;
+        }
+        final discovered = await _discoverBleReconnectTarget();
+        if (discovered == null) {
+          _statusMessage = 'Could not find ${target.name}.';
+          notifyListeners();
+          return direct.status == BleReconnectStatus.failed
+              ? direct
+              : const BleReconnectResult(BleReconnectStatus.notFound);
+        }
+
+        await _persistDiscoveredBleReconnectTarget(discovered);
+        return _connectSavedBleTargetForeground(discovered);
+      }
+
+      _isReconnecting = true;
+      _statusMessage = 'Reconnecting to ${target.name}...';
       _ensureAdapterReconnectListener();
       notifyListeners();
       _scheduleReconnect(target, delay: const Duration(milliseconds: 500));
+      return const BleReconnectResult(
+        BleReconnectStatus.failed,
+        message: 'Background reconnect scheduled',
+      );
     } finally {
       _isRestoringReconnect = false;
+    }
+  }
+
+  Future<void> _persistDiscoveredBleReconnectTarget(
+      _SavedBleDevice saved) async {
+    _lastBleDevice = saved;
+    try {
+      final file = await _lastBleDeviceFile;
+      await file.writeAsString(jsonEncode(saved.toJson()));
+    } catch (e) {
+      debugPrint('Saved BLE auto-discovery target write failed: $e');
+    }
+  }
+
+  Future<BleReconnectResult> _connectSavedBleTargetForeground(
+      _SavedBleDevice target) async {
+    final debugHandler = debugDirectReconnectHandler;
+    if (debugHandler != null) {
+      final result = await debugHandler(target.remoteId, target.name);
+      if (result != null) return result;
+    }
+
+    _isConnecting = true;
+    _connectingDeviceId = target.remoteId;
+    _statusMessage = 'Connecting to ${target.name}...';
+    _configLoaded = false;
+    notifyListeners();
+
+    BluetoothDevice? bluetoothDevice;
+    try {
+      bluetoothDevice = BluetoothDevice.fromId(target.remoteId);
+      final meshDevice = MeshtasticDevice(
+        device: bluetoothDevice,
+        name: target.name,
+        rssi: 0,
+      );
+      await _establishBleSession(
+        meshDevice,
+        autoConnect: false,
+        saveReconnectTarget: true,
+      );
+
+      _isReconnecting = false;
+      _reconnectAttempts = 0;
+      _error = null;
+      _statusMessage = 'Connected to ${target.name}';
+      notifyListeners();
+      return const BleReconnectResult(BleReconnectStatus.connected);
+    } catch (e) {
+      debugPrint('BLE foreground reconnect failed: $e');
+      _clearBleConnectionState(clearConnectedDevice: true);
+      try {
+        await bluetoothDevice?.disconnect(queue: false);
+      } catch (_) {}
+      _error = 'Reconnect failed: $e';
+      _statusMessage = null;
+      notifyListeners();
+      return BleReconnectResult(
+        BleReconnectStatus.failed,
+        message: e.toString(),
+      );
+    } finally {
+      _isConnecting = false;
+      _connectingDeviceId = null;
+      notifyListeners();
     }
   }
 

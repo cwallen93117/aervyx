@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:aervyx_mobile/models/position.dart' as model;
 import 'package:aervyx_mobile/services/api_service.dart';
 import 'package:aervyx_mobile/services/auth_service.dart';
+import 'package:aervyx_mobile/services/ble_service.dart';
 import 'package:aervyx_mobile/services/igc_service.dart';
 import 'package:aervyx_mobile/services/tracking_service.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -124,9 +125,51 @@ void main() {
     expect(await tracking.debugTrackingSessionExists(), isFalse);
     await tempDir.delete(recursive: true);
   });
+
+  test('tracking mesh reconnect requester is forced and success is quiet',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp('aervyx_tracking_');
+    final calls = <bool>[];
+    final tracking = _trackingService(
+      tempDir,
+      meshReconnectRequester: ({bool force = false}) async {
+        calls.add(force);
+        return const BleReconnectResult(BleReconnectStatus.connected);
+      },
+    );
+
+    await tracking.debugRequestMeshReconnectForTracking();
+
+    expect(calls, [true]);
+    expect(tracking.meshReconnectWarning, isNull);
+    await tempDir.delete(recursive: true);
+  });
+
+  test('tracking preserves non-fatal mesh reconnect warning on failure',
+      () async {
+    final tempDir = await Directory.systemTemp.createTemp('aervyx_tracking_');
+    final tracking = _trackingService(
+      tempDir,
+      meshReconnectRequester: ({bool force = false}) async {
+        return const BleReconnectResult(BleReconnectStatus.notFound);
+      },
+    );
+
+    await tracking.debugRequestMeshReconnectForTracking();
+
+    expect(
+      tracking.meshReconnectWarning,
+      contains('saved Meshtastic device was not found'),
+    );
+    expect(tracking.error, isNull);
+    await tempDir.delete(recursive: true);
+  });
 }
 
-TrackingService _trackingService(Directory sessionDir) {
+TrackingService _trackingService(
+  Directory sessionDir, {
+  MeshReconnectRequester? meshReconnectRequester,
+}) {
   final api = _FakeApiService();
   final auth = AuthService(api);
   final igc = IgcService();
@@ -135,5 +178,6 @@ TrackingService _trackingService(Directory sessionDir) {
     auth,
     igc,
     sessionDirectoryProvider: () async => sessionDir,
+    meshReconnectRequester: meshReconnectRequester,
   );
 }
