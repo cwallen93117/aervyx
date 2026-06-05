@@ -4,15 +4,15 @@ import json
 from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user
-from sqlalchemy import delete, update
+from sqlalchemy import delete, select, update
 
-from app.models import Event, FlightSite, IGCUpload, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskScoringInput, TrackPoint, User
+from app.models import Event, FlightSite, IGCUpload, PilotFlight, PilotFlightTrackPoint, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.schemas import (
     LogbookBulkDeleteRequest,
     LogbookBulkDeleteResponse,
@@ -25,6 +25,7 @@ from app.schemas import (
     LogbookFolderImportResponse,
 )
 from app.services.logbook import attach_igc_to_existing_flight, create_app_upload_flight, derive_flight_stats, get_flight_track_points, import_logbook_folder_files
+from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
 
 router = APIRouter(prefix="/api/logbook", tags=["logbook"])
 
@@ -338,11 +339,24 @@ def update_flight(
 
 
 @router.get("/flights/{flight_id}/track")
-def get_flight_track(flight_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> dict:
+def get_flight_track(
+    flight_id: int,
+    detail: str = Query(default="replay"),
+    max_points: int = Query(default=DEFAULT_REPLAY_MAX_POINTS, ge=2, le=100000),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> dict:
     flight = _flight_for_user(session, user, flight_id)
     points = get_flight_track_points(session, flight)
     if not points:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This flight does not have replayable track data.")
+    task_id = flight.task_id
+    if task_id is None and flight.igc_upload_id is not None:
+        upload = session.get(IGCUpload, flight.igc_upload_id)
+        task_id = upload.task_id if upload is not None else None
+    task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position)).all() if task_id is not None else []
+    simplified = simplify_replay_points(points, task_points=task_points, max_points=max_points) if detail != "full" else None
+    replay_points = simplified.points if simplified is not None else points
     pilot_name = user.full_name or "Pilot"
     coordinates = [
         [
@@ -350,11 +364,19 @@ def get_flight_track(flight_id: int, user: User = Depends(get_current_user), ses
             point.latitude,
             float(point.gps_altitude_m if point.gps_altitude_m is not None else point.pressure_altitude_m if point.pressure_altitude_m is not None else 0),
         ]
-        for point in points
+        for point in replay_points
     ]
-    timestamps = [point.recorded_at.isoformat().replace("+00:00", "Z") for point in points]
+    timestamps = [point.recorded_at.isoformat().replace("+00:00", "Z") for point in replay_points]
     return {
         "type": "FeatureCollection",
+        "metadata": {
+            "detail": "full" if detail == "full" else "replay",
+            "original_point_count": len(points),
+            "returned_point_count": len(replay_points),
+            "max_points": max_points,
+            "simplified": simplified.simplified if simplified is not None else False,
+            "task_aware": simplified.task_aware if simplified is not None else bool(task_points),
+        },
         "features": [
             {
                 "type": "Feature",

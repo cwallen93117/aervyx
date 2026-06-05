@@ -31,6 +31,7 @@ from app.models import (
 from app.routers.events import _event_payload
 from app.routers.tasks import _task_response
 from app.schemas import EventResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
+from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
 from app.services.scoring import build_result_payload
 from app.services.tracking import (
     get_live_positions,
@@ -227,7 +228,12 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
 
 
 @router.get("/uploads/{upload_id}/track")
-def get_public_upload_track(upload_id: int, session: Session = Depends(get_session)) -> dict:
+def get_public_upload_track(
+    upload_id: int,
+    detail: str = Query(default="replay"),
+    max_points: int = Query(default=DEFAULT_REPLAY_MAX_POINTS, ge=2, le=100000),
+    session: Session = Depends(get_session),
+) -> dict:
     upload = session.get(IGCUpload, upload_id)
     if upload is None:
         raise HTTPException(status_code=404, detail="Upload not found")
@@ -254,20 +260,31 @@ def get_public_upload_track(upload_id: int, session: Session = Depends(get_sessi
     if aircraft_icon not in {"hang_glider", "paraglider", "sailplane"}:
         aircraft_icon = "hang_glider"
     points = session.scalars(select(TrackPoint).where(TrackPoint.upload_id == upload_id).order_by(TrackPoint.sequence)).all()
+    task_points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == upload.task_id).order_by(TaskPoint.position)).all()
+    simplified = simplify_replay_points(points, task_points=task_points, max_points=max_points) if detail != "full" else None
+    replay_points = simplified.points if simplified is not None else points
     coordinates = [
         [
             point.longitude,
             point.latitude,
             float(point.gps_altitude_m if point.gps_altitude_m is not None else point.pressure_altitude_m if point.pressure_altitude_m is not None else 0),
         ]
-        for point in points
+        for point in replay_points
     ]
     timestamps = []
-    for point in points:
+    for point in replay_points:
         recorded_at = point.recorded_at if point.recorded_at.tzinfo else point.recorded_at.replace(tzinfo=UTC)
         timestamps.append(recorded_at.astimezone(UTC).isoformat().replace("+00:00", "Z"))
     return {
         "type": "FeatureCollection",
+        "metadata": {
+            "detail": "full" if detail == "full" else "replay",
+            "original_point_count": len(points),
+            "returned_point_count": len(replay_points),
+            "max_points": max_points,
+            "simplified": simplified.simplified if simplified is not None else False,
+            "task_aware": simplified.task_aware if simplified is not None else bool(task_points),
+        },
         "features": [
             {
                 "type": "Feature",

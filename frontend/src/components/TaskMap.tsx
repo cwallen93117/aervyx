@@ -62,6 +62,14 @@ export type MapAirspaceRegion = {
 };
 export type TrackCollection = {
   type: "FeatureCollection";
+  metadata?: {
+    detail?: string;
+    original_point_count?: number;
+    returned_point_count?: number;
+    max_points?: number;
+    simplified?: boolean;
+    task_aware?: boolean;
+  };
   features: Array<{
     type: "Feature";
     properties: Record<string, unknown> & { timestamps?: string[] };
@@ -105,6 +113,8 @@ const TERRAIN_EXAGGERATION = 1.25;
 const DEFAULT_MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
+const LARGE_REPLAY_3D_POINT_THRESHOLD = 50000;
+const LARGE_REPLAY_3D_TRACK_THRESHOLD = 8;
 const SCALE_BAR_MAX_WIDTH_PIXELS = 96;
 const persistedViewStateByKey = new Map<string, { center: [number, number]; zoom: number; bearing: number; pitch: number }>();
 
@@ -183,7 +193,7 @@ const RING_ICON_DATA_URIS: Record<"cellular" | "mesh" | "other", string> = {
   other: `data:image/svg+xml;utf8,${encodeURIComponent(RING_ICON_SVGS.other)}`,
 };
 
-function createBasemapStyle(basemapMode: BasemapMode) {
+function createBasemapStyle(basemapMode: BasemapMode, includeTerrain = false) {
   const basemapSourceByMode: Record<BasemapMode, { tiles: string[]; attribution: string }> = {
     streets: {
       tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
@@ -199,24 +209,28 @@ function createBasemapStyle(basemapMode: BasemapMode) {
     },
   };
 
+  const sources: Record<string, unknown> = {
+    basemap: {
+      type: "raster",
+      tiles: basemapSourceByMode[basemapMode].tiles,
+      tileSize: 256,
+      attribution: basemapSourceByMode[basemapMode].attribution,
+    },
+  };
+  if (includeTerrain) {
+    sources[TERRAIN_SOURCE_ID] = {
+      type: "raster-dem",
+      tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
+      tileSize: 256,
+      encoding: "terrarium",
+      maxzoom: 15,
+      attribution: "Mapzen Terrarium / AWS Open Data",
+    };
+  }
+
   return {
     version: 8,
-    sources: {
-      basemap: {
-        type: "raster",
-        tiles: basemapSourceByMode[basemapMode].tiles,
-        tileSize: 256,
-        attribution: basemapSourceByMode[basemapMode].attribution,
-      },
-      [TERRAIN_SOURCE_ID]: {
-        type: "raster-dem",
-        tiles: ["https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"],
-        tileSize: 256,
-        encoding: "terrarium",
-        maxzoom: 15,
-        attribution: "Mapzen Terrarium / AWS Open Data",
-      },
-    },
+    sources,
     layers: [
       { id: "map-background", type: "background", paint: { "background-color": "#e7eef5" } },
       { id: "basemap", type: "raster", source: "basemap" },
@@ -1926,6 +1940,22 @@ export const TaskMap = React.memo(function TaskMap({
     return Array.from(unique).sort((left, right) => left - right);
   }, [trackFeatureTimelines]);
   const replayTotal = replayTimeline.length;
+  const replayTrackLoad = useMemo(() => {
+    if (!effectiveTrack) {
+      return { featureCount: 0, pointCount: 0 };
+    }
+    return effectiveTrack.features.reduce(
+      (summary, feature) => ({
+        featureCount: summary.featureCount + (feature.geometry.type === "LineString" ? 1 : 0),
+        pointCount: summary.pointCount + (feature.geometry.type === "LineString" ? feature.geometry.coordinates.length : 0),
+      }),
+      { featureCount: 0, pointCount: 0 },
+    );
+  }, [effectiveTrack]);
+  const largeReplay3dRisk = mode === "replay" && (
+    replayTrackLoad.pointCount >= LARGE_REPLAY_3D_POINT_THRESHOLD ||
+    replayTrackLoad.featureCount >= LARGE_REPLAY_3D_TRACK_THRESHOLD
+  );
   const maxMapPitch = Math.max(0, Math.min(85, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
   const visibleTrackLengths = useMemo(() => {
     if (!effectiveTrack) {
@@ -2607,7 +2637,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
       const map = new maplibregl.Map({
         container,
-        style: createBasemapStyle(basemapMode) as never,
+        style: createBasemapStyle(basemapMode, debugInitialPerspective3D) as never,
         ...(persistedViewState
           ? {
               center: persistedViewState.center,
@@ -2782,11 +2812,12 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
-    map.setStyle(createBasemapStyle(basemapMode) as never);
+    map.setTerrain(null);
+    map.setStyle(createBasemapStyle(basemapMode, isPerspective3D) as never);
     map.once("styledata", () => {
       setStyleGeneration((prev) => prev + 1);
     });
-  }, [basemapMode]);
+  }, [basemapMode, isPerspective3D]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -3459,14 +3490,22 @@ export const TaskMap = React.memo(function TaskMap({
             if (!map) {
               return;
             }
-              const nextIs3D = !isPerspective3D;
-              programmaticCameraMoveRef.current = true;
-              map.easeTo({
-                pitch: nextIs3D ? maxMapPitch : 0,
-                duration: 300,
-              });
-              setIsPerspective3D(nextIs3D);
-            }}
+            if (!isPerspective3D && largeReplay3dRisk) {
+              const confirmed = window.confirm(
+                `This replay has ${replayTrackLoad.featureCount} tracks and ${replayTrackLoad.pointCount.toLocaleString()} points. 3D terrain can use substantially more browser memory. Continue?`,
+              );
+              if (!confirmed) {
+                return;
+              }
+            }
+            const nextIs3D = !isPerspective3D;
+            programmaticCameraMoveRef.current = true;
+            map.easeTo({
+              pitch: nextIs3D ? maxMapPitch : 0,
+              duration: 300,
+            });
+            setIsPerspective3D(nextIs3D);
+          }}
         >
           {isPerspective3D ? "3D" : "2D"}
         </button>
