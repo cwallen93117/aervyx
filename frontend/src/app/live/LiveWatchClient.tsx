@@ -173,7 +173,7 @@ export function LiveWatchClient() {
     }));
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 
-  const telemetryTrack = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById), [positionsByPilot, pilotNameById]);
+  const telemetryTrack = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById, activePilotIds), [positionsByPilot, pilotNameById, activePilotIds]);
   const visibleTrackPositionsByPilot = useMemo(() => {
     const next = new Map<string, LivePositionRecord[]>();
     for (const [subjectKey, positions] of positionsByPilot) {
@@ -184,8 +184,8 @@ export function LiveWatchClient() {
     return next;
   }, [positionsByPilot, visibleTrackSubjectKeys]);
   const visibleTrack = useMemo(
-    () => buildTrackCollection(visibleTrackPositionsByPilot, pilotNameById),
-    [pilotNameById, visibleTrackPositionsByPilot],
+    () => buildTrackCollection(visibleTrackPositionsByPilot, pilotNameById, activePilotIds),
+    [pilotNameById, activePilotIds, visibleTrackPositionsByPilot],
   );
   const allLiveTracksChecked = useMemo(
     () => activePilotIds.length > 0 && activePilotIds.every((subjectKey) => visibleTrackSubjectKeys.has(subjectKey)),

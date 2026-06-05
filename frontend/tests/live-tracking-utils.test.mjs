@@ -49,6 +49,7 @@ vm.runInNewContext(batteryTranspiled, {
 
 const {
   buildTrackCollection,
+  colorForSubject,
   displayPositionsForLiveTrack,
   latestDisplayPositionsBySubject,
   mergePositionGroup,
@@ -367,6 +368,39 @@ test("live fused track collapses only near-identical duplicate relay points", ()
 
   const display = displayPositionsForLiveTrack([meshA, meshDuplicate, meshMoved]);
   assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["mesh-duplicate", "mesh-moved"]));
+});
+
+test("visible live tracks keep colors from the full active subject order", () => {
+  const secondPilotStart = {
+    ...position({
+      id: "second-pilot-start",
+      lat: 40.01,
+      lon: -75.01,
+      timestamp: "2026-05-28T20:00:00Z",
+      received_at: "2026-05-28T20:00:00Z",
+    }),
+    pilot_id: 2,
+  };
+  const secondPilotEnd = {
+    ...position({
+      id: "second-pilot-end",
+      lat: 40.011,
+      lon: -75.011,
+      timestamp: "2026-05-28T20:01:00Z",
+      received_at: "2026-05-28T20:01:00Z",
+    }),
+    pilot_id: 2,
+  };
+
+  const activeSubjects = ["pilot:1", "pilot:2"];
+  const visibleTrack = buildTrackCollection(
+    new Map([["pilot:2", [secondPilotStart, secondPilotEnd]]]),
+    new Map([["pilot:2", "Second Pilot"]]),
+    activeSubjects,
+  );
+
+  assert.equal(colorForSubject("pilot:2", activeSubjects), "#dc2626");
+  assert.equal(visibleTrack.features[0].properties.color, "#dc2626");
 });
 
 test("live fused track collapses duplicate mesh packets by device sequence", () => {

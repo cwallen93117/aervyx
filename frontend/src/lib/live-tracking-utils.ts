@@ -439,6 +439,7 @@ export function latestDisplayPositionsBySubject(
 export function buildTrackCollection(
   positionsBySubject: Map<string, LivePositionRecord[]>,
   subjectNameByKey: Map<string, string>,
+  colorSubjectKeys: string[] = Array.from(positionsBySubject.keys()).sort(),
 ): TrackCollection | null {
   const subjectKeys = Array.from(positionsBySubject.keys()).sort();
   const features = subjectKeys.flatMap((subjectKey) => {
@@ -455,7 +456,7 @@ export function buildTrackCollection(
           pilot_id: latest?.pilot_id ?? null,
           user_id: latest?.user_id ?? null,
           pilot_name: latest ? displayNameForSubject(latest, subjectNameByKey) : subjectKey,
-          color: colorForSubject(subjectKey, subjectKeys),
+          color: colorForSubject(subjectKey, colorSubjectKeys),
           aircraft_icon: latest?.aircraft_icon ?? "hang_glider",
           profile_type: latest?.profile_type ?? "pilot",
           timestamps: positions.map((position) => position.timestamp),
