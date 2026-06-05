@@ -1048,7 +1048,7 @@ export function PublicScoresClient() {
       </div>
       {scoredTasks.length ? (
         <div className="results-table-wrap scores-summary-table-wrap">
-          <table className="results-table results-table-compact overall-task-summary-table">
+          <table className="results-table results-table-compact overall-task-summary-table overall-score-task-summary-table">
             <thead>
               <tr>
                 <th>Task</th>
@@ -1331,20 +1331,22 @@ export function PublicScoresClient() {
           </svg>
         </a>
         <span className="live-title scores-title">Comp Scores</span>
-        <div className="live-source-picker">
-          <select
-            aria-label="Competition scores event"
-            value={selectedEventId ?? ""}
-            onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
-            disabled={loadingEvents || !events.length}
-          >
-            <option value="">Select a competition</option>
-            {events.length ? events.map((event) => (
-              <option key={event.id} value={event.id}>{event.name}</option>
-            )) : <option value="">No public competitions</option>}
-          </select>
+        <div className="scores-header-controls">
+          <div className="live-source-picker">
+            <select
+              aria-label="Competition scores event"
+              value={selectedEventId ?? ""}
+              onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
+              disabled={loadingEvents || !events.length}
+            >
+              <option value="">Select a competition</option>
+              {events.length ? events.map((event) => (
+                <option key={event.id} value={event.id}>{event.name}</option>
+              )) : <option value="">No public competitions</option>}
+            </select>
+          </div>
+          <a href={watchLiveHref} className="public-header-link public-header-link-live">Live</a>
         </div>
-        <a href={watchLiveHref} className="public-header-link public-header-link-live">Watch Live</a>
         {error ? <span className="live-status live-status-error">{error}</span> : null}
       </header>
 

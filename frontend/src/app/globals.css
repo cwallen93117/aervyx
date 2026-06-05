@@ -5346,6 +5346,13 @@ button[type="submit"]:hover,
   gap: 12px;
 }
 
+.scores-header-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .scores-title {
   color: #fbbf24;
 }
@@ -5729,6 +5736,58 @@ button[type="submit"]:hover,
   background: #1c2435;
 }
 
+.overall-score-task-summary-table thead th:nth-child(1),
+.overall-score-task-summary-table tbody td:nth-child(1) {
+  position: sticky;
+  left: 0;
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  z-index: 3;
+  box-sizing: border-box;
+  text-align: left;
+}
+
+.overall-score-task-summary-table tbody td:nth-child(1) {
+  z-index: 2;
+}
+
+.overall-score-task-summary-table thead th:nth-child(2),
+.overall-score-task-summary-table tbody td:nth-child(2) {
+  position: static;
+  left: auto;
+  z-index: auto;
+  width: 116px;
+  min-width: 116px;
+  max-width: none;
+  text-align: left;
+}
+
+.overall-score-task-summary-table tbody tr:hover td:nth-child(2) {
+  background: transparent;
+}
+
+.scores-page .overall-score-task-summary-table thead th:nth-child(1) {
+  background: #111827;
+}
+
+.scores-page .overall-score-task-summary-table tbody td:nth-child(1) {
+  background: rgba(15, 23, 42, 0.98);
+}
+
+.scores-page .overall-score-task-summary-table thead th:nth-child(2),
+.scores-page .overall-score-task-summary-table tbody td:nth-child(2) {
+  background: transparent;
+}
+
+.scores-page .overall-score-task-summary-table tbody tr:hover td:nth-child(1) {
+  background: #1c2435;
+}
+
+.scores-page .overall-score-task-summary-table tbody tr:hover td:nth-child(2) {
+  background: transparent;
+}
+
 .scores-results-table {
   min-width: 760px;
 }
@@ -5786,13 +5845,27 @@ button[type="submit"]:hover,
     padding-top: 6px;
     padding-bottom: 6px;
   }
+  .scores-header-controls {
+    flex: 1 1 100%;
+  }
+  .scores-header-controls .live-source-picker {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+  .scores-header-controls .live-source-picker select {
+    width: 100%;
+    min-width: 0;
+  }
+  .scores-header-controls .public-header-link {
+    flex: 0 0 auto;
+  }
   .scores-body {
     flex-direction: column;
   }
   .scores-sidebar {
     width: 100%;
     flex: 0 0 auto;
-    max-height: 34vh;
+    max-height: 150px;
     border-right: none;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
   }
