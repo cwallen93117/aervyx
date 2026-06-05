@@ -937,15 +937,15 @@ function buildTrackTelemetrySeries(
 function altitudeColorForRatio(ratio: number): [number, number, number] {
   const clamped = Math.max(0, Math.min(1, ratio));
   if (clamped < 0.25) {
-    return lerpRgb([0, 0, 255], [0, 128, 0], clamped / 0.25);
+    return lerpRgb([255, 0, 0], [255, 165, 0], clamped / 0.25);
   }
   if (clamped < 0.5) {
-    return lerpRgb([0, 128, 0], [255, 255, 0], (clamped - 0.25) / 0.25);
+    return lerpRgb([255, 165, 0], [255, 255, 0], (clamped - 0.25) / 0.25);
   }
   if (clamped < 0.75) {
-    return lerpRgb([255, 255, 0], [255, 165, 0], (clamped - 0.5) / 0.25);
+    return lerpRgb([255, 255, 0], [0, 128, 0], (clamped - 0.5) / 0.25);
   }
-  return lerpRgb([255, 165, 0], [255, 0, 0], (clamped - 0.75) / 0.25);
+  return lerpRgb([0, 128, 0], [0, 0, 255], (clamped - 0.75) / 0.25);
 }
 
 function lerpRgb(from: [number, number, number], to: [number, number, number], ratio: number): [number, number, number] {

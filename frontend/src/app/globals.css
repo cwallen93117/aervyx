@@ -4247,7 +4247,7 @@ button[type="submit"]:hover,
   min-height: 116px;
   border: 1px solid rgba(15, 23, 42, 0.16);
   border-radius: 999px;
-  background: linear-gradient(to top, blue 0%, green 25%, yellow 50%, orange 75%, red 100%);
+  background: linear-gradient(to top, red 0%, orange 25%, yellow 50%, green 75%, blue 100%);
 }
 
 .results-task-map .results-sheet-header {
