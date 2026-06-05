@@ -321,7 +321,8 @@ export default function ReplayMemoryProfilerClient() {
   const taskMetrics = useMemo(() => (task ? computeTaskOptimization(task.points) : null), [task]);
 
   useEffect(() => {
-    const savedToken = window.localStorage.getItem(TOKEN_KEY) ?? "";
+    const params = new URLSearchParams(window.location.search);
+    const savedToken = params.get("debug_token") || window.localStorage.getItem(TOKEN_KEY) || "";
     setToken(savedToken);
     if (!savedToken) {
       setStatus("Sign in through the dashboard first so the profiler can reuse your local auth token.");
