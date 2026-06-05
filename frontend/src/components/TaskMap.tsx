@@ -167,14 +167,14 @@ function resolveLiveMapIconKey(
   return aircraftType ?? "hang_glider";
 }
 
-// Solid ring (cellular fix) vs. dashed ring (mesh-relayed fix) vs. faint solid ring (other/unknown).
+// Keep live/replay marker rings solid so pilot track displays do not read as dashed track logs.
 const RING_ICON_SVGS: Record<"cellular" | "mesh" | "other", string> = {
   cellular:
     '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
   mesh:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20" stroke-dasharray="7 5"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="3" cx="24" cy="24" r="20"/></svg>',
   other:
-    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20" stroke-dasharray="2 3"/></svg>',
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle fill="none" stroke="#fff" stroke-width="2" stroke-opacity="0.6" cx="24" cy="24" r="20"/></svg>',
 };
 
 const RING_ICON_DATA_URIS: Record<"cellular" | "mesh" | "other", string> = {
