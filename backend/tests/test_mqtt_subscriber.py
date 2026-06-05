@@ -57,6 +57,11 @@ def _field_varint(field_number: int, value: int) -> bytes:
     return _varint((field_number << 3) | 0) + _varint(value)
 
 
+def _field_int32(field_number: int, value: int) -> bytes:
+    encoded = value & 0xFFFFFFFFFFFFFFFF if value < 0 else value
+    return _field_varint(field_number, encoded)
+
+
 def _field_bytes(field_number: int, value: bytes) -> bytes:
     return _varint((field_number << 3) | 2) + _varint(len(value)) + value
 
@@ -135,7 +140,7 @@ def _protobuf_position_payload(
     payload = (
         _field_sfixed32(1, int(lat * 1e7))
         + _field_sfixed32(2, int(lon * 1e7))
-        + _field_varint(3, altitude)
+        + _field_int32(3, altitude)
     )
     if time is not None:
         payload += _field_fixed32(4, time)
@@ -287,6 +292,80 @@ def test_mqtt_stores_official_protobuf_position_field_four(monkeypatch) -> None:
         assert position.lon == -119.70
         assert status is not None
         assert status.last_packet_type == "POSITION_APP"
+
+
+def test_mqtt_decodes_signed_int32_protobuf_altitude(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    device_id = "!00abc123"
+    with factory() as session:
+        pilot = Pilot(first_name="Owner", last_name="One", email="owner@example.com")
+        session.add(pilot)
+        session.flush()
+        owner = User(
+            username="owner@example.com",
+            full_name="Owner One",
+            role="pilot",
+            pilot_id=pilot.id,
+            mesh_device_id=device_id,
+        )
+        session.add(owner)
+        session.flush()
+        session.add(
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id=device_id,
+                label="Owner tracker",
+                purpose="tracking",
+            )
+        )
+        session.commit()
+
+    mqtt_subscriber._handle_message(
+        _mesh_envelope(0x00ABC123, 3, _protobuf_position_payload(altitude=-1)),
+        topic=f"msh/US/2/e/LongFast/{device_id}",
+    )
+
+    with factory() as session:
+        position = session.scalar(select(LivePosition))
+        assert position is not None
+        assert position.alt == -1.0
+
+
+def test_mqtt_drops_implausible_protobuf_altitude(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    device_id = "!00abc123"
+    with factory() as session:
+        pilot = Pilot(first_name="Owner", last_name="One", email="owner@example.com")
+        session.add(pilot)
+        session.flush()
+        owner = User(
+            username="owner@example.com",
+            full_name="Owner One",
+            role="pilot",
+            pilot_id=pilot.id,
+            mesh_device_id=device_id,
+        )
+        session.add(owner)
+        session.flush()
+        session.add(
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id=device_id,
+                label="Owner tracker",
+                purpose="tracking",
+            )
+        )
+        session.commit()
+
+    mqtt_subscriber._handle_message(
+        _mesh_envelope(0x00ABC123, 3, _protobuf_position_payload(altitude=20000)),
+        topic=f"msh/US/2/e/LongFast/{device_id}",
+    )
+
+    with factory() as session:
+        position = session.scalar(select(LivePosition))
+        assert position is not None
+        assert position.alt is None
 
 
 def test_mqtt_stores_official_protobuf_timestamp_sequence_and_motion_fields(monkeypatch) -> None:

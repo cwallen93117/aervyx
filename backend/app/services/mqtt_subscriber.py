@@ -72,6 +72,8 @@ mqtt_reconnect_event: threading.Event | None = None
 _battery_cache: dict[str, tuple[int, float]] = {}
 _BATTERY_CACHE_MAX_AGE_S = 3600  # Ignore cached battery older than 1 hour
 _MESHTASTIC_DEFAULT_PSK = bytes.fromhex("d4f1bb3a20290759f0bcffabcf4e6901")
+_MIN_PLAUSIBLE_ALTITUDE_M = -500
+_MAX_PLAUSIBLE_ALTITUDE_M = 15000
 
 PORTNUM_PACKET_TYPES = {
     3: "POSITION_APP",
@@ -276,6 +278,22 @@ def _get_uint32(fields: dict, field_number: int) -> int | None:
     return _get_fixed32(fields, field_number)
 
 
+def _decode_int32_varint(value: int) -> int:
+    """Decode a protobuf int32 varint, including sign-extended negative values."""
+    value &= 0xFFFFFFFF
+    if value >= 0x80000000:
+        value -= 0x100000000
+    return value
+
+
+def _get_int32(fields: dict, field_number: int) -> int | None:
+    """Return the first int32 varint/sfixed32 value for *field_number*, or ``None``."""
+    value = _get_varint(fields, field_number)
+    if value is not None:
+        return _decode_int32_varint(value)
+    return _get_sfixed32(fields, field_number)
+
+
 def _get_sint32(fields: dict, field_number: int) -> int | None:
     """Return the first zigzag-encoded sint32 value for *field_number*, or ``None``."""
     value = _get_varint(fields, field_number)
@@ -292,6 +310,16 @@ def _get_sfixed32(fields: dict, field_number: int) -> int | None:
     wt, val = entries[0]
     if wt == 5 and isinstance(val, (bytes, bytearray)) and len(val) == 4:
         return struct.unpack("<i", val)[0]
+    return None
+
+
+def _plausible_altitude_or_none(value: int | float | None) -> float | None:
+    if value is None:
+        return None
+    altitude = float(value)
+    if _MIN_PLAUSIBLE_ALTITUDE_M <= altitude <= _MAX_PLAUSIBLE_ALTITUDE_M:
+        return altitude
+    logger.debug("Ignoring implausible Meshtastic altitude: %s m", altitude)
     return None
 
 
@@ -645,11 +673,11 @@ def _parse_protobuf_position(raw: bytes | None = None, decoded: DecodedMeshEnvel
             logger.debug("Protobuf Position lat/lon out of range: %s, %s", lat, lon)
             return None
 
-        # altitude = field 3 (MSL) or altitude_hae = field 9.
-        alt_raw = _get_varint(pos_fields, 3)
+        # altitude = field 3 (int32 MSL) or altitude_hae = field 9 (sint32).
+        alt_raw = _get_int32(pos_fields, 3)
         if alt_raw is None:
             alt_raw = _get_sint32(pos_fields, 9)
-        alt = float(alt_raw) if alt_raw is not None else None
+        alt = _plausible_altitude_or_none(alt_raw)
 
         # timestamp = field 7, actual GPS solution timestamp. Field 4 is a
         # fallback time value commonly present in older/smaller packets.
