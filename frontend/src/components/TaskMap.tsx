@@ -1507,6 +1507,7 @@ export const TaskMap = React.memo(function TaskMap({
   const replayClockRef = useRef<number | null>(null);
   const replayIndexRef = useRef(0);
   const debugAutoStartReplayKeyRef = useRef("");
+  const renderedBasemapStyleRef = useRef<{ basemapMode: BasemapMode; includeTerrain: boolean } | null>(null);
   const [basemapMode, setBasemapMode] = useState<BasemapMode>(debugInitialBasemapMode ?? "streets");
   const [altitudeMultiplier, setAltitudeMultiplier] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -2654,6 +2655,7 @@ export const TaskMap = React.memo(function TaskMap({
         maxPitch: maxMapPitch,
         attributionControl: false,
       });
+      renderedBasemapStyleRef.current = { basemapMode, includeTerrain: debugInitialPerspective3D };
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
       const deckOverlay = new MapboxOverlay({ interleaved: false, layers: [] });
@@ -2814,11 +2816,29 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
-    map.setTerrain(null);
-    map.setStyle(createBasemapStyle(basemapMode, isPerspective3D) as never);
-    map.once("styledata", () => {
-      setStyleGeneration((prev) => prev + 1);
-    });
+    const nextStyle = { basemapMode, includeTerrain: isPerspective3D };
+    const previousStyle = renderedBasemapStyleRef.current;
+    if (previousStyle?.basemapMode === nextStyle.basemapMode && previousStyle.includeTerrain === nextStyle.includeTerrain) {
+      return;
+    }
+    const setMapStyle = () => {
+      try {
+        const terrainMap = map as maplibregl.Map & { setTerrain?: (terrain: unknown) => void };
+        terrainMap.setTerrain?.(null);
+        map.once("styledata", () => {
+          setStyleGeneration((prev) => prev + 1);
+        });
+        map.setStyle(createBasemapStyle(nextStyle.basemapMode, nextStyle.includeTerrain) as never);
+        renderedBasemapStyleRef.current = nextStyle;
+      } catch (error) {
+        console.warn("Map style update was skipped.", error);
+      }
+    };
+    if (map.isStyleLoaded()) {
+      setMapStyle();
+    } else {
+      map.once("styledata", setMapStyle);
+    }
   }, [basemapMode, isPerspective3D]);
 
   useEffect(() => {
@@ -2856,14 +2876,19 @@ export const TaskMap = React.memo(function TaskMap({
       if (!hasTerrainSource) {
         return;
       }
-      map.setTerrain(
-        isPerspective3D
-          ? {
-              source: TERRAIN_SOURCE_ID,
-              exaggeration: TERRAIN_EXAGGERATION * Math.max(1, altitudeMultiplier),
-            }
-          : null,
-      );
+      try {
+        const terrainMap = map as maplibregl.Map & { setTerrain?: (terrain: unknown) => void };
+        terrainMap.setTerrain?.(
+          isPerspective3D
+            ? {
+                source: TERRAIN_SOURCE_ID,
+                exaggeration: TERRAIN_EXAGGERATION * Math.max(1, altitudeMultiplier),
+              }
+            : null,
+        );
+      } catch (error) {
+        console.warn("Map terrain update was skipped.", error);
+      }
     };
     if (map.isStyleLoaded()) {
       applyTerrain();
