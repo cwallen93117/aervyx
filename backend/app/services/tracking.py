@@ -647,6 +647,7 @@ def _position_payload(
         "timestamp": pos.timestamp.isoformat(),
         "source": pos.source,
         "device_id": pos.device_id,
+        "mesh_seq_number": pos.mesh_seq_number,
         "battery_level": pos.battery_level,
         "aircraft_icon": aircraft_icon,
         "profile_type": profile_type,
@@ -916,6 +917,7 @@ def store_position(
     timestamp: datetime | None = None,
     source: str | None = None,
     device_id: str | None = None,
+    mesh_seq_number: int | None = None,
     battery_level: int | None = None,
     battery_level_seen_at: datetime | None = None,
     pilot_id: int | None = None,
@@ -937,6 +939,7 @@ def store_position(
         timestamp=ts,
         source=source,
         device_id=device_id,
+        mesh_seq_number=mesh_seq_number,
         battery_level=battery_level,
         battery_level_seen_at=battery_level_seen_at,
     )

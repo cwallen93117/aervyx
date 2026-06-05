@@ -2773,7 +2773,7 @@ class BleService extends ChangeNotifier {
 
       // Parse Position message
       final posReader = ProtoReader(payload);
-      int? latI, lonI, alt, time, speed, heading, pdop, satsInView;
+      int? latI, lonI, alt, time, fixTimestamp, speed, heading, pdop, satsInView, seqNumber;
 
       while (posReader.hasMore) {
         final (field, wireType) = posReader.readTag();
@@ -2814,16 +2814,39 @@ class BleService extends ChangeNotifier {
               posReader.skip(wireType);
             }
             break;
-          case 8: // ground_speed (uint32, wire type 0)
+          case 7: // timestamp (fixed32, actual GPS solution time)
+            if (wireType == 5) {
+              fixTimestamp = posReader.readFixed32();
+            } else if (wireType == 0) {
+              fixTimestamp = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
+            break;
+          case 9: // altitude_hae (sint32, wire type 0)
+            if (alt == null && wireType == 0) {
+              alt = posReader.readSignedVarint();
+            } else {
+              posReader.skip(wireType);
+            }
+            break;
+          case 15: // ground_speed (uint32, wire type 0)
             if (wireType == 0) {
               speed = posReader.readVarint();
             } else {
               posReader.skip(wireType);
             }
             break;
-          case 9: // ground_track (uint32, wire type 0)
+          case 16: // ground_track (uint32, wire type 0, degrees x100)
             if (wireType == 0) {
               heading = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
+            break;
+          case 11: // PDOP (uint32, wire type 0, x100)
+            if (wireType == 0) {
+              pdop = posReader.readVarint();
             } else {
               posReader.skip(wireType);
             }
@@ -2835,9 +2858,16 @@ class BleService extends ChangeNotifier {
               posReader.skip(wireType);
             }
             break;
-          case 13: // sats_in_view (uint32, wire type 0)
+          case 19: // sats_in_view (uint32, wire type 0)
             if (wireType == 0) {
               satsInView = posReader.readVarint();
+            } else {
+              posReader.skip(wireType);
+            }
+            break;
+          case 22: // seq_number (uint32, wire type 0)
+            if (wireType == 0) {
+              seqNumber = posReader.readVarint();
             } else {
               posReader.skip(wireType);
             }
@@ -2866,8 +2896,9 @@ class BleService extends ChangeNotifier {
         _deviceGpsLat = lat;
         _deviceGpsLon = lon;
         _deviceGpsAlt = alt?.toDouble();
-        _deviceGpsLastFix = time != null
-            ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
+        final ownFixTime = fixTimestamp ?? time;
+        _deviceGpsLastFix = ownFixTime != null
+            ? DateTime.fromMillisecondsSinceEpoch(ownFixTime * 1000, isUtc: true)
             : DateTime.now().toUtc();
         _deviceGpsSats = satsInView;
         _deviceGpsPdop = pdop != null ? pdop / 100.0 : null;
@@ -2884,11 +2915,12 @@ class BleService extends ChangeNotifier {
         lon: lon,
         alt: alt?.toDouble(),
         speed: speed?.toDouble(),
-        heading: heading != null ? heading / 1e5 : null,
+        heading: heading != null ? heading / 100 : null,
         deviceId: deviceId,
-        timestamp: time != null
-            ? DateTime.fromMillisecondsSinceEpoch(time * 1000, isUtc: true)
+        timestamp: (fixTimestamp ?? time) != null
+            ? DateTime.fromMillisecondsSinceEpoch((fixTimestamp ?? time)! * 1000, isUtc: true)
             : null,
+        meshSeqNumber: seqNumber,
       );
     } catch (e) {
       debugPrint('[BLE] mesh position parse error: $e');
@@ -3028,6 +3060,7 @@ class BleService extends ChangeNotifier {
     double? heading,
     String? deviceId,
     DateTime? timestamp,
+    int? meshSeqNumber,
   }) async {
     final body = <String, dynamic>{
       'lat': lat,
@@ -3037,6 +3070,7 @@ class BleService extends ChangeNotifier {
       if (heading != null) 'heading': heading,
       if (deviceId != null) 'device_id': deviceId,
       if (timestamp != null) 'timestamp': timestamp.toIso8601String(),
+      if (meshSeqNumber != null) 'mesh_seq_number': meshSeqNumber,
       'source': 'mesh_relay',
     };
 

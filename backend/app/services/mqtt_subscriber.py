@@ -169,6 +169,7 @@ def _parse_position(raw: bytes | bytearray) -> dict | None:
         "timestamp": ts,
         "source": "mqtt_gateway",
         "device_id": str(data["device_id"]) if data.get("device_id") is not None else None,
+        "mesh_seq_number": int(data["mesh_seq_number"]) if data.get("mesh_seq_number") is not None else None,
         "battery_level": int(data["battery_level"]) if data.get("battery_level") is not None else None,
         "pilot_id": int(data["pilot_id"]) if data.get("pilot_id") is not None else None,
     }
@@ -265,6 +266,22 @@ def _get_fixed32(fields: dict, field_number: int) -> int | None:
     if wt == 5 and isinstance(val, (bytes, bytearray)) and len(val) == 4:
         return struct.unpack("<I", val)[0]
     return None
+
+
+def _get_uint32(fields: dict, field_number: int) -> int | None:
+    """Return the first uint32/fixed32 value for *field_number*, or ``None``."""
+    value = _get_varint(fields, field_number)
+    if value is not None:
+        return value
+    return _get_fixed32(fields, field_number)
+
+
+def _get_sint32(fields: dict, field_number: int) -> int | None:
+    """Return the first zigzag-encoded sint32 value for *field_number*, or ``None``."""
+    value = _get_varint(fields, field_number)
+    if value is None:
+        return None
+    return (value >> 1) ^ -(value & 1)
 
 
 def _get_sfixed32(fields: dict, field_number: int) -> int | None:
@@ -628,24 +645,28 @@ def _parse_protobuf_position(raw: bytes | None = None, decoded: DecodedMeshEnvel
             logger.debug("Protobuf Position lat/lon out of range: %s, %s", lat, lon)
             return None
 
-        # altitude = field 3 (int32, legacy) or altitude_hae = field 11 (int32, preferred)
-        # Many devices populate only field 11 (height above ellipsoid).
+        # altitude = field 3 (MSL) or altitude_hae = field 9.
         alt_raw = _get_varint(pos_fields, 3)
         if alt_raw is None:
-            alt_raw = _get_varint(pos_fields, 11)
+            alt_raw = _get_sint32(pos_fields, 9)
         alt = float(alt_raw) if alt_raw is not None else None
 
-        # time = field 4, int32 (varint) -- unix timestamp
-        time_raw = _get_varint(pos_fields, 4)
-        ts = datetime.fromtimestamp(time_raw, tz=UTC) if time_raw else None
+        # timestamp = field 7, actual GPS solution timestamp. Field 4 is a
+        # fallback time value commonly present in older/smaller packets.
+        timestamp_raw = _get_uint32(pos_fields, 7)
+        time_raw = _get_uint32(pos_fields, 4)
+        fix_time_raw = timestamp_raw or time_raw
+        ts = datetime.fromtimestamp(fix_time_raw, tz=UTC) if fix_time_raw else None
 
-        # ground_speed = field 8, uint32 (varint) -- m/s
-        speed_raw = _get_varint(pos_fields, 8)
+        # ground_speed = field 15, uint32 (varint) -- m/s
+        speed_raw = _get_varint(pos_fields, 15)
         speed = float(speed_raw) if speed_raw is not None else None
 
-        # ground_track = field 9, uint32 (varint) -- degrees * 1e5
-        heading_raw = _get_varint(pos_fields, 9)
-        heading = heading_raw / 1e5 if heading_raw is not None else None
+        # ground_track = field 16, uint32 (varint) -- degrees * 1/100
+        heading_raw = _get_varint(pos_fields, 16)
+        heading = heading_raw / 100 if heading_raw is not None else None
+
+        seq_number = _get_varint(pos_fields, 22)
 
         # Battery: use cached value from most recent TELEMETRY_APP message
         battery = _get_cached_battery(device_id)
@@ -666,6 +687,7 @@ def _parse_protobuf_position(raw: bytes | None = None, decoded: DecodedMeshEnvel
             "timestamp": ts,
             "source": "mqtt_gateway",
             "device_id": device_id,
+            "mesh_seq_number": seq_number,
             "battery_level": battery,
             "pilot_id": None,
         }

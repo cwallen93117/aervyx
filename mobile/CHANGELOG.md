@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.54+71 - 2026-06-05
+
+### Fixed
+- Meshtastic live-position relay now preserves sequence numbers and uses the
+  documented GPS fix timestamp, improving fused live tracks when phone and mesh
+  data overlap.
+
 ## 0.4.53+70 - 2026-06-05
 
 ### Fixed

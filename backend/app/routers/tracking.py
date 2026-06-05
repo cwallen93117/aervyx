@@ -159,6 +159,7 @@ class PositionPayload(BaseModel):
     timestamp: datetime | None = None
     source: str | None = None
     device_id: str | None = None
+    mesh_seq_number: int | None = None
     battery_level: int | None = None
     battery_level_seen_at: datetime | None = None
 
@@ -191,6 +192,7 @@ class PositionResponse(BaseModel):
     timestamp: str
     source: str | None
     device_id: str | None
+    mesh_seq_number: int | None = None
     battery_level: int | None
     aircraft_icon: str = "hang_glider"
     profile_type: str = "pilot"
@@ -384,6 +386,7 @@ def post_position(
         timestamp=payload.timestamp,
         source=source,
         device_id=payload_device_id,
+        mesh_seq_number=payload.mesh_seq_number,
         battery_level=payload.battery_level,
         battery_level_seen_at=payload.battery_level_seen_at,
         pilot_id=pilot_id,
@@ -425,6 +428,7 @@ def post_position(
         timestamp=pos.timestamp.isoformat(),
         source=pos.source,
         device_id=pos.device_id,
+        mesh_seq_number=pos.mesh_seq_number,
         battery_level=pos.battery_level,
         aircraft_icon=response_aircraft_icon,
         profile_type=response_profile_type,

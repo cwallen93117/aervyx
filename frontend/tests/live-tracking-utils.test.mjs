@@ -70,6 +70,7 @@ function position(overrides) {
     timestamp: overrides.timestamp,
     source: overrides.source ?? "app",
     device_id: overrides.device_id ?? null,
+    mesh_seq_number: overrides.mesh_seq_number ?? null,
     battery_level: null,
     aircraft_icon: "hang_glider",
     position_source: overrides.position_source ?? (overrides.source === "mqtt_gateway" || overrides.source === "mesh_relay" ? "mesh" : "cellular"),
@@ -366,6 +367,66 @@ test("live fused track collapses only near-identical duplicate relay points", ()
 
   const display = displayPositionsForLiveTrack([meshA, meshDuplicate, meshMoved]);
   assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["mesh-duplicate", "mesh-moved"]));
+});
+
+test("live fused track collapses duplicate mesh packets by device sequence", () => {
+  const mqttMesh = position({
+    id: "mqtt-mesh",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:03Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+    mesh_seq_number: 42,
+  });
+  const relayMesh = position({
+    id: "relay-mesh",
+    lat: 40.0002,
+    lon: -75.0002,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:01Z",
+    source: "mesh_relay",
+    device_id: "!tracker",
+    mesh_seq_number: 42,
+  });
+  const nextMesh = position({
+    id: "next-mesh",
+    lat: 40.001,
+    lon: -75.001,
+    timestamp: "2026-05-28T20:00:30Z",
+    received_at: "2026-05-28T20:00:31Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+    mesh_seq_number: 43,
+  });
+
+  const display = displayPositionsForLiveTrack([mqttMesh, relayMesh, nextMesh]);
+  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["relay-mesh", "next-mesh"]));
+});
+
+test("live fused track falls back to timestamp distance duplicate logic when mesh sequence is missing", () => {
+  const meshA = position({
+    id: "mesh-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+  const meshDuplicate = position({
+    id: "mesh-duplicate",
+    lat: 40.00001,
+    lon: -75.00001,
+    timestamp: "2026-05-28T20:00:00.500Z",
+    received_at: "2026-05-28T20:00:00.500Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+
+  const display = displayPositionsForLiveTrack([meshA, meshDuplicate]);
+  assert.equal(JSON.stringify(display.map((item) => item.id)), JSON.stringify(["mesh-duplicate"]));
 });
 
 test("live fused track keeps cellular when a nearby mesh point is only a close tie", () => {

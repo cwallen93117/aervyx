@@ -176,11 +176,12 @@ def test_driver_active_task_prefers_driver_assignment_for_non_pilot_account() ->
 
 def test_pilot_active_task_uses_newest_published_event_task() -> None:
     session = _session()
+    today_date = datetime.now(UTC).date()
     event = Event(
         name="Published Comp",
         location="Ridge",
-        starts_on=date(2026, 5, 31),
-        ends_on=date(2026, 6, 2),
+        starts_on=today_date - timedelta(days=1),
+        ends_on=today_date + timedelta(days=1),
         timezone="UTC",
         visible_airspace_classes_json=["R", "TFR"],
         show_restricted_fields=False,
@@ -199,13 +200,13 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
         event_id=event.id,
         name="Task 1 (Day 2)",
         status="published",
-        task_date=date(2026, 5, 31),
+        task_date=today_date - timedelta(days=1),
     )
     today = Task(
         event_id=event.id,
         name="Task 2 (Day 3)",
         status="published",
-        task_date=date(2026, 6, 1),
+        task_date=today_date,
     )
     session.add_all([user, yesterday, today, EventPilot(event_id=event.id, pilot_id=pilot.id)])
     session.flush()
@@ -386,6 +387,40 @@ def test_live_queries_and_public_event_positions_include_driver_subjects() -> No
         assert row["pilot_id"] is None
         assert row["pilot_name"] == "Dana Driver"
         assert row["profile_type"] == "driver"
+
+
+def test_mesh_sequence_number_is_preserved_in_live_payloads() -> None:
+    session = _session()
+    task, _driver, pilot = _active_task_with_driver(session)
+    pilot_user = User(
+        username="mesh-seq-pilot@example.com",
+        full_name="Mesh Sequence Pilot",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+        mesh_device_id="!seqpilot",
+    )
+    session.add(pilot_user)
+    session.flush()
+
+    store_position(
+        session,
+        task_id=task.id,
+        user_id=pilot_user.id,
+        pilot_id=pilot.id,
+        lat=35.2,
+        lon=-82.6,
+        timestamp=datetime.now(UTC),
+        source="mesh_relay",
+        device_id="!seqpilot",
+        mesh_seq_number=77,
+    )
+    session.commit()
+
+    rows = get_live_positions(session, task.id)
+
+    assert rows[0]["mesh_seq_number"] == 77
+    assert rows[0]["position_source"] == "mesh"
 
 
 def test_delayed_live_position_does_not_move_session_last_seen_backward() -> None:

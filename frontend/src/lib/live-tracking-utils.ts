@@ -27,6 +27,7 @@ export type LivePositionRecord = {
   timestamp: string;
   source: string | null;
   device_id: string | null;
+  mesh_seq_number?: number | null;
   battery_level: number | null;
   aircraft_icon: "hang_glider" | "paraglider" | "sailplane";
   profile_type?: ProfileType | null;
@@ -216,6 +217,17 @@ function liveTrackSort(left: LivePositionRecord, right: LivePositionRecord): num
   if (leftTimestamp !== rightTimestamp) {
     return leftTimestamp - rightTimestamp;
   }
+  if (
+    isMeshPosition(left) &&
+    isMeshPosition(right) &&
+    left.device_id != null &&
+    left.device_id === right.device_id &&
+    left.mesh_seq_number != null &&
+    right.mesh_seq_number != null &&
+    left.mesh_seq_number !== right.mesh_seq_number
+  ) {
+    return left.mesh_seq_number - right.mesh_seq_number;
+  }
   const leftReceived = sortableMs(left.received_at, left.timestamp);
   const rightReceived = sortableMs(right.received_at, right.timestamp);
   return leftReceived - rightReceived;
@@ -234,12 +246,30 @@ function displayReceivedSort(
 }
 
 function dedupeKeyForLiveTrack(position: LivePositionRecord): string {
+  if (isMeshPosition(position) && position.device_id && position.mesh_seq_number != null) {
+    return `mesh-seq:${position.device_id}:${position.mesh_seq_number}`;
+  }
   return `${sourceBucketForLiveTrack(position)}:${position.device_id ?? position.source ?? "unknown"}`;
+}
+
+function hasSameMeshSequence(previous: LivePositionRecord, next: LivePositionRecord): boolean {
+  return (
+    isMeshPosition(previous) &&
+    isMeshPosition(next) &&
+    previous.device_id != null &&
+    next.device_id != null &&
+    previous.device_id === next.device_id &&
+    previous.mesh_seq_number != null &&
+    previous.mesh_seq_number === next.mesh_seq_number
+  );
 }
 
 function isDuplicateLiveTrackObservation(previous: LivePositionRecord, next: LivePositionRecord): boolean {
   if (dedupeKeyForLiveTrack(previous) !== dedupeKeyForLiveTrack(next)) {
     return false;
+  }
+  if (hasSameMeshSequence(previous, next)) {
+    return true;
   }
   const previousTimestamp = timestampMs(previous.timestamp);
   const nextTimestamp = timestampMs(next.timestamp);
@@ -258,6 +288,11 @@ function replaceWithBetterDuplicate(previous: LivePositionRecord, next: LivePosi
   const nextLatency = Number.isFinite(nextTimestamp) ? Math.abs(nextReceived - nextTimestamp) : Number.POSITIVE_INFINITY;
   if (nextLatency !== previousLatency) {
     return nextLatency < previousLatency ? next : previous;
+  }
+  const previousCompleteness = [previous.alt, previous.speed, previous.heading, previous.accuracy, previous.battery_level].filter((value) => value != null).length;
+  const nextCompleteness = [next.alt, next.speed, next.heading, next.accuracy, next.battery_level].filter((value) => value != null).length;
+  if (nextCompleteness !== previousCompleteness) {
+    return nextCompleteness > previousCompleteness ? next : previous;
   }
   return nextReceived >= previousReceived ? next : previous;
 }

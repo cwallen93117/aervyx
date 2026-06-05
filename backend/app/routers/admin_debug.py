@@ -250,6 +250,7 @@ def admin_debug_status(
                 "lon": latest_app_pos.lon,
                 "alt": latest_app_pos.alt,
                 "speed": latest_app_pos.speed,
+                "mesh_seq_number": latest_app_pos.mesh_seq_number,
             },
             "is_online": _is_recent(now, received_at),
             "has_mesh": has_mesh_for_subject(latest_app_pos.pilot_id, latest_app_pos.user_id),
@@ -459,6 +460,7 @@ def admin_debug_status(
                     "alt": latest_pos.alt,
                     "speed": latest_pos.speed,
                     "heading": latest_pos.heading,
+                    "mesh_seq_number": latest_pos.mesh_seq_number,
                 }
                 if latest_pos is not None
                 else None

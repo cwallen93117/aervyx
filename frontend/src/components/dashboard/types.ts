@@ -432,7 +432,7 @@ export type DebugActiveSession = {
   positions_last_60s: number;
   started_at: string | null;
   last_seen_at: string | null;
-  last_position: { lat: number; lon: number; alt: number | null; speed: number | null } | null;
+  last_position: { lat: number; lon: number; alt: number | null; speed: number | null; mesh_seq_number?: number | null } | null;
   is_online: boolean;
   has_mesh: boolean;
 };
@@ -457,7 +457,7 @@ export type DebugMeshDevice = {
   battery_level: number | null;
   battery_level_seen_at: string | null;
   source: string | null;
-  last_position: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null } | null;
+  last_position: { lat: number; lon: number; alt: number | null; speed: number | null; heading: number | null; mesh_seq_number?: number | null } | null;
 };
 
 export type DebugSosAlert = {

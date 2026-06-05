@@ -121,12 +121,33 @@ def _telemetry_payload(battery_level: int) -> bytes:
     return _field_bytes(2, _field_varint(1, battery_level))
 
 
-def _protobuf_position_payload(lat: float = 34.42, lon: float = -119.70, altitude: int = 510) -> bytes:
-    return (
+def _protobuf_position_payload(
+    lat: float = 34.42,
+    lon: float = -119.70,
+    altitude: int = 510,
+    *,
+    time: int | None = None,
+    timestamp: int | None = None,
+    seq_number: int | None = None,
+    speed: int | None = None,
+    heading: int | None = None,
+) -> bytes:
+    payload = (
         _field_sfixed32(1, int(lat * 1e7))
         + _field_sfixed32(2, int(lon * 1e7))
         + _field_varint(3, altitude)
     )
+    if time is not None:
+        payload += _field_fixed32(4, time)
+    if timestamp is not None:
+        payload += _field_fixed32(7, timestamp)
+    if speed is not None:
+        payload += _field_varint(15, speed)
+    if heading is not None:
+        payload += _field_varint(16, heading)
+    if seq_number is not None:
+        payload += _field_varint(22, seq_number)
+    return payload
 
 
 def test_mqtt_drops_positions_for_unregistered_devices(monkeypatch) -> None:
@@ -266,6 +287,56 @@ def test_mqtt_stores_official_protobuf_position_field_four(monkeypatch) -> None:
         assert position.lon == -119.70
         assert status is not None
         assert status.last_packet_type == "POSITION_APP"
+
+
+def test_mqtt_stores_official_protobuf_timestamp_sequence_and_motion_fields(monkeypatch) -> None:
+    factory = _session_factory(monkeypatch)
+    device_id = "!00abc123"
+    with factory() as session:
+        pilot = Pilot(first_name="Owner", last_name="One", email="owner@example.com")
+        session.add(pilot)
+        session.flush()
+        owner = User(
+            username="owner@example.com",
+            full_name="Owner One",
+            role="pilot",
+            pilot_id=pilot.id,
+            mesh_device_id=device_id,
+        )
+        session.add(owner)
+        session.flush()
+        session.add(
+            MeshDevice(
+                owner_user_id=owner.id,
+                device_id=device_id,
+                label="Owner tracker",
+                purpose="tracking",
+            )
+        )
+        session.commit()
+
+    mqtt_subscriber._handle_message(
+        _mesh_envelope(
+            0x00ABC123,
+            3,
+            _protobuf_position_payload(
+                time=1_790_000_000,
+                timestamp=1_790_000_123,
+                seq_number=42,
+                speed=12,
+                heading=27_500,
+            ),
+        ),
+        topic=f"msh/US/2/e/LongFast/{device_id}",
+    )
+
+    with factory() as session:
+        position = session.scalar(select(LivePosition))
+        assert position is not None
+        assert position.timestamp.replace(tzinfo=UTC) == datetime.fromtimestamp(1_790_000_123, tz=UTC)
+        assert position.mesh_seq_number == 42
+        assert position.speed == 12.0
+        assert position.heading == 275.0
 
 
 def test_mqtt_records_nodeinfo_status_without_position(monkeypatch) -> None:

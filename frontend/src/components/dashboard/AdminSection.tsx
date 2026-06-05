@@ -2392,6 +2392,7 @@ function formatDebugPosition(position: MeshDeviceStatus["lastPosition"] | import
   if (position.alt != null) parts.push(`${Math.round(position.alt)}m`);
   if (position.speed != null) parts.push(`${position.speed.toFixed(1)} km/h`);
   if ("heading" in position && position.heading != null) parts.push(`${Math.round(position.heading)}deg`);
+  if ("mesh_seq_number" in position && position.mesh_seq_number != null) parts.push(`seq ${position.mesh_seq_number}`);
   return parts.join(" | ");
 }
 

@@ -111,6 +111,7 @@ class PublicPositionResponse(BaseModel):
     timestamp: str
     source: str | None
     device_id: str | None
+    mesh_seq_number: int | None = None
     battery_level: int | None
     aircraft_icon: str = "hang_glider"
     profile_type: str = "pilot"

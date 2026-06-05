@@ -788,6 +788,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
                     )
                 )
                 lp_columns["battery_level_seen_at"] = {"name": "battery_level_seen_at"}
+            if "mesh_seq_number" not in lp_columns:
+                connection.execute(text("ALTER TABLE live_positions ADD COLUMN mesh_seq_number INTEGER"))
+                lp_columns["mesh_seq_number"] = {"name": "mesh_seq_number"}
             existing_indexes = {idx["name"] for idx in inspector.get_indexes("live_positions")}
             if "ix_live_positions_pilot_ts" not in existing_indexes:
                 connection.execute(text("CREATE INDEX ix_live_positions_pilot_ts ON live_positions (pilot_id, timestamp)"))

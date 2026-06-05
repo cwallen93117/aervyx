@@ -570,6 +570,7 @@ class LivePosition(Base):
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     source: Mapped[str | None] = mapped_column(String(32), nullable=True)
     device_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    mesh_seq_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     battery_level: Mapped[int | None] = mapped_column(Integer, nullable=True)
     battery_level_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
