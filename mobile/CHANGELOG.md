@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.55+72 - 2026-06-05
+
+### Fixed
+- The update check now suppresses prompts when the installed app version text
+  already matches the server version, and uses Android's native version code as
+  a backup to avoid false update prompts.
+
 ## 0.4.54+71 - 2026-06-05
 
 ### Fixed

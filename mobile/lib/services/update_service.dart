@@ -17,6 +17,7 @@ class AppReleaseInfo {
   final String releaseDate;
   final String minSupportedVersion;
   final int? fileSizeBytes;
+  final String currentVersion;
   final int currentVersionCode;
 
   const AppReleaseInfo({
@@ -26,12 +27,14 @@ class AppReleaseInfo {
     required this.releaseNotes,
     required this.releaseDate,
     required this.minSupportedVersion,
+    required this.currentVersion,
     required this.currentVersionCode,
     this.fileSizeBytes,
   });
 
   factory AppReleaseInfo.fromJson(
     Map<String, dynamic> json, {
+    required String currentVersion,
     required int currentVersionCode,
   }) {
     return AppReleaseInfo(
@@ -43,11 +46,15 @@ class AppReleaseInfo {
       releaseDate: json['release_date'] as String? ?? '',
       minSupportedVersion: json['min_supported_version'] as String? ?? '',
       fileSizeBytes: (json['file_size_bytes'] as num?)?.toInt(),
+      currentVersion: currentVersion,
       currentVersionCode: currentVersionCode,
     );
   }
 
-  bool get isNewerThanCurrent => versionCode > currentVersionCode;
+  bool get isNewerThanCurrent {
+    if (version.trim() == currentVersion.trim()) return false;
+    return versionCode > currentVersionCode;
+  }
 }
 
 class UpdateInstallPermissionException implements Exception {
@@ -66,12 +73,18 @@ class UpdateService {
 
   Future<AppReleaseInfo?> checkForUpdate() async {
     final packageInfo = await PackageInfo.fromPlatform();
-    final currentVersionCode = int.tryParse(packageInfo.buildNumber) ?? 0;
+    final packageBuildNumber = int.tryParse(packageInfo.buildNumber) ?? 0;
+    final nativeVersionCode = await _installedVersionCode();
+    final currentVersionCode = nativeVersionCode != null
+        ? [packageBuildNumber, nativeVersionCode]
+            .reduce((a, b) => a > b ? a : b)
+        : packageBuildNumber;
     final json = await _api
         .get(ApiConfig.appVersionPath)
         .timeout(const Duration(seconds: 10));
     final release = AppReleaseInfo.fromJson(
       json,
+      currentVersion: packageInfo.version,
       currentVersionCode: currentVersionCode,
     );
     return release.isNewerThanCurrent ? release : null;
@@ -130,5 +143,18 @@ class UpdateService {
 
   static Future<void> openInstallPermissionSettings() async {
     await _channel.invokeMethod<bool>('openInstallPermissionSettings');
+  }
+
+  static Future<int?> _installedVersionCode() async {
+    try {
+      final value =
+          await _channel.invokeMethod<Object?>('getInstalledVersionCode');
+      if (value is int) return value;
+      if (value is num) return value.toInt();
+      if (value is String) return int.tryParse(value);
+    } catch (_) {
+      // package_info_plus remains the fallback on platforms without the channel.
+    }
+    return null;
   }
 }

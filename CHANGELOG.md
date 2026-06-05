@@ -16,6 +16,9 @@ and environment.
 ## [2026.06.05]
 
 ### Fixed
+- **Mobile v0.4.55+72** suppresses update prompts when the installed app
+  version already matches the server version, and uses Android's native
+  version code as a backup to avoid false update prompts.
 - **Mobile v0.4.54+71** preserves Meshtastic position sequence numbers and
   uses the documented GPS fix timestamp when relaying mesh positions, improving
   fused live-track cleanup when phone and mesh data overlap.

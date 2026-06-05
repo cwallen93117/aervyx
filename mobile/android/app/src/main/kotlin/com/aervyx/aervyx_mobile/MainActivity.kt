@@ -90,6 +90,17 @@ class MainActivity : FlutterActivity() {
             "com.aervyx.aervyx_mobile/app_update",
         ).setMethodCallHandler { call, result ->
             when (call.method) {
+                "getInstalledVersionCode" -> {
+                    val info = packageManager.getPackageInfo(packageName, 0)
+                    val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        info.longVersionCode
+                    } else {
+                        @Suppress("DEPRECATION")
+                        info.versionCode.toLong()
+                    }
+                    result.success(code)
+                }
+
                 "installApk" -> {
                     val path = call.argument<String>("path")
                     if (path.isNullOrBlank()) {
