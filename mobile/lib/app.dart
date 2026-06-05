@@ -23,10 +23,12 @@ class AervyxApp extends StatefulWidget {
 }
 
 class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
   bool _runtimeStartRequested = false;
   bool _runtimeBatteryShutdownStarted = false;
-  bool _updateCheckRequested = false;
+  bool _updateCheckInProgress = false;
   bool _updateDialogShowing = false;
+  int? _dismissedUpdateVersionCode;
   AuthService? _authService;
   Timer? _runtimeBatteryTimer;
 
@@ -81,6 +83,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       _ensureRuntime();
+      unawaited(_checkForAppUpdate());
       final auth = context.read<AuthService>();
       if (auth.isLoggedIn) {
         unawaited(auth.refreshUserProfile().catchError((_) {}));
@@ -112,26 +115,38 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   }
 
   Future<void> _checkForAppUpdate() async {
-    if (_updateCheckRequested || _updateDialogShowing || !mounted) return;
-    _updateCheckRequested = true;
+    if (_updateCheckInProgress || _updateDialogShowing || !mounted) return;
+    _updateCheckInProgress = true;
     try {
       final release = await context.read<UpdateService>().checkForUpdate();
       if (release == null || !mounted) return;
+      if (_dismissedUpdateVersionCode == release.versionCode) return;
       await _showUpdateDialog(release);
     } catch (_) {
       // Update checks should never block app startup.
+    } finally {
+      _updateCheckInProgress = false;
     }
   }
 
   Future<void> _showUpdateDialog(AppReleaseInfo release) async {
     if (_updateDialogShowing) return;
+    final navigatorContext = _navigatorKey.currentContext;
+    if (navigatorContext == null) {
+      Future<void>.delayed(
+        const Duration(milliseconds: 500),
+        _checkForAppUpdate,
+      );
+      return;
+    }
+
     _updateDialogShowing = true;
     var downloading = false;
     var progress = 0.0;
 
     try {
       await showDialog<void>(
-        context: context,
+        context: navigatorContext,
         barrierDismissible: !downloading,
         builder: (dialogContext) {
           return StatefulBuilder(
@@ -173,14 +188,16 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
               }
 
               return AlertDialog(
-                title: const Text('Update available'),
+                title: const Text('New version available'),
                 content: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Aervyx ${release.version}+${release.versionCode} is available.',
+                    const Text(
+                      'There is a new version of Aervyx available. Would you like to download and update now?',
                     ),
+                    const SizedBox(height: 8),
+                    Text('Version ${release.version}+${release.versionCode}'),
                     if (release.releaseNotes.trim().isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(
@@ -197,14 +214,18 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
                 ),
                 actions: [
                   TextButton(
-                    onPressed:
-                        downloading ? null : () => Navigator.of(context).pop(),
-                    child: const Text('Later'),
+                    onPressed: downloading
+                        ? null
+                        : () {
+                            _dismissedUpdateVersionCode = release.versionCode;
+                            Navigator.of(context).pop();
+                          },
+                    child: const Text('No'),
                   ),
                   FilledButton.icon(
                     onPressed: downloading ? null : startUpdate,
                     icon: const Icon(Icons.system_update_alt),
-                    label: Text(downloading ? 'Downloading' : 'Update'),
+                    label: Text(downloading ? 'Downloading' : 'Yes'),
                   ),
                 ],
               );
@@ -246,6 +267,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
 
     return MaterialApp(
       title: 'Aervyx',
+      navigatorKey: _navigatorKey,
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorSchemeSeed: const Color(0xFF00E5FF),

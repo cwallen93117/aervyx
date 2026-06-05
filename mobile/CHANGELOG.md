@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.53+70 - 2026-06-05
+
+### Fixed
+- The startup update prompt now appears from the app navigator, asks users
+  Yes/No whether they want to download the newer version, and shows download
+  progress while the APK is retrieved.
+
 ## 0.4.52+69 - 2026-06-05
 
 ### Fixed

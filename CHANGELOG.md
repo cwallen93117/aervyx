@@ -16,6 +16,9 @@ and environment.
 ## [2026.06.05]
 
 ### Fixed
+- **Mobile v0.4.53+70** fixes the startup update prompt so it appears from the
+  app navigator, asks users Yes/No whether they want to download the newer
+  version, and shows download progress while retrieving the APK.
 - **Mobile v0.4.52+69** makes Meshtastic Bluetooth reconnects explicit and
   immediate when pilots tap reconnect or start recording, using the same direct
   foreground connect path as manual pairing before falling back to scan.
