@@ -2395,6 +2395,7 @@ export const TaskMap = React.memo(function TaskMap({
     const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
     const liveMarkerData = mode === "live" ? livePilotMarkerData : [];
     if (liveMarkerData.length) {
+      const liveMarkerHitRadiusPixels = Math.round(32 * liveMarkerScale);
       type LiveMarkerItem = {
         subjectKey: string;
         position: [number, number, number];
@@ -2408,6 +2409,38 @@ export const TaskMap = React.memo(function TaskMap({
         aircraftType?: "hang_glider" | "paraglider" | "sailplane";
         highlighted?: boolean;
       };
+      const handleLiveMarkerClick = (info: { object?: LiveMarkerItem }) => {
+        if (!info.object?.subjectKey) return false;
+        onLivePositionClick?.(info.object.subjectKey);
+        return true;
+      };
+      const handleLiveMarkerHover = (info: { object?: LiveMarkerItem }) => {
+        const map = mapRef.current;
+        if (!map || !onLivePositionClick) return;
+        map.getCanvas().style.cursor = info.object ? "pointer" : "";
+      };
+      layers.push(
+        new ScatterplotLayer({
+          id: `live-pilot-click-targets-${mode}`,
+          data: liveMarkerData as LiveMarkerItem[],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          getPosition: (item: LiveMarkerItem) => item.position,
+          getRadius: liveMarkerHitRadiusPixels,
+          radiusUnits: "pixels",
+          radiusMinPixels: liveMarkerHitRadiusPixels,
+          radiusMaxPixels: liveMarkerHitRadiusPixels,
+          getFillColor: [0, 0, 0, 1],
+          getLineColor: [0, 0, 0, 0],
+          stroked: false,
+          filled: true,
+          pickable: Boolean(onLivePositionClick),
+          onClick: handleLiveMarkerClick,
+          onHover: handleLiveMarkerHover,
+          parameters: {
+            depthTest: false,
+          },
+        }),
+      );
       layers.push(
         new IconLayer({
           id: `live-pilot-rings-${mode}`,
@@ -2429,16 +2462,8 @@ export const TaskMap = React.memo(function TaskMap({
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(20 * liveMarkerScale),
           pickable: Boolean(onLivePositionClick),
-          onClick: (info: { object?: LiveMarkerItem }) => {
-            if (!info.object?.subjectKey) return false;
-            onLivePositionClick?.(info.object.subjectKey);
-            return true;
-          },
-          onHover: (info: { object?: LiveMarkerItem }) => {
-            const map = mapRef.current;
-            if (!map || !onLivePositionClick) return;
-            map.getCanvas().style.cursor = info.object ? "pointer" : "";
-          },
+          onClick: handleLiveMarkerClick,
+          onHover: handleLiveMarkerHover,
           parameters: {
             depthTest: false,
           },
@@ -2465,16 +2490,8 @@ export const TaskMap = React.memo(function TaskMap({
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(12 * liveMarkerScale),
           pickable: Boolean(onLivePositionClick),
-          onClick: (info: { object?: LiveMarkerItem }) => {
-            if (!info.object?.subjectKey) return false;
-            onLivePositionClick?.(info.object.subjectKey);
-            return true;
-          },
-          onHover: (info: { object?: LiveMarkerItem }) => {
-            const map = mapRef.current;
-            if (!map || !onLivePositionClick) return;
-            map.getCanvas().style.cursor = info.object ? "pointer" : "";
-          },
+          onClick: handleLiveMarkerClick,
+          onHover: handleLiveMarkerHover,
           parameters: {
             depthTest: false,
           },
