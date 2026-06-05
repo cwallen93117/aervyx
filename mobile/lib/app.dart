@@ -196,8 +196,17 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
                     const Text(
                       'There is a new version of Aervyx available. Would you like to download and update now?',
                     ),
-                    const SizedBox(height: 8),
-                    Text('Version ${release.version}+${release.versionCode}'),
+                    const SizedBox(height: 12),
+                    _UpdateVersionRow(
+                      label: 'Installed Version',
+                      value:
+                          '${release.currentVersion}+${release.currentVersionCode}',
+                    ),
+                    const SizedBox(height: 4),
+                    _UpdateVersionRow(
+                      label: 'Current Version',
+                      value: '${release.version}+${release.versionCode}',
+                    ),
                     if (release.releaseNotes.trim().isNotEmpty) ...[
                       const SizedBox(height: 12),
                       Text(
@@ -296,6 +305,39 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
           return const HomeScreen();
         },
       ),
+    );
+  }
+}
+
+class _UpdateVersionRow extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _UpdateVersionRow({
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

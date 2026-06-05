@@ -16,6 +16,9 @@ and environment.
 ## [2026.06.05]
 
 ### Fixed
+- **Mobile v0.4.56+73** treats versions with or without a leading "v" as the
+  same version in update checks, and labels the dialog values as Installed
+  Version and Current Version.
 - **Mobile v0.4.55+72** suppresses update prompts when the installed app
   version already matches the server version, and uses Android's native
   version code as a backup to avoid false update prompts.

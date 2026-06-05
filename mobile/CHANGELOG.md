@@ -1,5 +1,13 @@
 # Aervyx Mobile Changelog
 
+## 0.4.56+73 - 2026-06-05
+
+### Fixed
+- The update check now treats versions with or without a leading "v" as the
+  same version, preventing another false update prompt after installation.
+- The update dialog now shows Installed Version and Current Version labels so
+  the comparison is clearer.
+
 ## 0.4.55+72 - 2026-06-05
 
 ### Fixed

@@ -52,8 +52,18 @@ class AppReleaseInfo {
   }
 
   bool get isNewerThanCurrent {
-    if (version.trim() == currentVersion.trim()) return false;
+    if (_normalizeVersion(version) == _normalizeVersion(currentVersion)) {
+      return false;
+    }
     return versionCode > currentVersionCode;
+  }
+
+  static String _normalizeVersion(String value) {
+    final trimmed = value.trim();
+    if (trimmed.startsWith('v') || trimmed.startsWith('V')) {
+      return trimmed.substring(1).trim();
+    }
+    return trimmed;
   }
 }
 

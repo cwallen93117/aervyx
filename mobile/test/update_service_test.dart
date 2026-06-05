@@ -33,6 +33,17 @@ void main() {
     expect(info.isNewerThanCurrent, isFalse);
   });
 
+  test('ignores leading v when comparing visible versions', () {
+    final info = release(
+      serverVersion: '0.4.55',
+      serverCode: 72,
+      currentVersion: 'v0.4.55',
+      currentCode: 0,
+    );
+
+    expect(info.isNewerThanCurrent, isFalse);
+  });
+
   test('prompts only when server version and build are both newer', () {
     expect(
       release(
