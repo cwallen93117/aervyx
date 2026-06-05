@@ -680,6 +680,7 @@ export function LiveWatchClient() {
             fullscreenSidebarLabel="pilot list"
             focusPosition={focusPosition}
             highlightedLiveSubjectKey={highlightedSubjectKey}
+            onLivePositionClick={focusSubjectOnMap}
             fitKey={sourceDropdownValue}
             fitOnceKey={eventFitOnceKey}
           />

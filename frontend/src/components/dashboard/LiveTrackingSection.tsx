@@ -859,6 +859,7 @@ export default function LiveTrackingSection({
                   fullscreenSidebarLabel="pilot list"
                   focusPosition={focusPosition}
                   highlightedLiveSubjectKey={highlightedSubjectKey}
+                  onLivePositionClick={focusSubjectOnMap}
                   fitKey={
                     trackingSource.type === "task"
                       ? `live-${trackingSource.taskId}`

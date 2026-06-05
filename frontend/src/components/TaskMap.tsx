@@ -1429,6 +1429,7 @@ export const TaskMap = React.memo(function TaskMap({
   fullscreenSidebarLabel = "Pilot list",
   highlightedTrackUploadId,
   highlightedLiveSubjectKey,
+  onLivePositionClick,
   fitKey,
   fitOnceKey,
   fitTurnpoints,
@@ -1469,6 +1470,7 @@ export const TaskMap = React.memo(function TaskMap({
   fullscreenSidebarLabel?: string;
   highlightedTrackUploadId?: number | null;
   highlightedLiveSubjectKey?: string | null;
+  onLivePositionClick?: (subjectKey: string) => void;
   fitKey?: string | number | null;
   fitOnceKey?: string | number | null;
   fitTurnpoints?: MapTurnpoint[];
@@ -2394,6 +2396,7 @@ export const TaskMap = React.memo(function TaskMap({
     const liveMarkerData = mode === "live" ? livePilotMarkerData : [];
     if (liveMarkerData.length) {
       type LiveMarkerItem = {
+        subjectKey: string;
         position: [number, number, number];
         nameLabel: string;
         latitude: number;
@@ -2425,7 +2428,17 @@ export const TaskMap = React.memo(function TaskMap({
           getSize: (item: LiveMarkerItem) => Math.round((item.highlighted ? 32 : 28) * liveMarkerScale),
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(20 * liveMarkerScale),
-          pickable: false,
+          pickable: Boolean(onLivePositionClick),
+          onClick: (info: { object?: LiveMarkerItem }) => {
+            if (!info.object?.subjectKey) return false;
+            onLivePositionClick?.(info.object.subjectKey);
+            return true;
+          },
+          onHover: (info: { object?: LiveMarkerItem }) => {
+            const map = mapRef.current;
+            if (!map || !onLivePositionClick) return;
+            map.getCanvas().style.cursor = info.object ? "pointer" : "";
+          },
           parameters: {
             depthTest: false,
           },
@@ -2451,7 +2464,17 @@ export const TaskMap = React.memo(function TaskMap({
           getSize: (item: LiveMarkerItem) => Math.round((item.highlighted ? 21 : 18) * liveMarkerScale),
           sizeUnits: "pixels",
           sizeMinPixels: Math.round(12 * liveMarkerScale),
-          pickable: false,
+          pickable: Boolean(onLivePositionClick),
+          onClick: (info: { object?: LiveMarkerItem }) => {
+            if (!info.object?.subjectKey) return false;
+            onLivePositionClick?.(info.object.subjectKey);
+            return true;
+          },
+          onHover: (info: { object?: LiveMarkerItem }) => {
+            const map = mapRef.current;
+            if (!map || !onLivePositionClick) return;
+            map.getCanvas().style.cursor = info.object ? "pointer" : "";
+          },
           parameters: {
             depthTest: false,
           },
@@ -2517,7 +2540,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
