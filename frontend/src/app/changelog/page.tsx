@@ -16,17 +16,41 @@ interface AppVersionResponse {
   file_size_bytes: number | null;
 }
 
-async function fetchReleases(): Promise<AppVersionResponse[] | null> {
-  try {
-    const apiBase = process.env.BACKEND_INTERNAL_URL || "http://backend:8000";
-    const res = await fetch(`${apiBase}/api/app/releases`, {
-      next: { revalidate: 300 },
-    });
-    if (!res.ok) return null;
-    return (await res.json()) as AppVersionResponse[];
-  } catch {
-    return null;
+function normalizeReleases(payload: unknown): AppVersionResponse[] | null {
+  if (Array.isArray(payload)) return payload as AppVersionResponse[];
+  if (
+    payload &&
+    typeof payload === "object" &&
+    Array.isArray((payload as { value?: unknown }).value)
+  ) {
+    return (payload as { value: AppVersionResponse[] }).value;
   }
+  return null;
+}
+
+async function fetchReleases(): Promise<AppVersionResponse[] | null> {
+  const apiBases = [
+    process.env.BACKEND_INTERNAL_URL,
+    process.env.NEXT_PUBLIC_API_BASE_URL?.startsWith("http")
+      ? process.env.NEXT_PUBLIC_API_BASE_URL
+      : null,
+    "https://api.aervyx.net",
+    "http://backend:8000",
+  ].filter((base): base is string => Boolean(base));
+
+  for (const apiBase of apiBases) {
+    try {
+      const res = await fetch(`${apiBase}/api/app/releases`, {
+        cache: "no-store",
+      });
+      if (!res.ok) continue;
+      const releases = normalizeReleases(await res.json());
+      if (releases) return releases;
+    } catch {
+      continue;
+    }
+  }
+  return null;
 }
 
 function formatBytes(bytes: number): string {
