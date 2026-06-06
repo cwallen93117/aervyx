@@ -3,7 +3,7 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
-import { formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, prePenaltyTotalPoints } from "../../lib/scorePenalties";
+import { derivedPenaltyCalculation, formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints } from "../../lib/scorePenalties";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
@@ -277,7 +277,7 @@ function PenaltyDetailsModal({
   taskName: string;
   onClose: () => void;
 }) {
-  const calculation = result.penalty_calculation;
+  const calculation = result.penalty_calculation ?? derivedPenaltyCalculation(result, resultScoringTimezone(result));
   return (
     <div className="score-penalty-modal-overlay active" onClick={onClose}>
       <div className="score-penalty-modal" onClick={(event) => event.stopPropagation()}>
@@ -804,6 +804,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             const arrivalPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "arrival"));
                             const departurePoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "departure"));
                             const leadingPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "leading"));
+                            const penaltyLabel = formatPenaltyPoints(result);
                             return (
                               <tr key={result.id}>
                                 <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
@@ -824,13 +825,13 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                   </td>
                                 ))}
                                 {taskResultsIncludePenalty ? (
-                                  <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>
-                                    {hasPenaltyDetails(result) ? (
+                                  <td className={penaltyLabel !== "-" ? "results-table-penalty" : undefined}>
+                                    {penaltyLabel !== "-" ? (
                                       <button type="button" className="score-penalty-link" onClick={() => setPenaltyDetailsResult(result)}>
-                                        {formatPenaltyPoints(result)}
+                                        {penaltyLabel}
                                       </button>
                                     ) : (
-                                      formatPenaltyPoints(result)
+                                      penaltyLabel
                                     )}
                                   </td>
                                 ) : null}

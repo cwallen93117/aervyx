@@ -6,7 +6,7 @@ import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences,
 import type { EventRecord } from "../../components/dashboard/types";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
-import { derivedPenaltyCalculation, formatPenaltyPoints, formatScorePoints, hasPenaltyDetails, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
+import { derivedPenaltyCalculation, formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
 import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
@@ -1198,6 +1198,7 @@ export function PublicScoresClient() {
                 {taskResults.map((result) => {
                   const isUnscored = result.result_state === "unscored";
                   const statusLabel = statusAbbreviation(result.status);
+                  const penaltyLabel = formatPenaltyPoints(result);
                   return (
                     <tr key={result.id}>
                       <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
@@ -1212,13 +1213,13 @@ export function PublicScoresClient() {
                       <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>
                       {taskResultsColumns.map((column) => <td key={column}>{isUnscored ? "-" : formatPoints(gapAwardedPoints(result, column))}</td>)}
                       {taskResultsIncludePenalty ? (
-                        <td className={formatPenaltyPoints(result) !== "-" ? "results-table-penalty" : undefined}>
-                          {hasPenaltyDetails(result) ? (
+                        <td className={penaltyLabel !== "-" ? "results-table-penalty" : undefined}>
+                          {penaltyLabel !== "-" ? (
                             <button type="button" className="score-penalty-link" onClick={() => setPenaltyDetailsResult(result)}>
-                              {formatPenaltyPoints(result)}
+                              {penaltyLabel}
                             </button>
                           ) : (
-                            formatPenaltyPoints(result)
+                            penaltyLabel
                           )}
                         </td>
                       ) : null}
