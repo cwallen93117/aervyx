@@ -889,7 +889,7 @@ def test_public_task_results_include_public_safe_penalty_details() -> None:
     assert payload[0].penalty_calculation.lines[0].detail == "Started at 10:14:45 AM EDT, before start gate 1 at 10:15:00 AM EDT. Early by 15s. Charged 2 points per second."
 
 
-def test_public_task_results_derive_penalty_from_awarded_points_when_lines_missing() -> None:
+def test_public_task_results_do_not_derive_penalty_from_rounded_awarded_points() -> None:
     session = _session()
     event = Event(
         name="Public Derived Penalty Comp",
@@ -911,20 +911,23 @@ def test_public_task_results_derive_penalty_from_awarded_points_when_lines_missi
             pilot_id=pilot.id,
             status="goal",
             rank=1,
-            distance_flown_km=83.1,
-            raw_score_points=774.6,
-            score_points=774.6,
+            distance_flown_km=68.2,
+            raw_score_points=748.8,
+            score_points=748.8,
             details_json={
                 "gap": {
+                    "formula": {"jump_the_gun_factor": 2},
                     "awarded_points": {
-                        "distance": 83.1,
-                        "speed": 361.4,
-                        "leading": 511.2,
+                        "distance": 422.4,
+                        "speed": 326.5,
+                        "leading": 0.0,
                         "arrival": 0.0,
                         "departure": 0.0,
-                        "total": 774.6,
+                        "total": 748.8,
                     }
-                }
+                },
+                "airscore_result": {"penalty": 0.0},
+                "start_timing": {"jump_the_gun_penalty_points": 0.0},
             },
             result_state="official",
         )
@@ -933,11 +936,8 @@ def test_public_task_results_derive_penalty_from_awarded_points_when_lines_missi
 
     payload = get_public_task_results(task.id, session=session)
 
-    assert payload[0].penalty_summary == "Scoring penalty -181.1 pts"
-    assert payload[0].penalty_calculation is not None
-    assert payload[0].penalty_calculation.engine_penalty_points == 181.1
-    assert payload[0].penalty_calculation.total_display_penalty_points == 181.1
-    assert payload[0].penalty_calculation.lines[0].label == "Scoring penalty"
+    assert payload[0].penalty_summary is None
+    assert payload[0].penalty_calculation is None
 
 
 def test_public_pilot_summary_uses_only_official_scores() -> None:

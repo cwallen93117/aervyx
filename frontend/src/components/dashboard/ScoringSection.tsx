@@ -3,7 +3,7 @@
 import { useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
-import { derivedPenaltyCalculation, formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints } from "../../lib/scorePenalties";
+import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints } from "../../lib/scorePenalties";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
@@ -277,7 +277,7 @@ function PenaltyDetailsModal({
   taskName: string;
   onClose: () => void;
 }) {
-  const calculation = result.penalty_calculation ?? derivedPenaltyCalculation(result, resultScoringTimezone(result));
+  const calculation = result.penalty_calculation;
   return (
     <div className="score-penalty-modal-overlay active" onClick={onClose}>
       <div className="score-penalty-modal" onClick={(event) => event.stopPropagation()}>

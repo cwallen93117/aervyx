@@ -6,7 +6,7 @@ import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences,
 import type { EventRecord } from "../../components/dashboard/types";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
-import { derivedPenaltyCalculation, formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
+import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
 import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
@@ -467,7 +467,7 @@ function PenaltyDetailsModal({
   taskName: string;
   onClose: () => void;
 }) {
-  const calculation = result.penalty_calculation ?? derivedPenaltyCalculation(result, resultScoringTimezone(result));
+  const calculation = result.penalty_calculation;
   return (
     <div className="score-penalty-modal-overlay active" onClick={onClose}>
       <div className="score-penalty-modal" onClick={(event) => event.stopPropagation()}>

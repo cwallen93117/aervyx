@@ -1597,40 +1597,12 @@ def _manual_penalty_lines(raw_score: float, penalties: list[ScorePenalty]) -> tu
     return round(max(raw_score - max(running, 0.0), 0.0), 2), lines
 
 
-def _gap_awarded_total(details_json: dict | None) -> float:
-    if not isinstance(details_json, dict):
-        return 0.0
-    gap = details_json.get("gap")
-    if not isinstance(gap, dict):
-        return 0.0
-    awarded = gap.get("awarded_points")
-    if not isinstance(awarded, dict):
-        return 0.0
-
-    total = _safe_float(awarded.get("total"))
-    component_total = sum(_safe_float(awarded.get(key)) for key in ("distance", "speed", "leading", "arrival", "departure"))
-    return max(total, component_total)
-
-
 def build_result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty], event_timezone: str | None = None) -> tuple[list[dict], str | None, dict | None]:
     final_score = float(result.score_points or 0.0)
-    raw_score = max(float(result.raw_score_points or final_score or 0.0), _gap_awarded_total(result.details_json))
+    raw_score = float(result.raw_score_points or final_score or 0.0)
     engine_points, engine_lines = _engine_penalty_lines(result.details_json, event_timezone)
     manual_points, manual_lines = _manual_penalty_lines(raw_score, penalties)
     lines = [*engine_lines, *manual_lines]
-    if not lines:
-        derived_points = round(max(raw_score - final_score, 0.0), 2)
-        if derived_points > 0.05:
-            engine_points = derived_points
-            lines.append(
-                {
-                    "kind": "engine",
-                    "label": "Scoring penalty",
-                    "amount_points": derived_points,
-                    "running_score_points": round(final_score, 2),
-                    "detail": "Penalty reflected by the scored total.",
-                }
-            )
     if not lines:
         return [], None, None
 
