@@ -889,6 +889,56 @@ def test_public_task_results_include_public_safe_penalty_details() -> None:
     assert payload[0].penalty_calculation.lines[0].detail == "Started at 10:14:45 AM EDT, before start gate 1 at 10:15:00 AM EDT. Early by 15s. Charged 2 points per second."
 
 
+def test_public_task_results_derive_penalty_from_awarded_points_when_lines_missing() -> None:
+    session = _session()
+    event = Event(
+        name="Public Derived Penalty Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="America/New_York",
+        visibility="public",
+    )
+    pilot = Pilot(first_name="Mick", last_name="Howard")
+    session.add_all([event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    session.add_all([task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    session.add(
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilot.id,
+            status="goal",
+            rank=1,
+            distance_flown_km=83.1,
+            raw_score_points=774.6,
+            score_points=774.6,
+            details_json={
+                "gap": {
+                    "awarded_points": {
+                        "distance": 83.1,
+                        "speed": 361.4,
+                        "leading": 511.2,
+                        "arrival": 0.0,
+                        "departure": 0.0,
+                    }
+                }
+            },
+            result_state="official",
+        )
+    )
+    session.commit()
+
+    payload = get_public_task_results(task.id, session=session)
+
+    assert payload[0].penalty_summary == "Scoring penalty -181.1 pts"
+    assert payload[0].penalty_calculation is not None
+    assert payload[0].penalty_calculation.engine_penalty_points == 181.1
+    assert payload[0].penalty_calculation.total_display_penalty_points == 181.1
+    assert payload[0].penalty_calculation.lines[0].label == "Scoring penalty"
+
+
 def test_public_pilot_summary_uses_only_official_scores() -> None:
     session = _session()
     event = Event(
