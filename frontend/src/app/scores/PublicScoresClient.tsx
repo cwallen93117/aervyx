@@ -1215,9 +1215,16 @@ export function PublicScoresClient() {
                       {taskResultsIncludePenalty ? (
                         <td className={penaltyLabel !== "-" ? "results-table-penalty" : undefined}>
                           {penaltyLabel !== "-" ? (
-                            <button type="button" className="score-penalty-link" onClick={() => setPenaltyDetailsResult(result)}>
+                            <a
+                              href="#"
+                              className="score-penalty-link"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                setPenaltyDetailsResult(result);
+                              }}
+                            >
                               {penaltyLabel}
-                            </button>
+                            </a>
                           ) : (
                             penaltyLabel
                           )}
