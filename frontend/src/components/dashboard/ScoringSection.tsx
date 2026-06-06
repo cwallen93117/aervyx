@@ -653,6 +653,15 @@ export default function ScoringSection(props: ScoringSectionProps) {
   ].filter(Boolean);
   const taskDefinitionGatesLabel = startGateLabels.length ? `Start gates: ${startGateLabels.join(", ")}` : null;
   const selectedTaskSummary = selectedTask ? taskResultSummaryById.get(selectedTask.id) : undefined;
+  const openTaskResults = (task: TaskRecord) => {
+    setScoresPortalTab("results");
+    setScoringTab("task");
+    setHighlightedResultUploadId(null);
+    if (token) {
+      void loadTask(token, task.id, task, true);
+    }
+  };
+
   return (
     <div className="section-stack">
       {canManagePlatform ? (
@@ -902,7 +911,16 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           <tr key={task.id}>
                             <td>
                               <span className="task-statistics-label-row">
-                                <strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong>
+                                <a
+                                  href="#task-results"
+                                  className="overall-task-results-link"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    openTaskResults(task);
+                                  }}
+                                >
+                                  <strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong>
+                                </a>
                                 <TaskStatisticsButton taskName={task.name} statistics={summary?.statistics} onClick={showTaskStatistics} />
                               </span>
                             </td>

@@ -1023,6 +1023,11 @@ export function PublicScoresClient() {
     setHighlightedResultUploadId(null);
   }, []);
 
+  const openTaskResults = useCallback((taskId: number) => {
+    setTaskTab("results");
+    selectTask(taskId);
+  }, [selectTask]);
+
   const renderOverall = () => (
     <div className="scores-panel">
       <div className="scores-panel-header">
@@ -1065,7 +1070,16 @@ export function PublicScoresClient() {
                 <tr key={task.id}>
                   <td>
                     <span className="task-statistics-label-row">
-                      <strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong>
+                      <a
+                        href="#task-results"
+                        className="overall-task-results-link"
+                        onClick={(event) => {
+                          event.preventDefault();
+                          openTaskResults(task.id);
+                        }}
+                      >
+                        <strong className={task.is_practice ? "practice-task-label" : undefined}>{task.name}</strong>
+                      </a>
                       <TaskStatisticsButton taskName={task.name} statistics={summary?.statistics} onClick={showTaskStatistics} />
                     </span>
                   </td>
