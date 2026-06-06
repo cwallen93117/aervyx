@@ -1608,9 +1608,8 @@ def _gap_awarded_total(details_json: dict | None) -> float:
         return 0.0
 
     total = _safe_float(awarded.get("total"))
-    if total > 0:
-        return total
-    return sum(_safe_float(awarded.get(key)) for key in ("distance", "speed", "leading", "arrival", "departure"))
+    component_total = sum(_safe_float(awarded.get(key)) for key in ("distance", "speed", "leading", "arrival", "departure"))
+    return max(total, component_total)
 
 
 def build_result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty], event_timezone: str | None = None) -> tuple[list[dict], str | None, dict | None]:

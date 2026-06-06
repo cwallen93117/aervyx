@@ -922,6 +922,7 @@ def test_public_task_results_derive_penalty_from_awarded_points_when_lines_missi
                         "leading": 511.2,
                         "arrival": 0.0,
                         "departure": 0.0,
+                        "total": 774.6,
                     }
                 }
             },
