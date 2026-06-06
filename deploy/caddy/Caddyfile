@@ -1,0 +1,21 @@
+{
+	email {$ACME_EMAIL:admin@aervyx.net}
+}
+
+car.aervyx.net {
+	tls {
+		key_type rsa2048
+	}
+
+	encode zstd gzip
+
+	handle_path /backend/* {
+		reverse_proxy backend:8000 {
+			header_up Host backend
+		}
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

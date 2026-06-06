@@ -8,8 +8,32 @@ If you are setting up the Proxmox-hosted staging VM first, use
 ## Public URL Plan
 
 - `https://aervyx.net` serves the marketing site, login, and dashboard
+- `https://car.aervyx.net` serves the same frontend through origin-terminated RSA TLS for vehicle web views that reject Cloudflare Free ECDSA edge certificates
 - `https://api.aervyx.net` serves direct backend and mobile API traffic
 - browser app traffic should continue to use same-origin `/backend` requests from `aervyx.net`
+
+## Vehicle-Compatible Hostname
+
+`car.aervyx.net` is intentionally DNS-only in Cloudflare. It should point at
+the production origin IP and must not be proxied, otherwise Cloudflare Free
+Universal SSL will terminate TLS with an ECDSA edge certificate again.
+
+Production starts the `car-tls` Caddy service from `docker-compose.prod.yml`.
+Caddy listens on public ports `80` and `443`, obtains a Let's Encrypt RSA
+certificate, serves the full certificate chain, and reverse-proxies requests to
+the existing `frontend:3000` service.
+
+Cloudflare DNS target:
+
+```text
+Type: A
+Name: car
+IPv4 address: 74.103.142.23
+Proxy status: DNS only
+```
+
+The origin firewall/router must forward TCP `80` and `443` to the production
+host for ACME HTTP validation and HTTPS traffic.
 
 ## Drafted Production Artifacts
 

@@ -28,6 +28,7 @@ const batteryTranspiled = ts.transpileModule(batterySource, {
 
 const module = { exports: {} };
 const batteryModule = { exports: {} };
+const carBrowserModule = { exports: {} };
 vm.runInNewContext(transpiled, {
   console,
   exports: module.exports,
@@ -36,6 +37,20 @@ vm.runInNewContext(transpiled, {
   require,
   URL,
   window: undefined,
+});
+vm.runInNewContext(transpiled, {
+  console,
+  exports: carBrowserModule.exports,
+  module: carBrowserModule,
+  process: {
+    env: {
+      NEXT_PUBLIC_API_BASE_URL: "/backend",
+      NEXT_PUBLIC_STREAM_API_BASE_URL: "https://api.aervyx.net",
+    },
+  },
+  require,
+  URL,
+  window: { location: { hostname: "car.aervyx.net", protocol: "https:" } },
 });
 vm.runInNewContext(batteryTranspiled, {
   console,
@@ -56,6 +71,11 @@ const {
   segmentPositionsForLiveTrack,
 } = module.exports;
 const { adminDebugBatterySummary } = batteryModule.exports;
+
+test("car hostname keeps live stream traffic on the same origin", () => {
+  assert.equal(carBrowserModule.exports.resolveApiBase(), "/backend");
+  assert.equal(carBrowserModule.exports.resolveStreamApiBase(), "/backend");
+});
 
 function position(overrides) {
   return {

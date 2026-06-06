@@ -34,6 +34,7 @@ class Settings(BaseSettings):
             "frontend",
             "192.168.87.56",
             "aervyx.net",
+            "car.aervyx.net",
             "api.aervyx.net",
         ]
     )

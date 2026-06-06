@@ -62,6 +62,9 @@ export function resolveApiBase() {
 
 export function resolveStreamApiBase() {
   const configured = process.env.NEXT_PUBLIC_STREAM_API_BASE_URL?.trim();
+  if (typeof window !== "undefined" && window.location.hostname === "car.aervyx.net") {
+    return resolveApiBase();
+  }
   if (configured) {
     return resolveConfiguredBase(configured, resolveApiBase());
   }

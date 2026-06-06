@@ -8,6 +8,7 @@ export BRANCH="main"
 export ENV_FILE=".env.production"
 export DEPLOY_LABEL="prod"
 export ENABLE_CLOUDFLARED="0"
+export ENABLE_CAR_TLS_PROXY="1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec bash "${SCRIPT_DIR}/deploy-common.sh"

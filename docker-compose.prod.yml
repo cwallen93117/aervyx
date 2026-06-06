@@ -73,6 +73,23 @@ services:
     expose:
       - "3000"
 
+  car-tls:
+    image: caddy:2.10
+    profiles:
+      - car-tls
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    ports:
+      - "${CAR_TLS_HTTP_BIND:-0.0.0.0}:${CAR_TLS_HTTP_PORT:-80}:80"
+      - "${CAR_TLS_HTTPS_BIND:-0.0.0.0}:${CAR_TLS_HTTPS_PORT:-443}:443"
+    environment:
+      ACME_AGREE: "true"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
   cloudflared:
     image: cloudflare/cloudflared:2026.3.0
     profiles:
@@ -96,3 +113,5 @@ volumes:
   mosquitto_log:
   raster_cache:
   valhalla_tiles:
+  caddy_data:
+  caddy_config:

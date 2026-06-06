@@ -13,6 +13,7 @@ LOG_DIR="${LOG_DIR:-${ROOT_DIR}/logs}"
 STATE_DIR="${STATE_DIR:-${ROOT_DIR}/hooks}"
 COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 ENABLE_CLOUDFLARED="${ENABLE_CLOUDFLARED:-0}"
+ENABLE_CAR_TLS_PROXY="${ENABLE_CAR_TLS_PROXY:-0}"
 CLOUDFLARE_CONFIG="${CLOUDFLARE_CONFIG:-deploy/cloudflared/config.yml}"
 LOCK_FILE="${LOCK_FILE:-${STATE_DIR}/deploy-${DEPLOY_LABEL}.lock}"
 
@@ -81,6 +82,12 @@ if [[ "${ENABLE_CLOUDFLARED}" == "1" && -f "${CLOUDFLARE_CONFIG}" ]]; then
   docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile cloudflare up -d cloudflared
 else
   echo "Skipping cloudflared startup."
+fi
+
+if [[ "${ENABLE_CAR_TLS_PROXY}" == "1" && -f deploy/caddy/Caddyfile ]]; then
+  docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" --profile car-tls up -d car-tls
+else
+  echo "Skipping car TLS proxy startup."
 fi
 
 docker compose --env-file "${ENV_FILE}" -f "${COMPOSE_FILE}" ps
