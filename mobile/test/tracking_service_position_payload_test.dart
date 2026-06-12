@@ -1,4 +1,5 @@
 import 'package:aervyx_mobile/services/tracking_service.dart';
+import 'package:aervyx_mobile/services/background_service.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:geolocator/geolocator.dart';
 
@@ -26,6 +27,31 @@ void main() {
 
     expect(payload.containsKey('battery_level'), isFalse);
     expect(payload.containsKey('battery_level_seen_at'), isFalse);
+  });
+
+  test('free-flight location settings match dense event tracking', () {
+    final freeFlight = TrackingService.debugLocationSettingsForTrackingMode(
+      driverMode: false,
+      hasActiveTask: false,
+      debugMode: false,
+    );
+    final eventFlight = TrackingService.debugLocationSettingsForTrackingMode(
+      driverMode: false,
+      hasActiveTask: true,
+      debugMode: false,
+    );
+
+    expect(freeFlight.accuracy, LocationAccuracy.best);
+    expect(freeFlight.distanceFilter, 0);
+    expect(eventFlight.accuracy, freeFlight.accuracy);
+    expect(eventFlight.distanceFilter, freeFlight.distanceFilter);
+  });
+
+  test('background tracking uses dense GPS settings', () {
+    expect(BackgroundTrackingService.trackingLocationSettings.accuracy,
+        LocationAccuracy.best);
+    expect(
+        BackgroundTrackingService.trackingLocationSettings.distanceFilter, 0);
   });
 }
 

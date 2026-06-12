@@ -1,15 +1,24 @@
 import type { MapUnitPreferences, TrackCollection } from "../components/TaskMap";
 
 export const TRACK_COLORS = ["#2563eb", "#dc2626", "#16a34a", "#7c3aed", "#d97706", "#0891b2", "#db2777", "#65a30d", "#0f766e", "#c2410c"];
-const LIVE_TRACK_MAX_SPEED_KMH = 104.607;
-const LIVE_TRACK_STATIONARY_MAX_SPEED_KMH = 16.0934;
-const LIVE_TRACK_CONFLICT_WINDOW_MS = 2_000;
 const LIVE_TRACK_DUPLICATE_WINDOW_MS = 1_000;
 const LIVE_TRACK_DUPLICATE_DISTANCE_M = 3;
-const LIVE_TRACK_CELLULAR_TIE_BREAK_M = 15;
+const LIVE_TRACK_MESH_HOLD_MS = 1_500;
+const LIVE_TRACK_CELLULAR_GAP_MS = 2_500;
 
 export type ProfileType = "pilot" | "driver" | "stationary_node";
 export type PositionSource = "cellular" | "mesh" | "other";
+export type LiveTrackLineStyle = "solid" | "dashed";
+
+export type LiveTrackBuildOptions = {
+  nowMs?: number;
+};
+
+export type LiveTrackSegment = {
+  positions: LivePositionRecord[];
+  display_source: PositionSource;
+  line_style: LiveTrackLineStyle;
+};
 
 export type LivePositionRecord = {
   id: string;
@@ -185,35 +194,6 @@ function sourceBucketForLiveTrack(position: LivePositionRecord): PositionSource 
   return "other";
 }
 
-function maxSpeedKmhForLiveTrack(position: LivePositionRecord): number {
-  return position.profile_type === "stationary_node" ? LIVE_TRACK_STATIONARY_MAX_SPEED_KMH : LIVE_TRACK_MAX_SPEED_KMH;
-}
-
-function speedKmhBetween(previous: LivePositionRecord, next: LivePositionRecord): number | null {
-  if (previous.source === "igc" || next.source === "igc") {
-    return null;
-  }
-  const previousTimestamp = timestampMs(previous.timestamp);
-  const nextTimestamp = timestampMs(next.timestamp);
-  if (!Number.isFinite(previousTimestamp) || !Number.isFinite(nextTimestamp)) {
-    return null;
-  }
-  const gapSeconds = (nextTimestamp - previousTimestamp) / 1000;
-  if (gapSeconds <= 0) {
-    return null;
-  }
-  const distanceMeters = haversineMeters(previous, next);
-  return (distanceMeters / gapSeconds) * 3.6;
-}
-
-function isImplausibleLiveTrackStep(previous: LivePositionRecord, next: LivePositionRecord): boolean {
-  const speedKmh = speedKmhBetween(previous, next);
-  if (speedKmh == null) {
-    return false;
-  }
-  return speedKmh > Math.min(maxSpeedKmhForLiveTrack(previous), maxSpeedKmhForLiveTrack(next));
-}
-
 function liveTrackSort(left: LivePositionRecord, right: LivePositionRecord): number {
   const leftTimestamp = sortableMs(left.timestamp, left.received_at);
   const rightTimestamp = sortableMs(right.timestamp, right.received_at);
@@ -234,18 +214,6 @@ function liveTrackSort(left: LivePositionRecord, right: LivePositionRecord): num
   const leftReceived = sortableMs(left.received_at, left.timestamp);
   const rightReceived = sortableMs(right.received_at, right.timestamp);
   return leftReceived - rightReceived;
-}
-
-function displayReceivedSort(
-  left: { position: LivePositionRecord; index: number },
-  right: { position: LivePositionRecord; index: number },
-): number {
-  const leftReceived = sortableMs(left.position.received_at, left.position.timestamp);
-  const rightReceived = sortableMs(right.position.received_at, right.position.timestamp);
-  if (leftReceived !== rightReceived) {
-    return leftReceived - rightReceived;
-  }
-  return left.index - right.index;
 }
 
 function dedupeKeyForLiveTrack(position: LivePositionRecord): string {
@@ -317,99 +285,158 @@ function dedupeLiveTrackObservations(positions: LivePositionRecord[]): LivePosit
   return deduped.sort(liveTrackSort);
 }
 
-function predictedPositionFromTrack(previousPrevious: LivePositionRecord | null, previous: LivePositionRecord, timestamp: number): LivePositionRecord {
-  if (!previousPrevious) {
-    return previous;
+function addSegment(segments: LiveTrackSegment[], positions: LivePositionRecord[], displaySource: PositionSource) {
+  if (positions.length < 2) {
+    return;
   }
-  const previousPreviousTimestamp = timestampMs(previousPrevious.timestamp);
-  const previousTimestamp = timestampMs(previous.timestamp);
-  if (!Number.isFinite(previousPreviousTimestamp) || !Number.isFinite(previousTimestamp) || previousTimestamp <= previousPreviousTimestamp) {
-    return previous;
-  }
-  const ratio = Math.max(0, Math.min(3, (timestamp - previousTimestamp) / (previousTimestamp - previousPreviousTimestamp)));
-  return {
-    ...previous,
-    lat: previous.lat + (previous.lat - previousPrevious.lat) * ratio,
-    lon: previous.lon + (previous.lon - previousPrevious.lon) * ratio,
-  };
+  segments.push({
+    positions,
+    display_source: displaySource,
+    line_style: displaySource === "mesh" ? "dashed" : "solid",
+  });
 }
 
-function observationScore(
-  candidate: LivePositionRecord,
-  previousPrevious: LivePositionRecord | null,
-  previous: LivePositionRecord | null,
-): number {
-  if (!previous) {
-    return isCellularPosition(candidate) ? 0 : LIVE_TRACK_CELLULAR_TIE_BREAK_M;
-  }
-  const candidateTimestamp = timestampMs(candidate.timestamp);
-  const predicted = predictedPositionFromTrack(previousPrevious, previous, Number.isFinite(candidateTimestamp) ? candidateTimestamp : timestampMs(previous.timestamp));
-  const speed = speedKmhBetween(previous, candidate);
-  const speedPenalty = speed != null && speed > maxSpeedKmhForLiveTrack(candidate) ? 10_000 + (speed - maxSpeedKmhForLiveTrack(candidate)) * 100 : 0;
-  const sourcePenalty = isCellularPosition(candidate) ? 0 : LIVE_TRACK_CELLULAR_TIE_BREAK_M;
-  return haversineMeters(predicted, candidate) + sourcePenalty + speedPenalty;
+function pointTime(position: LivePositionRecord): number {
+  return sortableMs(position.timestamp, position.received_at);
 }
 
-export function displayPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[] {
-  const byReceiveOrder = positions.map((position, index) => ({ position, index })).sort(displayReceivedSort);
-  const display: LivePositionRecord[] = [];
-  let latestTimestamp = Number.NEGATIVE_INFINITY;
-  for (const { position } of byReceiveOrder) {
-    const parsedTimestamp = timestampMs(position.timestamp);
-    const nextTimestamp = Number.isFinite(parsedTimestamp) ? parsedTimestamp : latestTimestamp;
-    if (nextTimestamp < latestTimestamp) {
+function pointReceivedTime(position: LivePositionRecord): number {
+  return sortableMs(position.received_at, position.timestamp);
+}
+
+function uniqueDisplayPositions(segments: LiveTrackSegment[], singletons: LivePositionRecord[]): LivePositionRecord[] {
+  const byId = new Map<string, LivePositionRecord>();
+  for (const position of singletons) {
+    byId.set(position.id, position);
+  }
+  for (const segment of segments) {
+    for (const position of segment.positions) {
+      byId.set(position.id, position);
+    }
+  }
+  return Array.from(byId.values()).sort(liveTrackSort);
+}
+
+function meshIsHeld(position: LivePositionRecord, latestCellularReceivedMs: number, nowMs: number): boolean {
+  if (!Number.isFinite(latestCellularReceivedMs)) {
+    return false;
+  }
+  if (nowMs - latestCellularReceivedMs >= LIVE_TRACK_MESH_HOLD_MS) {
+    return false;
+  }
+  return pointReceivedTime(position) >= latestCellularReceivedMs;
+}
+
+function positionsBetween(positions: LivePositionRecord[], startMs: number, endMs: number): LivePositionRecord[] {
+  return positions.filter((position) => {
+    const value = pointTime(position);
+    return Number.isFinite(value) && value > startMs && value < endMs;
+  });
+}
+
+function continuousSegments(positions: LivePositionRecord[], displaySource: PositionSource): LiveTrackSegment[] {
+  return positions.length > 1
+    ? [{
+      positions,
+      display_source: displaySource,
+      line_style: displaySource === "mesh" ? "dashed" : "solid",
+    }]
+    : [];
+}
+
+export function displaySegmentsForLiveTrack(
+  positions: LivePositionRecord[],
+  options: LiveTrackBuildOptions = {},
+): LiveTrackSegment[] {
+  const nowMs = options.nowMs ?? Date.now();
+  const deduped = dedupeLiveTrackObservations(positions);
+  const igcPositions = deduped.filter((position) => position.source === "igc").sort(liveTrackSort);
+  if (igcPositions.length === deduped.length) {
+    return continuousSegments(igcPositions, "other");
+  }
+
+  const cellular = deduped.filter(isCellularPosition).sort(liveTrackSort);
+  const latestCellularReceivedMs = cellular.reduce((latest, position) => Math.max(latest, pointReceivedTime(position)), Number.NEGATIVE_INFINITY);
+  const mesh = deduped
+    .filter(isMeshPosition)
+    .filter((position) => !meshIsHeld(position, latestCellularReceivedMs, nowMs))
+    .sort(liveTrackSort);
+  const other = deduped
+    .filter((position) => !isCellularPosition(position) && !isMeshPosition(position) && position.source !== "igc")
+    .sort(liveTrackSort);
+
+  if (!cellular.length) {
+    if (mesh.length) {
+      return continuousSegments(mesh, "mesh");
+    }
+    return continuousSegments(other, "other");
+  }
+
+  const segments: LiveTrackSegment[] = [];
+  const firstCell = cellular[0];
+  const lastCell = cellular[cellular.length - 1];
+  const firstCellTime = pointTime(firstCell);
+  const lastCellTime = pointTime(lastCell);
+  const meshBefore = mesh.filter((position) => pointTime(position) < firstCellTime);
+  const meshAfter = mesh.filter((position) => pointTime(position) > lastCellTime);
+
+  addSegment(segments, [...meshBefore, firstCell], "mesh");
+
+  let solidRun: LivePositionRecord[] = [firstCell];
+  for (let index = 1; index < cellular.length; index += 1) {
+    const previous = cellular[index - 1];
+    const current = cellular[index];
+    const previousTime = pointTime(previous);
+    const currentTime = pointTime(current);
+    const gapMs = currentTime - previousTime;
+    const meshInGap = positionsBetween(mesh, previousTime, currentTime);
+
+    if (Number.isFinite(gapMs) && gapMs <= LIVE_TRACK_CELLULAR_GAP_MS) {
+      solidRun.push(current);
       continue;
     }
-    display.push(position);
-    latestTimestamp = nextTimestamp;
-  }
-  return dedupeLiveTrackObservations(display);
-}
 
-function appendFusedCandidate(segments: LivePositionRecord[][], candidate: LivePositionRecord) {
-  const current = segments[segments.length - 1];
-  if (!current) {
-    segments.push([candidate]);
-    return;
-  }
-  const previous = current[current.length - 1];
-  const previousPrevious = current[current.length - 2] ?? null;
-  const previousTimestamp = timestampMs(previous.timestamp);
-  const candidateTimestamp = timestampMs(candidate.timestamp);
-  const sameWindow =
-    sourceBucketForLiveTrack(previous) !== sourceBucketForLiveTrack(candidate) &&
-    Number.isFinite(previousTimestamp) &&
-    Number.isFinite(candidateTimestamp) &&
-    Math.abs(candidateTimestamp - previousTimestamp) <= LIVE_TRACK_CONFLICT_WINDOW_MS;
-
-  if (sameWindow) {
-    const beforeConflict = current[current.length - 2] ?? null;
-    const previousScore = observationScore(previous, current[current.length - 3] ?? null, beforeConflict);
-    const candidateScore = observationScore(candidate, current[current.length - 3] ?? null, beforeConflict);
-    if (candidateScore + 0.001 < previousScore) {
-      current[current.length - 1] = candidate;
+    addSegment(segments, solidRun, "cellular");
+    if (meshInGap.length) {
+      addSegment(segments, [previous, ...meshInGap, current], "mesh");
     }
-    return;
+    solidRun = [current];
   }
-
-  if (isImplausibleLiveTrackStep(previous, candidate)) {
-    segments.push([candidate]);
-    return;
-  }
-  current.push(candidate);
+  addSegment(segments, solidRun, "cellular");
+  addSegment(segments, [lastCell, ...meshAfter], "mesh");
+  return segments;
 }
 
-function fusedSegmentsForLiveTrack(displayPositions: LivePositionRecord[], includeSingletonSegments = false): LivePositionRecord[][] {
-  const segments: LivePositionRecord[][] = [];
-  for (const position of dedupeLiveTrackObservations(displayPositions)) {
-    appendFusedCandidate(segments, position);
+export function displayPositionsForLiveTrack(
+  positions: LivePositionRecord[],
+  options: LiveTrackBuildOptions = {},
+): LivePositionRecord[] {
+  const segments = displaySegmentsForLiveTrack(positions, options);
+  const deduped = dedupeLiveTrackObservations(positions);
+  const cellular = deduped.filter(isCellularPosition).sort(liveTrackSort);
+  if (cellular.length) {
+    return uniqueDisplayPositions(segments, cellular);
   }
-  return includeSingletonSegments ? segments : segments.filter((segment) => segment.length > 1);
+  const igcPositions = deduped.filter((position) => position.source === "igc").sort(liveTrackSort);
+  if (igcPositions.length === deduped.length) {
+    return uniqueDisplayPositions(segments, igcPositions);
+  }
+  const mesh = deduped
+    .filter(isMeshPosition)
+    .filter((position) => !meshIsHeld(position, Number.NEGATIVE_INFINITY, options.nowMs ?? Date.now()))
+    .sort(liveTrackSort);
+  const other = deduped
+    .filter((position) => !isCellularPosition(position) && !isMeshPosition(position) && position.source !== "igc")
+    .sort(liveTrackSort);
+  const singletons = mesh.length ? mesh : other;
+  return uniqueDisplayPositions(segments, singletons);
 }
 
-export function segmentPositionsForLiveTrack(positions: LivePositionRecord[]): LivePositionRecord[][] {
-  const displayPositions = displayPositionsForLiveTrack(positions);
-  return fusedSegmentsForLiveTrack(displayPositions);
+export function segmentPositionsForLiveTrack(
+  positions: LivePositionRecord[],
+  options: LiveTrackBuildOptions = {},
+): LivePositionRecord[][] {
+  return displaySegmentsForLiveTrack(positions, options).map((segment) => segment.positions);
 }
 
 function latestByTimestamp(positions: LivePositionRecord[]): LivePositionRecord | null {
@@ -428,10 +455,11 @@ function latestByTimestamp(positions: LivePositionRecord[]): LivePositionRecord 
 
 export function latestDisplayPositionsBySubject(
   positionsBySubject: Map<string, LivePositionRecord[]>,
+  options: LiveTrackBuildOptions = {},
 ): Map<string, LivePositionRecord> {
   const latest = new Map<string, LivePositionRecord>();
   for (const [subjectKey, positions] of positionsBySubject) {
-    const position = latestByTimestamp(positions);
+    const position = latestByTimestamp(displayPositionsForLiveTrack(positions, options));
     if (position) {
       latest.set(subjectKey, position);
     }
@@ -443,14 +471,16 @@ export function buildTrackCollection(
   positionsBySubject: Map<string, LivePositionRecord[]>,
   subjectNameByKey: Map<string, string>,
   colorSubjectKeys: string[] = Array.from(positionsBySubject.keys()).sort(),
+  options: LiveTrackBuildOptions = {},
 ): TrackCollection | null {
   const subjectKeys = Array.from(positionsBySubject.keys()).sort();
   const features = subjectKeys.flatMap((subjectKey) => {
-    const segments = segmentPositionsForLiveTrack(positionsBySubject.get(subjectKey) ?? []);
+    const segments = displaySegmentsForLiveTrack(positionsBySubject.get(subjectKey) ?? [], options);
     if (!segments.length) {
       return [];
     }
-    return segments.map((positions, segmentIndex) => {
+    return segments.map((segment, segmentIndex) => {
+      const { positions } = segment;
       const latest = positions[positions.length - 1];
       return {
         type: "Feature" as const,
@@ -467,6 +497,8 @@ export function buildTrackCollection(
           segment_count: segments.length,
           segment_start_timestamp: positions[0]?.timestamp ?? null,
           segment_end_timestamp: latest?.timestamp ?? null,
+          display_source: segment.display_source,
+          line_style: segment.line_style,
         },
         geometry: {
           type: "LineString" as const,

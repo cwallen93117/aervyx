@@ -88,6 +88,7 @@ export default function LiveTrackingSection({
   const [positionsByPilot, setPositionsByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
   const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<string, LivePositionRecord>>(new Map());
+  const [liveTrackNowMs, setLiveTrackNowMs] = useState(() => Date.now());
   const [liveError, setLiveError] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [meshConfig, setMeshConfig] = useState<MeshConfigRecord | null>(null);
@@ -412,8 +413,15 @@ export default function LiveTrackingSection({
   }, [apiBase, streamApiBase, trackingSource, token, buddyPilotIds, fetchIgcTrack]);
 
   useEffect(() => {
-    setLivePositionsByPilot(latestDisplayPositionsBySubject(positionsByPilot));
-  }, [positionsByPilot]);
+    const interval = window.setInterval(() => setLiveTrackNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const liveTrackBuildOptions = useMemo(() => ({ nowMs: liveTrackNowMs }), [liveTrackNowMs]);
+
+  useEffect(() => {
+    setLivePositionsByPilot(latestDisplayPositionsBySubject(positionsByPilot, liveTrackBuildOptions));
+  }, [positionsByPilot, liveTrackBuildOptions]);
 
   const taskPoints = useMemo<TaskPointRecord[]>(() => selectedTask?.points ?? [], [selectedTask]);
   const taskTurnpoints = useMemo<MapTurnpoint[]>(() => {
@@ -443,8 +451,8 @@ export default function LiveTrackingSection({
 
   const activeSubjectKeys = useMemo(() => Array.from(effectivePositionsByPilot.keys()).sort(), [effectivePositionsByPilot]);
   const telemetryTrack = useMemo(
-    () => buildTrackCollection(effectivePositionsByPilot, activePilotNameById, activeSubjectKeys),
-    [activePilotNameById, activeSubjectKeys, effectivePositionsByPilot],
+    () => buildTrackCollection(effectivePositionsByPilot, activePilotNameById, activeSubjectKeys, liveTrackBuildOptions),
+    [activePilotNameById, activeSubjectKeys, effectivePositionsByPilot, liveTrackBuildOptions],
   );
   const visibleTrackPositionsByPilot = useMemo(() => {
     const next = new Map<string, LivePositionRecord[]>();
@@ -456,8 +464,8 @@ export default function LiveTrackingSection({
     return next;
   }, [effectivePositionsByPilot, visibleTrackSubjectKeys]);
   const liveTrack = useMemo(
-    () => buildTrackCollection(visibleTrackPositionsByPilot, activePilotNameById, activeSubjectKeys),
-    [activePilotNameById, activeSubjectKeys, visibleTrackPositionsByPilot],
+    () => buildTrackCollection(visibleTrackPositionsByPilot, activePilotNameById, activeSubjectKeys, liveTrackBuildOptions),
+    [activePilotNameById, activeSubjectKeys, visibleTrackPositionsByPilot, liveTrackBuildOptions],
   );
   const allLiveTracksChecked = useMemo(
     () => activeSubjectKeys.length > 0 && activeSubjectKeys.every((subjectKey) => visibleTrackSubjectKeys.has(subjectKey)),

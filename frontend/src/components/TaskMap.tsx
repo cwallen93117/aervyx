@@ -635,6 +635,73 @@ function interpolateCoordinate(from: [number, number], to: [number, number], rat
   ];
 }
 
+function interpolateTrackPosition(from: TrackPosition, to: TrackPosition, ratio: number): [number, number, number] {
+  return [
+    from[0] + (to[0] - from[0]) * ratio,
+    from[1] + (to[1] - from[1]) * ratio,
+    (from[2] ?? 0) + ((to[2] ?? 0) - (from[2] ?? 0)) * ratio,
+  ];
+}
+
+function trackDistanceMeters(from: TrackPosition, to: TrackPosition): number {
+  const radiusM = 6371000;
+  const fromLat = (from[1] * Math.PI) / 180;
+  const toLat = (to[1] * Math.PI) / 180;
+  const deltaLat = ((to[1] - from[1]) * Math.PI) / 180;
+  const deltaLon = ((to[0] - from[0]) * Math.PI) / 180;
+  const a = Math.sin(deltaLat / 2) ** 2 + Math.cos(fromLat) * Math.cos(toLat) * Math.sin(deltaLon / 2) ** 2;
+  return 2 * radiusM * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function dashedTrackPaths(path: TrackPosition[], dashMeters = 70, gapMeters = 45): [number, number, number][][] {
+  const paths: [number, number, number][][] = [];
+  let drawing = true;
+  let remaining = dashMeters;
+  let currentDash: [number, number, number][] = [];
+
+  const finishDash = () => {
+    if (currentDash.length > 1) {
+      paths.push(currentDash);
+    }
+    currentDash = [];
+  };
+
+  for (let index = 1; index < path.length; index += 1) {
+    let start = path[index - 1];
+    const end = path[index];
+    let legRemaining = trackDistanceMeters(start, end);
+    if (!Number.isFinite(legRemaining) || legRemaining <= 0) {
+      continue;
+    }
+    while (legRemaining > 0) {
+      const step = Math.min(remaining, legRemaining);
+      const ratio = step / legRemaining;
+      const next = interpolateTrackPosition(start, end, ratio);
+      const startPoint = [start[0], start[1], start[2] ?? 0] as [number, number, number];
+      if (drawing) {
+        if (!currentDash.length) {
+          currentDash.push(startPoint);
+        }
+        currentDash.push(next);
+      }
+      legRemaining -= step;
+      start = next;
+      remaining -= step;
+      if (remaining <= 0.001) {
+        if (drawing) {
+          finishDash();
+          remaining = gapMeters;
+        } else {
+          remaining = dashMeters;
+        }
+        drawing = !drawing;
+      }
+    }
+  }
+  finishDash();
+  return paths;
+}
+
 function bearingDegrees(from: [number, number], to: [number, number]) {
   const fromLat = (from[1] * Math.PI) / 180;
   const toLat = (to[1] * Math.PI) / 180;
@@ -2029,21 +2096,33 @@ export const TaskMap = React.memo(function TaskMap({
         originalPath: TrackPosition[];
         color: [number, number, number];
         highlighted: boolean;
+        lineStyle: "solid" | "dashed";
       }>;
     }
     return effectiveTrack.features.flatMap((feature, featureIndex) => {
       if (feature.geometry.type !== "LineString") {
         return [];
       }
-      return [{
+      const lineStyle = feature.properties?.line_style === "dashed" ? "dashed" : "solid";
+      const baseItem = {
         featureIndex,
         uploadId: Number(feature.properties?.upload_id ?? 0),
-        path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
         originalPath: feature.geometry.coordinates,
         color: hexToRgb(String(feature.properties?.color ?? "#ca8a04")),
         highlighted:
           Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId ||
           trackFeatureSubjectKey(feature) === effectiveHighlightedLiveSubjectKey,
+        lineStyle,
+      };
+      if (lineStyle === "dashed") {
+        return dashedTrackPaths(feature.geometry.coordinates).map((dashPath) => ({
+          ...baseItem,
+          path: dashPath.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
+        }));
+      }
+      return [{
+        ...baseItem,
+        path: feature.geometry.coordinates.map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]),
       }];
     });
   }, [effectiveAltitudeMultiplier, effectiveHighlightedLiveSubjectKey, effectiveHighlightedTrackUploadId, effectiveTrack]);

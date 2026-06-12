@@ -15,8 +15,37 @@ import 'live_view_screen.dart';
 import 'meshtastic_settings_screen.dart';
 import 'settings_screen.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  bool _driverStartInProgress = false;
+
+  void _ensureDriverRelay(AuthService auth, TrackingService tracking) {
+    if (auth.user?.profileType != 'driver' ||
+        tracking.isTracking ||
+        _driverStartInProgress) {
+      return;
+    }
+
+    _driverStartInProgress = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      try {
+        await tracking.startTracking();
+      } finally {
+        if (mounted) {
+          setState(() => _driverStartInProgress = false);
+        } else {
+          _driverStartInProgress = false;
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -25,6 +54,8 @@ class HomeScreen extends StatelessWidget {
     final ble = context.watch<BleService>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final isDriverProfile = auth.user?.profileType == 'driver';
+    _ensureDriverRelay(auth, tracking);
 
     return Scaffold(
       appBar: AppBar(
@@ -145,15 +176,25 @@ class HomeScreen extends StatelessWidget {
                 ),
 
               // Big tracking button — 3 states
-              _TrackingButton(tracking: tracking),
+              if (isDriverProfile)
+                _DriverRelayStatusPanel(
+                  tracking: tracking,
+                  ble: ble,
+                  starting: _driverStartInProgress,
+                )
+              else
+                _TrackingButton(tracking: tracking),
 
               const SizedBox(height: 8),
 
               // Flight time — right below the button
-              _FlightTimeDisplay(tracking: tracking),
+              _FlightTimeDisplay(
+                tracking: tracking,
+                label: isDriverProfile ? 'Relay time' : null,
+              ),
 
               // Status text (pre-flight, monitoring, landing countdown)
-              _StatusText(tracking: tracking),
+              if (!isDriverProfile) _StatusText(tracking: tracking),
 
               const SizedBox(height: 8),
 
@@ -186,10 +227,20 @@ class HomeScreen extends StatelessWidget {
               _StatusRow(
                 icon: Icons.gps_fixed,
                 label: 'GPS',
-                statusText: tracking.isTracking
-                    ? _trackingStateLabel(tracking.trackingState)
-                    : 'Off',
-                ledColor: tracking.isTracking ? Colors.green : Colors.grey,
+                statusText: isDriverProfile
+                    ? (tracking.isDriverTracking
+                        ? 'Relaying'
+                        : _driverStartInProgress
+                            ? 'Starting'
+                            : 'Waiting')
+                    : tracking.isTracking
+                        ? _trackingStateLabel(tracking.trackingState)
+                        : 'Off',
+                ledColor: tracking.isTracking
+                    ? Colors.green
+                    : isDriverProfile && _driverStartInProgress
+                        ? Colors.orange
+                        : Colors.grey,
                 expandedContent: _GpsDetails(tracking: tracking, auth: auth),
               ),
               const SizedBox(height: 4),
@@ -323,6 +374,161 @@ class HomeScreen extends StatelessWidget {
 }
 
 // ── 3-State Tracking Button ──
+
+class _DriverRelayStatusPanel extends StatelessWidget {
+  final TrackingService tracking;
+  final BleService ble;
+  final bool starting;
+
+  const _DriverRelayStatusPanel({
+    required this.tracking,
+    required this.ble,
+    required this.starting,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final relaying = tracking.isDriverTracking;
+    final connected = tracking.backendConnected;
+    final buffered = tracking.bufferedPositionCount;
+    final Color accent = relaying
+        ? connected
+            ? Colors.green
+            : Colors.orange
+        : starting
+            ? Colors.orange
+            : colorScheme.onSurfaceVariant;
+    final title = relaying
+        ? 'Actively relaying'
+        : starting
+            ? 'Starting relay'
+            : 'Relay waiting';
+    final subtitle = relaying
+        ? '${tracking.positionCount} points relayed'
+        : 'Preparing driver GPS relay';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest.withAlpha(160),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: accent.withAlpha(120)),
+      ),
+      child: Column(
+        children: [
+          Icon(
+            relaying ? Icons.directions_car : Icons.sync,
+            size: 44,
+            color: accent,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _RelayMiniStatus(
+                  icon: connected ? Icons.cloud_done : Icons.cloud_off,
+                  label: 'Server',
+                  value: connected
+                      ? 'Online'
+                      : buffered > 0
+                          ? '$buffered queued'
+                          : 'Offline',
+                  color: connected ? Colors.green : Colors.red,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _RelayMiniStatus(
+                  icon: ble.isConnected
+                      ? Icons.bluetooth_connected
+                      : Icons.bluetooth_disabled,
+                  label: 'Mesh',
+                  value: ble.isConnected ? ble.deviceDisplayName : 'Not paired',
+                  color: ble.isConnected ? Colors.green : Colors.grey,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RelayMiniStatus extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  const _RelayMiniStatus({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withAlpha(80)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  label,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 class _TrackingButton extends StatelessWidget {
   final TrackingService tracking;
@@ -801,10 +1007,15 @@ class _ServerDetails extends StatelessWidget {
               child: _StatTile(
                 icon: tracking.inCompetitionMode
                     ? Icons.emoji_events
-                    : Icons.paragliding,
+                    : tracking.driverMode
+                        ? Icons.directions_car
+                        : Icons.paragliding,
                 label: 'Mode',
-                value:
-                    tracking.inCompetitionMode ? 'Competition' : 'Free Flight',
+                value: tracking.inCompetitionMode
+                    ? 'Competition'
+                    : tracking.driverMode
+                        ? 'Driver Relay'
+                        : 'Free Flight',
               ),
             ),
           ],
@@ -1015,8 +1226,9 @@ class _MeshDetails extends StatelessWidget {
 
 class _FlightTimeDisplay extends StatelessWidget {
   final TrackingService tracking;
+  final String? label;
 
-  const _FlightTimeDisplay({required this.tracking});
+  const _FlightTimeDisplay({required this.tracking, this.label});
 
   String _formatDuration(Duration d) {
     final hours = d.inHours.toString().padLeft(2, '0');
@@ -1042,6 +1254,16 @@ class _FlightTimeDisplay extends StatelessWidget {
               : theme.colorScheme.onSurfaceVariant,
         ),
         const SizedBox(width: 6),
+        if (label != null) ...[
+          Text(
+            label!,
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(width: 6),
+        ],
         Text(
           _formatDuration(duration),
           style: theme.textTheme.headlineSmall?.copyWith(

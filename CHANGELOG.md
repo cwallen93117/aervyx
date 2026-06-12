@@ -16,6 +16,12 @@ and environment.
 ## [2026.06.12]
 
 ### Changed
+- **Mobile v0.4.58+75** makes free-flight GPS logging match event tracking
+  density and updates live tracking to draw phone-first merged tracks, using
+  dashed mesh segments only when mesh fills a phone reception gap.
+- Mobile driver profiles now enter the standard home screen instead of the
+  dedicated driver home route, auto-start relaying, and show relay, mesh, and
+  server status instead of a manual start/stop button.
 - **Mobile v0.4.57+74** defaults Settings > Sport type to Hang Glider, saves
   the selected sport type across app restarts, and shows matching sport icons
   for Sport type and Pilot mode while keeping Driver mode as a car.

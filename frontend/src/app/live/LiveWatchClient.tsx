@@ -96,6 +96,7 @@ export function LiveWatchClient() {
   const [selected, setSelected] = useState<SelectedSource>(allUsersSource);
   const [positionsByPilot, setPositionsByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
   const [livePositionsByPilot, setLivePositionsByPilot] = useState<Map<string, LivePositionRecord>>(new Map());
+  const [liveTrackNowMs, setLiveTrackNowMs] = useState(() => Date.now());
   const [pilotNameById, setPilotNameById] = useState<Map<string, string>>(new Map());
   const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
@@ -173,7 +174,17 @@ export function LiveWatchClient() {
     }));
   }, [livePositionsByPilot, pilotNameById, activePilotIds]);
 
-  const telemetryTrack = useMemo(() => buildTrackCollection(positionsByPilot, pilotNameById, activePilotIds), [positionsByPilot, pilotNameById, activePilotIds]);
+  useEffect(() => {
+    const interval = window.setInterval(() => setLiveTrackNowMs(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const liveTrackBuildOptions = useMemo(() => ({ nowMs: liveTrackNowMs }), [liveTrackNowMs]);
+
+  const telemetryTrack = useMemo(
+    () => buildTrackCollection(positionsByPilot, pilotNameById, activePilotIds, liveTrackBuildOptions),
+    [positionsByPilot, pilotNameById, activePilotIds, liveTrackBuildOptions],
+  );
   const visibleTrackPositionsByPilot = useMemo(() => {
     const next = new Map<string, LivePositionRecord[]>();
     for (const [subjectKey, positions] of positionsByPilot) {
@@ -184,8 +195,8 @@ export function LiveWatchClient() {
     return next;
   }, [positionsByPilot, visibleTrackSubjectKeys]);
   const visibleTrack = useMemo(
-    () => buildTrackCollection(visibleTrackPositionsByPilot, pilotNameById, activePilotIds),
-    [pilotNameById, activePilotIds, visibleTrackPositionsByPilot],
+    () => buildTrackCollection(visibleTrackPositionsByPilot, pilotNameById, activePilotIds, liveTrackBuildOptions),
+    [pilotNameById, activePilotIds, visibleTrackPositionsByPilot, liveTrackBuildOptions],
   );
   const allLiveTracksChecked = useMemo(
     () => activePilotIds.length > 0 && activePilotIds.every((subjectKey) => visibleTrackSubjectKeys.has(subjectKey)),
@@ -204,8 +215,8 @@ export function LiveWatchClient() {
   );
 
   useEffect(() => {
-    setLivePositionsByPilot(latestDisplayPositionsBySubject(positionsByPilot));
-  }, [positionsByPilot]);
+    setLivePositionsByPilot(latestDisplayPositionsBySubject(positionsByPilot, liveTrackBuildOptions));
+  }, [positionsByPilot, liveTrackBuildOptions]);
 
   const sourceLabel = useMemo(() => {
     if (selected.type === "event") {

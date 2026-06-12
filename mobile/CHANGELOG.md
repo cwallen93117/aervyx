@@ -1,5 +1,16 @@
 # Aervyx Mobile Changelog
 
+## 0.4.58+75 - 2026-06-12
+
+### Changed
+- Free-flight GPS logging now uses the same dense GPS settings as event
+  tracking.
+- Live tracking now builds phone-first merged tracks and uses dashed mesh
+  segments only to fill phone reception gaps.
+- Driver profiles now enter the standard home screen instead of the dedicated
+  driver home route, auto-start relaying, and show relay, mesh, and server
+  status instead of a manual start/stop button.
+
 ## 0.4.57+74 - 2026-06-12
 
 ### Changed

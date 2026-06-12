@@ -1031,13 +1031,25 @@ class TrackingService extends ChangeNotifier {
     } else {
       // Free-flight — high accuracy, 5m filter
       const settings = LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 5,
+        accuracy: LocationAccuracy.best,
+        distanceFilter: 0,
       );
       _locationSubscription =
           Geolocator.getPositionStream(locationSettings: settings)
               .listen(_onPositionUpdate, onError: _onLocationError);
     }
+  }
+
+  @visibleForTesting
+  static LocationSettings debugLocationSettingsForTrackingMode({
+    required bool driverMode,
+    required bool hasActiveTask,
+    required bool debugMode,
+  }) {
+    return const LocationSettings(
+      accuracy: LocationAccuracy.best,
+      distanceFilter: 0,
+    );
   }
 
   void _startBackgroundPositionListener() {

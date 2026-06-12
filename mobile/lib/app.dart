@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
-import 'screens/driver_home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
@@ -298,10 +297,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
             );
           }
           if (!auth.isLoggedIn) return const LoginScreen();
-          // Route by profile type — drivers get a dedicated screen
-          if (auth.user?.profileType == 'driver') {
-            return const DriverHomeScreen();
-          }
+          // Home adapts itself for pilot and driver profiles.
           return const HomeScreen();
         },
       ),

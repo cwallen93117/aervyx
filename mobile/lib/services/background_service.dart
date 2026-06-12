@@ -19,6 +19,11 @@ class BackgroundTrackingService {
 
   static final FlutterBackgroundService _service = FlutterBackgroundService();
 
+  static const LocationSettings trackingLocationSettings = LocationSettings(
+    accuracy: LocationAccuracy.best,
+    distanceFilter: 0,
+  );
+
   /// Initialize the background service. Call once from main().
   static Future<void> initialize() async {
     // Set up notification channel for the foreground service
@@ -120,13 +125,9 @@ Future<void> _onStart(ServiceInstance service) async {
     if (isTracking) return;
     isTracking = true;
 
-    const settings = LocationSettings(
-      accuracy: LocationAccuracy.high,
-      distanceFilter: 5,
-    );
-
-    locationSub = Geolocator.getPositionStream(locationSettings: settings)
-        .listen((position) {
+    locationSub = Geolocator.getPositionStream(
+      locationSettings: BackgroundTrackingService.trackingLocationSettings,
+    ).listen((position) {
       // Forward position to the foreground UI
       service.invoke('positionUpdate', {
         'lat': position.latitude,
