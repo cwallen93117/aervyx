@@ -24,15 +24,21 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _driverStartInProgress = false;
+  bool _driverStartAttempted = false;
 
   void _ensureDriverRelay(AuthService auth, TrackingService tracking) {
-    if (auth.user?.profileType != 'driver' ||
-        tracking.isTracking ||
-        _driverStartInProgress) {
+    if (auth.user?.profileType != 'driver') {
+      _driverStartAttempted = false;
+      return;
+    }
+    if (tracking.isTracking ||
+        _driverStartInProgress ||
+        _driverStartAttempted) {
       return;
     }
 
     _driverStartInProgress = true;
+    _driverStartAttempted = true;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       try {
