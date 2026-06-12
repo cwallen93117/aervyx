@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../services/igc_service.dart';
+import '../services/auth_service.dart';
+import '../utils/unit_converter.dart';
 import 'flight_detail_screen.dart';
 
 class FlightsScreen extends StatefulWidget {
@@ -108,15 +110,15 @@ class _FlightsScreenState extends State<FlightsScreen> {
   @override
   Widget build(BuildContext context) {
     final igc = context.watch<IgcService>();
+    final user = context.watch<AuthService>().user;
     final theme = Theme.of(context);
     final flights = igc.savedFlights;
     final grouped = _groupByYear(flights);
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(_selectionMode
-            ? '${_selected.length} selected'
-            : 'Flights'),
+        title:
+            Text(_selectionMode ? '${_selected.length} selected' : 'Flights'),
         leading: _selectionMode
             ? IconButton(
                 icon: const Icon(Icons.close),
@@ -166,8 +168,7 @@ class _FlightsScreenState extends State<FlightsScreen> {
                 children: [
                   Icon(Icons.flight,
                       size: 64,
-                      color:
-                          theme.colorScheme.onSurfaceVariant.withAlpha(80)),
+                      color: theme.colorScheme.onSurfaceVariant.withAlpha(80)),
                   const SizedBox(height: 16),
                   Text(
                     'No flights recorded yet',
@@ -203,6 +204,9 @@ class _FlightsScreenState extends State<FlightsScreen> {
                     _FlightCard(
                       flight: flight,
                       igc: igc,
+                      altitudeUnit: user?.altitudeUnit ?? 'ft',
+                      speedUnit: user?.speedUnit ?? 'kph',
+                      varioUnit: user?.varioUnit ?? 'fpm',
                       selectionMode: _selectionMode,
                       isSelected: _selected.contains(flight.filePath),
                       onToggle: () => _toggleFlight(flight),
@@ -245,10 +249,8 @@ class _YearHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final allSelected =
-        flights.every((f) => selected.contains(f.filePath));
-    final someSelected =
-        flights.any((f) => selected.contains(f.filePath));
+    final allSelected = flights.every((f) => selected.contains(f.filePath));
+    final someSelected = flights.any((f) => selected.contains(f.filePath));
 
     return Padding(
       padding: const EdgeInsets.only(top: 8, bottom: 4),
@@ -291,6 +293,9 @@ class _YearHeader extends StatelessWidget {
 class _FlightCard extends StatelessWidget {
   final SavedFlight flight;
   final IgcService igc;
+  final String altitudeUnit;
+  final String speedUnit;
+  final String varioUnit;
   final bool selectionMode;
   final bool isSelected;
   final VoidCallback onToggle;
@@ -299,6 +304,9 @@ class _FlightCard extends StatelessWidget {
   const _FlightCard({
     required this.flight,
     required this.igc,
+    required this.altitudeUnit,
+    required this.speedUnit,
+    required this.varioUnit,
     required this.selectionMode,
     required this.isSelected,
     required this.onToggle,
@@ -320,9 +328,8 @@ class _FlightCard extends StatelessWidget {
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
-      color: isSelected
-          ? theme.colorScheme.primaryContainer.withAlpha(120)
-          : null,
+      color:
+          isSelected ? theme.colorScheme.primaryContainer.withAlpha(120) : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: selectionMode ? onToggle : () => _showFlightDetails(context),
@@ -389,23 +396,28 @@ class _FlightCard extends StatelessWidget {
                         _FlightStat(
                           icon: Icons.height,
                           label: 'Max Alt',
-                          value: flight.maxAltitude != null
-                              ? '${flight.maxAltitude!.toStringAsFixed(0)} m'
-                              : '--',
+                          value: UnitConverter.formatAltitude(
+                            flight.maxAltitude,
+                            altitudeUnit,
+                          ),
                         ),
                         const SizedBox(width: 20),
                         _FlightStat(
                           icon: Icons.speed,
                           label: 'Max Speed',
-                          value: flight.maxSpeed != null
-                              ? '${(flight.maxSpeed! * 3.6).toStringAsFixed(0)} km/h'
-                              : '--',
+                          value: UnitConverter.formatSpeed(
+                            flight.maxSpeed,
+                            speedUnit,
+                          ),
                         ),
                         const SizedBox(width: 20),
                         _FlightStat(
-                          icon: Icons.location_on,
-                          label: 'Points',
-                          value: '${flight.trackPoints}',
+                          icon: Icons.trending_up,
+                          label: 'Max Climb',
+                          value: UnitConverter.formatVario(
+                            flight.maxClimbRate,
+                            varioUnit,
+                          ),
                         ),
                       ],
                     ),
@@ -427,7 +439,6 @@ class _FlightCard extends StatelessWidget {
       ),
     );
   }
-
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════

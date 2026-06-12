@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:provider/provider.dart';
 
 import '../services/igc_service.dart';
+import '../services/auth_service.dart';
+import '../utils/unit_converter.dart';
 import '../widgets/map_scale_bar.dart';
 
 /// Displays a saved flight track on a map with altitude gradient coloring.
@@ -140,6 +143,10 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
   }
 
   Widget _buildMap(ThemeData theme) {
+    final user = context.watch<AuthService>().user;
+    final altitudeUnit = user?.altitudeUnit ?? 'ft';
+    final speedUnit = user?.speedUnit ?? 'kph';
+
     return Stack(
       children: [
         FlutterMap(
@@ -210,14 +217,22 @@ class _FlightDetailScreenState extends State<FlightDetailScreen> {
           Positioned(
             right: 12,
             bottom: 56 + MediaQuery.of(context).padding.bottom,
-            child: _AltitudeLegend(minAlt: _minAlt!, maxAlt: _maxAlt!),
+            child: _AltitudeLegend(
+              minAlt: _minAlt!,
+              maxAlt: _maxAlt!,
+              altitudeUnit: altitudeUnit,
+            ),
           ),
         // Flight info bar
         Positioned(
           left: 0,
           right: 0,
           bottom: 0,
-          child: _FlightInfoBar(flight: widget.flight),
+          child: _FlightInfoBar(
+            flight: widget.flight,
+            altitudeUnit: altitudeUnit,
+            speedUnit: speedUnit,
+          ),
         ),
       ],
     );
@@ -239,8 +254,13 @@ class _TrackSegment {
 class _AltitudeLegend extends StatelessWidget {
   final double minAlt;
   final double maxAlt;
+  final String altitudeUnit;
 
-  const _AltitudeLegend({required this.minAlt, required this.maxAlt});
+  const _AltitudeLegend({
+    required this.minAlt,
+    required this.maxAlt,
+    required this.altitudeUnit,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -261,7 +281,7 @@ class _AltitudeLegend extends StatelessWidget {
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text('${maxAlt.toStringAsFixed(0)}m',
+              Text(UnitConverter.formatAltitude(maxAlt, altitudeUnit),
                   style: const TextStyle(
                       fontSize: 9, fontWeight: FontWeight.w600)),
               const SizedBox(height: 2),
@@ -284,7 +304,7 @@ class _AltitudeLegend extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 2),
-              Text('${minAlt.toStringAsFixed(0)}m',
+              Text(UnitConverter.formatAltitude(minAlt, altitudeUnit),
                   style: const TextStyle(
                       fontSize: 9, fontWeight: FontWeight.w600)),
             ],
@@ -297,8 +317,14 @@ class _AltitudeLegend extends StatelessWidget {
 
 class _FlightInfoBar extends StatelessWidget {
   final SavedFlight flight;
+  final String altitudeUnit;
+  final String speedUnit;
 
-  const _FlightInfoBar({required this.flight});
+  const _FlightInfoBar({
+    required this.flight,
+    required this.altitudeUnit,
+    required this.speedUnit,
+  });
 
   String _formatDuration(Duration d) {
     if (d.inHours > 0) {
@@ -322,13 +348,11 @@ class _FlightInfoBar extends StatelessWidget {
             _InfoChip(
                 icon: Icons.height,
                 label: flight.maxAltitude != null
-                    ? '${flight.maxAltitude!.toStringAsFixed(0)}m max'
+                    ? '${UnitConverter.formatAltitude(flight.maxAltitude, altitudeUnit)} max'
                     : '--'),
             _InfoChip(
                 icon: Icons.speed,
-                label: flight.maxSpeed != null
-                    ? '${(flight.maxSpeed! * 3.6).toStringAsFixed(0)} km/h'
-                    : '--'),
+                label: UnitConverter.formatSpeed(flight.maxSpeed, speedUnit)),
           ],
         ),
       ),

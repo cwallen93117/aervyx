@@ -1,5 +1,13 @@
 # Aervyx Mobile Changelog
 
+## 0.4.59+76 - 2026-06-12
+
+### Changed
+- Flight log book cards now show max climb rate instead of raw track-point
+  count.
+- Log book altitude, speed, climb-rate, and detail-map readouts now follow the
+  units selected in Settings.
+
 ## 0.4.58+75 - 2026-06-12
 
 ### Changed

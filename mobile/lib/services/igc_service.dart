@@ -37,6 +37,7 @@ class SavedFlight {
   final int trackPoints;
   final double? maxAltitude;
   final double? maxSpeed; // m/s
+  final double? maxClimbRate; // m/s
 
   const SavedFlight({
     required this.filename,
@@ -46,6 +47,7 @@ class SavedFlight {
     required this.trackPoints,
     this.maxAltitude,
     this.maxSpeed,
+    this.maxClimbRate,
   });
 }
 
@@ -97,8 +99,7 @@ class IgcService extends ChangeNotifier {
     final dateFmt = DateFormat('yyyy-MM-dd');
     // Filename: FirstName-YYYY-MM-DD-#N.igc
     final firstName = (pilotName ?? 'Pilot').split(' ').first;
-    final safeName = firstName
-        .replaceAll(RegExp(r'[^\w\-]'), '');
+    final safeName = firstName.replaceAll(RegExp(r'[^\w\-]'), '');
     final flightNum = flightNumber ?? 1;
     final filename = '$safeName-${dateFmt.format(startTime)}-#$flightNum.igc';
     final file = File('${dir.path}/$filename');
@@ -113,11 +114,25 @@ class IgcService extends ChangeNotifier {
     // Calculate flight stats
     double? maxAlt;
     double? maxSpeed;
+    double? maxClimbRate;
+    TrackPoint? previousPoint;
     for (final tp in _currentTrack) {
       if (maxAlt == null || tp.gpsAlt > maxAlt) maxAlt = tp.gpsAlt;
       if (tp.speed != null && (maxSpeed == null || tp.speed! > maxSpeed)) {
         maxSpeed = tp.speed;
       }
+      if (previousPoint != null) {
+        final seconds = tp.time.difference(previousPoint.time).inMilliseconds /
+            Duration.millisecondsPerSecond;
+        if (seconds > 0) {
+          final climbRate = (tp.gpsAlt - previousPoint.gpsAlt) / seconds;
+          if (climbRate > 0 &&
+              (maxClimbRate == null || climbRate > maxClimbRate)) {
+            maxClimbRate = climbRate;
+          }
+        }
+      }
+      previousPoint = tp;
     }
 
     final flight = SavedFlight(
@@ -128,6 +143,7 @@ class IgcService extends ChangeNotifier {
       trackPoints: _currentTrack.length,
       maxAltitude: maxAlt,
       maxSpeed: maxSpeed,
+      maxClimbRate: maxClimbRate,
     );
 
     _savedFlights.insert(0, flight);
@@ -176,7 +192,9 @@ class IgcService extends ChangeNotifier {
           flightDate?.year ?? 2000,
           flightDate?.month ?? 1,
           flightDate?.day ?? 1,
-          hh, mm, ss,
+          hh,
+          mm,
+          ss,
         );
 
         points.add(TrackPoint(
@@ -338,7 +356,7 @@ class IgcService extends ChangeNotifier {
     final gAlt = tp.gpsAlt.round().abs().toString().padLeft(5, '0');
 
     // V = 'A' means 3D fix valid
-    return 'B$hh$mm$ss${lat}${lon}A$pAlt$gAlt';
+    return 'B$hh$mm$ss$lat${lon}A$pAlt$gAlt';
   }
 
   /// Format latitude as DDMMmmmN/S (IGC format).
@@ -381,6 +399,9 @@ class IgcService extends ChangeNotifier {
       DateTime? lastTime;
       DateTime? flightDate;
       double? maxAlt;
+      double? maxClimbRate;
+      DateTime? previousFixTime;
+      double? previousGpsAlt;
       int bRecords = 0;
 
       for (final line in lines) {
@@ -406,7 +427,9 @@ class IgcService extends ChangeNotifier {
             flightDate?.year ?? 2000,
             flightDate?.month ?? 1,
             flightDate?.day ?? 1,
-            hh, mm, ss,
+            hh,
+            mm,
+            ss,
           );
           firstTime ??= fixTime;
           lastTime = fixTime;
@@ -416,6 +439,19 @@ class IgcService extends ChangeNotifier {
           if (gpsAlt != null && (maxAlt == null || gpsAlt > maxAlt)) {
             maxAlt = gpsAlt;
           }
+          if (gpsAlt != null && previousFixTime != null) {
+            final seconds = fixTime.difference(previousFixTime).inMilliseconds /
+                Duration.millisecondsPerSecond;
+            if (seconds > 0 && previousGpsAlt != null) {
+              final climbRate = (gpsAlt - previousGpsAlt) / seconds;
+              if (climbRate > 0 &&
+                  (maxClimbRate == null || climbRate > maxClimbRate)) {
+                maxClimbRate = climbRate;
+              }
+            }
+          }
+          previousFixTime = fixTime;
+          previousGpsAlt = gpsAlt;
         }
       }
 
@@ -430,6 +466,7 @@ class IgcService extends ChangeNotifier {
             : Duration.zero,
         trackPoints: bRecords,
         maxAltitude: maxAlt,
+        maxClimbRate: maxClimbRate,
       );
     } catch (_) {
       return null;

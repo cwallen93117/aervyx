@@ -16,6 +16,9 @@ and environment.
 ## [2026.06.12]
 
 ### Changed
+- **Mobile v0.4.59+76** updates the mobile flight log book cards to show max
+  climb rate instead of raw track-point count, and makes log book altitude,
+  speed, climb-rate, and detail-map readouts follow the pilot's selected units.
 - **Mobile v0.4.58+75** makes free-flight GPS logging match event tracking
   density and updates live tracking to draw phone-first merged tracks, using
   dashed mesh segments only when mesh fills a phone reception gap.
