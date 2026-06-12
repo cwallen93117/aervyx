@@ -371,6 +371,9 @@ export function displaySegmentsForLiveTrack(
     }
     return continuousSegments(other, "other");
   }
+  if (!mesh.length) {
+    return continuousSegments(cellular, "cellular");
+  }
 
   const segments: LiveTrackSegment[] = [];
   const firstCell = cellular[0];

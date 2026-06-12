@@ -142,7 +142,12 @@ test("live display keeps delayed phone fixes for history without moving current 
   assert.equal(latestDisplayPositionsBySubject(merged).get("pilot:1").id, "newer");
 
   const track = buildTrackCollection(merged, new Map([["pilot:1", "Mick Howard"]]));
-  assert.equal(track, null);
+  assert.equal(track.features.length, 1);
+  assert.equal(JSON.stringify(track.features[0].properties.timestamps), JSON.stringify([
+    "2026-05-28T12:00:00Z",
+    "2026-05-28T12:01:00Z",
+    "2026-05-28T12:02:00Z",
+  ]));
 });
 
 test("phone-only 1 Hz live points produce one solid track", () => {
@@ -231,7 +236,7 @@ test("phone outage with mesh points produces solid phone and dashed mesh-fill se
   assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.line_style)), JSON.stringify(["solid", "dashed", "solid"]));
 });
 
-test("phone outage without mesh creates a visual gap instead of a connector", () => {
+test("phone-only sparse backfill remains one solid track", () => {
   const appA = position({
     id: "app-a",
     lat: 40.0,
@@ -247,9 +252,49 @@ test("phone outage without mesh creates a visual gap instead of a connector", ()
     received_at: "2026-05-28T20:00:10Z",
   });
 
-  assert.equal(displaySegmentsForLiveTrack([appA, appB]).length, 0);
-  assert.equal(buildTrackCollection(new Map([["pilot:1", [appA, appB]]]), new Map([["pilot:1", "Charles Allen"]]), ["pilot:1"]), null);
+  const segments = displaySegmentsForLiveTrack([appA, appB]);
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].display_source, "cellular");
+  assert.equal(segments[0].line_style, "solid");
+  assert.equal(JSON.stringify(segments[0].positions.map((item) => item.id)), JSON.stringify(["app-a", "app-b"]));
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, appB]]]), new Map([["pilot:1", "Charles Allen"]]), ["pilot:1"]);
+  assert.equal(track.features.length, 1);
   assert.equal(latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, appB]]])).get("pilot:1").id, "app-b");
+});
+
+test("mixed phone outage without mesh creates a visual gap instead of a connector", () => {
+  const appA = position({
+    id: "app-a",
+    lat: 40.0,
+    lon: -75.0,
+    timestamp: "2026-05-28T20:00:00Z",
+    received_at: "2026-05-28T20:00:00Z",
+  });
+  const appB = position({
+    id: "app-b",
+    lat: 40.001,
+    lon: -75.001,
+    timestamp: "2026-05-28T20:00:10Z",
+    received_at: "2026-05-28T20:00:10Z",
+  });
+  const meshLater = position({
+    id: "mesh-later",
+    lat: 40.002,
+    lon: -75.002,
+    timestamp: "2026-05-28T20:00:20Z",
+    received_at: "2026-05-28T20:00:20Z",
+    source: "mqtt_gateway",
+    device_id: "!tracker",
+  });
+
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, appB, meshLater]]]), new Map([["pilot:1", "Charles Allen"]]), ["pilot:1"]);
+  assert.equal(track.features.length, 1);
+  assert.equal(track.features[0].properties.line_style, "dashed");
+  assert.equal(JSON.stringify(track.features[0].geometry.coordinates), JSON.stringify([
+    [-75.001, 40.001, 0],
+    [-75.002, 40.002, 0],
+  ]));
+  assert.equal(latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, appB, meshLater]]])).get("pilot:1").id, "mesh-later");
 });
 
 test("recent phone reception holds newer mesh briefly before using it", () => {
