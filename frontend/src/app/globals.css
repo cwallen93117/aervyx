@@ -5840,6 +5840,29 @@ button[type="submit"]:hover,
 }
 
 @media (max-width: 768px) {
+  .live-header {
+    height: auto;
+    min-height: 52px;
+    flex-wrap: wrap;
+    padding: 6px 10px;
+    gap: 6px 10px;
+  }
+  .live-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .live-source-picker {
+    order: 3;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .live-source-picker select {
+    width: 100%;
+    min-width: 0;
+  }
+  .live-header .public-header-link {
+    flex: 0 0 auto;
+  }
   .live-body {
     flex-direction: column;
   }
@@ -5922,14 +5945,16 @@ button[type="submit"]:hover,
   }
   .live-map .map-control-stack {
     top: 10px;
-    right: 10px;
+    right: auto;
+    left: 10px;
   }
   .live-map .map-picker-stack {
     top: 78px;
-    right: 10px;
+    right: auto;
+    left: 10px;
     bottom: auto;
     flex-direction: column;
-    align-items: flex-end;
+    align-items: flex-start;
   }
   .live-map .map-style-picker {
     padding: 6px 8px;
@@ -5940,9 +5965,6 @@ button[type="submit"]:hover,
   .live-map .map-style-picker select {
     min-height: 29px;
     max-width: 116px;
-  }
-  .live-source-picker select {
-    min-width: 140px;
   }
   .scores-header {
     flex-wrap: wrap;
