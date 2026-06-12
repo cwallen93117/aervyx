@@ -5010,6 +5010,8 @@ button[type="submit"]:hover,
   display: flex;
   flex-direction: column;
   height: 100vh;
+  height: 100svh;
+  overflow: hidden;
   background: #06090f;
   color: #e2e8f0;
   font-family: 'Inter', sans-serif;
@@ -5116,6 +5118,7 @@ button[type="submit"]:hover,
   flex: 1;
   display: flex;
   overflow: hidden;
+  min-height: 0;
 }
 
 .live-map {
@@ -5944,17 +5947,23 @@ button[type="submit"]:hover,
     font-size: 0.6875rem;
   }
   .live-map .map-control-stack {
-    top: 10px;
-    right: auto;
-    left: 10px;
+    top: 132px;
+    right: 10px;
+    left: auto;
   }
   .live-map .map-picker-stack {
-    top: 78px;
-    right: auto;
-    left: 10px;
-    bottom: auto;
+    top: auto;
+    right: 10px;
+    left: auto;
+    bottom: 52px;
+    max-width: calc(100% - 20px);
     flex-direction: column;
-    align-items: flex-start;
+    align-items: flex-end;
+  }
+  .live-map .map-card .maplibregl-ctrl-scale {
+    top: auto;
+    right: 10px;
+    bottom: 140px;
   }
   .live-map .map-style-picker {
     padding: 6px 8px;
