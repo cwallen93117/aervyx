@@ -168,6 +168,8 @@ TrackingService _trackingService(ApiService api, IgcService igc) {
     auth,
     igc,
     sessionDirectoryProvider: () async => Directory.systemTemp,
+    preferenceReader: (_) async => null,
+    preferenceWriter: (_, __) async {},
   );
 }
 

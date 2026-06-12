@@ -5,6 +5,7 @@ import 'dart:math';
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -21,6 +22,8 @@ import 'persistent_runtime_service.dart';
 typedef TrackingSessionDirectoryProvider = Future<Directory> Function();
 typedef MeshReconnectRequester = Future<BleReconnectResult> Function(
     {bool force});
+typedef PreferenceReader = Future<String?> Function(String key);
+typedef PreferenceWriter = Future<void> Function(String key, String value);
 
 /// GPS tracking zones — determines polling rate near course points.
 enum TrackingZone {
@@ -172,7 +175,11 @@ class TrackingService extends ChangeNotifier {
   final IgcService _igc;
   final TrackingSessionDirectoryProvider _sessionDirectoryProvider;
   final MeshReconnectRequester? _meshReconnectRequester;
+  final PreferenceReader _preferenceReader;
+  final PreferenceWriter _preferenceWriter;
   final Battery _battery = Battery();
+  static const FlutterSecureStorage _settingsStorage = FlutterSecureStorage();
+  static const String _sportTypePreferenceKey = 'tracking_sport_type';
 
   // ── Core state ──
   TrackingState _trackingState = TrackingState.idle;
@@ -226,7 +233,7 @@ class TrackingService extends ChangeNotifier {
   static const double _approachingDistance = 500.0;
 
   // ── Sport & flight detection settings ──
-  SportType _sportType = SportType.paraglider;
+  SportType _sportType = SportType.hangGlider;
   bool _multiFlightEnabled = true;
   bool _debugMode = false;
   bool _driverMode = false;
@@ -247,11 +254,12 @@ class TrackingService extends ChangeNotifier {
     ),
   };
 
-  /// Current effective thresholds (may be overridden by admin).
-  _TakeoffThresholds? _adminTakeoffThresholds;
+  /// Current effective thresholds by sport (may be overridden by admin).
+  final Map<SportType, _TakeoffThresholds> _adminTakeoffThresholds = {};
 
   _TakeoffThresholds get _takeoffThresholds =>
-      _adminTakeoffThresholds ?? _defaultTakeoffThresholds[_sportType]!;
+      _adminTakeoffThresholds[_sportType] ??
+      _defaultTakeoffThresholds[_sportType]!;
 
   // ── Landing detection settings (overridable from admin) ──
   double _landingSpeedMs = 4.47; // 10 mph
@@ -357,14 +365,61 @@ class TrackingService extends ChangeNotifier {
     this._igc, {
     TrackingSessionDirectoryProvider? sessionDirectoryProvider,
     MeshReconnectRequester? meshReconnectRequester,
+    PreferenceReader? preferenceReader,
+    PreferenceWriter? preferenceWriter,
   })  : _sessionDirectoryProvider =
             sessionDirectoryProvider ?? getApplicationDocumentsDirectory,
-        _meshReconnectRequester = meshReconnectRequester {
+        _meshReconnectRequester = meshReconnectRequester,
+        _preferenceReader =
+            preferenceReader ?? ((key) => _settingsStorage.read(key: key)),
+        _preferenceWriter = preferenceWriter ??
+            ((key, value) => _settingsStorage.write(key: key, value: value)) {
+    unawaited(_loadSportTypePreference());
     // Start server heartbeat immediately so the LED shows status on app open
     _startHeartbeat();
     // Retry any pending IGC uploads from previous sessions
     _retryPendingUploads();
   }
+
+  Future<void> _loadSportTypePreference() async {
+    try {
+      final stored = await _preferenceReader(_sportTypePreferenceKey);
+      final sport = _sportTypeFromStorageValue(stored);
+      if (sport == null || sport == _sportType) return;
+      _sportType = sport;
+      notifyListeners();
+    } catch (_) {
+      // Keep the default when local preference storage is unavailable.
+    }
+  }
+
+  static SportType? _sportTypeFromStorageValue(String? value) {
+    switch (value) {
+      case 'paraglider':
+        return SportType.paraglider;
+      case 'hang_glider':
+      case 'hangGlider':
+        return SportType.hangGlider;
+      case 'glider':
+        return SportType.glider;
+      default:
+        return null;
+    }
+  }
+
+  static String _sportTypeStorageValue(SportType sport) {
+    switch (sport) {
+      case SportType.paraglider:
+        return 'paraglider';
+      case SportType.hangGlider:
+        return 'hang_glider';
+      case SportType.glider:
+        return 'glider';
+    }
+  }
+
+  static String _sportTypeConfigKey(SportType sport) =>
+      _sportTypeStorageValue(sport);
 
   Future<File> _trackingSessionFile() async {
     final dir = await _sessionDirectoryProvider();
@@ -452,6 +507,17 @@ class TrackingService extends ChangeNotifier {
     _meshReconnectWarning = null;
     await _requestMeshReconnectForTracking();
   }
+
+  @visibleForTesting
+  Future<void> debugLoadSportTypePreference() => _loadSportTypePreference();
+
+  @visibleForTesting
+  double get debugTakeoffAltitudeGainMeters =>
+      _takeoffThresholds.altitudeGainMeters;
+
+  @visibleForTesting
+  double get debugTakeoffSpeedThresholdMs =>
+      _takeoffThresholds.speedThresholdMs;
 
   Future<void> restoreActiveSession({
     bool restartRuntimeServices = true,
@@ -589,6 +655,10 @@ class TrackingService extends ChangeNotifier {
   /// Set the sport type for takeoff detection.
   void setSportType(SportType sport) {
     _sportType = sport;
+    unawaited(_preferenceWriter(
+      _sportTypePreferenceKey,
+      _sportTypeStorageValue(sport),
+    ));
     notifyListeners();
   }
 
@@ -616,29 +686,47 @@ class TrackingService extends ChangeNotifier {
   /// Apply admin-provided flight detection settings from the backend.
   void applyAdminSettings(Map<String, dynamic> config) {
     // Takeoff thresholds — per sport
-    final sport = _sportType;
-    final altKey = '${sport.name}_takeoff_alt_ft';
-    final speedKey = '${sport.name}_takeoff_speed_mph';
-    if (config.containsKey(altKey) && config.containsKey(speedKey)) {
-      _adminTakeoffThresholds = _TakeoffThresholds(
-        altitudeGainMeters: (config[altKey] as num).toDouble() * 0.3048,
-        speedThresholdMs: (config[speedKey] as num).toDouble() * 0.44704,
-      );
+    for (final sport in SportType.values) {
+      final key = _sportTypeConfigKey(sport);
+      final nested = config[key];
+      if (nested is Map<String, dynamic> &&
+          nested['altitude_gain_m'] is num &&
+          nested['speed_threshold_ms'] is num) {
+        _adminTakeoffThresholds[sport] = _TakeoffThresholds(
+          altitudeGainMeters: (nested['altitude_gain_m'] as num).toDouble(),
+          speedThresholdMs: (nested['speed_threshold_ms'] as num).toDouble(),
+        );
+        continue;
+      }
+
+      final altKey = '${key}_takeoff_alt_ft';
+      final speedKey = '${key}_takeoff_speed_mph';
+      if (config[altKey] is num && config[speedKey] is num) {
+        _adminTakeoffThresholds[sport] = _TakeoffThresholds(
+          altitudeGainMeters: (config[altKey] as num).toDouble() * 0.3048,
+          speedThresholdMs: (config[speedKey] as num).toDouble() * 0.44704,
+        );
+      }
     }
     // Landing thresholds
-    if (config.containsKey('landing_speed_mph')) {
+    if (config['landing_speed_ms'] is num) {
+      _landingSpeedMs = (config['landing_speed_ms'] as num).toDouble();
+    } else if (config['landing_speed_mph'] is num) {
       _landingSpeedMs =
           (config['landing_speed_mph'] as num).toDouble() * 0.44704;
     }
-    if (config.containsKey('landing_alt_tolerance_ft')) {
+    if (config['landing_altitude_tolerance_m'] is num) {
+      _landingAltToleranceM =
+          (config['landing_altitude_tolerance_m'] as num).toDouble();
+    } else if (config['landing_alt_tolerance_ft'] is num) {
       _landingAltToleranceM =
           (config['landing_alt_tolerance_ft'] as num).toDouble() * 0.3048;
     }
-    if (config.containsKey('landing_confirm_seconds')) {
+    if (config['landing_confirm_seconds'] is num) {
       _landingConfirmSeconds =
           (config['landing_confirm_seconds'] as num).toInt();
     }
-    if (config.containsKey('landing_countdown_seconds')) {
+    if (config['landing_countdown_seconds'] is num) {
       _landingCountdownSeconds =
           (config['landing_countdown_seconds'] as num).toInt();
     }

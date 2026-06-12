@@ -67,6 +67,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
     });
   }
 
+  IconData _sportTypeIcon(SportType sportType) {
+    switch (sportType) {
+      case SportType.paraglider:
+        return Icons.paragliding;
+      case SportType.hangGlider:
+        return Icons.flight;
+      case SportType.glider:
+        return Icons.airplanemode_active;
+    }
+  }
+
+  void _showSportTypeInfo(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Sport type'),
+        content: const Text(
+          'This controls the automatic takeoff and re-launch detection '
+          'thresholds. Paragliders, hang gliders, and gliders use different '
+          'speed and altitude-gain thresholds before tracking switches from '
+          'waiting for takeoff to recording a flight.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthService>();
@@ -141,7 +173,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               secondary: Icon(
                 user?.profileType == 'driver'
                     ? Icons.directions_car
-                    : Icons.paragliding,
+                    : _sportTypeIcon(tracking.sportType),
                 color: theme.colorScheme.primary,
               ),
               title: Text(
@@ -411,13 +443,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // Sport type selector
                   Row(
                     children: [
-                      Icon(Icons.paragliding,
-                          size: 20, color: theme.colorScheme.primary),
+                      Icon(
+                        _sportTypeIcon(tracking.sportType),
+                        size: 20,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          'Sport type',
-                          style: theme.textTheme.bodyMedium,
+                        child: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'Sport type',
+                                style: theme.textTheme.bodyMedium,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: const Icon(Icons.info_outline),
+                              iconSize: 18,
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(
+                                minWidth: 32,
+                                minHeight: 32,
+                              ),
+                              tooltip: 'What sport type does',
+                              onPressed: () => _showSportTypeInfo(context),
+                            ),
+                          ],
                         ),
                       ),
                       DropdownButton<SportType>(

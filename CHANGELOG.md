@@ -13,6 +13,18 @@ and environment.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.12]
+
+### Changed
+- **Mobile v0.4.57+74** defaults Settings > Sport type to Hang Glider, saves
+  the selected sport type across app restarts, and shows matching sport icons
+  for Sport type and Pilot mode while keeping Driver mode as a car.
+- The mobile Settings screen now includes an info dialog explaining that Sport
+  type controls automatic takeoff and re-launch detection thresholds.
+- Mobile flight-detection settings now consume the backend's nested metric
+  threshold response, allowing admin-configured takeoff and landing thresholds
+  to override the built-in defaults.
+
 ## [2026.06.05]
 
 ### Fixed

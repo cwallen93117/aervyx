@@ -179,5 +179,7 @@ TrackingService _trackingService(
     igc,
     sessionDirectoryProvider: () async => sessionDir,
     meshReconnectRequester: meshReconnectRequester,
+    preferenceReader: (_) async => null,
+    preferenceWriter: (_, __) async {},
   );
 }

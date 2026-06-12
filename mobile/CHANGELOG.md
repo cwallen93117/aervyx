@@ -1,5 +1,17 @@
 # Aervyx Mobile Changelog
 
+## 0.4.57+74 - 2026-06-12
+
+### Changed
+- Settings now defaults Sport type to Hang Glider, saves sport type changes
+  across app restarts, and shows matching sport icons in the Sport type and
+  Pilot mode rows.
+- Added an info dialog explaining that Sport type controls automatic takeoff
+  and re-launch detection thresholds.
+- Mobile flight-detection settings now read the backend's nested metric
+  threshold response, so admin-configured values can override the built-in
+  defaults.
+
 ## 0.4.56+73 - 2026-06-05
 
 ### Fixed
