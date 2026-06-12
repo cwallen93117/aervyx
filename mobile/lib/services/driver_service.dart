@@ -17,7 +17,7 @@ class DriverPilot {
   final String? aircraftIcon;
   final int? compNumber;
   final bool assigned; // true if this pilot is assigned to this driver
-  DateTime lastSeen;
+  DateTime? lastSeen;
 
   // Landing/pickup status
   String status; // flying | landed | ready | picked_up
@@ -39,8 +39,8 @@ class DriverPilot {
     this.landedAt,
     this.readyAt,
     this.landingId,
-    DateTime? lastSeen,
-  }) : lastSeen = lastSeen ?? DateTime.now();
+    this.lastSeen,
+  });
 
   /// Minutes until pilot is ready for pickup.
   int get minutesUntilReady {
@@ -56,11 +56,60 @@ class DriverPilot {
   bool get needsPickup => status == 'landed' || status == 'ready';
 }
 
+class DriverSosAlert {
+  final String id;
+  final int? pilotId;
+  final String? pilotName;
+  final double lat;
+  final double lon;
+  final double? alt;
+  final String? message;
+  final DateTime timestamp;
+  final String status;
+
+  const DriverSosAlert({
+    required this.id,
+    required this.pilotId,
+    required this.pilotName,
+    required this.lat,
+    required this.lon,
+    required this.alt,
+    required this.message,
+    required this.timestamp,
+    required this.status,
+  });
+
+  factory DriverSosAlert.fromJson(Map<String, dynamic> json) {
+    return DriverSosAlert(
+      id: json['id'] as String,
+      pilotId: json['pilot_id'] as int?,
+      pilotName: json['pilot_name'] as String?,
+      lat: (json['lat'] as num).toDouble(),
+      lon: (json['lon'] as num).toDouble(),
+      alt: (json['alt'] as num?)?.toDouble(),
+      message: json['message'] as String?,
+      timestamp:
+          DateTime.tryParse(json['timestamp'] as String? ?? '')?.toUtc() ??
+              DateTime.now().toUtc(),
+      status: json['status'] as String? ?? 'active',
+    );
+  }
+
+  String get displayPilotName => pilotName ?? 'Pilot ${pilotId ?? ''}'.trim();
+}
+
+abstract class DriverSosNotifier {
+  Future<void> showSosAlert(DriverSosAlert alert);
+}
+
 /// Service for drivers to view and navigate to assigned pilots.
 class DriverService extends ChangeNotifier {
   final ApiService _api;
+  final DriverSosNotifier? _sosNotifier;
 
   final Map<int, DriverPilot> _pilots = {};
+  final Set<String> _notifiedSosAlertIds = {};
+  List<DriverSosAlert> _activeSosAlerts = [];
   StreamSubscription<String>? _sseSubscription;
   Timer? _pollTimer;
   Timer? _reconnectTimer;
@@ -89,7 +138,11 @@ class DriverService extends ChangeNotifier {
         ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase())))
       : assignedPilots;
 
-  DriverService(this._api);
+  List<DriverSosAlert> get activeSosAlerts =>
+      List.unmodifiable(_activeSosAlerts);
+
+  DriverService(this._api, {DriverSosNotifier? sosNotifier})
+      : _sosNotifier = sosNotifier;
 
   void toggleShowAllPilots() {
     _showAllPilots = !_showAllPilots;
@@ -113,7 +166,7 @@ class DriverService extends ChangeNotifier {
         _error = null;
         _connected = false;
         notifyListeners();
-        await _pollActivePilots();
+        await _pollDriverSnapshot();
         _startPolling();
         return;
       }
@@ -147,13 +200,13 @@ class DriverService extends ChangeNotifier {
 
       // Connect to live stream
       _connectToSse();
-      await _pollActivePilots();
+      await _pollDriverSnapshot();
       _startPolling();
     } catch (e) {
       _error = 'Failed to connect: $e';
       _connected = false;
       notifyListeners();
-      await _pollActivePilots();
+      await _pollDriverSnapshot();
       _startPolling();
     }
   }
@@ -164,8 +217,13 @@ class DriverService extends ChangeNotifier {
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(
       const Duration(seconds: 10),
-      (_) => _pollActivePilots(),
+      (_) => _pollDriverSnapshot(),
     );
+  }
+
+  Future<void> _pollDriverSnapshot() async {
+    await _pollActivePilots();
+    await _pollSosAlerts();
   }
 
   Future<void> _pollActivePilots() async {
@@ -188,6 +246,26 @@ class DriverService extends ChangeNotifier {
       notifyListeners();
     } catch (_) {
       // Keep existing last-known pilot positions if polling is temporarily down.
+    }
+  }
+
+  Future<void> _pollSosAlerts() async {
+    if (_closed) return;
+    try {
+      final list = await _api.getList(ApiConfig.driverSosAlertsPath);
+      if (_closed) return;
+      final alerts = list
+          .map((item) => DriverSosAlert.fromJson(item as Map<String, dynamic>))
+          .toList();
+      _activeSosAlerts = alerts;
+      for (final alert in alerts) {
+        if (_notifiedSosAlertIds.add(alert.id)) {
+          await _sosNotifier?.showSosAlert(alert);
+        }
+      }
+      notifyListeners();
+    } catch (_) {
+      // Keep existing active alerts when polling temporarily fails.
     }
   }
 
@@ -331,6 +409,8 @@ class DriverService extends ChangeNotifier {
     _assignedIds = {};
     _connected = false;
     _pilots.clear();
+    _activeSosAlerts = [];
+    _notifiedSosAlertIds.clear();
     notifyListeners();
   }
 

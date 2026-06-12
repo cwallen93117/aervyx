@@ -34,6 +34,16 @@ class MainActivity : FlutterActivity() {
                     result.success(true)
                 }
 
+                "pauseForTracking" -> {
+                    PersistentRuntimeService.pauseForTracking(this)
+                    result.success(true)
+                }
+
+                "resumeAfterTracking" -> {
+                    PersistentRuntimeService.resumeAfterTracking(this)
+                    result.success(true)
+                }
+
                 "setBleActive" -> {
                     val active = call.argument<Boolean>("active") == true
                     PersistentRuntimeService.setBleActive(this, active)

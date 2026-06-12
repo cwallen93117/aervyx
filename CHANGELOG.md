@@ -16,6 +16,10 @@ and environment.
 ## [2026.06.12]
 
 ### Changed
+- **Mobile v0.4.60+77** reduces driver-mode Android notifications to the live
+  tracking card while relaying, compacts the driver relay card with an inline
+  car icon and pilot relay table, removes driver-side SOS sending, and surfaces
+  active pilot SOS alerts to drivers with in-app and local Android alerts.
 - **Mobile v0.4.59+76** updates the mobile flight log book cards to show max
   climb rate instead of raw track-point count, and makes log book altitude,
   speed, climb-rate, and detail-map readouts follow the pilot's selected units.

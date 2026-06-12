@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../models/meshtastic_protobufs.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
+import '../services/driver_service.dart';
 import '../services/tracking_service.dart';
 import '../utils/app_shutdown.dart';
 import '../utils/unit_converter.dart';
@@ -25,11 +26,27 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _driverStartInProgress = false;
   bool _driverStartAttempted = false;
+  bool _driverConnectAttempted = false;
 
-  void _ensureDriverRelay(AuthService auth, TrackingService tracking) {
+  void _ensureDriverRelay(
+    AuthService auth,
+    TrackingService tracking,
+    DriverService driver,
+  ) {
     if (auth.user?.profileType != 'driver') {
+      if (_driverConnectAttempted) {
+        driver.disconnect();
+      }
       _driverStartAttempted = false;
+      _driverConnectAttempted = false;
       return;
+    }
+    if (!_driverConnectAttempted) {
+      _driverConnectAttempted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        driver.connect();
+      });
     }
     if (tracking.isTracking ||
         _driverStartInProgress ||
@@ -58,10 +75,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final auth = context.watch<AuthService>();
     final tracking = context.watch<TrackingService>();
     final ble = context.watch<BleService>();
+    final driver = context.watch<DriverService>();
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final isDriverProfile = auth.user?.profileType == 'driver';
-    _ensureDriverRelay(auth, tracking);
+    _ensureDriverRelay(auth, tracking, driver);
 
     return Scaffold(
       appBar: AppBar(
@@ -185,7 +203,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (isDriverProfile)
                 _DriverRelayStatusPanel(
                   tracking: tracking,
-                  ble: ble,
+                  driver: driver,
                   starting: _driverStartInProgress,
                 )
               else
@@ -224,8 +242,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
               if (tracking.activeTask != null) const SizedBox(height: 8),
 
-              // SOS button
-              _SosButton(ble: ble),
+              if (isDriverProfile)
+                _DriverSosAlertsCard(alerts: driver.activeSosAlerts)
+              else
+                _SosButton(ble: ble),
 
               const SizedBox(height: 12),
 
@@ -352,6 +372,7 @@ class _HomeScreenState extends State<HomeScreen> {
               TextButton.icon(
                 onPressed: () {
                   if (tracking.isTracking) tracking.stopTracking();
+                  driver.disconnect();
                   auth.logout();
                 },
                 icon: const Icon(Icons.logout),
@@ -383,12 +404,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
 class _DriverRelayStatusPanel extends StatelessWidget {
   final TrackingService tracking;
-  final BleService ble;
+  final DriverService driver;
   final bool starting;
 
   const _DriverRelayStatusPanel({
     required this.tracking,
-    required this.ble,
+    required this.driver,
     required this.starting,
   });
 
@@ -398,7 +419,6 @@ class _DriverRelayStatusPanel extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final relaying = tracking.isDriverTracking;
     final connected = tracking.backendConnected;
-    final buffered = tracking.bufferedPositionCount;
     final Color accent = relaying
         ? connected
             ? Colors.green
@@ -424,56 +444,142 @@ class _DriverRelayStatusPanel extends StatelessWidget {
         border: Border.all(color: accent.withAlpha(120)),
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            relaying ? Icons.directions_car : Icons.sync,
-            size: 44,
-            color: accent,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-              color: colorScheme.onSurface,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 12),
           Row(
             children: [
-              Expanded(
-                child: _RelayMiniStatus(
-                  icon: connected ? Icons.cloud_done : Icons.cloud_off,
-                  label: 'Server',
-                  value: connected
-                      ? 'Online'
-                      : buffered > 0
-                          ? '$buffered queued'
-                          : 'Offline',
-                  color: connected ? Colors.green : Colors.red,
-                ),
+              Icon(
+                relaying ? Icons.directions_car : Icons.sync,
+                size: 34,
+                color: accent,
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 12),
               Expanded(
-                child: _RelayMiniStatus(
-                  icon: ble.isConnected
-                      ? Icons.bluetooth_connected
-                      : Icons.bluetooth_disabled,
-                  label: 'Mesh',
-                  value: ble.isConnected ? ble.deviceDisplayName : 'Not paired',
-                  color: ble.isConnected ? Colors.green : Colors.grey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: colorScheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 12),
+          _DriverPilotRelayTable(pilots: driver.visiblePilots),
+        ],
+      ),
+    );
+  }
+}
+
+class _DriverPilotRelayTable extends StatelessWidget {
+  final List<DriverPilot> pilots;
+
+  const _DriverPilotRelayTable({required this.pilots});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final borderColor = theme.colorScheme.outlineVariant.withAlpha(180);
+    return Container(
+      height: 150,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor),
+      ),
+      child: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surface.withAlpha(120),
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(8)),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 5, child: _DriverTableHeader('Name')),
+                Expanded(flex: 4, child: _DriverTableHeader('Last relayed')),
+                Expanded(flex: 3, child: _DriverTableHeader('Status')),
+              ],
+            ),
+          ),
+          Expanded(
+            child: pilots.isEmpty
+                ? Center(
+                    child: Text(
+                      'No pilots relayed yet',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  )
+                : Scrollbar(
+                    child: ListView.separated(
+                      padding: EdgeInsets.zero,
+                      itemCount: pilots.length,
+                      separatorBuilder: (_, __) => Divider(
+                        height: 1,
+                        color: borderColor,
+                      ),
+                      itemBuilder: (context, index) {
+                        final pilot = pilots[index];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                flex: 5,
+                                child: Text(
+                                  pilot.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 4,
+                                child: Text(
+                                  _relativeRelayTime(pilot.lastSeen),
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  _driverPilotStatusLabel(pilot),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: _driverPilotStatusColor(pilot),
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -481,58 +587,58 @@ class _DriverRelayStatusPanel extends StatelessWidget {
   }
 }
 
-class _RelayMiniStatus extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final String value;
-  final Color color;
+class _DriverTableHeader extends StatelessWidget {
+  final String text;
 
-  const _RelayMiniStatus({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.color,
-  });
+  const _DriverTableHeader(this.text);
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      constraints: const BoxConstraints(minHeight: 58),
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withAlpha(80)),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: color),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.labelSmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+    return Text(
+      text,
+      style: theme.textTheme.labelSmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+        fontWeight: FontWeight.w700,
       ),
     );
+  }
+}
+
+String _relativeRelayTime(DateTime? lastSeen) {
+  if (lastSeen == null) return '--';
+  final now = DateTime.now().toUtc();
+  final elapsed = now.difference(lastSeen.toUtc());
+  if (elapsed.inSeconds < 60) return '${elapsed.inSeconds.clamp(0, 59)}s ago';
+  if (elapsed.inMinutes < 60) return '${elapsed.inMinutes}m ago';
+  if (elapsed.inHours < 24) return '${elapsed.inHours}h ago';
+  return '${elapsed.inDays}d ago';
+}
+
+String _driverPilotStatusLabel(DriverPilot pilot) {
+  switch (pilot.status) {
+    case 'landed':
+      final mins = pilot.minutesUntilReady;
+      return mins > 0 ? 'Landed ${mins}m' : 'Ready';
+    case 'ready':
+      return 'Ready';
+    case 'picked_up':
+      return 'Picked up';
+    default:
+      return 'Flying';
+  }
+}
+
+Color _driverPilotStatusColor(DriverPilot pilot) {
+  switch (pilot.status) {
+    case 'landed':
+      return Colors.orange;
+    case 'ready':
+      return Colors.green;
+    case 'picked_up':
+      return Colors.blue;
+    default:
+      return Colors.grey;
   }
 }
 
@@ -1286,6 +1392,62 @@ class _FlightTimeDisplay extends StatelessWidget {
 }
 
 // ── SOS Button ──
+
+class _DriverSosAlertsCard extends StatelessWidget {
+  final List<DriverSosAlert> alerts;
+
+  const _DriverSosAlertsCard({required this.alerts});
+
+  @override
+  Widget build(BuildContext context) {
+    if (alerts.isEmpty) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final latest = alerts.first;
+    final count = alerts.length;
+    final message = latest.message == null || latest.message!.trim().isEmpty
+        ? 'Pilot needs immediate assistance'
+        : latest.message!.trim();
+
+    return Card(
+      color: theme.colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.sos, color: theme.colorScheme.onErrorContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    count == 1
+                        ? 'SOS from ${latest.displayPilotName}'
+                        : '$count active SOS alerts',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    message,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onErrorContainer,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _SosButton extends StatelessWidget {
   final BleService ble;

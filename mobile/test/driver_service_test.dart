@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 class FakeDriverApiService extends ApiService {
   var activeTaskCalls = 0;
   var activePilotCalls = 0;
+  var sosCalls = 0;
   var sseOpened = false;
   List<dynamic> activePilots = <dynamic>[];
+  List<dynamic> sosAlerts = <dynamic>[];
 
   @override
   Future<Map<String, dynamic>> get(
@@ -28,6 +30,10 @@ class FakeDriverApiService extends ApiService {
       activePilotCalls += 1;
       return activePilots;
     }
+    if (path == ApiConfig.driverSosAlertsPath) {
+      sosCalls += 1;
+      return sosAlerts;
+    }
     return <dynamic>[];
   }
 
@@ -35,6 +41,15 @@ class FakeDriverApiService extends ApiService {
   Stream<String> sseStream(String path) {
     sseOpened = true;
     return const Stream<String>.empty();
+  }
+}
+
+class FakeDriverSosNotifier implements DriverSosNotifier {
+  final shown = <DriverSosAlert>[];
+
+  @override
+  Future<void> showSosAlert(DriverSosAlert alert) async {
+    shown.add(alert);
   }
 }
 
@@ -71,6 +86,14 @@ void main() {
           'timestamp': '2026-05-28T12:00:00Z',
         },
         {
+          'pilot_id': 3,
+          'pilot_name': 'Alex Able',
+          'lat': 35.0,
+          'lon': -82.1,
+          'profile_type': 'pilot',
+          'timestamp': '2026-05-28T12:00:05Z',
+        },
+        {
           'user_id': 11,
           'pilot_name': 'Dana Driver',
           'lat': 35.2,
@@ -84,10 +107,43 @@ void main() {
     await service.connect();
 
     expect(api.activePilotCalls, 1);
-    expect(service.visiblePilots, hasLength(1));
-    expect(service.visiblePilots.single.name, 'Pat Pilot');
-    expect(service.visiblePilots.single.pilotId, 7);
+    expect(service.visiblePilots, hasLength(2));
+    expect(service.visiblePilots.map((pilot) => pilot.name), [
+      'Alex Able',
+      'Pat Pilot',
+    ]);
+    expect(service.visiblePilots.last.pilotId, 7);
     expect(service.connected, isFalse);
+    service.dispose();
+  });
+
+  test('connect polls SOS alerts and deduplicates local notifications',
+      () async {
+    final api = FakeDriverApiService()
+      ..sosAlerts = [
+        {
+          'id': 'alert-1',
+          'pilot_id': 7,
+          'pilot_name': 'Pat Pilot',
+          'lat': 35.1,
+          'lon': -82.2,
+          'alt': 900,
+          'message': 'Need retrieve help',
+          'timestamp': '2026-05-28T12:00:00Z',
+          'status': 'active',
+        },
+      ];
+    final notifier = FakeDriverSosNotifier();
+    final service = DriverService(api, sosNotifier: notifier);
+
+    await service.connect();
+    await service.connect();
+
+    expect(api.sosCalls, 2);
+    expect(service.activeSosAlerts, hasLength(1));
+    expect(service.activeSosAlerts.single.displayPilotName, 'Pat Pilot');
+    expect(notifier.shown, hasLength(1));
+    expect(notifier.shown.single.id, 'alert-1');
     service.dispose();
   });
 }

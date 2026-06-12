@@ -33,6 +33,12 @@ class PersistentRuntimeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_PAUSE_FOR_TRACKING) {
+            stopForegroundCompat()
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         if (intent?.action == ACTION_STOP) {
             setRuntimeEnabled(this, false)
             stopForegroundCompat()
@@ -159,6 +165,7 @@ class PersistentRuntimeService : Service() {
         private const val ACTION_START = "com.aervyx.aervyx_mobile.runtime.START"
         private const val ACTION_UPDATE = "com.aervyx.aervyx_mobile.runtime.UPDATE"
         private const val ACTION_STOP = "com.aervyx.aervyx_mobile.runtime.STOP"
+        private const val ACTION_PAUSE_FOR_TRACKING = "com.aervyx.aervyx_mobile.runtime.PAUSE_FOR_TRACKING"
         private const val CHANNEL_ID = "aervyx_persistent_runtime"
         private const val CHANNEL_NAME = "Aervyx Runtime"
         private const val NOTIFICATION_ID = 889
@@ -185,6 +192,18 @@ class PersistentRuntimeService : Service() {
         fun stop(context: Context) {
             setRuntimeEnabled(context, false)
             context.stopService(Intent(context, PersistentRuntimeService::class.java))
+        }
+
+        fun pauseForTracking(context: Context) {
+            val intent = Intent(context, PersistentRuntimeService::class.java)
+                .setAction(ACTION_PAUSE_FOR_TRACKING)
+            context.startService(intent)
+        }
+
+        fun resumeAfterTracking(context: Context) {
+            if (isRuntimeEnabled(context)) {
+                requestStart(context, ACTION_START)
+            }
         }
 
         fun setBleActive(context: Context, active: Boolean) {

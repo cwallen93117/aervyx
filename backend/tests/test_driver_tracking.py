@@ -2,14 +2,15 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Pilot, Task, TaskPoint, TrackingSession, User
+from app.models import DriverAssignment, Event, EventPilot, LivePosition, MeshDevice, Pilot, SosAlert, Task, TaskPoint, TrackingSession, User
 from app.routers.auth import me, update_preferences
 from app.routers.public import public_event_positions
-from app.routers.tracking import PositionPayload, get_active_task, post_position
+from app.routers.tracking import PositionPayload, SosPayload, get_active_task, list_driver_sos_alerts, post_position, post_sos
 from app.schemas import AccountPreferencesUpdate
 from app.services.tracking import (
     get_all_active_positions,
@@ -56,6 +57,99 @@ def _active_task_with_driver(session: Session) -> tuple[Task, User, Pilot]:
     session.add(DriverAssignment(task_id=task.id, driver_user_id=driver.id, pilot_id=pilot.id))
     session.commit()
     return task, driver, pilot
+
+
+def test_driver_sos_endpoint_lists_active_pilot_alerts_for_driver() -> None:
+    session = _session()
+    _task, driver, pilot = _active_task_with_driver(session)
+    pilot_user = User(
+        username="pat@example.com",
+        full_name="Pat Pilot",
+        role="pilot",
+        profile_type="pilot",
+        pilot_id=pilot.id,
+    )
+    session.add(pilot_user)
+    session.commit()
+
+    created = post_sos(
+        SosPayload(
+            lat=35.1,
+            lon=-82.2,
+            alt=900,
+            message="Need retrieve help",
+            timestamp=datetime(2026, 5, 2, 12, 0, tzinfo=UTC),
+        ),
+        pilot_user,
+        session,
+    )
+
+    alerts = list_driver_sos_alerts(user=driver, session=session)
+
+    assert [alert.id for alert in alerts] == [created.id]
+    assert alerts[0].pilot_id == pilot.id
+    assert alerts[0].pilot_name == "Pat Pilot"
+    assert alerts[0].message == "Need retrieve help"
+    assert alerts[0].status == "active"
+
+
+def test_driver_sos_endpoint_allows_admin_and_hides_resolved_alerts() -> None:
+    session = _session()
+    _task, _driver, pilot = _active_task_with_driver(session)
+    admin = User(
+        username="admin@example.com",
+        full_name="Admin User",
+        role="admin",
+        profile_type="pilot",
+    )
+    session.add_all(
+        [
+            admin,
+            SosAlert(
+                pilot_id=pilot.id,
+                lat=35.1,
+                lon=-82.2,
+                alt=None,
+                message="Active",
+                timestamp=datetime(2026, 5, 2, 12, 0, tzinfo=UTC),
+                status="active",
+            ),
+            SosAlert(
+                pilot_id=pilot.id,
+                lat=35.2,
+                lon=-82.3,
+                alt=None,
+                message="Resolved",
+                timestamp=datetime(2026, 5, 2, 12, 1, tzinfo=UTC),
+                status="resolved",
+            ),
+        ]
+    )
+    session.commit()
+
+    alerts = list_driver_sos_alerts(user=admin, session=session)
+
+    assert len(alerts) == 1
+    assert alerts[0].message == "Active"
+
+
+def test_driver_sos_endpoint_rejects_non_driver_pilot() -> None:
+    session = _session()
+    user = User(
+        username="pilot@example.com",
+        full_name="Pilot User",
+        role="pilot",
+        profile_type="pilot",
+    )
+    session.add(user)
+    session.commit()
+
+    try:
+        list_driver_sos_alerts(user=user, session=session)
+    except HTTPException as exc:
+        assert exc.status_code == 403
+    else:
+        raise AssertionError("Expected non-driver pilot to be rejected")
 
 
 def test_mobile_preferences_updates_profile_and_units_without_full_settings_form() -> None:

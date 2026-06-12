@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.60+77 - 2026-06-12
+
+### Changed
+- Driver mode now shows only the live tracking notification while relaying.
+- The driver relay card is more compact, removes duplicate server/mesh cards,
+  and includes a scrollable pilot relay table.
+- Drivers no longer see the Send SOS button, and active pilot SOS alerts now
+  surface in the driver app with local Android notifications.
+
 ## 0.4.59+76 - 2026-06-12
 
 ### Changed

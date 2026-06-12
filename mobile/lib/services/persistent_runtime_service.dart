@@ -31,6 +31,16 @@ class PersistentRuntimeService {
     await _channel.invokeMethod<bool>('stop');
   }
 
+  static Future<void> pauseForTracking() async {
+    if (!Platform.isAndroid) return;
+    await _channel.invokeMethod<bool>('pauseForTracking');
+  }
+
+  static Future<void> resumeAfterTracking() async {
+    if (!Platform.isAndroid) return;
+    await _channel.invokeMethod<bool>('resumeAfterTracking');
+  }
+
   static Future<void> setBleActive(bool active) async {
     if (!Platform.isAndroid) return;
     await _channel.invokeMethod<bool>('setBleActive', {'active': active});

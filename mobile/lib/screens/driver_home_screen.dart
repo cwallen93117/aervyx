@@ -176,7 +176,8 @@ class _DriverHomeScreenState extends State<DriverHomeScreen> {
     }
   }
 
-  String _timeSince(DateTime value) {
+  String _timeSince(DateTime? value) {
+    if (value == null) return '--';
     return liveRelativeTime(value);
   }
 
@@ -537,7 +538,7 @@ class _DriverPilotMarker extends StatelessWidget {
       orderedSubjectKeys: orderedSubjectKeys,
       aircraftIcon: pilot.aircraftIcon,
       profileType: 'pilot',
-      lastSeen: pilot.lastSeen,
+      lastSeen: pilot.lastSeen ?? DateTime.now(),
     );
   }
 }

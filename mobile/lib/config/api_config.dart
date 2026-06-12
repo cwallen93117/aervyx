@@ -84,6 +84,7 @@ class ApiConfig {
   // Driver — assigned pilot list for a task
   static String driverAssignedPilotsPath(int taskId) =>
       '/api/driver/assigned-pilots/$taskId';
+  static const String driverSosAlertsPath = '/api/driver/sos';
 
   // Driver routing — optimized multi-stop pickup route
   static String driverRoutePath(int taskId) => '/api/driver/route/$taskId';

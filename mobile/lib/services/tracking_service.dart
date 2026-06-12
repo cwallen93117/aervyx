@@ -593,9 +593,11 @@ class TrackingService extends ChangeNotifier {
     }
 
     try {
+      await PersistentRuntimeService.pauseForTracking();
       await BackgroundTrackingService.start();
       _startBackgroundPositionListener();
     } catch (_) {
+      unawaited(PersistentRuntimeService.resumeAfterTracking());
       // Background service unavailable; foreground tracking still resumes.
     }
     _startBatteryMonitor();
@@ -845,9 +847,11 @@ class TrackingService extends ChangeNotifier {
 
     // Start background foreground service (keeps GPS alive when app is backgrounded)
     try {
+      await PersistentRuntimeService.pauseForTracking();
       await BackgroundTrackingService.start();
       _startBackgroundPositionListener();
     } catch (_) {
+      unawaited(PersistentRuntimeService.resumeAfterTracking());
       // Background service unavailable — foreground-only mode
     }
 
@@ -971,6 +975,7 @@ class TrackingService extends ChangeNotifier {
     } catch (_) {
       // Background service was not running
     }
+    unawaited(PersistentRuntimeService.resumeAfterTracking());
 
     notifyListeners();
 

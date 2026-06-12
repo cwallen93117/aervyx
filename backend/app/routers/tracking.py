@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db import get_session
 from app.deps import get_current_user, require_admin
-from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, MeshNodeStatus, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, MeshNodeStatus, Pilot, SiteSettings, SosAlert, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.services.mesh_ids import normalize_mesh_device_id, resolve_mesh_device_display_names
 from app.services.mqtt_config import clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
@@ -273,6 +273,18 @@ class SosResponse(BaseModel):
     alt: float | None
     message: str | None
     timestamp: str
+
+
+class DriverSosAlertResponse(BaseModel):
+    id: str
+    pilot_id: int | None
+    pilot_name: str | None
+    lat: float
+    lon: float
+    alt: float | None
+    message: str | None
+    timestamp: str
+    status: str
 
 
 class ActiveTaskTurnpoint(BaseModel):
@@ -823,6 +835,52 @@ def post_sos(
         message=alert.message,
         timestamp=ts.isoformat(),
     )
+
+
+@router.get("/api/driver/sos", response_model=list[DriverSosAlertResponse])
+def list_driver_sos_alerts(
+    limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[DriverSosAlertResponse]:
+    """Return active SOS alerts for driver mobile clients."""
+    profile_type = (user.profile_type or "pilot").strip().lower()
+    if user.role != "admin" and profile_type != "driver":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Driver access required",
+        )
+
+    rows = session.execute(
+        select(SosAlert, Pilot.first_name, Pilot.last_name)
+        .outerjoin(Pilot, SosAlert.pilot_id == Pilot.id)
+        .where(SosAlert.status == "active")
+        .order_by(SosAlert.timestamp.desc())
+        .limit(limit)
+    ).all()
+
+    alerts: list[DriverSosAlertResponse] = []
+    for alert, first_name, last_name in rows:
+        pilot_name = None
+        if first_name is not None or last_name is not None:
+            pilot_name = f"{first_name or ''} {last_name or ''}".strip() or None
+        timestamp = alert.timestamp
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        alerts.append(
+            DriverSosAlertResponse(
+                id=str(alert.id),
+                pilot_id=alert.pilot_id,
+                pilot_name=pilot_name,
+                lat=alert.lat,
+                lon=alert.lon,
+                alt=alert.alt,
+                message=alert.message,
+                timestamp=timestamp.isoformat(),
+                status=alert.status,
+            )
+        )
+    return alerts
 
 
 @router.get("/api/config/flight-detection", response_model=FlightDetectionConfigResponse)

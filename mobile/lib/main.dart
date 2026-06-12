@@ -10,6 +10,7 @@ import 'services/background_service.dart';
 import 'services/ble_service.dart';
 import 'services/igc_service.dart';
 import 'services/driver_service.dart';
+import 'services/driver_sos_notification_service.dart';
 import 'services/routing_service.dart';
 import 'services/tracking_service.dart';
 import 'services/update_service.dart';
@@ -25,6 +26,12 @@ void main() async {
   }
 
   final apiService = ApiService();
+  final driverSosNotifier = LocalDriverSosNotifier();
+  try {
+    await driverSosNotifier.initialize();
+  } catch (_) {
+    // SOS local notifications are best effort; in-app alerts still work.
+  }
   final updateService = UpdateService(apiService);
   final authService = AuthService(apiService);
   final igcService = IgcService();
@@ -79,7 +86,10 @@ void main() async {
         ChangeNotifierProvider<TrackingService>.value(value: trackingService),
         ChangeNotifierProvider<BleService>.value(value: bleService),
         ChangeNotifierProvider<DriverService>(
-          create: (_) => DriverService(apiService),
+          create: (_) => DriverService(
+            apiService,
+            sosNotifier: driverSosNotifier,
+          ),
         ),
         ChangeNotifierProvider<RoutingService>(
           create: (_) => RoutingService(apiService),
