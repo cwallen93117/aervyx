@@ -7,11 +7,19 @@ and releases are dated (calendar-versioned `YYYY.MM.DD`) because Aervyx ships
 continuously from `main` rather than tagging semver milestones.
 
 Each dated section covers the work shipped to `main` (production, `aervyx.net`)
-on that day. `staging` is currently allowed to lag behind as a backup branch
-and environment.
+on that day. `staging` is kept in sync with `main` unless Charles explicitly
+asks for a different release path.
 
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
+
+## [2026.06.14]
+
+### Changed
+- Live Watch now clears task overlays outside the event view so public live maps
+  do not keep stale task geometry after leaving an event-focused view.
+- Release flow notes now keep `staging` in sync with `main` for routine
+  production updates.
 
 ## [2026.06.12]
 
