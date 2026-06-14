@@ -68,6 +68,8 @@ type TaskInfoResponse = {
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
 const noSource: SelectedSource = { type: "none" };
 const allUsersSource: SelectedSource = { type: "all_users" };
+const emptyMapTaskPoints: MapTaskPoint[] = [];
+const emptyMapTurnpoints: MapTurnpoint[] = [];
 
 function readNumericSearchParam(name: string): number | null {
   if (typeof window === "undefined") {
@@ -208,10 +210,13 @@ export function LiveWatchClient() {
     [selectedEventId, sources.events],
   );
   const selectedMapTaskId = selectedEvent?.map_task?.id ?? null;
-  const taskDistanceMetrics = useMemo(() => computeTaskOptimization(taskPoints), [taskPoints]);
+  const showEventTaskMap = selected.type === "event" && selectedMapTaskId !== null;
+  const visibleTaskPoints = showEventTaskMap ? taskPoints : emptyMapTaskPoints;
+  const visibleTurnpoints = showEventTaskMap ? turnpoints : emptyMapTurnpoints;
+  const taskDistanceMetrics = useMemo(() => computeTaskOptimization(visibleTaskPoints), [visibleTaskPoints]);
   const taskFitGeometryKey = useMemo(
-    () => taskPoints.map((point) => `${point.position}:${point.latitude.toFixed(6)}:${point.longitude.toFixed(6)}:${point.radius_m}`).join("|"),
-    [taskPoints],
+    () => visibleTaskPoints.map((point) => `${point.position}:${point.latitude.toFixed(6)}:${point.longitude.toFixed(6)}:${point.radius_m}`).join("|"),
+    [visibleTaskPoints],
   );
 
   useEffect(() => {
@@ -243,7 +248,7 @@ export function LiveWatchClient() {
     }
     return "all_users";
   }, [selected]);
-  const eventFitOnceKey = selected.type === "event" && selectedMapTaskId && taskPoints.length > 0 && eventFitRequestId > 0
+  const eventFitOnceKey = showEventTaskMap && selectedMapTaskId && visibleTaskPoints.length > 0 && eventFitRequestId > 0
     ? `event-select:${eventFitRequestId}:task:${selectedMapTaskId}:${taskFitGeometryKey}`
     : null;
 
@@ -440,10 +445,14 @@ export function LiveWatchClient() {
   const handleSourceChange = useCallback((value: string) => {
     if (value === "") {
       setSelected(noSource);
+      setTurnpoints([]);
+      setTaskPoints([]);
       return;
     }
     if (value === "all_users") {
       setSelected(allUsersSource);
+      setTurnpoints([]);
+      setTaskPoints([]);
       return;
     }
     if (value.startsWith("event:")) {
@@ -460,6 +469,8 @@ export function LiveWatchClient() {
       const group = sources.buddy_groups.find((item) => item.id === groupId);
       if (group) {
         setSelected({ type: "buddies", groupId, groupName: group.name });
+        setTurnpoints([]);
+        setTaskPoints([]);
       }
     }
   }, [sources]);
@@ -679,8 +690,8 @@ export function LiveWatchClient() {
       <div className="live-body">
         <div className="live-map" style={{ position: "relative" }}>
           <TaskMap
-            turnpoints={turnpoints}
-            taskPoints={taskPoints}
+            turnpoints={visibleTurnpoints}
+            taskPoints={visibleTaskPoints}
             livePositions={livePositions}
             track={visibleTrack}
             telemetryTrack={telemetryTrack}
