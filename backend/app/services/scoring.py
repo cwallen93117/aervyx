@@ -28,6 +28,8 @@ from app.services.airscore.verify import validate_task as airscore_validate_task
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
 MEET_STATS_RESULT_STATES = {"official", "provisional"}
+MIN_LOW_SAVE_GPS_ALTITUDE_M = 30.48
+MIN_LOW_SAVE_CLIMB_AFTER_M = 91.44
 _FL2026_TASK1_OFFICIAL_RESULTS = [
     {"comp": "666", "name": "Jonny Durand", "ss": "14:20:00", "es": "16:34:17", "time": "02:14:17", "speed": 53.10, "distance": 123.8, "distance_points": 492.8, "leading": 88.8, "time_points": 355.0, "arrival": 63.4, "total": 1000.0, "status": "goal"},
     {"comp": "99", "name": "Robin Hamilton", "ss": "14:20:00", "es": "16:35:12", "time": "02:15:12", "speed": 52.74, "distance": 123.8, "distance_points": 492.8, "leading": 78.0, "time_points": 347.2, "arrival": 47.9, "total": 965.9, "status": "goal"},
@@ -735,11 +737,33 @@ def _lowest_save_for_result(
     lowest: tuple[float, TrackPoint] | None = None
     for index, point in enumerate(on_task_points):
         altitude_m = float(point.gps_altitude_m or 0)
+        if altitude_m < MIN_LOW_SAVE_GPS_ALTITUDE_M:
+            continue
         if future_best_progress[index] < progress_by_index[index] + 1000.0:
+            continue
+        later_points = on_task_points[index + 1:]
+        if not any(
+            later.gps_altitude_m is not None
+            and float(later.gps_altitude_m) >= altitude_m + MIN_LOW_SAVE_CLIMB_AFTER_M
+            for later in later_points
+        ):
             continue
         if lowest is None or altitude_m < lowest[0]:
             lowest = (altitude_m, point)
     return lowest
+
+
+def _meet_stats_on_task_seconds(result: ScoreResult, trackpoints: list[TrackPoint]) -> int:
+    started_at = _as_utc_aware(result.started_at)
+    if started_at is None:
+        return int(result.elapsed_seconds or 0) if result.elapsed_seconds and result.elapsed_seconds > 0 else 0
+    finish_at = _as_utc_aware(result.goal_at) or _as_utc_aware(result.ess_at)
+    if finish_at is None and trackpoints:
+        finish_at = _trackpoint_recorded_at_utc(trackpoints[-1])
+    if finish_at is None:
+        return int(result.elapsed_seconds or 0) if result.elapsed_seconds and result.elapsed_seconds > 0 else 0
+    seconds = int(max(0, (finish_at - started_at).total_seconds()))
+    return seconds
 
 
 def build_meet_stats_payload(
@@ -800,9 +824,9 @@ def build_meet_stats_payload(
         total_airtime_seconds += duration
 
     total_on_task_seconds = sum(
-        int(result.elapsed_seconds or 0)
+        _meet_stats_on_task_seconds(result, trackpoints_by_upload.get(int(result.upload_id), []))
         for result, _task, _pilot in usable_rows
-        if result.elapsed_seconds is not None and result.elapsed_seconds > 0
+        if result.upload_id is not None
     )
 
     task_points_by_task: dict[int, list[TaskPoint]] = {}

@@ -84,9 +84,10 @@ def _add_meet_stats_fixture(session: Session) -> tuple[Event, User, User]:
     session.flush()
     session.add_all([
         TrackPoint(upload_id=official_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=400),
-        TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(minutes=20), latitude=0, longitude=0.005, gps_altitude_m=95),
-        TrackPoint(upload_id=official_upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.02, gps_altitude_m=650),
-        TrackPoint(upload_id=official_upload.id, sequence=4, recorded_at=start + timedelta(hours=2), latitude=0, longitude=0.04, gps_altitude_m=700),
+        TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(minutes=20), latitude=0, longitude=0.005, gps_altitude_m=3),
+        TrackPoint(upload_id=official_upload.id, sequence=3, recorded_at=start + timedelta(minutes=40), latitude=0, longitude=0.01, gps_altitude_m=95),
+        TrackPoint(upload_id=official_upload.id, sequence=4, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.02, gps_altitude_m=650),
+        TrackPoint(upload_id=official_upload.id, sequence=5, recorded_at=start + timedelta(hours=2), latitude=0, longitude=0.04, gps_altitude_m=700),
         TrackPoint(upload_id=provisional_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=450),
         TrackPoint(upload_id=provisional_upload.id, sequence=2, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.015, gps_altitude_m=120),
         TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=900),
@@ -100,7 +101,7 @@ def _add_meet_stats_fixture(session: Session) -> tuple[Event, User, User]:
             rank=1,
             distance_flown_km=4.0,
             started_at=start,
-            elapsed_seconds=3600,
+            elapsed_seconds=None,
             raw_score_points=500,
             score_points=500,
             details_json={"task_stats": {"task_distance": 5.5}},
@@ -213,7 +214,7 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     payload = meet_stats(event.id, user=admin, session=session)
 
     assert payload.total_airtime_seconds == 3 * 3600
-    assert payload.total_on_task_seconds == 5400
+    assert payload.total_on_task_seconds == 10800
     assert payload.total_xc_distance_km == 5.5
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
@@ -230,7 +231,7 @@ def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
     payload = meet_stats(event.id, user=viewer, session=session)
 
     assert payload.total_airtime_seconds == 2 * 3600
-    assert payload.total_on_task_seconds == 3600
+    assert payload.total_on_task_seconds == 7200
     assert payload.total_xc_distance_km == 5.5
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ada Cloud"

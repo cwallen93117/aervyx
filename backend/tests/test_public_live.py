@@ -800,8 +800,9 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> N
         TrackPoint(upload_id=official_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=500),
         TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=800),
         TrackPoint(upload_id=provisional_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=400),
-        TrackPoint(upload_id=provisional_upload.id, sequence=2, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.01, gps_altitude_m=90),
-        TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=950),
+        TrackPoint(upload_id=provisional_upload.id, sequence=2, recorded_at=start + timedelta(minutes=20), latitude=0, longitude=0.005, gps_altitude_m=3),
+        TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.01, gps_altitude_m=90),
+        TrackPoint(upload_id=provisional_upload.id, sequence=4, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=950),
         TrackPoint(upload_id=draft_upload.id, sequence=1, recorded_at=start, latitude=1, longitude=1, gps_altitude_m=1000),
         TrackPoint(upload_id=draft_upload.id, sequence=2, recorded_at=start + timedelta(hours=1), latitude=1, longitude=1.02, gps_altitude_m=1200),
     ])
@@ -815,7 +816,7 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> N
     payload = public_meet_stats(event.id, session=session)
 
     assert payload.total_airtime_seconds == 2 * 3600
-    assert payload.total_on_task_seconds == 3000
+    assert payload.total_on_task_seconds == 7200
     assert payload.total_xc_distance_km == 5.5
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"

@@ -193,7 +193,8 @@ function formatMeetStatsHours(seconds: number | null | undefined): string {
 
 function formatMeetStatsAltitude(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "-";
-  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(value))} m`;
+  const feet = value * 3.280839895;
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(feet))} ft`;
 }
 
 function formatMeetStatsDistance(value: number | null | undefined): string {
@@ -412,7 +413,7 @@ function MeetStatsModal({
 }) {
   const cards = [
     { label: "Total Airtime hours", value: formatMeetStatsHours(stats?.total_airtime_seconds), detail: "Full scored upload duration" },
-    { label: "Total Airtime hours on Task", value: formatMeetStatsHours(stats?.total_on_task_seconds), detail: "SS to ES/goal scored time" },
+    { label: "Total Airtime hours on Task", value: formatMeetStatsHours(stats?.total_on_task_seconds), detail: "SS to ES/goal or last fix" },
     { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
     { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
     { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "Scored task routes counted once" },
