@@ -838,17 +838,10 @@ def build_meet_stats_payload(
             ).all()
         return task_points_by_task[task_id]
 
-    total_xc_distance_km = 0.0
-    counted_task_ids: set[int] = set()
-    for result, task, _pilot in usable_rows:
-        if task.id in counted_task_ids:
-            continue
-        counted_task_ids.add(task.id)
-        task_distance_km = _task_distance_from_result_details(result.details_json)
-        if task_distance_km is None:
-            task_points = _task_points(task.id)
-            task_distance_km, _ = _compute_optimized_task_distance(task_points)
-        total_xc_distance_km += max(task_distance_km or 0.0, 0.0)
+    total_xc_distance_km = sum(
+        max(float(result.distance_flown_km or 0.0), 0.0)
+        for result, _task, _pilot in usable_rows
+    )
 
     max_gps_altitude: dict | None = None
     lowest_save: dict | None = None

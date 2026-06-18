@@ -215,7 +215,7 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
 
     assert payload.total_airtime_seconds == 3 * 3600
     assert payload.total_on_task_seconds == 10800
-    assert payload.total_xc_distance_km == 5.5
+    assert payload.total_xc_distance_km == 7.0
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
     assert payload.max_gps_altitude.value_m == 900
@@ -232,7 +232,7 @@ def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
 
     assert payload.total_airtime_seconds == 2 * 3600
     assert payload.total_on_task_seconds == 7200
-    assert payload.total_xc_distance_km == 5.5
+    assert payload.total_xc_distance_km == 4.0
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ada Cloud"
     assert payload.max_gps_altitude.value_m == 700

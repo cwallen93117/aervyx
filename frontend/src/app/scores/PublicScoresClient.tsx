@@ -621,7 +621,7 @@ function MeetStatsModal({
     { label: "Total Airtime hours on Task", value: formatMeetStatsHours(stats?.total_on_task_seconds), detail: "SS to ES/goal or last fix" },
     { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
     { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
-    { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "Scored task routes counted once" },
+    { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "All pilot scored distances" },
   ];
   return (
     <div className="public-scoring-modal-overlay active" onClick={onClose}>
