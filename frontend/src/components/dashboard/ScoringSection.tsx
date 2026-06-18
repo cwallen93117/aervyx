@@ -202,6 +202,11 @@ function formatMeetStatsDistance(value: number | null | undefined): string {
   return `${value.toFixed(1)} km`;
 }
 
+function formatMeetStatsCount(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) return "-";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(value));
+}
+
 function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
   switch (key) {
     case "distance":
@@ -417,6 +422,8 @@ function MeetStatsModal({
     { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
     { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
     { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "All pilot scored distances" },
+    { label: "Pilots Counted", value: formatMeetStatsCount(stats?.pilot_count), detail: "Pilots with scored track data" },
+    { label: "Days Counted", value: formatMeetStatsCount(stats?.day_count), detail: "Scored task days included" },
   ];
   return (
     <div className="public-scoring-modal-overlay active" onClick={onClose}>

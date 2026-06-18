@@ -28,7 +28,17 @@ from app.schemas import (
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
-from app.services.scoring import build_meet_stats_payload, build_result_payload, build_result_penalty_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
+from app.services.scoring import (
+    MEET_STATS_SCOPE_INTERNAL_ALL,
+    MEET_STATS_SCOPE_INTERNAL_OFFICIAL,
+    build_cached_meet_stats_payload,
+    build_result_payload,
+    build_result_penalty_payload,
+    build_task_scoring_audit,
+    invalidate_task_meet_stats_cache,
+    repair_fl2026_task1_settings,
+    rescore_task,
+)
 from app.services.task_uploads import select_upload_for_scoring, store_task_upload
 
 router = APIRouter(tags=["results"])
@@ -339,6 +349,7 @@ def delete_task_results(task_id: int, admin: User = Depends(require_staff), sess
     penalty_count = session.scalar(select(func.count(ScorePenalty.id)).where(ScorePenalty.task_id == task_id)) or 0
     session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
     session.execute(delete(ScorePenalty).where(ScorePenalty.task_id == task_id))
+    invalidate_task_meet_stats_cache(session, task_id)
     session.query(TaskScoringInput).where(TaskScoringInput.task_id == task_id).update(
         {
             TaskScoringInput.selected_upload_id: None,
@@ -673,6 +684,7 @@ def promote_result(result_id: int, admin: User = Depends(require_staff), session
     if result.result_state == "official":
         raise HTTPException(status_code=400, detail="Result is already official")
     result.result_state = "official"
+    invalidate_task_meet_stats_cache(session, result.task_id)
     log_action(session, actor_user_id=admin.id, action="result.promote", entity_type="score_result", entity_id=str(result_id), details={"task_id": result.task_id, "pilot_id": result.pilot_id})
     session.commit()
     session.refresh(result)
@@ -692,6 +704,7 @@ def publish_task_results(task_id: int, admin: User = Depends(require_staff), ses
         if result.result_state != "official":
             result.result_state = "official"
             published_count += 1
+    invalidate_task_meet_stats_cache(session, task_id)
     log_action(
         session,
         actor_user_id=admin.id,
@@ -717,6 +730,7 @@ def unpublish_task_results(task_id: int, admin: User = Depends(require_staff), s
         if result.result_state != "provisional":
             result.result_state = "provisional"
             unpublished_count += 1
+    invalidate_task_meet_stats_cache(session, task_id)
     log_action(
         session,
         actor_user_id=admin.id,
@@ -762,7 +776,10 @@ def meet_stats(event_id: int, user: User = Depends(get_current_user), session: S
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     result_states = {"official", "provisional"} if user.role in {"admin", "organizer"} else {"official"}
-    return MeetStatsResponse(**build_meet_stats_payload(session, event_id, result_states=result_states))
+    scope = MEET_STATS_SCOPE_INTERNAL_ALL if user.role in {"admin", "organizer"} else MEET_STATS_SCOPE_INTERNAL_OFFICIAL
+    payload = build_cached_meet_stats_payload(session, event_id, scope, result_states=result_states)
+    session.commit()
+    return MeetStatsResponse(**payload)
 
 
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])

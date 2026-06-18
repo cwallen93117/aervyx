@@ -20,7 +20,7 @@ from app.schemas import BulkUploadItemResponse, UploadResponse
 from app.services import task_uploads as task_upload_service
 from app.services.audit import log_action
 from app.services.igc import parse_igc
-from app.services.scoring import rescore_task
+from app.services.scoring import invalidate_task_meet_stats_cache, rescore_task
 from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
 from app.services.task_uploads import (
     is_late_start_upload,
@@ -426,6 +426,7 @@ def delete_upload(upload_id: int, user: User = Depends(get_current_user), sessio
     session.execute(delete(ScoreResult).where(ScoreResult.upload_id == upload_id))
     session.execute(delete(TrackPoint).where(TrackPoint.upload_id == upload_id))
     session.execute(delete(IGCUpload).where(IGCUpload.id == upload_id))
+    invalidate_task_meet_stats_cache(session, upload.task_id)
     log_action(session, actor_user_id=user.id, action="igc.delete", entity_type="igc_upload", entity_id=str(upload_id), details={"task_id": upload.task_id, "pilot_id": upload.pilot_id, "sha256": upload.sha256})
     session.commit()
 
@@ -464,6 +465,7 @@ def delete_all_uploads_for_task(task_id: int, user: User = Depends(get_current_u
         session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
         session.execute(delete(TrackPoint).where(TrackPoint.upload_id.in_(upload_ids)))
         session.execute(delete(IGCUpload).where(IGCUpload.id.in_(upload_ids)))
+    invalidate_task_meet_stats_cache(session, task_id)
     log_action(
         session,
         actor_user_id=user.id,

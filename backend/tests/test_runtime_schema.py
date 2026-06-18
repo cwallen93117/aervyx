@@ -232,3 +232,50 @@ def test_runtime_schema_adds_profile_type_timestamp_to_legacy_users() -> None:
             )
         ).one()
     assert row.profile_type_updated_at is not None
+
+
+def test_runtime_schema_creates_event_meet_stats_cache_table() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE events (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE tasks (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE score_results (id INTEGER PRIMARY KEY, upload_id INTEGER, score_points FLOAT)"))
+        connection.execute(
+            text(
+                """
+                CREATE TABLE faa_airspace_features (
+                  id INTEGER PRIMARY KEY,
+                  source VARCHAR(10),
+                  category VARCHAR(10),
+                  name VARCHAR(200),
+                  min_lat FLOAT,
+                  max_lat FLOAT,
+                  min_lon FLOAT,
+                  max_lon FLOAT,
+                  geometry_json JSON
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                CREATE TABLE faa_airspace_meta (
+                  id INTEGER PRIMARY KEY,
+                  source VARCHAR(10),
+                  last_edit_date VARCHAR(40),
+                  record_count INTEGER,
+                  last_fetched_at TIMESTAMP
+                )
+                """
+            )
+        )
+
+    ensure_runtime_schema(engine)
+
+    inspector = inspect(engine)
+    assert "event_meet_stats_cache" in inspector.get_table_names()
+    columns = {column["name"] for column in inspector.get_columns("event_meet_stats_cache")}
+    assert {"event_id", "scope", "payload_json", "calculated_at", "updated_at"}.issubset(columns)
+    indexes = {index["name"] for index in inspector.get_indexes("event_meet_stats_cache")}
+    assert "ix_event_meet_stats_cache_event_scope" in indexes

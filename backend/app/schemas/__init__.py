@@ -700,6 +700,8 @@ class MeetStatsResponse(BaseModel):
     max_gps_altitude: MeetStatsHighlightResponse | None = None
     lowest_save: MeetStatsHighlightResponse | None = None
     total_xc_distance_km: float = 0
+    pilot_count: int = 0
+    day_count: int = 0
 
 
 class TaskScoringInputUpdate(BaseModel):

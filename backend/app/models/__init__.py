@@ -214,6 +214,21 @@ class Event(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
+class EventMeetStatsCache(Base):
+    __tablename__ = "event_meet_stats_cache"
+    __table_args__ = (
+        UniqueConstraint("event_id", "scope", name="uq_event_meet_stats_cache_event_scope"),
+        Index("ix_event_meet_stats_cache_event_scope", "event_id", "scope"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
+    scope: Mapped[str] = mapped_column(String(40), nullable=False)
+    payload_json: Mapped[dict] = mapped_column(JSON, default=dict)
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
 class Pilot(Base):
     __tablename__ = "pilots"
 

@@ -454,6 +454,26 @@ def ensure_runtime_schema(engine: Engine) -> None:
     if "events" not in table_names:
         return
 
+    if "event_meet_stats_cache" not in table_names:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE event_meet_stats_cache (
+                      id INTEGER PRIMARY KEY,
+                      event_id INTEGER NOT NULL,
+                      scope VARCHAR(40) NOT NULL,
+                      payload_json JSON NOT NULL,
+                      calculated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
+                      CONSTRAINT uq_event_meet_stats_cache_event_scope UNIQUE (event_id, scope)
+                    )
+                    """
+                )
+            )
+            connection.execute(text("CREATE INDEX ix_event_meet_stats_cache_event_scope ON event_meet_stats_cache (event_id, scope)"))
+
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()

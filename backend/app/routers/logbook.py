@@ -26,6 +26,7 @@ from app.schemas import (
 )
 from app.services.logbook import attach_igc_to_existing_flight, create_app_upload_flight, derive_flight_stats, get_flight_track_points, import_logbook_folder_files
 from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
+from app.services.scoring import invalidate_task_meet_stats_cache
 
 router = APIRouter(prefix="/api/logbook", tags=["logbook"])
 
@@ -76,6 +77,7 @@ def _delete_flight_records(session: Session, user: User, flight: PilotFlight) ->
     if flight.igc_upload_id is not None:
         upload = session.get(IGCUpload, flight.igc_upload_id)
         cleanup_paths.append(upload.stored_path if upload is not None else None)
+        task_id = upload.task_id if upload is not None else None
         session.execute(
             update(TaskScoringInput)
             .where(TaskScoringInput.selected_upload_id == flight.igc_upload_id)
@@ -85,6 +87,8 @@ def _delete_flight_records(session: Session, user: User, flight: PilotFlight) ->
         session.execute(delete(TrackPoint).where(TrackPoint.upload_id == flight.igc_upload_id))
         session.execute(delete(PilotFlight).where(PilotFlight.igc_upload_id == flight.igc_upload_id))
         session.execute(delete(IGCUpload).where(IGCUpload.id == flight.igc_upload_id))
+        if task_id is not None:
+            invalidate_task_meet_stats_cache(session, task_id)
         return cleanup_paths
 
     cleanup_paths.append(flight.stored_path)

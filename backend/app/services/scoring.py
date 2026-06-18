@@ -16,7 +16,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.orm import Session
 
-from app.models import Event, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
+from app.models import Event, EventMeetStatsCache, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
 from app.services.airscore import task as airscore_task
 from app.services.airscore.gap import build_task_totals, day_quality, pilot_arrival, pilot_departure_leadout, pilot_distance, pilot_speed, points_allocation, points_weight, select_coeff
 from app.services.airscore.route import find_shortest_route, task_distance as route_task_distance
@@ -28,6 +28,9 @@ from app.services.airscore.verify import validate_task as airscore_validate_task
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
 MEET_STATS_RESULT_STATES = {"official", "provisional"}
+MEET_STATS_SCOPE_INTERNAL_ALL = "internal_all"
+MEET_STATS_SCOPE_INTERNAL_OFFICIAL = "internal_official"
+MEET_STATS_SCOPE_PUBLIC = "public_published"
 MIN_LOW_SAVE_GPS_ALTITUDE_M = 30.48
 MIN_LOW_SAVE_CLIMB_AFTER_M = 91.44
 _FL2026_TASK1_OFFICIAL_RESULTS = [
@@ -766,6 +769,57 @@ def _meet_stats_on_task_seconds(result: ScoreResult, trackpoints: list[TrackPoin
     return seconds
 
 
+def _empty_meet_stats_payload() -> dict:
+    return {
+        "total_airtime_seconds": 0,
+        "total_on_task_seconds": 0,
+        "max_gps_altitude": None,
+        "lowest_save": None,
+        "total_xc_distance_km": 0.0,
+        "pilot_count": 0,
+        "day_count": 0,
+    }
+
+
+def invalidate_event_meet_stats_cache(session: Session, event_id: int) -> None:
+    session.execute(delete(EventMeetStatsCache).where(EventMeetStatsCache.event_id == event_id))
+
+
+def invalidate_task_meet_stats_cache(session: Session, task_id: int) -> None:
+    event_id = session.scalar(select(Task.event_id).where(Task.id == task_id))
+    if event_id is not None:
+        invalidate_event_meet_stats_cache(session, int(event_id))
+
+
+def build_cached_meet_stats_payload(
+    session: Session,
+    event_id: int,
+    scope: str,
+    *,
+    published_tasks_only: bool = False,
+    result_states: set[str] | None = None,
+) -> dict:
+    cached = session.scalar(
+        select(EventMeetStatsCache).where(
+            EventMeetStatsCache.event_id == event_id,
+            EventMeetStatsCache.scope == scope,
+        )
+    )
+    if cached is not None and isinstance(cached.payload_json, dict):
+        return dict(cached.payload_json)
+
+    payload = build_meet_stats_payload(
+        session,
+        event_id,
+        published_tasks_only=published_tasks_only,
+        result_states=result_states,
+    )
+    cache_row = EventMeetStatsCache(event_id=event_id, scope=scope, payload_json=payload)
+    session.add(cache_row)
+    session.flush()
+    return payload
+
+
 def build_meet_stats_payload(
     session: Session,
     event_id: int,
@@ -791,13 +845,7 @@ def build_meet_stats_payload(
     upload_ids = [int(result.upload_id) for result, _task, _pilot in rows if result.upload_id is not None]
     upload_ids = list(dict.fromkeys(upload_ids))
     if not upload_ids:
-        return {
-            "total_airtime_seconds": 0,
-            "total_on_task_seconds": 0,
-            "max_gps_altitude": None,
-            "lowest_save": None,
-            "total_xc_distance_km": 0.0,
-        }
+        return _empty_meet_stats_payload()
 
     all_trackpoints = session.scalars(
         select(TrackPoint)
@@ -813,6 +861,12 @@ def build_meet_stats_payload(
         for result, task, pilot in rows
         if result.upload_id is not None and trackpoints_by_upload.get(int(result.upload_id))
     ]
+    pilot_count = len({int(result.pilot_id) for result, _task, _pilot in usable_rows})
+    day_keys = {
+        task.task_date.isoformat() if task.task_date is not None else f"task:{task.id}"
+        for _result, task, _pilot in usable_rows
+    }
+    day_count = len(day_keys)
     total_airtime_seconds = 0
     for upload_id in {int(result.upload_id) for result, _task, _pilot in usable_rows if result.upload_id is not None}:
         points = trackpoints_by_upload.get(upload_id, [])
@@ -884,6 +938,8 @@ def build_meet_stats_payload(
         "max_gps_altitude": max_gps_altitude,
         "lowest_save": lowest_save,
         "total_xc_distance_km": round(total_xc_distance_km, 3),
+        "pilot_count": pilot_count,
+        "day_count": day_count,
     }
 
 
@@ -2824,6 +2880,7 @@ def rescore_task(session: Session, task_id: int, apply_known_repairs: bool = Tru
         session.add(result)
         results.append(result)
     session.flush()
+    invalidate_event_meet_stats_cache(session, task.event_id)
     return results
 
 

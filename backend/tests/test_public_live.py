@@ -818,6 +818,8 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> N
     assert payload.total_airtime_seconds == 2 * 3600
     assert payload.total_on_task_seconds == 7200
     assert payload.total_xc_distance_km == 6.0
+    assert payload.pilot_count == 2
+    assert payload.day_count == 1
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
     assert payload.max_gps_altitude.value_m == 950

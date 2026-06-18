@@ -32,7 +32,7 @@ from app.routers.events import _event_payload
 from app.routers.tasks import _task_response
 from app.schemas import EventResponse, MeetStatsResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
 from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
-from app.services.scoring import build_meet_stats_payload, build_result_payload
+from app.services.scoring import MEET_STATS_SCOPE_PUBLIC, build_cached_meet_stats_payload, build_result_payload
 from app.services.tracking import (
     get_live_positions,
     get_live_positions_for_pilots,
@@ -395,7 +395,9 @@ def public_meet_stats(event_id: int, session: Session = Depends(get_session)) ->
     event = session.get(Event, event_id)
     if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Event not found")
-    return MeetStatsResponse(**build_meet_stats_payload(session, event_id, published_tasks_only=True))
+    payload = build_cached_meet_stats_payload(session, event_id, MEET_STATS_SCOPE_PUBLIC, published_tasks_only=True)
+    session.commit()
+    return MeetStatsResponse(**payload)
 
 
 @router.get("/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])

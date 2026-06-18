@@ -6,10 +6,11 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventMeetStatsCache, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.routers import results as results_router
 from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
+from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, invalidate_event_meet_stats_cache
 
 
 def _session() -> Session:
@@ -216,12 +217,43 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     assert payload.total_airtime_seconds == 3 * 3600
     assert payload.total_on_task_seconds == 10800
     assert payload.total_xc_distance_km == 7.0
+    assert payload.pilot_count == 2
+    assert payload.day_count == 1
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
     assert payload.max_gps_altitude.value_m == 900
     assert payload.lowest_save is not None
     assert payload.lowest_save.pilot_name == "Ada Cloud"
     assert payload.lowest_save.value_m == 95
+    cache_row = session.scalar(
+        select(EventMeetStatsCache).where(
+            EventMeetStatsCache.event_id == event.id,
+            EventMeetStatsCache.scope == MEET_STATS_SCOPE_INTERNAL_ALL,
+        )
+    )
+    assert cache_row is not None
+    assert cache_row.payload_json["total_xc_distance_km"] == 7.0
+
+
+def test_meet_stats_cache_is_reused_until_invalidated() -> None:
+    session = _session()
+    event, admin, _viewer = _add_meet_stats_fixture(session)
+
+    first_payload = meet_stats(event.id, user=admin, session=session)
+    assert first_payload.total_xc_distance_km == 7.0
+
+    result = session.scalar(select(ScoreResult).where(ScoreResult.result_state == "official"))
+    assert result is not None
+    result.distance_flown_km = 14.0
+    session.commit()
+
+    cached_payload = meet_stats(event.id, user=admin, session=session)
+    assert cached_payload.total_xc_distance_km == 7.0
+
+    invalidate_event_meet_stats_cache(session, event.id)
+    session.commit()
+    recalculated_payload = meet_stats(event.id, user=admin, session=session)
+    assert recalculated_payload.total_xc_distance_km == 17.0
 
 
 def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
@@ -233,6 +265,8 @@ def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
     assert payload.total_airtime_seconds == 2 * 3600
     assert payload.total_on_task_seconds == 7200
     assert payload.total_xc_distance_km == 4.0
+    assert payload.pilot_count == 1
+    assert payload.day_count == 1
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ada Cloud"
     assert payload.max_gps_altitude.value_m == 700

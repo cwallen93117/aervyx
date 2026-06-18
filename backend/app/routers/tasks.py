@@ -11,6 +11,7 @@ from app.deps import get_current_user, require_staff
 from app.models import Event, IGCUpload, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse, default_task_point_direction, default_task_point_radius_m
 from app.services.audit import log_action
+from app.services.scoring import invalidate_event_meet_stats_cache
 
 router = APIRouter(tags=["tasks"])
 
@@ -193,6 +194,7 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
         point_data["direction"] = _normalize_task_point_direction(point_data.get("direction"), point_data["point_type"])
         point_data["radius_m"] = _normalize_task_point_radius(point_data.get("radius_m"), point_data["point_type"])
         session.add(TaskPoint(task_id=task.id, **point_data))
+    invalidate_event_meet_stats_cache(session, task.event_id)
     log_action(session, actor_user_id=admin.id, action="task.update", entity_type="task", entity_id=str(task.id), details={"version": task.version, "point_count": len(payload.points)})
     session.commit()
     return _task_response(session, task)
@@ -206,6 +208,7 @@ def publish_task(task_id: int, admin: User = Depends(require_staff), session: Se
     task.status = "published"
     task.published_at = datetime.now(UTC)
     task.version += 1
+    invalidate_event_meet_stats_cache(session, task.event_id)
     log_action(session, actor_user_id=admin.id, action="task.publish", entity_type="task", entity_id=str(task.id), details={"version": task.version})
     session.commit()
     return _task_response(session, task)
@@ -228,6 +231,7 @@ def unpublish_task(task_id: int, admin: User = Depends(require_staff), session: 
     task.status = "draft"
     task.published_at = None
     task.version += 1
+    invalidate_event_meet_stats_cache(session, task.event_id)
     log_action(
         session,
         actor_user_id=admin.id,
@@ -254,6 +258,7 @@ def delete_task(task_id: int, admin: User = Depends(require_staff), session: Ses
     session.query(IGCUpload).filter(IGCUpload.task_id == task.id).delete(synchronize_session=False)
     session.query(TaskPoint).filter(TaskPoint.task_id == task.id).delete(synchronize_session=False)
     session.delete(task)
+    invalidate_event_meet_stats_cache(session, event_id)
     log_action(
         session,
         actor_user_id=admin.id,
