@@ -76,7 +76,7 @@ type MeetStatsRecord = { total_airtime_seconds: number; total_on_task_seconds: n
 type TaskSubTab = "results" | "map";
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
-type ScoringParameterRow = { param: string; value: string; helpId: ScoringHelpId };
+type ScoringParameterRow = { param: string; label: string; value: string; helpId: ScoringHelpId };
 type ScoringParameterDefinition = { param: string; field: keyof PublicEvent; helpId: ScoringHelpId };
 
 const scoringParameterDefinitions: ScoringParameterDefinition[] = [
@@ -126,9 +126,24 @@ function formatScoringParameterValue(value: PublicEvent[keyof PublicEvent]): str
   return String(value);
 }
 
+function formatScoringParameterLabel(param: string): string {
+  const acronyms = new Map([
+    ["ftv", "FTV"],
+    ["gps", "GPS"],
+    ["id", "ID"],
+    ["lc", "LC"],
+  ]);
+  return param
+    .split("_")
+    .filter(Boolean)
+    .map((part) => acronyms.get(part.toLowerCase()) ?? part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
 function scoringParameterRows(event: PublicEvent): ScoringParameterRow[] {
   return scoringParameterDefinitions.map((definition) => ({
     param: definition.param,
+    label: formatScoringParameterLabel(definition.param),
     value: formatScoringParameterValue(event[definition.field]),
     helpId: definition.helpId,
   }));
@@ -659,8 +674,8 @@ function ScoringParametersModal({
           <table className="public-scoring-table">
             <thead>
               <tr>
-                <th>param</th>
-                <th>value</th>
+                <th>Parameters</th>
+                <th>Value</th>
               </tr>
             </thead>
             <tbody>
@@ -668,7 +683,7 @@ function ScoringParametersModal({
                 <tr key={row.param}>
                   <td>
                     <span className="public-scoring-param-name scoring-help-open-right">
-                      <span>{row.param}</span>
+                      <span>{row.label}</span>
                       <FieldHelp helpId={row.helpId} activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
                     </span>
                   </td>
