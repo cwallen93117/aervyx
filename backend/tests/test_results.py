@@ -1,14 +1,14 @@
 import asyncio
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
+from app.models import Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.routers import results as results_router
-from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, pilot_summary, select_logbook_igc_candidate, task_result_summary
+from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
 
 
@@ -33,6 +33,96 @@ def _score(task: Task, pilot: Pilot, quality: float | None, state: str = "offici
         details_json=details_json,
         result_state=state,
     )
+
+
+def _add_meet_stats_fixture(session: Session) -> tuple[Event, User, User]:
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    viewer = User(username="viewer@example.com", full_name="Viewer", role="pilot", password_hash="hash")
+    event = Event(
+        name="Stats Race",
+        location="Ridgeline",
+        starts_on=date(2026, 4, 18),
+        ends_on=date(2026, 4, 24),
+        timezone="UTC",
+    )
+    official_pilot = Pilot(first_name="Ada", last_name="Cloud")
+    provisional_pilot = Pilot(first_name="Ben", last_name="Thermal")
+    session.add_all([admin, viewer, event, official_pilot, provisional_pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 4, 19))
+    session.add_all([
+        task,
+        EventPilot(event_id=event.id, pilot_id=official_pilot.id),
+        EventPilot(event_id=event.id, pilot_id=provisional_pilot.id),
+    ])
+    session.flush()
+    session.add_all([
+        TaskPoint(task_id=task.id, position=1, point_type="start", direction="exit", radius_m=0, name="Start", latitude=0, longitude=0),
+        TaskPoint(task_id=task.id, position=2, point_type="goal", direction="enter", radius_m=0, name="Goal", latitude=0, longitude=0.05),
+    ])
+    session.flush()
+    start = datetime(2026, 4, 19, 14, 0, tzinfo=UTC)
+    official_upload = IGCUpload(
+        event_id=event.id,
+        task_id=task.id,
+        pilot_id=official_pilot.id,
+        uploaded_by_user_id=admin.id,
+        filename="ada.igc",
+        sha256="a" * 64,
+        stored_path="/tmp/ada.igc",
+    )
+    provisional_upload = IGCUpload(
+        event_id=event.id,
+        task_id=task.id,
+        pilot_id=provisional_pilot.id,
+        uploaded_by_user_id=admin.id,
+        filename="ben.igc",
+        sha256="b" * 64,
+        stored_path="/tmp/ben.igc",
+    )
+    session.add_all([official_upload, provisional_upload])
+    session.flush()
+    session.add_all([
+        TrackPoint(upload_id=official_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=400),
+        TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(minutes=20), latitude=0, longitude=0.005, gps_altitude_m=95),
+        TrackPoint(upload_id=official_upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.02, gps_altitude_m=650),
+        TrackPoint(upload_id=official_upload.id, sequence=4, recorded_at=start + timedelta(hours=2), latitude=0, longitude=0.04, gps_altitude_m=700),
+        TrackPoint(upload_id=provisional_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=450),
+        TrackPoint(upload_id=provisional_upload.id, sequence=2, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.015, gps_altitude_m=120),
+        TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=900),
+    ])
+    session.add_all([
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=official_pilot.id,
+            upload_id=official_upload.id,
+            status="partial",
+            rank=1,
+            distance_flown_km=4.0,
+            started_at=start,
+            elapsed_seconds=3600,
+            raw_score_points=500,
+            score_points=500,
+            details_json={"task_stats": {"task_distance": 5.5}},
+            result_state="official",
+        ),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=provisional_pilot.id,
+            upload_id=provisional_upload.id,
+            status="partial",
+            rank=2,
+            distance_flown_km=3.0,
+            started_at=start,
+            elapsed_seconds=1800,
+            raw_score_points=400,
+            score_points=400,
+            details_json={"task_stats": {"task_distance": 5.5}},
+            result_state="provisional",
+        ),
+    ])
+    session.commit()
+    return event, admin, viewer
 
 
 def test_task_result_summary_returns_day_quality_for_each_scored_task() -> None:
@@ -116,6 +206,40 @@ def test_task_result_summary_hides_provisional_scores_from_pilots() -> None:
     ]
 
 
+def test_meet_stats_returns_event_aggregates_for_admin() -> None:
+    session = _session()
+    event, admin, _viewer = _add_meet_stats_fixture(session)
+
+    payload = meet_stats(event.id, user=admin, session=session)
+
+    assert payload.total_airtime_seconds == 3 * 3600
+    assert payload.total_on_task_seconds == 5400
+    assert payload.total_xc_distance_km == 5.5
+    assert payload.max_gps_altitude is not None
+    assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
+    assert payload.max_gps_altitude.value_m == 900
+    assert payload.lowest_save is not None
+    assert payload.lowest_save.pilot_name == "Ada Cloud"
+    assert payload.lowest_save.value_m == 95
+
+
+def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
+    session = _session()
+    event, _admin, viewer = _add_meet_stats_fixture(session)
+
+    payload = meet_stats(event.id, user=viewer, session=session)
+
+    assert payload.total_airtime_seconds == 2 * 3600
+    assert payload.total_on_task_seconds == 3600
+    assert payload.total_xc_distance_km == 5.5
+    assert payload.max_gps_altitude is not None
+    assert payload.max_gps_altitude.pilot_name == "Ada Cloud"
+    assert payload.max_gps_altitude.value_m == 700
+    assert payload.lowest_save is not None
+    assert payload.lowest_save.pilot_name == "Ada Cloud"
+    assert payload.lowest_save.value_m == 95
+
+
 def test_task_results_include_penalty_calculation_details() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
@@ -126,6 +250,7 @@ def test_task_results_include_penalty_calculation_details() -> None:
         ends_on=date(2026, 4, 24),
         timezone="America/New_York",
     )
+
     pilot = Pilot(first_name="Ada", last_name="Wing")
     session.add_all([admin, event, pilot])
     session.flush()

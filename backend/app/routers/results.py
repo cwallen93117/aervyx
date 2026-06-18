@@ -12,6 +12,7 @@ from app.db import get_session
 from app.deps import get_current_user, require_staff
 from app.models import AuditLog, Event, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskScoringInput, TrackPoint, User
 from app.schemas import (
+    MeetStatsResponse,
     PenaltyAuditEntry,
     PilotSummaryResponse,
     ScorePenaltyEntry,
@@ -27,7 +28,7 @@ from app.schemas import (
     TaskScoringInputUpdate,
 )
 from app.services.audit import log_action
-from app.services.scoring import build_result_payload, build_result_penalty_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
+from app.services.scoring import build_meet_stats_payload, build_result_payload, build_result_penalty_payload, build_task_scoring_audit, repair_fl2026_task1_settings, rescore_task
 from app.services.task_uploads import select_upload_for_scoring, store_task_upload
 
 router = APIRouter(tags=["results"])
@@ -753,6 +754,15 @@ def task_result_summary(event_id: int, user: User = Depends(get_current_user), s
         TaskResultSummaryResponse(task_id=task_id, day_quality=summary["day_quality"], statistics=summary["statistics"])
         for task_id, summary in sorted(summaries_by_task.items())
     ]
+
+
+@router.get("/api/events/{event_id}/meet-stats", response_model=MeetStatsResponse)
+def meet_stats(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> MeetStatsResponse:
+    event = session.get(Event, event_id)
+    if event is None:
+        raise HTTPException(status_code=404, detail="Event not found")
+    result_states = {"official", "provisional"} if user.role in {"admin", "organizer"} else {"official"}
+    return MeetStatsResponse(**build_meet_stats_payload(session, event_id, result_states=result_states))
 
 
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])

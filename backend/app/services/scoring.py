@@ -27,6 +27,7 @@ from app.services.airscore.verify import validate_task as airscore_validate_task
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
+MEET_STATS_RESULT_STATES = {"official", "provisional"}
 _FL2026_TASK1_OFFICIAL_RESULTS = [
     {"comp": "666", "name": "Jonny Durand", "ss": "14:20:00", "es": "16:34:17", "time": "02:14:17", "speed": 53.10, "distance": 123.8, "distance_points": 492.8, "leading": 88.8, "time_points": 355.0, "arrival": 63.4, "total": 1000.0, "status": "goal"},
     {"comp": "99", "name": "Robin Hamilton", "ss": "14:20:00", "es": "16:35:12", "time": "02:15:12", "speed": 52.74, "distance": 123.8, "distance_points": 492.8, "leading": 78.0, "time_points": 347.2, "arrival": 47.9, "total": 965.9, "status": "goal"},
@@ -149,6 +150,10 @@ def _as_utc_aware(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _trackpoint_recorded_at_utc(point: TrackPoint) -> datetime:
+    return _as_utc_aware(point.recorded_at) or point.recorded_at.replace(tzinfo=UTC)
 
 
 def _resolve_task_time_utc(value: str | None, trackpoints: list[TrackPoint], timezone_name: str) -> datetime | None:
@@ -643,6 +648,226 @@ def _compute_optimized_task_distance(task_points: list[TaskPoint]) -> tuple[floa
     _cache_waypoint_distance_metadata(waypoints, spt, ept, gpt, ssdist, startssdist, endssdist, totdist)
 
     return totdist / 1000.0, waypoints  # convert metres to km
+
+
+def _optional_float(value: object) -> float | None:
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(number):
+        return None
+    return number
+
+
+def _task_distance_from_result_details(details_json: dict | None) -> float | None:
+    if not isinstance(details_json, dict):
+        return None
+    task_stats = details_json.get("task_stats")
+    if isinstance(task_stats, dict):
+        task_distance = _optional_float(task_stats.get("task_distance"))
+        if task_distance is not None and task_distance > 0:
+            return task_distance
+    task_distance = _optional_float(details_json.get("total_distance_km"))
+    if task_distance is not None and task_distance > 0:
+        return task_distance
+    gap = details_json.get("gap")
+    if isinstance(gap, dict):
+        gap_task_stats = gap.get("task_stats")
+        if isinstance(gap_task_stats, dict):
+            task_distance = _optional_float(gap_task_stats.get("task_distance"))
+            if task_distance is not None and task_distance > 0:
+                return task_distance
+        task_distance = _optional_float(gap.get("total_distance_km"))
+        if task_distance is not None and task_distance > 0:
+            return task_distance
+    return None
+
+
+def _meet_stats_progress_m(
+    waypoints: list[dict],
+    total_distance_m: float,
+    point: TrackPoint,
+) -> float:
+    if not waypoints:
+        return 0.0
+    coord = to_rad_dict(point.latitude, point.longitude, time=_trackpoint_recorded_at_utc(point).timestamp())
+    try:
+        progress_m = airscore_distance_flown(waypoints, len(waypoints) - 1, coord)
+    except (IndexError, ZeroDivisionError, TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(float(progress_m or 0.0), total_distance_m))
+
+
+def _lowest_save_for_result(
+    task_points: list[TaskPoint],
+    trackpoints: list[TrackPoint],
+    started_at: datetime | None,
+) -> tuple[float, TrackPoint] | None:
+    started_at_utc = _as_utc_aware(started_at)
+    if started_at_utc is None:
+        return None
+    on_task_points = [
+        point
+        for point in sorted(trackpoints, key=lambda point: point.sequence)
+        if point.gps_altitude_m is not None and _trackpoint_recorded_at_utc(point) >= started_at_utc
+    ]
+    if len(on_task_points) < 2:
+        return None
+
+    total_distance_km, airscore_waypoints = _compute_optimized_task_distance(task_points)
+    if total_distance_km <= 0 or not airscore_waypoints:
+        return None
+    distance_waypoints, _ = _prepare_waypoints_for_distance(airscore_waypoints)
+    if not distance_waypoints:
+        return None
+    total_distance_m = total_distance_km * 1000.0
+    progress_by_index = [
+        _meet_stats_progress_m(distance_waypoints, total_distance_m, point)
+        for point in on_task_points
+    ]
+    future_best_progress = [0.0] * len(progress_by_index)
+    best = 0.0
+    for index in range(len(progress_by_index) - 1, -1, -1):
+        future_best_progress[index] = best
+        best = max(best, progress_by_index[index])
+
+    lowest: tuple[float, TrackPoint] | None = None
+    for index, point in enumerate(on_task_points):
+        altitude_m = float(point.gps_altitude_m or 0)
+        if future_best_progress[index] < progress_by_index[index] + 1000.0:
+            continue
+        if lowest is None or altitude_m < lowest[0]:
+            lowest = (altitude_m, point)
+    return lowest
+
+
+def build_meet_stats_payload(
+    session: Session,
+    event_id: int,
+    *,
+    published_tasks_only: bool = False,
+    result_states: set[str] | None = None,
+) -> dict:
+    result_states = result_states or MEET_STATS_RESULT_STATES
+    rows_query = (
+        select(ScoreResult, Task, Pilot)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .join(Pilot, Pilot.id == ScoreResult.pilot_id)
+        .where(
+            Task.event_id == event_id,
+            ScoreResult.upload_id.is_not(None),
+            ScoreResult.result_state.in_(result_states),
+        )
+        .order_by(Task.id.asc(), ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
+    )
+    if published_tasks_only:
+        rows_query = rows_query.where(Task.status == "published")
+    rows = session.execute(rows_query).all()
+    upload_ids = [int(result.upload_id) for result, _task, _pilot in rows if result.upload_id is not None]
+    upload_ids = list(dict.fromkeys(upload_ids))
+    if not upload_ids:
+        return {
+            "total_airtime_seconds": 0,
+            "total_on_task_seconds": 0,
+            "max_gps_altitude": None,
+            "lowest_save": None,
+            "total_xc_distance_km": 0.0,
+        }
+
+    all_trackpoints = session.scalars(
+        select(TrackPoint)
+        .where(TrackPoint.upload_id.in_(upload_ids))
+        .order_by(TrackPoint.upload_id.asc(), TrackPoint.sequence.asc())
+    ).all()
+    trackpoints_by_upload: dict[int, list[TrackPoint]] = {}
+    for point in all_trackpoints:
+        trackpoints_by_upload.setdefault(point.upload_id, []).append(point)
+
+    usable_rows = [
+        (result, task, pilot)
+        for result, task, pilot in rows
+        if result.upload_id is not None and trackpoints_by_upload.get(int(result.upload_id))
+    ]
+    total_airtime_seconds = 0
+    for upload_id in {int(result.upload_id) for result, _task, _pilot in usable_rows if result.upload_id is not None}:
+        points = trackpoints_by_upload.get(upload_id, [])
+        if len(points) < 2:
+            continue
+        started = _trackpoint_recorded_at_utc(points[0])
+        ended = _trackpoint_recorded_at_utc(points[-1])
+        duration = int(max(0, (ended - started).total_seconds()))
+        total_airtime_seconds += duration
+
+    total_on_task_seconds = sum(
+        int(result.elapsed_seconds or 0)
+        for result, _task, _pilot in usable_rows
+        if result.elapsed_seconds is not None and result.elapsed_seconds > 0
+    )
+
+    task_points_by_task: dict[int, list[TaskPoint]] = {}
+
+    def _task_points(task_id: int) -> list[TaskPoint]:
+        if task_id not in task_points_by_task:
+            task_points_by_task[task_id] = session.scalars(
+                select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position.asc())
+            ).all()
+        return task_points_by_task[task_id]
+
+    total_xc_distance_km = 0.0
+    counted_task_ids: set[int] = set()
+    for result, task, _pilot in usable_rows:
+        if task.id in counted_task_ids:
+            continue
+        counted_task_ids.add(task.id)
+        task_distance_km = _task_distance_from_result_details(result.details_json)
+        if task_distance_km is None:
+            task_points = _task_points(task.id)
+            task_distance_km, _ = _compute_optimized_task_distance(task_points)
+        total_xc_distance_km += max(task_distance_km or 0.0, 0.0)
+
+    max_gps_altitude: dict | None = None
+    lowest_save: dict | None = None
+    for result, task, pilot in usable_rows:
+        upload_id = int(result.upload_id) if result.upload_id is not None else None
+        if upload_id is None:
+            continue
+        points = trackpoints_by_upload.get(upload_id, [])
+        pilot_name = f"{pilot.first_name} {pilot.last_name}".strip() or "Unknown"
+        for point in points:
+            if point.gps_altitude_m is None:
+                continue
+            altitude_m = float(point.gps_altitude_m)
+            if max_gps_altitude is None or altitude_m > max_gps_altitude["value_m"]:
+                max_gps_altitude = {
+                    "pilot_id": pilot.id,
+                    "pilot_name": pilot_name,
+                    "task_id": task.id,
+                    "task_name": task.name,
+                    "upload_id": upload_id,
+                    "value_m": altitude_m,
+                }
+
+        result_lowest_save = _lowest_save_for_result(_task_points(task.id), points, result.started_at)
+        if result_lowest_save is not None:
+            altitude_m, _point = result_lowest_save
+            if lowest_save is None or altitude_m < lowest_save["value_m"]:
+                lowest_save = {
+                    "pilot_id": pilot.id,
+                    "pilot_name": pilot_name,
+                    "task_id": task.id,
+                    "task_name": task.name,
+                    "upload_id": upload_id,
+                    "value_m": altitude_m,
+                }
+
+    return {
+        "total_airtime_seconds": total_airtime_seconds,
+        "total_on_task_seconds": total_on_task_seconds,
+        "max_gps_altitude": max_gps_altitude,
+        "lowest_save": lowest_save,
+        "total_xc_distance_km": round(total_xc_distance_km, 3),
+    }
 
 
 # ---------- leading coefficient computation ----------

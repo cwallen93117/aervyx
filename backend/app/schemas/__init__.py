@@ -685,6 +685,23 @@ class TaskResultSummaryResponse(BaseModel):
     statistics: dict = Field(default_factory=dict)
 
 
+class MeetStatsHighlightResponse(BaseModel):
+    pilot_id: int
+    pilot_name: str
+    task_id: int
+    task_name: str
+    upload_id: int
+    value_m: float
+
+
+class MeetStatsResponse(BaseModel):
+    total_airtime_seconds: int = 0
+    total_on_task_seconds: int = 0
+    max_gps_altitude: MeetStatsHighlightResponse | None = None
+    lowest_save: MeetStatsHighlightResponse | None = None
+    total_xc_distance_km: float = 0
+
+
 class TaskScoringInputUpdate(BaseModel):
     selected_upload_id: int | None = None
     status_override: str | None = None

@@ -1,9 +1,10 @@
 "use client";
 
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
 import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints } from "../../lib/scorePenalties";
+import { resolveApiBase } from "../../lib/live-tracking-utils";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
@@ -11,6 +12,7 @@ import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type {
   AccountSettingsRecord,
   EventFormState,
+  MeetStatsRecord,
   PilotRecord,
   PilotSummaryRecord,
   ResultRecord,
@@ -182,6 +184,21 @@ function taskStatisticRows(statistics: Record<string, unknown> | undefined): Arr
   return Object.entries(statistics ?? {})
     .filter(([, value]) => value !== undefined)
     .map(([param, value]) => ({ param, value: formatTaskStatisticValue(value) }));
+}
+
+function formatMeetStatsHours(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "-";
+  return (seconds / 3600).toFixed(1);
+}
+
+function formatMeetStatsAltitude(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(value))} m`;
+}
+
+function formatMeetStatsDistance(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) return "-";
+  return `${value.toFixed(1)} km`;
 }
 
 function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
@@ -366,6 +383,66 @@ function TaskStatisticsModal({
   );
 }
 
+function MeetStatsButton({
+  onClick,
+  loading,
+}: {
+  onClick: () => void;
+  loading: boolean;
+}) {
+  return (
+    <button type="button" className="meet-stats-button" onClick={onClick} aria-haspopup="dialog">
+      {loading ? "Loading..." : "Meet Stats"}
+    </button>
+  );
+}
+
+function MeetStatsModal({
+  title,
+  stats,
+  loading,
+  error,
+  onClose,
+}: {
+  title: string;
+  stats: MeetStatsRecord | null;
+  loading: boolean;
+  error: string;
+  onClose: () => void;
+}) {
+  const cards = [
+    { label: "Total Airtime hours", value: formatMeetStatsHours(stats?.total_airtime_seconds), detail: "Full scored upload duration" },
+    { label: "Total Airtime hours on Task", value: formatMeetStatsHours(stats?.total_on_task_seconds), detail: "SS to ES/goal scored time" },
+    { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
+    { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
+    { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "Scored task routes counted once" },
+  ];
+  return (
+    <div className="public-scoring-modal-overlay active" onClick={onClose}>
+      <div className="public-scoring-modal meet-stats-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="public-scoring-modal-header">
+          <div>
+            <div className="public-scoring-modal-title">Meet Stats</div>
+            <div className="public-scoring-modal-subtitle">{title}</div>
+          </div>
+          <button type="button" className="public-scoring-modal-close" onClick={onClose} aria-label="Close meet stats">x</button>
+        </div>
+        {error ? <div className="meet-stats-message error">{error}</div> : null}
+        {loading && !stats ? <div className="meet-stats-message">Loading meet stats...</div> : null}
+        <div className="meet-stats-grid">
+          {cards.map((card) => (
+            <div key={card.label} className="meet-stats-card">
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+              <small>{card.detail}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export interface ScoringSectionProps {
   selectedEventId: number | null;
   selectedTaskId: number | null;
@@ -496,12 +573,50 @@ export default function ScoringSection(props: ScoringSectionProps) {
   const [isFullscreenPilotTracksCollapsed, setIsFullscreenPilotTracksCollapsed] = useState(false);
   const [penaltyDetailsResult, setPenaltyDetailsResult] = useState<ResultRecord | null>(null);
   const [taskStatisticsModal, setTaskStatisticsModal] = useState<{ title: string; statistics?: Record<string, unknown> } | null>(null);
+  const [meetStats, setMeetStats] = useState<MeetStatsRecord | null>(null);
+  const [meetStatsEventId, setMeetStatsEventId] = useState<number | null>(null);
+  const [meetStatsModalOpen, setMeetStatsModalOpen] = useState(false);
+  const [meetStatsLoading, setMeetStatsLoading] = useState(false);
+  const [meetStatsError, setMeetStatsError] = useState("");
   const publishedTasks = tasks.filter((task) => task.status === "published");
   const scoringSelectedTaskId = selectedTask?.status === "published" ? selectedTaskId ?? "" : "";
   const scoringTaskPoints = taskDraft.points.length ? taskDraft.points : (selectedTask?.points ?? []);
   const scoringTaskMetrics = computeTaskOptimization(scoringTaskPoints);
   const taskResultSummaryById = useMemo(() => new Map(taskResultSummary.map((summary) => [summary.task_id, summary])), [taskResultSummary]);
   const showTaskStatistics = (title: string, statistics: Record<string, unknown> | undefined) => setTaskStatisticsModal({ title, statistics });
+  useEffect(() => {
+    setMeetStats(null);
+    setMeetStatsEventId(null);
+    setMeetStatsModalOpen(false);
+    setMeetStatsLoading(false);
+    setMeetStatsError("");
+  }, [selectedEventId]);
+  const loadMeetStats = async () => {
+    if (!selectedEventId || meetStatsLoading) return;
+    if (meetStats && meetStatsEventId === selectedEventId) return;
+    setMeetStatsLoading(true);
+    setMeetStatsError("");
+    try {
+      const response = await fetch(`${resolveApiBase()}/api/events/${selectedEventId}/meet-stats`, {
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        throw new Error(`Request failed: ${response.status}`);
+      }
+      const payload = (await response.json()) as MeetStatsRecord;
+      setMeetStats(payload);
+      setMeetStatsEventId(selectedEventId);
+    } catch {
+      setMeetStatsError("Unable to load meet stats.");
+    } finally {
+      setMeetStatsLoading(false);
+    }
+  };
+  const openMeetStats = () => {
+    setMeetStatsModalOpen(true);
+    void loadMeetStats();
+  };
   const overallTaskResultStates = useMemo(() => {
     const states = new Map<number, string>();
     for (const task of scoredTasks) {
@@ -894,6 +1009,13 @@ export default function ScoringSection(props: ScoringSectionProps) {
             <div className="stack form-block">
               {pilotSummary.length ? (
                 <>
+                  <div className="overall-scores-heading">
+                    <div className="public-overall-title-row">
+                      <h2>Overall</h2>
+                      <span className="field-help-button public-scoring-info-button overall-static-info-icon" aria-hidden="true">i</span>
+                      <MeetStatsButton onClick={openMeetStats} loading={meetStatsLoading && meetStatsModalOpen} />
+                    </div>
+                  </div>
                   <div className="results-table-wrap">
                     <table className="results-table results-table-compact overall-task-summary-table">
                       <thead>
@@ -982,6 +1104,15 @@ export default function ScoringSection(props: ScoringSectionProps) {
           title={taskStatisticsModal.title}
           statistics={taskStatisticsModal.statistics}
           onClose={() => setTaskStatisticsModal(null)}
+        />
+      ) : null}
+      {meetStatsModalOpen ? (
+        <MeetStatsModal
+          title={eventForm.name || "Competition"}
+          stats={meetStats}
+          loading={meetStatsLoading}
+          error={meetStatsError}
+          onClose={() => setMeetStatsModalOpen(false)}
         />
       ) : null}
     </div>

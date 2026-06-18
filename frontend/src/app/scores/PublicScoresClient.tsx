@@ -71,6 +71,8 @@ type PilotSummaryRecord = {
 };
 
 type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; statistics?: Record<string, unknown> };
+type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number };
+type MeetStatsRecord = { total_airtime_seconds: number; total_on_task_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number };
 type TaskSubTab = "results" | "map";
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
@@ -326,6 +328,21 @@ function taskStatisticRows(statistics: Record<string, unknown> | undefined): Arr
     .map(([param, value]) => ({ param, value: formatTaskStatisticValue(value) }));
 }
 
+function formatMeetStatsHours(seconds: number | null | undefined): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "-";
+  return (seconds / 3600).toFixed(1);
+}
+
+function formatMeetStatsAltitude(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(value))} m`;
+}
+
+function formatMeetStatsDistance(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value) || value <= 0) return "-";
+  return `${value.toFixed(1)} km`;
+}
+
 function taskTypeLabel(value: string): string {
   switch (value) {
     case "race":
@@ -556,6 +573,66 @@ function TaskStatisticsModal({
   );
 }
 
+function MeetStatsButton({
+  onClick,
+  loading,
+}: {
+  onClick: () => void;
+  loading: boolean;
+}) {
+  return (
+    <button type="button" className="meet-stats-button" onClick={onClick} aria-haspopup="dialog">
+      {loading ? "Loading..." : "Meet Stats"}
+    </button>
+  );
+}
+
+function MeetStatsModal({
+  title,
+  stats,
+  loading,
+  error,
+  onClose,
+}: {
+  title: string;
+  stats: MeetStatsRecord | null;
+  loading: boolean;
+  error: string;
+  onClose: () => void;
+}) {
+  const cards = [
+    { label: "Total Airtime hours", value: formatMeetStatsHours(stats?.total_airtime_seconds), detail: "Full scored upload duration" },
+    { label: "Total Airtime hours on Task", value: formatMeetStatsHours(stats?.total_on_task_seconds), detail: "SS to ES/goal scored time" },
+    { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
+    { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
+    { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "Scored task routes counted once" },
+  ];
+  return (
+    <div className="public-scoring-modal-overlay active" onClick={onClose}>
+      <div className="public-scoring-modal meet-stats-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="public-scoring-modal-header">
+          <div>
+            <div className="public-scoring-modal-title">Meet Stats</div>
+            <div className="public-scoring-modal-subtitle">{title}</div>
+          </div>
+          <button type="button" className="public-scoring-modal-close" onClick={onClose} aria-label="Close meet stats">x</button>
+        </div>
+        {error ? <div className="meet-stats-message error">{error}</div> : null}
+        {loading && !stats ? <div className="meet-stats-message">Loading meet stats...</div> : null}
+        <div className="meet-stats-grid">
+          {cards.map((card) => (
+            <div key={card.label} className="meet-stats-card">
+              <span>{card.label}</span>
+              <strong>{card.value}</strong>
+              <small>{card.detail}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ScoringParametersModal({
   event,
   activeHelpId,
@@ -633,6 +710,11 @@ export function PublicScoresClient() {
   const [showScoringParameters, setShowScoringParameters] = useState(false);
   const [activeScoringParameterHelpId, setActiveScoringParameterHelpId] = useState<ScoringHelpId | null>(null);
   const [taskStatisticsModal, setTaskStatisticsModal] = useState<{ title: string; statistics?: Record<string, unknown> } | null>(null);
+  const [meetStats, setMeetStats] = useState<MeetStatsRecord | null>(null);
+  const [meetStatsEventId, setMeetStatsEventId] = useState<number | null>(null);
+  const [meetStatsModalOpen, setMeetStatsModalOpen] = useState(false);
+  const [meetStatsLoading, setMeetStatsLoading] = useState(false);
+  const [meetStatsError, setMeetStatsError] = useState("");
 
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
@@ -647,6 +729,25 @@ export function PublicScoresClient() {
     [taskResultSummary],
   );
   const showTaskStatistics = (title: string, statistics: Record<string, unknown> | undefined) => setTaskStatisticsModal({ title, statistics });
+  const loadMeetStats = useCallback(async () => {
+    if (selectedEventId == null || meetStatsLoading) return;
+    if (meetStats && meetStatsEventId === selectedEventId) return;
+    setMeetStatsLoading(true);
+    setMeetStatsError("");
+    try {
+      const payload = await fetchJson<MeetStatsRecord>(`${apiBase}/api/public/events/${selectedEventId}/meet-stats`);
+      setMeetStats(payload);
+      setMeetStatsEventId(selectedEventId);
+    } catch {
+      setMeetStatsError("Unable to load meet stats.");
+    } finally {
+      setMeetStatsLoading(false);
+    }
+  }, [apiBase, meetStats, meetStatsEventId, meetStatsLoading, selectedEventId]);
+  const openMeetStats = useCallback(() => {
+    setMeetStatsModalOpen(true);
+    void loadMeetStats();
+  }, [loadMeetStats]);
   const taskMetricsById = useMemo(
     () => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])),
     [tasks],
@@ -904,6 +1005,11 @@ export function PublicScoresClient() {
       setSelectedResultUploadIds([]);
       setResultTracksByUploadId({});
       setHighlightedResultUploadId(null);
+      setMeetStats(null);
+      setMeetStatsEventId(null);
+      setMeetStatsModalOpen(false);
+      setMeetStatsError("");
+      setMeetStatsLoading(false);
       return () => {
         cancelled = true;
       };
@@ -919,6 +1025,11 @@ export function PublicScoresClient() {
     setHighlightedResultUploadId(null);
     setShowScoringParameters(false);
     setActiveScoringParameterHelpId(null);
+    setMeetStats(null);
+    setMeetStatsEventId(null);
+    setMeetStatsModalOpen(false);
+    setMeetStatsError("");
+    setMeetStatsLoading(false);
     (async () => {
       try {
         const [loadedTasks, loadedPilotSummary, loadedTaskResultSummary] = await Promise.all([
@@ -1047,6 +1158,7 @@ export function PublicScoresClient() {
             >
               i
             </button>
+            <MeetStatsButton onClick={openMeetStats} loading={meetStatsLoading && meetStatsModalOpen} />
           </div>
           <p>{selectedEvent?.name ?? "Competition"} {selectedEvent?.location ? `- ${selectedEvent.location}` : ""}</p>
         </div>
@@ -1460,6 +1572,15 @@ export function PublicScoresClient() {
           title={taskStatisticsModal.title}
           statistics={taskStatisticsModal.statistics}
           onClose={() => setTaskStatisticsModal(null)}
+        />
+      ) : null}
+      {meetStatsModalOpen ? (
+        <MeetStatsModal
+          title={selectedEvent?.name ?? "Competition"}
+          stats={meetStats}
+          loading={meetStatsLoading}
+          error={meetStatsError}
+          onClose={() => setMeetStatsModalOpen(false)}
         />
       ) : null}
     </div>

@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, Task, TrackPoint, User
+from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TrackPoint, User
 from app.routers.public import (
     get_public_live_sources,
     get_public_task_results,
@@ -16,6 +16,7 @@ from app.routers.public import (
     public_all_positions,
     public_buddy_group_positions,
     public_event_positions,
+    public_meet_stats,
     public_pilot_summary,
     public_task_result_summary,
     public_task_positions,
@@ -749,6 +750,81 @@ def test_public_task_results_include_provisional_scores() -> None:
     assert payload[2].result_state == "unscored"
     assert payload[2].rank is None
     assert payload[2].score_points == 0
+
+
+def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> None:
+    session = _session()
+    event = Event(
+        name="Public Stats Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+    )
+    private_event = Event(
+        name="Private Stats Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="private",
+    )
+    uploader = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    official_pilot = Pilot(first_name="Ada", last_name="Cloud")
+    provisional_pilot = Pilot(first_name="Ben", last_name="Thermal")
+    session.add_all([event, private_event, uploader, official_pilot, provisional_pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    draft_task = Task(event_id=event.id, name="Draft Task", status="draft", task_date=date(2026, 5, 3))
+    session.add_all([
+        task,
+        draft_task,
+        EventPilot(event_id=event.id, pilot_id=official_pilot.id),
+        EventPilot(event_id=event.id, pilot_id=provisional_pilot.id),
+    ])
+    session.flush()
+    session.add_all([
+        TaskPoint(task_id=task.id, position=1, point_type="start", direction="exit", radius_m=0, name="Start", latitude=0, longitude=0),
+        TaskPoint(task_id=task.id, position=2, point_type="goal", direction="enter", radius_m=0, name="Goal", latitude=0, longitude=0.05),
+        TaskPoint(task_id=draft_task.id, position=1, point_type="start", direction="exit", radius_m=0, name="Start", latitude=1, longitude=1),
+        TaskPoint(task_id=draft_task.id, position=2, point_type="goal", direction="enter", radius_m=0, name="Goal", latitude=1, longitude=1.05),
+    ])
+    start = datetime(2026, 5, 2, 14, 0, tzinfo=UTC)
+    official_upload = IGCUpload(event_id=event.id, task_id=task.id, pilot_id=official_pilot.id, uploaded_by_user_id=uploader.id, filename="ada.igc", sha256="c" * 64, stored_path="/tmp/ada.igc")
+    provisional_upload = IGCUpload(event_id=event.id, task_id=task.id, pilot_id=provisional_pilot.id, uploaded_by_user_id=uploader.id, filename="ben.igc", sha256="d" * 64, stored_path="/tmp/ben.igc")
+    draft_upload = IGCUpload(event_id=event.id, task_id=draft_task.id, pilot_id=official_pilot.id, uploaded_by_user_id=uploader.id, filename="draft.igc", sha256="e" * 64, stored_path="/tmp/draft.igc")
+    session.add_all([official_upload, provisional_upload, draft_upload])
+    session.flush()
+    session.add_all([
+        TrackPoint(upload_id=official_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=500),
+        TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=800),
+        TrackPoint(upload_id=provisional_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=400),
+        TrackPoint(upload_id=provisional_upload.id, sequence=2, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.01, gps_altitude_m=90),
+        TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=950),
+        TrackPoint(upload_id=draft_upload.id, sequence=1, recorded_at=start, latitude=1, longitude=1, gps_altitude_m=1000),
+        TrackPoint(upload_id=draft_upload.id, sequence=2, recorded_at=start + timedelta(hours=1), latitude=1, longitude=1.02, gps_altitude_m=1200),
+    ])
+    session.add_all([
+        ScoreResult(task_id=task.id, pilot_id=official_pilot.id, upload_id=official_upload.id, status="partial", rank=1, distance_flown_km=3, started_at=start, elapsed_seconds=1800, raw_score_points=500, score_points=500, details_json={"task_stats": {"task_distance": 5.5}}, result_state="official"),
+        ScoreResult(task_id=task.id, pilot_id=provisional_pilot.id, upload_id=provisional_upload.id, status="partial", rank=2, distance_flown_km=3, started_at=start, elapsed_seconds=1200, raw_score_points=400, score_points=400, details_json={"task_stats": {"task_distance": 5.5}}, result_state="provisional"),
+        ScoreResult(task_id=draft_task.id, pilot_id=official_pilot.id, upload_id=draft_upload.id, status="partial", rank=1, distance_flown_km=3, started_at=start, elapsed_seconds=9999, raw_score_points=900, score_points=900, details_json={"task_stats": {"task_distance": 6.5}}, result_state="official"),
+    ])
+    session.commit()
+
+    payload = public_meet_stats(event.id, session=session)
+
+    assert payload.total_airtime_seconds == 2 * 3600
+    assert payload.total_on_task_seconds == 3000
+    assert payload.total_xc_distance_km == 5.5
+    assert payload.max_gps_altitude is not None
+    assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
+    assert payload.max_gps_altitude.value_m == 950
+    assert payload.lowest_save is not None
+    assert payload.lowest_save.pilot_name == "Ben Thermal"
+    assert payload.lowest_save.value_m == 90
+    with pytest.raises(HTTPException):
+        public_meet_stats(private_event.id, session=session)
 
 
 def test_public_task_results_sort_minimum_distance_by_points_before_dnf_absent() -> None:
