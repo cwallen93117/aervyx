@@ -219,6 +219,23 @@ function formatMeetStatsFlightDetail(value: number | null | undefined): string {
   return count === "-" ? "Total airtime / scored flights" : `Total airtime / ${count} scored flights`;
 }
 
+async function meetStatsResponseError(response: Response): Promise<string> {
+  const statusText = response.statusText ? ` ${response.statusText}` : "";
+  try {
+    const payload = await response.clone().json() as { detail?: unknown };
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      return `Unable to load meet stats (${response.status}${statusText}): ${payload.detail}`;
+    }
+  } catch {
+    // Fall through to text/status message.
+  }
+  const body = await response.text().catch(() => "");
+  const detail = body.trim().slice(0, 160);
+  return detail
+    ? `Unable to load meet stats (${response.status}${statusText}): ${detail}`
+    : `Unable to load meet stats (${response.status}${statusText}).`;
+}
+
 function taskResultsHeaderLabel(key: "distance" | "speed" | "arrival" | "departure" | "leading"): ReactNode {
   switch (key) {
     case "distance":
@@ -620,14 +637,23 @@ export default function ScoringSection(props: ScoringSectionProps) {
         cache: "no-store",
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) {
-        throw new Error(`Request failed: ${response.status}`);
+      let payload: MeetStatsRecord;
+      if (response.ok) {
+        payload = (await response.json()) as MeetStatsRecord;
+      } else if (eventForm.visibility === "public") {
+        const internalError = await meetStatsResponseError(response);
+        const publicResponse = await fetch(`${resolveApiBase()}/api/public/events/${selectedEventId}/meet-stats`, { cache: "no-store" });
+        if (!publicResponse.ok) {
+          throw new Error(`${internalError} Public fallback also failed: ${await meetStatsResponseError(publicResponse)}`);
+        }
+        payload = (await publicResponse.json()) as MeetStatsRecord;
+      } else {
+        throw new Error(await meetStatsResponseError(response));
       }
-      const payload = (await response.json()) as MeetStatsRecord;
       setMeetStats(payload);
       setMeetStatsEventId(selectedEventId);
-    } catch {
-      setMeetStatsError("Unable to load meet stats.");
+    } catch (caught) {
+      setMeetStatsError(caught instanceof Error ? caught.message : "Unable to load meet stats.");
     } finally {
       setMeetStatsLoading(false);
     }

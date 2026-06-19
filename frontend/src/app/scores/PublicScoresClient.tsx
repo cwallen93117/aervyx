@@ -164,7 +164,20 @@ function readNumericSearchParam(name: string): number | null {
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Request failed: ${response.status}`);
+    const statusText = response.statusText ? ` ${response.statusText}` : "";
+    try {
+      const payload = await response.clone().json() as { detail?: unknown };
+      if (typeof payload.detail === "string" && payload.detail.trim()) {
+        throw new Error(`Request failed (${response.status}${statusText}): ${payload.detail}`);
+      }
+    } catch (caught) {
+      if (caught instanceof Error && caught.message.startsWith("Request failed")) {
+        throw caught;
+      }
+    }
+    const body = await response.text().catch(() => "");
+    const detail = body.trim().slice(0, 160);
+    throw new Error(detail ? `Request failed (${response.status}${statusText}): ${detail}` : `Request failed (${response.status}${statusText}).`);
   }
   return (await response.json()) as T;
 }
@@ -772,8 +785,8 @@ export function PublicScoresClient() {
       const payload = await fetchJson<MeetStatsRecord>(`${apiBase}/api/public/events/${selectedEventId}/meet-stats`);
       setMeetStats(payload);
       setMeetStatsEventId(selectedEventId);
-    } catch {
-      setMeetStatsError("Unable to load meet stats.");
+    } catch (caught) {
+      setMeetStatsError(caught instanceof Error ? caught.message : "Unable to load meet stats.");
     } finally {
       setMeetStatsLoading(false);
     }
