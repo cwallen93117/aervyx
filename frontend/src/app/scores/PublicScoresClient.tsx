@@ -389,21 +389,97 @@ function formatMeetStatsFlightDetail(value: number | null | undefined): string {
   return count === "-" ? "Total airtime / scored flights" : `Total airtime / ${count} scored flights`;
 }
 
-function formatMeetStatsTraceTime(value: string | null | undefined): string {
+function formatMeetStatsTraceTime(value: string | null | undefined, timezone: string | null | undefined): string {
   if (!value) return "-";
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return new Intl.DateTimeFormat("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZone: "UTC",
-    timeZoneName: "short",
-  }).format(parsed);
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZone: timezone || "UTC",
+      timeZoneName: "short",
+    }).format(parsed);
+  } catch {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+      timeZone: "UTC",
+      timeZoneName: "short",
+    }).format(parsed);
+  }
 }
 
 function meetStatsTraceDetail(label: string, record: MeetStatsHighlightRecord | null | undefined): { label: string; record: MeetStatsHighlightRecord } | null {
   return record ? { label, record } : null;
+}
+
+function meetStatsTracePosition(element: HTMLElement): { top: number; left: number } {
+  const rect = element.getBoundingClientRect();
+  const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+  const width = Math.min(292, Math.max(240, viewportWidth - 24));
+  const height = 170;
+  const left = Math.min(Math.max(12, rect.left + rect.width / 2 - width / 2), Math.max(12, viewportWidth - width - 12));
+  const belowTop = rect.bottom + 8;
+  const top = belowTop + height > viewportHeight - 12 ? Math.max(12, rect.top - height - 8) : belowTop;
+  return { top, left };
+}
+
+function MeetStatsTraceCallout({
+  trace,
+  timezone,
+  onClose,
+}: {
+  trace: { label: string; record: MeetStatsHighlightRecord; top: number; left: number };
+  timezone?: string | null;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-label={`${trace.label} trace details`}
+      onClick={(event) => event.stopPropagation()}
+      style={{
+        position: "fixed",
+        top: trace.top,
+        left: trace.left,
+        zIndex: 1200,
+        width: "min(292px, calc(100vw - 24px))",
+        padding: "12px 14px",
+        borderRadius: 8,
+        border: "1px solid rgba(251, 191, 36, 0.45)",
+        background: "rgba(15, 23, 42, 0.98)",
+        boxShadow: "0 18px 38px rgba(2, 6, 23, 0.42)",
+        color: "#e5e7eb",
+        fontSize: "0.82rem",
+        lineHeight: 1.45,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+        <strong style={{ color: "#f8fafc", fontSize: "0.9rem" }}>{trace.label}</strong>
+        <button
+          type="button"
+          className="public-scoring-modal-close"
+          onClick={onClose}
+          aria-label="Close trace details"
+          style={{ width: 28, height: 28, minHeight: 28, fontSize: "0.85rem" }}
+        >
+          x
+        </button>
+      </div>
+      <div style={{ marginTop: 8, color: "rgba(226, 232, 240, 0.78)" }}>
+        <div>Pilot: {trace.record.pilot_name}</div>
+        <div>Task: {trace.record.task_name}</div>
+        <div>Date: {formatDateLabel(trace.record.task_date ?? trace.record.recorded_at)}</div>
+        <div>Time: {formatMeetStatsTraceTime(trace.record.recorded_at, timezone)}</div>
+      </div>
+    </div>
+  );
 }
 
 function taskTypeLabel(value: string): string {
@@ -652,18 +728,20 @@ function MeetStatsButton({
 
 function MeetStatsModal({
   title,
+  timezone,
   stats,
   loading,
   error,
   onClose,
 }: {
   title: string;
+  timezone?: string | null;
   stats: MeetStatsRecord | null;
   loading: boolean;
   error: string;
   onClose: () => void;
 }) {
-  const [activeTrace, setActiveTrace] = useState<{ label: string; record: MeetStatsHighlightRecord } | null>(null);
+  const [activeTrace, setActiveTrace] = useState<{ label: string; record: MeetStatsHighlightRecord; top: number; left: number } | null>(null);
   const cards = [
     { label: "Pilots / Days Counted", value: formatMeetStatsPilotDayCount(stats), detail: "Scored track data / task days" },
     { label: "Average Flight Time", value: formatMeetStatsHours(stats?.average_airtime_seconds), detail: formatMeetStatsFlightDetail(stats?.flight_count) },
@@ -684,41 +762,32 @@ function MeetStatsModal({
         </div>
         {error ? <div className="meet-stats-message error">{error}</div> : null}
         {loading && !stats ? <div className="meet-stats-message">Loading meet stats...</div> : null}
-        {activeTrace ? (
-          <div className="meet-stats-message" role="status">
-            <strong>{activeTrace.label}</strong>
-            <br />
-            Pilot: {activeTrace.record.pilot_name}
-            <br />
-            Task: {activeTrace.record.task_name}
-            <br />
-            Date: {formatDateLabel(activeTrace.record.task_date ?? activeTrace.record.recorded_at)}
-            <br />
-            Time: {formatMeetStatsTraceTime(activeTrace.record.recorded_at)}
-          </div>
-        ) : null}
+        {activeTrace ? <MeetStatsTraceCallout trace={activeTrace} timezone={timezone} onClose={() => setActiveTrace(null)} /> : null}
         <div className="meet-stats-grid">
-          {cards.map((card) => (
-            <div key={card.label} className="meet-stats-card">
-              <span>
-                {card.label}
-                {card.trace ? (
-                  <button
-                    type="button"
-                    className="field-help-button public-scoring-info-button task-statistics-info-button"
-                    style={{ marginLeft: 8, verticalAlign: "middle" }}
-                    aria-label={`Show trace details for ${card.label}`}
-                    aria-haspopup="dialog"
-                    onClick={() => setActiveTrace(card.trace)}
-                  >
-                    i
-                  </button>
-                ) : null}
-              </span>
-              <strong>{card.value}</strong>
-              <small>{card.detail}</small>
-            </div>
-          ))}
+          {cards.map((card) => {
+            const trace = card.trace;
+            return (
+              <div key={card.label} className="meet-stats-card">
+                <span>
+                  {card.label}
+                  {trace ? (
+                    <button
+                      type="button"
+                      className="field-help-button public-scoring-info-button task-statistics-info-button"
+                      style={{ marginLeft: 8, verticalAlign: "middle" }}
+                      aria-label={`Show trace details for ${card.label}`}
+                      aria-haspopup="dialog"
+                      onClick={(event) => setActiveTrace({ ...trace, ...meetStatsTracePosition(event.currentTarget) })}
+                    >
+                      i
+                    </button>
+                  ) : null}
+                </span>
+                <strong>{card.value}</strong>
+                <small>{card.detail}</small>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
@@ -1669,6 +1738,7 @@ export function PublicScoresClient() {
       {meetStatsModalOpen ? (
         <MeetStatsModal
           title={selectedEvent?.name ?? "Competition"}
+          timezone={selectedEvent?.timezone}
           stats={meetStats}
           loading={meetStatsLoading}
           error={meetStatsError}
