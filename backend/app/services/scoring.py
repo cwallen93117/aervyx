@@ -14,6 +14,7 @@ from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import delete, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Event, EventMeetStatsCache, EventPilot, IGCUpload, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint
@@ -159,6 +160,17 @@ def _as_utc_aware(value: datetime | None) -> datetime | None:
 
 def _trackpoint_recorded_at_utc(point: TrackPoint) -> datetime:
     return _as_utc_aware(point.recorded_at) or point.recorded_at.replace(tzinfo=UTC)
+
+
+def _valid_degrees(latitude: float | None, longitude: float | None) -> bool:
+    if latitude is None or longitude is None:
+        return False
+    try:
+        lat = float(latitude)
+        lon = float(longitude)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(lat) and math.isfinite(lon) and -90 <= lat <= 90 and -180 <= lon <= 180
 
 
 def _resolve_task_time_utc(value: str | None, trackpoints: list[TrackPoint], timezone_name: str) -> datetime | None:
@@ -696,10 +708,12 @@ def _meet_stats_progress_m(
 ) -> float:
     if not waypoints:
         return 0.0
-    coord = to_rad_dict(point.latitude, point.longitude, time=_trackpoint_recorded_at_utc(point).timestamp())
     try:
+        if not _valid_degrees(point.latitude, point.longitude):
+            return 0.0
+        coord = to_rad_dict(point.latitude, point.longitude, time=_trackpoint_recorded_at_utc(point).timestamp())
         progress_m = airscore_distance_flown(waypoints, len(waypoints) - 1, coord)
-    except (IndexError, ZeroDivisionError, TypeError, ValueError):
+    except (IndexError, ZeroDivisionError, TypeError, ValueError, OverflowError):
         return 0.0
     return max(0.0, min(float(progress_m or 0.0), total_distance_m))
 
@@ -715,15 +729,25 @@ def _lowest_save_for_result(
     on_task_points = [
         point
         for point in sorted(trackpoints, key=lambda point: point.sequence)
-        if point.gps_altitude_m is not None and _trackpoint_recorded_at_utc(point) >= started_at_utc
+        if point.gps_altitude_m is not None
+        and _valid_degrees(point.latitude, point.longitude)
+        and _trackpoint_recorded_at_utc(point) >= started_at_utc
     ]
     if len(on_task_points) < 2:
         return None
 
-    total_distance_km, airscore_waypoints = _compute_optimized_task_distance(task_points)
+    if any(not _valid_degrees(point.latitude, point.longitude) for point in task_points):
+        return None
+    try:
+        total_distance_km, airscore_waypoints = _compute_optimized_task_distance(task_points)
+    except (IndexError, ZeroDivisionError, TypeError, ValueError, OverflowError):
+        return None
     if total_distance_km <= 0 or not airscore_waypoints:
         return None
-    distance_waypoints, _ = _prepare_waypoints_for_distance(airscore_waypoints)
+    try:
+        distance_waypoints, _ = _prepare_waypoints_for_distance(airscore_waypoints)
+    except (IndexError, ZeroDivisionError, TypeError, ValueError, OverflowError):
+        return None
     if not distance_waypoints:
         return None
     total_distance_m = total_distance_km * 1000.0
@@ -816,7 +840,19 @@ def build_cached_meet_stats_payload(
     )
     cache_row = EventMeetStatsCache(event_id=event_id, scope=scope, payload_json=payload)
     session.add(cache_row)
-    session.flush()
+    try:
+        session.flush()
+    except IntegrityError:
+        session.rollback()
+        cached = session.scalar(
+            select(EventMeetStatsCache).where(
+                EventMeetStatsCache.event_id == event_id,
+                EventMeetStatsCache.scope == scope,
+            )
+        )
+        if cached is not None and isinstance(cached.payload_json, dict):
+            return dict(cached.payload_json)
+        raise
     return payload
 
 

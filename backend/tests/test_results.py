@@ -256,6 +256,64 @@ def test_meet_stats_cache_is_reused_until_invalidated() -> None:
     assert recalculated_payload.total_xc_distance_km == 17.0
 
 
+def test_meet_stats_skips_bad_low_save_geometry_without_failing() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(name="Bad Geometry Race", location="Ridge", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
+    pilot = Pilot(first_name="Ada", last_name="Cloud")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    session.add(task)
+    session.flush()
+    session.add_all([
+        TaskPoint(task_id=task.id, position=1, point_type="start", direction="exit", radius_m=0, name="Start", latitude=0, longitude=0),
+        TaskPoint(task_id=task.id, position=2, point_type="goal", direction="enter", radius_m=0, name="Bad Goal", latitude=999, longitude=0),
+    ])
+    start = datetime(2026, 5, 2, 14, 0, tzinfo=UTC)
+    upload = IGCUpload(
+        event_id=event.id,
+        task_id=task.id,
+        pilot_id=pilot.id,
+        uploaded_by_user_id=admin.id,
+        filename="bad.igc",
+        sha256="f" * 64,
+        stored_path="/tmp/bad.igc",
+    )
+    session.add(upload)
+    session.flush()
+    session.add_all([
+        TrackPoint(upload_id=upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=500),
+        TrackPoint(upload_id=upload.id, sequence=2, recorded_at=start + timedelta(minutes=30), latitude=999, longitude=0, gps_altitude_m=120),
+        TrackPoint(upload_id=upload.id, sequence=3, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.01, gps_altitude_m=800),
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilot.id,
+            upload_id=upload.id,
+            status="partial",
+            rank=1,
+            distance_flown_km=8,
+            started_at=start,
+            elapsed_seconds=3600,
+            raw_score_points=500,
+            score_points=500,
+            result_state="official",
+        ),
+    ])
+    session.commit()
+
+    payload = meet_stats(event.id, user=admin, session=session)
+
+    assert payload.total_airtime_seconds == 3600
+    assert payload.total_on_task_seconds == 3600
+    assert payload.total_xc_distance_km == 8
+    assert payload.pilot_count == 1
+    assert payload.day_count == 1
+    assert payload.max_gps_altitude is not None
+    assert payload.max_gps_altitude.value_m == 800
+    assert payload.lowest_save is None
+
+
 def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
     session = _session()
     event, _admin, viewer = _add_meet_stats_fixture(session)
