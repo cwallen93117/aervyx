@@ -32,6 +32,7 @@ MEET_STATS_RESULT_STATES = {"official", "provisional"}
 MEET_STATS_SCOPE_INTERNAL_ALL = "internal_all"
 MEET_STATS_SCOPE_INTERNAL_OFFICIAL = "internal_official"
 MEET_STATS_SCOPE_PUBLIC = "public_published"
+MEET_STATS_CACHE_SCHEMA_VERSION = 2
 MIN_LOW_SAVE_GPS_ALTITUDE_M = 30.48
 MIN_LOW_SAVE_CLIMB_AFTER_M = 91.44
 _FL2026_TASK1_OFFICIAL_RESULTS = [
@@ -780,28 +781,17 @@ def _lowest_save_for_result(
     return lowest
 
 
-def _meet_stats_on_task_seconds(result: ScoreResult, trackpoints: list[TrackPoint]) -> int:
-    started_at = _as_utc_aware(result.started_at)
-    if started_at is None:
-        return int(result.elapsed_seconds or 0) if result.elapsed_seconds and result.elapsed_seconds > 0 else 0
-    finish_at = _as_utc_aware(result.goal_at) or _as_utc_aware(result.ess_at)
-    if finish_at is None and trackpoints:
-        finish_at = _trackpoint_recorded_at_utc(trackpoints[-1])
-    if finish_at is None:
-        return int(result.elapsed_seconds or 0) if result.elapsed_seconds and result.elapsed_seconds > 0 else 0
-    seconds = int(max(0, (finish_at - started_at).total_seconds()))
-    return seconds
-
-
 def _empty_meet_stats_payload() -> dict:
     return {
+        "schema_version": MEET_STATS_CACHE_SCHEMA_VERSION,
         "total_airtime_seconds": 0,
-        "total_on_task_seconds": 0,
+        "average_airtime_seconds": 0,
         "max_gps_altitude": None,
         "lowest_save": None,
         "total_xc_distance_km": 0.0,
         "pilot_count": 0,
         "day_count": 0,
+        "flight_count": 0,
     }
 
 
@@ -829,7 +819,11 @@ def build_cached_meet_stats_payload(
             EventMeetStatsCache.scope == scope,
         )
     )
-    if cached is not None and isinstance(cached.payload_json, dict):
+    if (
+        cached is not None
+        and isinstance(cached.payload_json, dict)
+        and cached.payload_json.get("schema_version") == MEET_STATS_CACHE_SCHEMA_VERSION
+    ):
         return dict(cached.payload_json)
 
     payload = build_meet_stats_payload(
@@ -838,6 +832,11 @@ def build_cached_meet_stats_payload(
         published_tasks_only=published_tasks_only,
         result_states=result_states,
     )
+    if cached is not None:
+        cached.payload_json = payload
+        session.flush()
+        return payload
+
     cache_row = EventMeetStatsCache(event_id=event_id, scope=scope, payload_json=payload)
     session.add(cache_row)
     try:
@@ -904,6 +903,7 @@ def build_meet_stats_payload(
     }
     day_count = len(day_keys)
     total_airtime_seconds = 0
+    flight_count = 0
     for upload_id in {int(result.upload_id) for result, _task, _pilot in usable_rows if result.upload_id is not None}:
         points = trackpoints_by_upload.get(upload_id, [])
         if len(points) < 2:
@@ -912,12 +912,8 @@ def build_meet_stats_payload(
         ended = _trackpoint_recorded_at_utc(points[-1])
         duration = int(max(0, (ended - started).total_seconds()))
         total_airtime_seconds += duration
-
-    total_on_task_seconds = sum(
-        _meet_stats_on_task_seconds(result, trackpoints_by_upload.get(int(result.upload_id), []))
-        for result, _task, _pilot in usable_rows
-        if result.upload_id is not None
-    )
+        flight_count += 1
+    average_airtime_seconds = int(round(total_airtime_seconds / flight_count)) if flight_count else 0
 
     task_points_by_task: dict[int, list[TaskPoint]] = {}
 
@@ -969,13 +965,15 @@ def build_meet_stats_payload(
                 }
 
     return {
+        "schema_version": MEET_STATS_CACHE_SCHEMA_VERSION,
         "total_airtime_seconds": total_airtime_seconds,
-        "total_on_task_seconds": total_on_task_seconds,
+        "average_airtime_seconds": average_airtime_seconds,
         "max_gps_altitude": max_gps_altitude,
         "lowest_save": lowest_save,
         "total_xc_distance_km": round(total_xc_distance_km, 3),
         "pilot_count": pilot_count,
         "day_count": day_count,
+        "flight_count": flight_count,
     }
 
 

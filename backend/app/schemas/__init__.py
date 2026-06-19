@@ -696,12 +696,13 @@ class MeetStatsHighlightResponse(BaseModel):
 
 class MeetStatsResponse(BaseModel):
     total_airtime_seconds: int = 0
-    total_on_task_seconds: int = 0
+    average_airtime_seconds: int = 0
     max_gps_altitude: MeetStatsHighlightResponse | None = None
     lowest_save: MeetStatsHighlightResponse | None = None
     total_xc_distance_km: float = 0
     pilot_count: int = 0
     day_count: int = 0
+    flight_count: int = 0
 
 
 class TaskScoringInputUpdate(BaseModel):

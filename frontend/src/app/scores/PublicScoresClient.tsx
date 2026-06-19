@@ -72,7 +72,7 @@ type PilotSummaryRecord = {
 
 type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; statistics?: Record<string, unknown> };
 type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number };
-type MeetStatsRecord = { total_airtime_seconds: number; total_on_task_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number; pilot_count: number; day_count: number };
+type MeetStatsRecord = { total_airtime_seconds: number; average_airtime_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number; pilot_count: number; day_count: number; flight_count: number };
 type TaskSubTab = "results" | "map";
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
@@ -345,7 +345,7 @@ function taskStatisticRows(statistics: Record<string, unknown> | undefined): Arr
 
 function formatMeetStatsHours(seconds: number | null | undefined): string {
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "-";
-  return (seconds / 3600).toFixed(1);
+  return new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(seconds / 3600);
 }
 
 function formatMeetStatsAltitude(value: number | null | undefined): string {
@@ -356,12 +356,24 @@ function formatMeetStatsAltitude(value: number | null | undefined): string {
 
 function formatMeetStatsDistance(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value <= 0) return "-";
-  return `${value.toFixed(1)} km`;
+  return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)} km`;
 }
 
 function formatMeetStatsCount(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value <= 0) return "-";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(value));
+}
+
+function formatMeetStatsPilotDayCount(stats: MeetStatsRecord | null): string {
+  const pilots = formatMeetStatsCount(stats?.pilot_count);
+  const days = formatMeetStatsCount(stats?.day_count);
+  if (pilots === "-" && days === "-") return "-";
+  return `${pilots} pilots / ${days} days`;
+}
+
+function formatMeetStatsFlightDetail(value: number | null | undefined): string {
+  const count = formatMeetStatsCount(value);
+  return count === "-" ? "Total airtime / scored flights" : `Total airtime / ${count} scored flights`;
 }
 
 function taskTypeLabel(value: string): string {
@@ -623,12 +635,11 @@ function MeetStatsModal({
 }) {
   const cards = [
     { label: "Total Airtime hours", value: formatMeetStatsHours(stats?.total_airtime_seconds), detail: "Full scored upload duration" },
-    { label: "Total Airtime hours on Task", value: formatMeetStatsHours(stats?.total_on_task_seconds), detail: "SS to ES/goal or last fix" },
+    { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "All pilot scored distances" },
+    { label: "Average Flight Time", value: formatMeetStatsHours(stats?.average_airtime_seconds), detail: formatMeetStatsFlightDetail(stats?.flight_count) },
     { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
     { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
-    { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "All pilot scored distances" },
-    { label: "Pilots Counted", value: formatMeetStatsCount(stats?.pilot_count), detail: "Pilots with scored track data" },
-    { label: "Days Counted", value: formatMeetStatsCount(stats?.day_count), detail: "Scored task days included" },
+    { label: "Pilots / Days Counted", value: formatMeetStatsPilotDayCount(stats), detail: "Scored track data / task days" },
   ];
   return (
     <div className="public-scoring-modal-overlay active" onClick={onClose}>

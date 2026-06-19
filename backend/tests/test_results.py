@@ -215,10 +215,11 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     payload = meet_stats(event.id, user=admin, session=session)
 
     assert payload.total_airtime_seconds == 3 * 3600
-    assert payload.total_on_task_seconds == 10800
+    assert payload.average_airtime_seconds == 5400
     assert payload.total_xc_distance_km == 7.0
     assert payload.pilot_count == 2
     assert payload.day_count == 1
+    assert payload.flight_count == 2
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
     assert payload.max_gps_altitude.value_m == 900
@@ -233,6 +234,7 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     )
     assert cache_row is not None
     assert cache_row.payload_json["total_xc_distance_km"] == 7.0
+    assert cache_row.payload_json["schema_version"] == 2
 
 
 def test_meet_stats_cache_is_reused_until_invalidated() -> None:
@@ -254,6 +256,33 @@ def test_meet_stats_cache_is_reused_until_invalidated() -> None:
     session.commit()
     recalculated_payload = meet_stats(event.id, user=admin, session=session)
     assert recalculated_payload.total_xc_distance_km == 17.0
+
+
+def test_meet_stats_refreshes_old_cache_schema() -> None:
+    session = _session()
+    event, admin, _viewer = _add_meet_stats_fixture(session)
+    session.add(
+        EventMeetStatsCache(
+            event_id=event.id,
+            scope=MEET_STATS_SCOPE_INTERNAL_ALL,
+            payload_json={"total_airtime_seconds": 1, "total_xc_distance_km": 1.0},
+        )
+    )
+    session.commit()
+
+    payload = meet_stats(event.id, user=admin, session=session)
+
+    assert payload.total_airtime_seconds == 3 * 3600
+    assert payload.average_airtime_seconds == 5400
+    cache_row = session.scalar(
+        select(EventMeetStatsCache).where(
+            EventMeetStatsCache.event_id == event.id,
+            EventMeetStatsCache.scope == MEET_STATS_SCOPE_INTERNAL_ALL,
+        )
+    )
+    assert cache_row is not None
+    assert cache_row.payload_json["schema_version"] == 2
+    assert cache_row.payload_json["average_airtime_seconds"] == 5400
 
 
 def test_meet_stats_skips_bad_low_save_geometry_without_failing() -> None:
@@ -305,10 +334,11 @@ def test_meet_stats_skips_bad_low_save_geometry_without_failing() -> None:
     payload = meet_stats(event.id, user=admin, session=session)
 
     assert payload.total_airtime_seconds == 3600
-    assert payload.total_on_task_seconds == 3600
+    assert payload.average_airtime_seconds == 3600
     assert payload.total_xc_distance_km == 8
     assert payload.pilot_count == 1
     assert payload.day_count == 1
+    assert payload.flight_count == 1
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.value_m == 800
     assert payload.lowest_save is None
@@ -321,10 +351,11 @@ def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
     payload = meet_stats(event.id, user=viewer, session=session)
 
     assert payload.total_airtime_seconds == 2 * 3600
-    assert payload.total_on_task_seconds == 7200
+    assert payload.average_airtime_seconds == 7200
     assert payload.total_xc_distance_km == 4.0
     assert payload.pilot_count == 1
     assert payload.day_count == 1
+    assert payload.flight_count == 1
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ada Cloud"
     assert payload.max_gps_altitude.value_m == 700
