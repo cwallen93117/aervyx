@@ -32,8 +32,11 @@ MEET_STATS_RESULT_STATES = {"official", "provisional"}
 MEET_STATS_SCOPE_INTERNAL_ALL = "internal_all"
 MEET_STATS_SCOPE_INTERNAL_OFFICIAL = "internal_official"
 MEET_STATS_SCOPE_PUBLIC = "public_published"
-MEET_STATS_CACHE_SCHEMA_VERSION = 2
-MIN_LOW_SAVE_GPS_ALTITUDE_M = 30.48
+MEET_STATS_CACHE_SCHEMA_VERSION = 3
+# Ignore near-ground GPS altitude dropouts when picking a meet-wide "save".
+# HC 2026 exposed tracks where GPS altitude fell to implausible 0-100 ft values
+# while the coordinate stream continued normally down course.
+MIN_LOW_SAVE_GPS_ALTITUDE_M = 121.92
 MIN_LOW_SAVE_CLIMB_AFTER_M = 91.44
 _FL2026_TASK1_OFFICIAL_RESULTS = [
     {"comp": "666", "name": "Jonny Durand", "ss": "14:20:00", "es": "16:34:17", "time": "02:14:17", "speed": 53.10, "distance": 123.8, "distance_points": 492.8, "leading": 88.8, "time_points": 355.0, "arrival": 63.4, "total": 1000.0, "status": "goal"},
@@ -781,6 +784,14 @@ def _lowest_save_for_result(
     return lowest
 
 
+def _meet_stats_point_timestamp(point: TrackPoint) -> str:
+    return _trackpoint_recorded_at_utc(point).isoformat().replace("+00:00", "Z")
+
+
+def _meet_stats_task_date(task: Task) -> str | None:
+    return task.task_date.isoformat() if task.task_date is not None else None
+
+
 def _empty_meet_stats_payload() -> dict:
     return {
         "schema_version": MEET_STATS_CACHE_SCHEMA_VERSION,
@@ -949,11 +960,13 @@ def build_meet_stats_payload(
                     "task_name": task.name,
                     "upload_id": upload_id,
                     "value_m": altitude_m,
+                    "recorded_at": _meet_stats_point_timestamp(point),
+                    "task_date": _meet_stats_task_date(task),
                 }
 
         result_lowest_save = _lowest_save_for_result(_task_points(task.id), points, result.started_at)
         if result_lowest_save is not None:
-            altitude_m, _point = result_lowest_save
+            altitude_m, point = result_lowest_save
             if lowest_save is None or altitude_m < lowest_save["value_m"]:
                 lowest_save = {
                     "pilot_id": pilot.id,
@@ -962,6 +975,8 @@ def build_meet_stats_payload(
                     "task_name": task.name,
                     "upload_id": upload_id,
                     "value_m": altitude_m,
+                    "recorded_at": _meet_stats_point_timestamp(point),
+                    "task_date": _meet_stats_task_date(task),
                 }
 
     return {

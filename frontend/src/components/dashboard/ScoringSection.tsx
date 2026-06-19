@@ -12,6 +12,7 @@ import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type {
   AccountSettingsRecord,
   EventFormState,
+  MeetStatsHighlightRecord,
   MeetStatsRecord,
   PilotRecord,
   PilotSummaryRecord,
@@ -217,6 +218,23 @@ function formatMeetStatsPilotDayCount(stats: MeetStatsRecord | null): string {
 function formatMeetStatsFlightDetail(value: number | null | undefined): string {
   const count = formatMeetStatsCount(value);
   return count === "-" ? "Total airtime / scored flights" : `Total airtime / ${count} scored flights`;
+}
+
+function formatMeetStatsTraceTime(value: string | null | undefined): string {
+  if (!value) return "-";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  }).format(parsed);
+}
+
+function meetStatsTraceDetail(label: string, record: MeetStatsHighlightRecord | null | undefined): { label: string; record: MeetStatsHighlightRecord } | null {
+  return record ? { label, record } : null;
 }
 
 async function meetStatsResponseError(response: Response): Promise<string> {
@@ -445,13 +463,14 @@ function MeetStatsModal({
   error: string;
   onClose: () => void;
 }) {
+  const [activeTrace, setActiveTrace] = useState<{ label: string; record: MeetStatsHighlightRecord } | null>(null);
   const cards = [
+    { label: "Pilots / Days Counted", value: formatMeetStatsPilotDayCount(stats), detail: "Scored track data / task days" },
+    { label: "Average Flight Time", value: formatMeetStatsHours(stats?.average_airtime_seconds), detail: formatMeetStatsFlightDetail(stats?.flight_count) },
     { label: "Total Airtime hours", value: formatMeetStatsHours(stats?.total_airtime_seconds), detail: "Full scored upload duration" },
     { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "All pilot scored distances" },
-    { label: "Average Flight Time", value: formatMeetStatsHours(stats?.average_airtime_seconds), detail: formatMeetStatsFlightDetail(stats?.flight_count) },
-    { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-" },
-    { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-" },
-    { label: "Pilots / Days Counted", value: formatMeetStatsPilotDayCount(stats), detail: "Scored track data / task days" },
+    { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-", trace: meetStatsTraceDetail("Max GPS Altitude", stats?.max_gps_altitude) },
+    { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-", trace: meetStatsTraceDetail("Lowest Save GPS Altitude", stats?.lowest_save) },
   ];
   return (
     <div className="public-scoring-modal-overlay active" onClick={onClose}>
@@ -465,10 +484,37 @@ function MeetStatsModal({
         </div>
         {error ? <div className="meet-stats-message error">{error}</div> : null}
         {loading && !stats ? <div className="meet-stats-message">Loading meet stats...</div> : null}
+        {activeTrace ? (
+          <div className="meet-stats-message" role="status">
+            <strong>{activeTrace.label}</strong>
+            <br />
+            Pilot: {activeTrace.record.pilot_name}
+            <br />
+            Task: {activeTrace.record.task_name}
+            <br />
+            Date: {formatDateLabel(activeTrace.record.task_date ?? activeTrace.record.recorded_at)}
+            <br />
+            Time: {formatMeetStatsTraceTime(activeTrace.record.recorded_at)}
+          </div>
+        ) : null}
         <div className="meet-stats-grid">
           {cards.map((card) => (
             <div key={card.label} className="meet-stats-card">
-              <span>{card.label}</span>
+              <span>
+                {card.label}
+                {card.trace ? (
+                  <button
+                    type="button"
+                    className="field-help-button public-scoring-info-button task-statistics-info-button"
+                    style={{ marginLeft: 8, verticalAlign: "middle" }}
+                    aria-label={`Show trace details for ${card.label}`}
+                    aria-haspopup="dialog"
+                    onClick={() => setActiveTrace(card.trace)}
+                  >
+                    i
+                  </button>
+                ) : null}
+              </span>
               <strong>{card.value}</strong>
               <small>{card.detail}</small>
             </div>

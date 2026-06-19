@@ -86,7 +86,7 @@ def _add_meet_stats_fixture(session: Session) -> tuple[Event, User, User]:
     session.add_all([
         TrackPoint(upload_id=official_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=400),
         TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(minutes=20), latitude=0, longitude=0.005, gps_altitude_m=3),
-        TrackPoint(upload_id=official_upload.id, sequence=3, recorded_at=start + timedelta(minutes=40), latitude=0, longitude=0.01, gps_altitude_m=95),
+        TrackPoint(upload_id=official_upload.id, sequence=3, recorded_at=start + timedelta(minutes=40), latitude=0, longitude=0.01, gps_altitude_m=130),
         TrackPoint(upload_id=official_upload.id, sequence=4, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.02, gps_altitude_m=650),
         TrackPoint(upload_id=official_upload.id, sequence=5, recorded_at=start + timedelta(hours=2), latitude=0, longitude=0.04, gps_altitude_m=700),
         TrackPoint(upload_id=provisional_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=450),
@@ -223,9 +223,13 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
     assert payload.max_gps_altitude.value_m == 900
+    assert payload.max_gps_altitude.recorded_at == "2026-04-19T15:00:00Z"
+    assert payload.max_gps_altitude.task_date == "2026-04-19"
     assert payload.lowest_save is not None
     assert payload.lowest_save.pilot_name == "Ada Cloud"
-    assert payload.lowest_save.value_m == 95
+    assert payload.lowest_save.value_m == 130
+    assert payload.lowest_save.recorded_at == "2026-04-19T14:40:00Z"
+    assert payload.lowest_save.task_date == "2026-04-19"
     cache_row = session.scalar(
         select(EventMeetStatsCache).where(
             EventMeetStatsCache.event_id == event.id,
@@ -234,7 +238,7 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     )
     assert cache_row is not None
     assert cache_row.payload_json["total_xc_distance_km"] == 7.0
-    assert cache_row.payload_json["schema_version"] == 2
+    assert cache_row.payload_json["schema_version"] == 3
 
 
 def test_meet_stats_cache_is_reused_until_invalidated() -> None:
@@ -281,7 +285,7 @@ def test_meet_stats_refreshes_old_cache_schema() -> None:
         )
     )
     assert cache_row is not None
-    assert cache_row.payload_json["schema_version"] == 2
+    assert cache_row.payload_json["schema_version"] == 3
     assert cache_row.payload_json["average_airtime_seconds"] == 5400
 
 
@@ -361,7 +365,7 @@ def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
     assert payload.max_gps_altitude.value_m == 700
     assert payload.lowest_save is not None
     assert payload.lowest_save.pilot_name == "Ada Cloud"
-    assert payload.lowest_save.value_m == 95
+    assert payload.lowest_save.value_m == 130
 
 
 def test_task_results_include_penalty_calculation_details() -> None:

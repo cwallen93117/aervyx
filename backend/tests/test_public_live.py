@@ -801,7 +801,7 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> N
         TrackPoint(upload_id=official_upload.id, sequence=2, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=800),
         TrackPoint(upload_id=provisional_upload.id, sequence=1, recorded_at=start, latitude=0, longitude=0, gps_altitude_m=400),
         TrackPoint(upload_id=provisional_upload.id, sequence=2, recorded_at=start + timedelta(minutes=20), latitude=0, longitude=0.005, gps_altitude_m=3),
-        TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.01, gps_altitude_m=90),
+        TrackPoint(upload_id=provisional_upload.id, sequence=3, recorded_at=start + timedelta(minutes=30), latitude=0, longitude=0.01, gps_altitude_m=130),
         TrackPoint(upload_id=provisional_upload.id, sequence=4, recorded_at=start + timedelta(hours=1), latitude=0, longitude=0.03, gps_altitude_m=950),
         TrackPoint(upload_id=draft_upload.id, sequence=1, recorded_at=start, latitude=1, longitude=1, gps_altitude_m=1000),
         TrackPoint(upload_id=draft_upload.id, sequence=2, recorded_at=start + timedelta(hours=1), latitude=1, longitude=1.02, gps_altitude_m=1200),
@@ -824,9 +824,13 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> N
     assert payload.max_gps_altitude is not None
     assert payload.max_gps_altitude.pilot_name == "Ben Thermal"
     assert payload.max_gps_altitude.value_m == 950
+    assert payload.max_gps_altitude.recorded_at == "2026-05-02T15:00:00Z"
+    assert payload.max_gps_altitude.task_date == "2026-05-02"
     assert payload.lowest_save is not None
     assert payload.lowest_save.pilot_name == "Ben Thermal"
-    assert payload.lowest_save.value_m == 90
+    assert payload.lowest_save.value_m == 130
+    assert payload.lowest_save.recorded_at == "2026-05-02T14:30:00Z"
+    assert payload.lowest_save.task_date == "2026-05-02"
     with pytest.raises(HTTPException):
         public_meet_stats(private_event.id, session=session)
 

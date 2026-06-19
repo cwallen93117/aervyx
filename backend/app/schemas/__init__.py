@@ -692,6 +692,8 @@ class MeetStatsHighlightResponse(BaseModel):
     task_name: str
     upload_id: int
     value_m: float
+    recorded_at: str | None = None
+    task_date: str | None = None
 
 
 class MeetStatsResponse(BaseModel):
