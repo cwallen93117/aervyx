@@ -2,6 +2,7 @@ import asyncio
 from datetime import UTC, date, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -11,6 +12,11 @@ from app.routers import results as results_router
 from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
 from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, invalidate_event_meet_stats_cache
+
+
+@pytest.fixture(autouse=True)
+def _stub_ground_elevation(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.scoring.sample_ground_elevation_m", lambda lat, lon: 100.0)
 
 
 def _session() -> Session:
@@ -208,9 +214,10 @@ def test_task_result_summary_hides_provisional_scores_from_pilots() -> None:
     ]
 
 
-def test_meet_stats_returns_event_aggregates_for_admin() -> None:
+def test_meet_stats_returns_event_aggregates_for_admin(monkeypatch) -> None:
     session = _session()
     event, admin, _viewer = _add_meet_stats_fixture(session)
+    monkeypatch.setattr("app.services.scoring.sample_ground_elevation_m", lambda lat, lon: 100.0)
 
     payload = meet_stats(event.id, user=admin, session=session)
 
@@ -230,6 +237,10 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     assert payload.lowest_save.value_m == 130
     assert payload.lowest_save.recorded_at == "2026-04-19T14:40:00Z"
     assert payload.lowest_save.task_date == "2026-04-19"
+    assert payload.lowest_save.latitude == 0
+    assert payload.lowest_save.longitude == 0.01
+    assert payload.lowest_save.ground_altitude_m == 100
+    assert payload.lowest_save.agl_altitude_m == 30
     cache_row = session.scalar(
         select(EventMeetStatsCache).where(
             EventMeetStatsCache.event_id == event.id,
@@ -238,7 +249,7 @@ def test_meet_stats_returns_event_aggregates_for_admin() -> None:
     )
     assert cache_row is not None
     assert cache_row.payload_json["total_xc_distance_km"] == 7.0
-    assert cache_row.payload_json["schema_version"] == 3
+    assert cache_row.payload_json["schema_version"] == 4
 
 
 def test_meet_stats_cache_is_reused_until_invalidated() -> None:
@@ -285,7 +296,7 @@ def test_meet_stats_refreshes_old_cache_schema() -> None:
         )
     )
     assert cache_row is not None
-    assert cache_row.payload_json["schema_version"] == 3
+    assert cache_row.payload_json["schema_version"] == 4
     assert cache_row.payload_json["average_airtime_seconds"] == 5400
 
 

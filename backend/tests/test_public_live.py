@@ -752,8 +752,9 @@ def test_public_task_results_include_provisional_scores() -> None:
     assert payload[2].score_points == 0
 
 
-def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> None:
+def test_public_meet_stats_include_provisional_scores_for_published_tasks(monkeypatch) -> None:
     session = _session()
+    monkeypatch.setattr("app.services.scoring.sample_ground_elevation_m", lambda lat, lon: 105.0)
     event = Event(
         name="Public Stats Comp",
         location="Ridge",
@@ -831,6 +832,10 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks() -> N
     assert payload.lowest_save.value_m == 130
     assert payload.lowest_save.recorded_at == "2026-05-02T14:30:00Z"
     assert payload.lowest_save.task_date == "2026-05-02"
+    assert payload.lowest_save.latitude == 0
+    assert payload.lowest_save.longitude == 0.01
+    assert payload.lowest_save.ground_altitude_m == 105
+    assert payload.lowest_save.agl_altitude_m == 25
     with pytest.raises(HTTPException):
         public_meet_stats(private_event.id, session=session)
 

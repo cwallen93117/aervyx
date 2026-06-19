@@ -694,6 +694,10 @@ class MeetStatsHighlightResponse(BaseModel):
     value_m: float
     recorded_at: str | None = None
     task_date: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    ground_altitude_m: float | None = None
+    agl_altitude_m: float | None = None
 
 
 class MeetStatsResponse(BaseModel):

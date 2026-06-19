@@ -71,7 +71,7 @@ type PilotSummaryRecord = {
 };
 
 type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; statistics?: Record<string, unknown> };
-type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number; recorded_at?: string | null; task_date?: string | null };
+type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number; recorded_at?: string | null; task_date?: string | null; latitude?: number | null; longitude?: number | null; ground_altitude_m?: number | null; agl_altitude_m?: number | null };
 type MeetStatsRecord = { total_airtime_seconds: number; average_airtime_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number; pilot_count: number; day_count: number; flight_count: number };
 type TaskSubTab = "results" | "map";
 
@@ -367,6 +367,22 @@ function formatMeetStatsAltitude(value: number | null | undefined): string {
   return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Math.round(feet))} ft`;
 }
 
+function formatMeetStatsLowestSaveValue(record: MeetStatsHighlightRecord | null | undefined): string {
+  if (!record) return "-";
+  return record.agl_altitude_m != null && Number.isFinite(record.agl_altitude_m)
+    ? `${formatMeetStatsAltitude(record.agl_altitude_m)} AGL`
+    : `${formatMeetStatsAltitude(record.value_m)} MSL`;
+}
+
+function formatMeetStatsLowestSaveDetail(record: MeetStatsHighlightRecord | null | undefined): string {
+  if (!record) return "-";
+  const pilot = record.pilot_name || "-";
+  if (record.agl_altitude_m != null && Number.isFinite(record.agl_altitude_m)) {
+    return `${formatMeetStatsAltitude(record.value_m)} MSL - ${pilot}`;
+  }
+  return pilot;
+}
+
 function formatMeetStatsDistance(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value) || value <= 0) return "-";
   return `${new Intl.NumberFormat("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(value)} km`;
@@ -423,7 +439,7 @@ function meetStatsTracePosition(element: HTMLElement): { top: number; left: numb
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
   const width = Math.min(292, Math.max(240, viewportWidth - 24));
-  const height = 170;
+  const height = 220;
   const left = Math.min(Math.max(12, rect.left + rect.width / 2 - width / 2), Math.max(12, viewportWidth - width - 12));
   const belowTop = rect.bottom + 8;
   const top = belowTop + height > viewportHeight - 12 ? Math.max(12, rect.top - height - 8) : belowTop;
@@ -477,6 +493,9 @@ function MeetStatsTraceCallout({
         <div>Task: {trace.record.task_name}</div>
         <div>Date: {formatDateLabel(trace.record.task_date ?? trace.record.recorded_at)}</div>
         <div>Time: {formatMeetStatsTraceTime(trace.record.recorded_at, timezone)}</div>
+        {trace.record.agl_altitude_m != null ? <div>AGL: {formatMeetStatsAltitude(trace.record.agl_altitude_m)}</div> : null}
+        <div>MSL: {formatMeetStatsAltitude(trace.record.value_m)}</div>
+        {trace.record.ground_altitude_m != null ? <div>Ground: {formatMeetStatsAltitude(trace.record.ground_altitude_m)}</div> : null}
       </div>
     </div>
   );
@@ -748,7 +767,7 @@ function MeetStatsModal({
     { label: "Total Airtime hours", value: formatMeetStatsHours(stats?.total_airtime_seconds), detail: "Full scored upload duration" },
     { label: "Total XC Distance", value: formatMeetStatsDistance(stats?.total_xc_distance_km), detail: "All pilot scored distances" },
     { label: "Max GPS Altitude", value: formatMeetStatsAltitude(stats?.max_gps_altitude?.value_m), detail: stats?.max_gps_altitude?.pilot_name ?? "-", trace: meetStatsTraceDetail("Max GPS Altitude", stats?.max_gps_altitude) },
-    { label: "Lowest Save GPS Altitude", value: formatMeetStatsAltitude(stats?.lowest_save?.value_m), detail: stats?.lowest_save?.pilot_name ?? "-", trace: meetStatsTraceDetail("Lowest Save GPS Altitude", stats?.lowest_save) },
+    { label: "Lowest Save GPS Altitude", value: formatMeetStatsLowestSaveValue(stats?.lowest_save), detail: formatMeetStatsLowestSaveDetail(stats?.lowest_save), trace: meetStatsTraceDetail("Lowest Save GPS Altitude", stats?.lowest_save) },
   ];
   return (
     <div className="public-scoring-modal-overlay active" onClick={onClose}>

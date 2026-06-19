@@ -25,6 +25,7 @@ from app.services.airscore.task import distance_flown as airscore_distance_flown
 from app.services.airscore.track_lib import PI, distance as vincenty_distance, distance_deg, to_rad_dict
 from app.services.airscore.verify import coord_from_degrees as airscore_coord_from_degrees
 from app.services.airscore.verify import validate_task as airscore_validate_task
+from app.services.terrain_elevation import sample_ground_elevation_m
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
 COMPETITIVE_STATUSES = {"goal", "ess", "partial"}
@@ -32,7 +33,7 @@ MEET_STATS_RESULT_STATES = {"official", "provisional"}
 MEET_STATS_SCOPE_INTERNAL_ALL = "internal_all"
 MEET_STATS_SCOPE_INTERNAL_OFFICIAL = "internal_official"
 MEET_STATS_SCOPE_PUBLIC = "public_published"
-MEET_STATS_CACHE_SCHEMA_VERSION = 3
+MEET_STATS_CACHE_SCHEMA_VERSION = 4
 # Ignore near-ground GPS altitude dropouts when picking a meet-wide "save".
 # HC 2026 exposed tracks where GPS altitude fell to implausible 0-100 ft values
 # while the coordinate stream continued normally down course.
@@ -792,6 +793,28 @@ def _meet_stats_task_date(task: Task) -> str | None:
     return task.task_date.isoformat() if task.task_date is not None else None
 
 
+def _meet_stats_point_location(point: TrackPoint) -> dict[str, float]:
+    return {
+        "latitude": float(point.latitude),
+        "longitude": float(point.longitude),
+    }
+
+
+def _add_lowest_save_agl(lowest_save: dict | None) -> None:
+    if lowest_save is None:
+        return
+    latitude = _optional_float(lowest_save.get("latitude"))
+    longitude = _optional_float(lowest_save.get("longitude"))
+    value_m = _optional_float(lowest_save.get("value_m"))
+    if latitude is None or longitude is None or value_m is None:
+        return
+    ground_m = sample_ground_elevation_m(latitude, longitude)
+    if ground_m is None:
+        return
+    lowest_save["ground_altitude_m"] = round(float(ground_m), 2)
+    lowest_save["agl_altitude_m"] = round(float(value_m) - float(ground_m), 2)
+
+
 def _empty_meet_stats_payload() -> dict:
     return {
         "schema_version": MEET_STATS_CACHE_SCHEMA_VERSION,
@@ -962,6 +985,7 @@ def build_meet_stats_payload(
                     "value_m": altitude_m,
                     "recorded_at": _meet_stats_point_timestamp(point),
                     "task_date": _meet_stats_task_date(task),
+                    **_meet_stats_point_location(point),
                 }
 
         result_lowest_save = _lowest_save_for_result(_task_points(task.id), points, result.started_at)
@@ -977,7 +1001,10 @@ def build_meet_stats_payload(
                     "value_m": altitude_m,
                     "recorded_at": _meet_stats_point_timestamp(point),
                     "task_date": _meet_stats_task_date(task),
+                    **_meet_stats_point_location(point),
                 }
+
+    _add_lowest_save_agl(lowest_save)
 
     return {
         "schema_version": MEET_STATS_CACHE_SCHEMA_VERSION,
