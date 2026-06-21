@@ -9,11 +9,15 @@ This module is the only place that bridges Aervyx ORM models ↔ AirScore dicts.
 from __future__ import annotations
 
 import copy
+import logging
 import math
+import threading
+import time as time_module
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -39,6 +43,12 @@ MEET_STATS_CACHE_SCHEMA_VERSION = 4
 # while the coordinate stream continued normally down course.
 MIN_LOW_SAVE_GPS_ALTITUDE_M = 121.92
 MIN_LOW_SAVE_CLIMB_AFTER_M = 91.44
+
+logger = logging.getLogger(__name__)
+_meet_stats_refresh_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="meet-stats-refresh")
+_meet_stats_refresh_lock = threading.Lock()
+_meet_stats_refresh_pending: set[int] = set()
+_MEET_STATS_REFRESH_SESSION_KEY = "meet_stats_refresh_event_ids"
 _FL2026_TASK1_OFFICIAL_RESULTS = [
     {"comp": "666", "name": "Jonny Durand", "ss": "14:20:00", "es": "16:34:17", "time": "02:14:17", "speed": 53.10, "distance": 123.8, "distance_points": 492.8, "leading": 88.8, "time_points": 355.0, "arrival": 63.4, "total": 1000.0, "status": "goal"},
     {"comp": "99", "name": "Robin Hamilton", "ss": "14:20:00", "es": "16:35:12", "time": "02:15:12", "speed": 52.74, "distance": 123.8, "distance_points": 492.8, "leading": 78.0, "time_points": 347.2, "arrival": 47.9, "total": 965.9, "status": "goal"},
@@ -829,8 +839,94 @@ def _empty_meet_stats_payload() -> dict:
     }
 
 
+def _meet_stats_cache_payload(payload: dict | None, status: str) -> dict:
+    data = dict(payload) if isinstance(payload, dict) else _empty_meet_stats_payload()
+    data["cache_status"] = status
+    return data
+
+
+def _store_meet_stats_cache_payload(session: Session, event_id: int, scope: str, payload: dict) -> dict:
+    data = dict(payload)
+    data["schema_version"] = MEET_STATS_CACHE_SCHEMA_VERSION
+    data["cache_status"] = "fresh"
+    cached = session.scalar(
+        select(EventMeetStatsCache).where(
+            EventMeetStatsCache.event_id == event_id,
+            EventMeetStatsCache.scope == scope,
+        )
+    )
+    now = datetime.now(UTC)
+    if cached is not None:
+        cached.payload_json = data
+        cached.calculated_at = now
+        session.flush()
+        return data
+    cache_row = EventMeetStatsCache(event_id=event_id, scope=scope, payload_json=data, calculated_at=now)
+    session.add(cache_row)
+    session.flush()
+    return data
+
+
+def refresh_event_meet_stats_cache(session: Session, event_id: int) -> None:
+    variants = [
+        (MEET_STATS_SCOPE_INTERNAL_ALL, False, {"official", "provisional"}),
+        (MEET_STATS_SCOPE_INTERNAL_OFFICIAL, False, {"official"}),
+        (MEET_STATS_SCOPE_PUBLIC, True, {"official", "provisional"}),
+    ]
+    for scope, published_tasks_only, result_states in variants:
+        payload = build_meet_stats_payload(
+            session,
+            event_id,
+            published_tasks_only=published_tasks_only,
+            result_states=result_states,
+        )
+        _store_meet_stats_cache_payload(session, event_id, scope, payload)
+
+
+def _run_event_meet_stats_refresh(event_id: int, delay_seconds: float = 0.0) -> None:
+    if delay_seconds > 0:
+        time_module.sleep(delay_seconds)
+    try:
+        from app.db import SessionLocal
+
+        with SessionLocal() as session:
+            refresh_event_meet_stats_cache(session, event_id)
+            session.commit()
+    except Exception:
+        logger.exception("Failed refreshing meet stats cache for event %s", event_id)
+    finally:
+        with _meet_stats_refresh_lock:
+            _meet_stats_refresh_pending.discard(event_id)
+
+
+def queue_event_meet_stats_refresh(event_id: int | None, *, delay_seconds: float = 1.0) -> None:
+    if event_id is None:
+        return
+    event_id_int = int(event_id)
+    with _meet_stats_refresh_lock:
+        if event_id_int in _meet_stats_refresh_pending:
+            return
+        _meet_stats_refresh_pending.add(event_id_int)
+    _meet_stats_refresh_executor.submit(_run_event_meet_stats_refresh, event_id_int, delay_seconds)
+
+
+@event.listens_for(Session, "after_commit")
+def _queue_meet_stats_refresh_after_commit(session: Session) -> None:
+    event_ids = session.info.pop(_MEET_STATS_REFRESH_SESSION_KEY, set())
+    for event_id in event_ids:
+        queue_event_meet_stats_refresh(event_id, delay_seconds=0.0)
+
+
+@event.listens_for(Session, "after_rollback")
+def _clear_meet_stats_refresh_after_rollback(session: Session) -> None:
+    session.info.pop(_MEET_STATS_REFRESH_SESSION_KEY, None)
+
+
 def invalidate_event_meet_stats_cache(session: Session, event_id: int) -> None:
-    session.execute(delete(EventMeetStatsCache).where(EventMeetStatsCache.event_id == event_id))
+    cached_rows = session.scalars(select(EventMeetStatsCache).where(EventMeetStatsCache.event_id == event_id)).all()
+    for cached in cached_rows:
+        cached.payload_json = _meet_stats_cache_payload(cached.payload_json, "stale")
+    session.info.setdefault(_MEET_STATS_REFRESH_SESSION_KEY, set()).add(int(event_id))
 
 
 def invalidate_task_meet_stats_cache(session: Session, task_id: int) -> None:
@@ -846,6 +942,7 @@ def build_cached_meet_stats_payload(
     *,
     published_tasks_only: bool = False,
     result_states: set[str] | None = None,
+    allow_sync_refresh: bool = False,
 ) -> dict:
     cached = session.scalar(
         select(EventMeetStatsCache).where(
@@ -857,8 +954,32 @@ def build_cached_meet_stats_payload(
         cached is not None
         and isinstance(cached.payload_json, dict)
         and cached.payload_json.get("schema_version") == MEET_STATS_CACHE_SCHEMA_VERSION
+        and cached.payload_json.get("cache_status") not in {"stale", "refreshing"}
     ):
         return dict(cached.payload_json)
+
+    if not allow_sync_refresh:
+        queue_event_meet_stats_refresh(event_id)
+        if cached is not None and isinstance(cached.payload_json, dict):
+            cached.payload_json = _meet_stats_cache_payload(cached.payload_json, "refreshing")
+            session.flush()
+            return dict(cached.payload_json)
+        payload = _meet_stats_cache_payload(_empty_meet_stats_payload(), "refreshing")
+        session.add(EventMeetStatsCache(event_id=event_id, scope=scope, payload_json=payload))
+        try:
+            session.flush()
+        except IntegrityError:
+            session.rollback()
+            cached = session.scalar(
+                select(EventMeetStatsCache).where(
+                    EventMeetStatsCache.event_id == event_id,
+                    EventMeetStatsCache.scope == scope,
+                )
+            )
+            if cached is not None and isinstance(cached.payload_json, dict):
+                return dict(cached.payload_json)
+            raise
+        return payload
 
     payload = build_meet_stats_payload(
         session,
@@ -867,14 +988,10 @@ def build_cached_meet_stats_payload(
         result_states=result_states,
     )
     if cached is not None:
-        cached.payload_json = payload
-        session.flush()
-        return payload
+        return _store_meet_stats_cache_payload(session, event_id, scope, payload)
 
-    cache_row = EventMeetStatsCache(event_id=event_id, scope=scope, payload_json=payload)
-    session.add(cache_row)
     try:
-        session.flush()
+        return _store_meet_stats_cache_payload(session, event_id, scope, payload)
     except IntegrityError:
         session.rollback()
         cached = session.scalar(

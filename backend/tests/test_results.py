@@ -11,12 +11,13 @@ from app.models import Event, EventMeetStatsCache, EventPilot, IGCUpload, Pilot,
 from app.routers import results as results_router
 from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
-from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, invalidate_event_meet_stats_cache
+from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, build_cached_meet_stats_payload, invalidate_event_meet_stats_cache, refresh_event_meet_stats_cache
 
 
 @pytest.fixture(autouse=True)
 def _stub_ground_elevation(monkeypatch) -> None:
     monkeypatch.setattr("app.services.scoring.sample_ground_elevation_m", lambda lat, lon: 100.0)
+    monkeypatch.setattr("app.services.scoring.queue_event_meet_stats_refresh", lambda *args, **kwargs: None)
 
 
 def _session() -> Session:
@@ -218,6 +219,8 @@ def test_meet_stats_returns_event_aggregates_for_admin(monkeypatch) -> None:
     session = _session()
     event, admin, _viewer = _add_meet_stats_fixture(session)
     monkeypatch.setattr("app.services.scoring.sample_ground_elevation_m", lambda lat, lon: 100.0)
+    refresh_event_meet_stats_cache(session, event.id)
+    session.commit()
 
     payload = meet_stats(event.id, user=admin, session=session)
 
@@ -252,9 +255,31 @@ def test_meet_stats_returns_event_aggregates_for_admin(monkeypatch) -> None:
     assert cache_row.payload_json["schema_version"] == 4
 
 
+def test_meet_stats_returns_immediately_and_queues_refresh_on_empty_cache(monkeypatch) -> None:
+    session = _session()
+    event, admin, _viewer = _add_meet_stats_fixture(session)
+    queued: list[int] = []
+    monkeypatch.setattr("app.services.scoring.queue_event_meet_stats_refresh", lambda event_id, **_kwargs: queued.append(int(event_id)))
+
+    payload = meet_stats(event.id, user=admin, session=session)
+
+    assert payload.total_airtime_seconds == 0
+    assert queued == [event.id]
+    cache_row = session.scalar(
+        select(EventMeetStatsCache).where(
+            EventMeetStatsCache.event_id == event.id,
+            EventMeetStatsCache.scope == MEET_STATS_SCOPE_INTERNAL_ALL,
+        )
+    )
+    assert cache_row is not None
+    assert cache_row.payload_json["cache_status"] == "refreshing"
+
+
 def test_meet_stats_cache_is_reused_until_invalidated() -> None:
     session = _session()
     event, admin, _viewer = _add_meet_stats_fixture(session)
+    refresh_event_meet_stats_cache(session, event.id)
+    session.commit()
 
     first_payload = meet_stats(event.id, user=admin, session=session)
     assert first_payload.total_xc_distance_km == 7.0
@@ -268,6 +293,11 @@ def test_meet_stats_cache_is_reused_until_invalidated() -> None:
     assert cached_payload.total_xc_distance_km == 7.0
 
     invalidate_event_meet_stats_cache(session, event.id)
+    session.commit()
+    stale_payload = meet_stats(event.id, user=admin, session=session)
+    assert stale_payload.total_xc_distance_km == 7.0
+
+    refresh_event_meet_stats_cache(session, event.id)
     session.commit()
     recalculated_payload = meet_stats(event.id, user=admin, session=session)
     assert recalculated_payload.total_xc_distance_km == 17.0
@@ -285,10 +315,11 @@ def test_meet_stats_refreshes_old_cache_schema() -> None:
     )
     session.commit()
 
-    payload = meet_stats(event.id, user=admin, session=session)
+    payload_dict = build_cached_meet_stats_payload(session, event.id, MEET_STATS_SCOPE_INTERNAL_ALL, result_states={"official", "provisional"}, allow_sync_refresh=True)
+    session.commit()
 
-    assert payload.total_airtime_seconds == 3 * 3600
-    assert payload.average_airtime_seconds == 5400
+    assert payload_dict["total_airtime_seconds"] == 3 * 3600
+    assert payload_dict["average_airtime_seconds"] == 5400
     cache_row = session.scalar(
         select(EventMeetStatsCache).where(
             EventMeetStatsCache.event_id == event.id,
@@ -345,6 +376,8 @@ def test_meet_stats_skips_bad_low_save_geometry_without_failing() -> None:
         ),
     ])
     session.commit()
+    refresh_event_meet_stats_cache(session, event.id)
+    session.commit()
 
     payload = meet_stats(event.id, user=admin, session=session)
 
@@ -362,6 +395,8 @@ def test_meet_stats_skips_bad_low_save_geometry_without_failing() -> None:
 def test_meet_stats_hides_provisional_scores_from_pilots() -> None:
     session = _session()
     event, _admin, viewer = _add_meet_stats_fixture(session)
+    refresh_event_meet_stats_cache(session, event.id)
+    session.commit()
 
     payload = meet_stats(event.id, user=viewer, session=session)
 

@@ -23,6 +23,7 @@ from app.routers.public import (
 )
 from app.routers.tracking import admin_live_backtest_sources, admin_live_backtest_track
 from app.services.pilot_identity import merge_pilots
+from app.services.scoring import refresh_event_meet_stats_cache
 
 
 def _session() -> Session:
@@ -854,6 +855,7 @@ def test_public_task_results_include_provisional_scores() -> None:
 def test_public_meet_stats_include_provisional_scores_for_published_tasks(monkeypatch) -> None:
     session = _session()
     monkeypatch.setattr("app.services.scoring.sample_ground_elevation_m", lambda lat, lon: 105.0)
+    monkeypatch.setattr("app.services.scoring.queue_event_meet_stats_refresh", lambda *args, **kwargs: None)
     event = Event(
         name="Public Stats Comp",
         location="Ridge",
@@ -911,6 +913,8 @@ def test_public_meet_stats_include_provisional_scores_for_published_tasks(monkey
         ScoreResult(task_id=task.id, pilot_id=provisional_pilot.id, upload_id=provisional_upload.id, status="partial", rank=2, distance_flown_km=3, started_at=start, elapsed_seconds=1200, raw_score_points=400, score_points=400, details_json={"task_stats": {"task_distance": 5.5}}, result_state="provisional"),
         ScoreResult(task_id=draft_task.id, pilot_id=official_pilot.id, upload_id=draft_upload.id, status="partial", rank=1, distance_flown_km=3, started_at=start, elapsed_seconds=9999, raw_score_points=900, score_points=900, details_json={"task_stats": {"task_distance": 6.5}}, result_state="official"),
     ])
+    session.commit()
+    refresh_event_meet_stats_cache(session, event.id)
     session.commit()
 
     payload = public_meet_stats(event.id, session=session)
