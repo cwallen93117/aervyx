@@ -3,9 +3,9 @@ credentials-file: /etc/cloudflared/YOUR-STAGING-TUNNEL-ID.json
 
 ingress:
   - hostname: staging.aervyx.net
-    service: http://frontend:3000
+    service: http://aervyx-staging-frontend-1:3000
   - hostname: api-staging.aervyx.net
-    service: http://backend:8000
+    service: http://aervyx-staging-backend-1:8000
   - hostname: deploy-staging.aervyx.net
     service: http://host.docker.internal:9100
   - service: http_status:404

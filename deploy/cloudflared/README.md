@@ -12,9 +12,14 @@ This folder is intentionally **not live**. It contains the example pieces needed
 
 - `aervyx.net` -> frontend (`http://frontend:3000`)
 - `api.aervyx.net` -> backend (`http://backend:8000`)
-- `staging.aervyx.net` -> frontend (`http://frontend:3000`)
-- `api-staging.aervyx.net` -> backend (`http://backend:8000`)
+- `staging.aervyx.net` -> frontend (`http://aervyx-staging-frontend-1:3000`)
+- `api-staging.aervyx.net` -> backend (`http://aervyx-staging-backend-1:8000`)
 - `deploy-staging.aervyx.net` -> host-side webhook listener (`http://host.docker.internal:9100`)
+
+Use the concrete staging container names when one tunnel connector is attached
+to more than one Compose network. Bare service names such as `frontend` and
+`backend` are ambiguous when production, staging, and alpha stacks are all
+attached to the connector.
 
 ## Activation Reminder
 

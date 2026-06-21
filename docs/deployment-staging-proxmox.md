@@ -112,6 +112,12 @@ Backend env should include:
 - `API_PUBLIC_URL=https://api-staging.aervyx.net`
 - `CORS_ORIGINS=["https://staging.aervyx.net","https://api-staging.aervyx.net"]`
 - `ALLOWED_HOSTS` updated for staging names
+- `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from the Google OAuth project
+
+The Google OAuth web client must also allow `https://staging.aervyx.net` as an
+Authorized JavaScript origin. Without that origin, Google Identity Services will
+load on the login page but reject the staging site before the backend receives a
+credential.
 
 Frontend env should include:
 
@@ -133,6 +139,15 @@ Create a Cloudflare Tunnel and attach DNS routes for:
 - `staging.aervyx.net`
 - `api-staging.aervyx.net`
 - `deploy-staging.aervyx.net`
+
+If the tunnel connector is shared across production, staging, and alpha Docker
+networks, route staging hostnames to the unique Compose container names:
+
+- `staging.aervyx.net` -> `http://aervyx-staging-frontend-1:3000`
+- `api-staging.aervyx.net` -> `http://aervyx-staging-backend-1:8000`
+
+Avoid bare service names such as `frontend` and `backend` in shared-tunnel
+configs because each Compose stack has services with those names.
 
 Protection boundary:
 
