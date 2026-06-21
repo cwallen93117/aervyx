@@ -215,11 +215,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
               const SizedBox(height: 8),
 
-              // Flight time — right below the button
-              _FlightTimeDisplay(
-                tracking: tracking,
-                label: isDriverProfile ? 'Relay time' : null,
-              ),
+              if (!isDriverProfile)
+                _FlightTimeDisplay(
+                  tracking: tracking,
+                ),
 
               if (isDriverProfile) ...[
                 const SizedBox(height: 8),
@@ -495,6 +494,31 @@ class _DriverRelayStatusPanel extends StatelessWidget {
                       subtitle,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: accent.withAlpha(28),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: accent.withAlpha(90)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.timer, size: 16, color: accent),
+                    const SizedBox(width: 5),
+                    Text(
+                      _formatRelayDuration(tracking.flightDuration),
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: colorScheme.onSurface,
+                        fontWeight: FontWeight.w700,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -1631,16 +1655,8 @@ class _MeshDetails extends StatelessWidget {
 
 class _FlightTimeDisplay extends StatelessWidget {
   final TrackingService tracking;
-  final String? label;
 
-  const _FlightTimeDisplay({required this.tracking, this.label});
-
-  String _formatDuration(Duration d) {
-    final hours = d.inHours.toString().padLeft(2, '0');
-    final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
-    final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
-    return '$hours:$minutes:$seconds';
-  }
+  const _FlightTimeDisplay({required this.tracking});
 
   @override
   Widget build(BuildContext context) {
@@ -1659,18 +1675,8 @@ class _FlightTimeDisplay extends StatelessWidget {
               : theme.colorScheme.onSurfaceVariant,
         ),
         const SizedBox(width: 6),
-        if (label != null) ...[
-          Text(
-            label!,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(width: 6),
-        ],
         Text(
-          _formatDuration(duration),
+          _formatRelayDuration(duration),
           style: theme.textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.w600,
             fontFeatures: const [FontFeature.tabularFigures()],
@@ -1682,6 +1688,13 @@ class _FlightTimeDisplay extends StatelessWidget {
       ],
     );
   }
+}
+
+String _formatRelayDuration(Duration d) {
+  final hours = d.inHours.toString().padLeft(2, '0');
+  final minutes = (d.inMinutes % 60).toString().padLeft(2, '0');
+  final seconds = (d.inSeconds % 60).toString().padLeft(2, '0');
+  return '$hours:$minutes:$seconds';
 }
 
 // ── SOS Button ──

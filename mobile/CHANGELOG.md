@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.62+79 - 2026-06-21
+
+### Changed
+- Driver mode now shows relay time inside the active relay card beside the
+  relay status instead of as a separate row below the card.
+
 ## 0.4.61+78 - 2026-06-21
 
 ### Changed
