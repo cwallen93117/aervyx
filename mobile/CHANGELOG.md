@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.61+78 - 2026-06-21
+
+### Changed
+- Driver mode now hides the Flights/logbook shortcut.
+- The driver relay card now includes the active task summary, while the pilot
+  relay list is a larger standalone card.
+- The driver pilot list now shows altitude, distance remaining around the
+  active task to goal, and a directions button for each pilot.
+
 ## 0.4.60+77 - 2026-06-12
 
 ### Changed

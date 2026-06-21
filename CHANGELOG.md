@@ -13,6 +13,14 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.21]
+
+### Changed
+- **Mobile v0.4.61+78** gives driver mode a larger standalone pilot relay card
+  with altitude, remaining active-task distance to goal, and per-pilot driving
+  directions, folds the current task summary into the active relay card, and
+  hides the Flights/logbook shortcut for driver profiles.
+
 ## [2026.06.14]
 
 ### Changed

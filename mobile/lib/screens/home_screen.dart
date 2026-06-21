@@ -1,8 +1,10 @@
-import 'dart:ui';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
+import '../models/turnpoint.dart';
 import '../models/meshtastic_protobufs.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
@@ -11,6 +13,7 @@ import '../services/tracking_service.dart';
 import '../utils/app_shutdown.dart';
 import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
+import '../widgets/live_tracking_map_helpers.dart';
 import 'flights_screen.dart';
 import 'live_view_screen.dart';
 import 'meshtastic_settings_screen.dart';
@@ -95,7 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
+                const Text(
                   'Aervyx',
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
@@ -142,13 +145,14 @@ class _HomeScreenState extends State<HomeScreen> {
               MaterialPageRoute(builder: (_) => const LiveViewScreen()),
             ),
           ),
-          IconButton(
-            icon: const Icon(Icons.flight),
-            tooltip: 'Flights',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const FlightsScreen()),
+          if (!isDriverProfile)
+            IconButton(
+              icon: const Icon(Icons.flight),
+              tooltip: 'Flights',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FlightsScreen()),
+              ),
             ),
-          ),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',
@@ -217,6 +221,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: isDriverProfile ? 'Relay time' : null,
               ),
 
+              if (isDriverProfile) ...[
+                const SizedBox(height: 8),
+                _DriverPilotRelayCard(
+                  pilots: driver.visiblePilots,
+                  activeTask: tracking.activeTask,
+                  altitudeUnit: auth.user?.altitudeUnit ?? 'm',
+                  distanceUnit: auth.user?.distanceUnit ?? 'km',
+                ),
+              ],
+
               // Status text (pre-flight, monitoring, landing countdown)
               if (!isDriverProfile) _StatusText(tracking: tracking),
 
@@ -238,9 +252,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
 
-              _ActiveTaskLabel(tracking: tracking),
-
-              if (tracking.activeTask != null) const SizedBox(height: 8),
+              if (!isDriverProfile) ...[
+                _ActiveTaskLabel(tracking: tracking),
+                if (tracking.activeTask != null) const SizedBox(height: 8),
+              ],
 
               if (isDriverProfile)
                 _DriverSosAlertsCard(alerts: driver.activeSosAlerts)
@@ -434,6 +449,17 @@ class _DriverRelayStatusPanel extends StatelessWidget {
     final subtitle = relaying
         ? '${tracking.positionCount} points relayed'
         : 'Preparing driver GPS relay';
+    final task = tracking.activeTask;
+    final taskName = task?.taskName ?? driver.taskName;
+    final goalName = task == null || task.turnpoints.isEmpty
+        ? null
+        : task.turnpoints.last.name;
+    final taskDetail = task == null
+        ? 'No active task'
+        : [
+            '${task.turnpoints.length} points',
+            if (goalName != null && goalName.isNotEmpty) 'Goal: $goalName',
+          ].join(' · ');
 
     return Container(
       width: double.infinity,
@@ -477,8 +503,111 @@ class _DriverRelayStatusPanel extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          _DriverPilotRelayTable(pilots: driver.visiblePilots),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            decoration: BoxDecoration(
+              color: colorScheme.surface.withAlpha(120),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: colorScheme.outlineVariant),
+            ),
+            child: Row(
+              children: [
+                Icon(Icons.route, size: 18, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        taskName == null || taskName.isEmpty
+                            ? 'Current task'
+                            : taskName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      Text(
+                        taskDetail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _DriverPilotRelayCard extends StatelessWidget {
+  final List<DriverPilot> pilots;
+  final ActiveTask? activeTask;
+  final String altitudeUnit;
+  final String distanceUnit;
+
+  const _DriverPilotRelayCard({
+    required this.pilots,
+    required this.activeTask,
+    required this.altitudeUnit,
+    required this.distanceUnit,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      color: colorScheme.surfaceContainerHighest.withAlpha(120),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: colorScheme.outlineVariant.withAlpha(160)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.people_alt, size: 20, color: colorScheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Pilot relay list',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Text(
+                  '${pilots.length}',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            _DriverPilotRelayTable(
+              pilots: pilots,
+              activeTask: activeTask,
+              altitudeUnit: altitudeUnit,
+              distanceUnit: distanceUnit,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -486,15 +615,23 @@ class _DriverRelayStatusPanel extends StatelessWidget {
 
 class _DriverPilotRelayTable extends StatelessWidget {
   final List<DriverPilot> pilots;
+  final ActiveTask? activeTask;
+  final String altitudeUnit;
+  final String distanceUnit;
 
-  const _DriverPilotRelayTable({required this.pilots});
+  const _DriverPilotRelayTable({
+    required this.pilots,
+    required this.activeTask,
+    required this.altitudeUnit,
+    required this.distanceUnit,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final borderColor = theme.colorScheme.outlineVariant.withAlpha(180);
     return Container(
-      height: 150,
+      height: 260,
       width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
@@ -511,9 +648,12 @@ class _DriverPilotRelayTable extends StatelessWidget {
             ),
             child: const Row(
               children: [
-                Expanded(flex: 5, child: _DriverTableHeader('Name')),
-                Expanded(flex: 4, child: _DriverTableHeader('Last relayed')),
+                Expanded(flex: 4, child: _DriverTableHeader('Name')),
+                Expanded(flex: 3, child: _DriverTableHeader('Last')),
+                Expanded(flex: 3, child: _DriverTableHeader('Alt')),
+                Expanded(flex: 3, child: _DriverTableHeader('Goal')),
                 Expanded(flex: 3, child: _DriverTableHeader('Status')),
+                SizedBox(width: 36, child: _DriverTableHeader('Go')),
               ],
             ),
           ),
@@ -540,12 +680,12 @@ class _DriverPilotRelayTable extends StatelessWidget {
                         return Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 10,
-                            vertical: 8,
+                            vertical: 6,
                           ),
                           child: Row(
                             children: [
                               Expanded(
-                                flex: 5,
+                                flex: 4,
                                 child: Text(
                                   pilot.name,
                                   maxLines: 1,
@@ -556,9 +696,39 @@ class _DriverPilotRelayTable extends StatelessWidget {
                                 ),
                               ),
                               Expanded(
-                                flex: 4,
+                                flex: 3,
                                 child: Text(
                                   _relativeRelayTime(pilot.lastSeen),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  UnitConverter.formatAltitude(
+                                    pilot.alt,
+                                    altitudeUnit,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.bodySmall,
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  UnitConverter.formatDistance(
+                                    _taskDistanceToGoalMeters(
+                                      activeTask,
+                                      pilot.lat,
+                                      pilot.lon,
+                                    ),
+                                    distanceUnit,
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: theme.textTheme.bodySmall,
                                 ),
                               ),
@@ -572,6 +742,21 @@ class _DriverPilotRelayTable extends StatelessWidget {
                                     color: _driverPilotStatusColor(pilot),
                                     fontWeight: FontWeight.w600,
                                   ),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 36,
+                                child: IconButton(
+                                  tooltip: 'Directions to ${pilot.name}',
+                                  icon: const Icon(Icons.directions, size: 18),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints.tightFor(
+                                    width: 32,
+                                    height: 32,
+                                  ),
+                                  onPressed: () =>
+                                      _openDriverDirections(context, pilot),
                                 ),
                               ),
                             ],
@@ -603,6 +788,114 @@ class _DriverTableHeader extends StatelessWidget {
       ),
     );
   }
+}
+
+Future<void> _openDriverDirections(
+  BuildContext context,
+  DriverPilot pilot,
+) async {
+  final geoUri = liveDirectionsGeoUri(pilot.lat, pilot.lon, label: pilot.name);
+  if (await canLaunchUrl(geoUri)) {
+    await launchUrl(geoUri);
+    return;
+  }
+  final webUri = liveDirectionsWebUri(pilot.lat, pilot.lon);
+  if (await canLaunchUrl(webUri)) {
+    await launchUrl(webUri, mode: LaunchMode.externalApplication);
+    return;
+  }
+  if (context.mounted) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('No navigation app found')),
+    );
+  }
+}
+
+double? _taskDistanceToGoalMeters(
+  ActiveTask? task,
+  double lat,
+  double lon,
+) {
+  final points = task?.turnpoints;
+  if (points == null || points.isEmpty) return null;
+  if (points.length == 1) return points.first.distanceTo(lat, lon);
+
+  final remainingAfterSegment = List<double>.filled(points.length - 1, 0);
+  var tailDistance = 0.0;
+  for (var i = points.length - 2; i >= 0; i--) {
+    remainingAfterSegment[i] = tailDistance;
+    tailDistance += points[i].distanceTo(points[i + 1].lat, points[i + 1].lon);
+  }
+
+  double? bestCrossTrack;
+  double? bestRemaining;
+  for (var i = 0; i < points.length - 1; i++) {
+    final start = points[i];
+    final end = points[i + 1];
+    final projection = _projectPointOnSegment(
+      lat,
+      lon,
+      start.lat,
+      start.lon,
+      end.lat,
+      end.lon,
+    );
+    final remaining = projection.distanceToEndMeters + remainingAfterSegment[i];
+    if (bestCrossTrack == null ||
+        projection.crossTrackMeters < bestCrossTrack) {
+      bestCrossTrack = projection.crossTrackMeters;
+      bestRemaining = remaining;
+    }
+  }
+  return bestRemaining;
+}
+
+_SegmentProjection _projectPointOnSegment(
+  double lat,
+  double lon,
+  double startLat,
+  double startLon,
+  double endLat,
+  double endLon,
+) {
+  const earthRadius = 6371000.0;
+  final originLatRad = _degToRad(lat);
+  const px = 0.0;
+  const py = 0.0;
+  final ax = _lonMeters(startLon - lon, originLatRad, earthRadius);
+  final ay = _latMeters(startLat - lat, earthRadius);
+  final bx = _lonMeters(endLon - lon, originLatRad, earthRadius);
+  final by = _latMeters(endLat - lat, earthRadius);
+  final abx = bx - ax;
+  final aby = by - ay;
+  final abLen2 = abx * abx + aby * aby;
+  final rawT = abLen2 == 0 ? 0.0 : ((px - ax) * abx + (py - ay) * aby) / abLen2;
+  final t = rawT.clamp(0.0, 1.0);
+  final qx = ax + abx * t;
+  final qy = ay + aby * t;
+  return _SegmentProjection(
+    crossTrackMeters: math.sqrt(qx * qx + qy * qy),
+    distanceToEndMeters:
+        math.sqrt((bx - qx) * (bx - qx) + (by - qy) * (by - qy)),
+  );
+}
+
+double _latMeters(double degrees, double earthRadius) =>
+    _degToRad(degrees) * earthRadius;
+
+double _lonMeters(double degrees, double originLatRad, double earthRadius) =>
+    _degToRad(degrees) * earthRadius * math.cos(originLatRad);
+
+double _degToRad(double degrees) => degrees * math.pi / 180;
+
+class _SegmentProjection {
+  final double crossTrackMeters;
+  final double distanceToEndMeters;
+
+  const _SegmentProjection({
+    required this.crossTrackMeters,
+    required this.distanceToEndMeters,
+  });
 }
 
 String _relativeRelayTime(DateTime? lastSeen) {
@@ -1495,15 +1788,15 @@ class _SosButton extends StatelessWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text.rich(
+        title: const Text.rich(
           TextSpan(
             children: [
-              const TextSpan(text: 'Send '),
-              const TextSpan(
+              TextSpan(text: 'Send '),
+              TextSpan(
                 text: 'SOS',
                 style: TextStyle(color: Colors.red),
               ),
-              const TextSpan(text: '?'),
+              TextSpan(text: '?'),
             ],
           ),
         ),
