@@ -130,6 +130,7 @@ def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
         "alt": 1234.5,
         "speed": 42.0,
         "heading": 271.0,
+        "mesh_seq_number": None,
     }
 
 
@@ -332,6 +333,7 @@ def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_positio
         "lon": -75.1,
         "alt": 300.0,
         "speed": 12.0,
+        "mesh_seq_number": None,
     }
     assert phone["has_mesh"] is True
 
@@ -440,6 +442,7 @@ def test_admin_debug_status_lists_recent_phone_position_without_tracking_session
         "lon": -75.25,
         "alt": 402.0,
         "speed": 8.0,
+        "mesh_seq_number": None,
     }
 
 
@@ -494,6 +497,7 @@ def test_admin_debug_status_uses_receive_time_for_phone_last_heard() -> None:
         "lon": -75.89077,
         "alt": -10.0,
         "speed": 0.0,
+        "mesh_seq_number": None,
     }
 
 
@@ -592,6 +596,7 @@ def test_admin_debug_status_names_user_subject_phone_session() -> None:
         "lon": -82.5,
         "alt": None,
         "speed": None,
+        "mesh_seq_number": None,
     }
 
 
