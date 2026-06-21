@@ -391,7 +391,7 @@ const adminSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
-  { id: "live_backtest", label: "Live Tracking Backtest" },
+  { id: "live_backtest", label: "Live Backtest" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },

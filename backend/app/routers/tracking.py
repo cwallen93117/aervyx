@@ -4,13 +4,14 @@ import asyncio
 import json
 import logging
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time, timedelta
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -32,6 +33,7 @@ from app.services.tracking import (
     resolve_active_task_id,
     resolve_active_task_id_for_user,
     resolve_mesh_device_assignment,
+    resolve_tracking_timezone_name,
     store_position,
     subject_key_for_position,
     subscribe,
@@ -402,18 +404,43 @@ def _live_backtest_user_ids_for_pilot(session: Session, pilot_id: int) -> list[i
     )
 
 
-def _live_backtest_pilot_summaries(session: Session, task_id: int, event_id: int) -> list[LiveBacktestPilotSummary]:
+def _live_backtest_task_day_window_utc(task: Task, event: Event) -> tuple[datetime, datetime] | None:
+    if task.task_date is None:
+        return None
+    zone = ZoneInfo(resolve_tracking_timezone_name(event.timezone))
+    local_start = datetime.combine(task.task_date, time.min, tzinfo=zone)
+    local_end = local_start + timedelta(days=1)
+    return local_start.astimezone(UTC), local_end.astimezone(UTC)
+
+
+def _live_backtest_task_scope_clause(task: Task, event: Event):
+    conditions = [LivePosition.task_id == task.id]
+    task_day_window = _live_backtest_task_day_window_utc(task, event)
+    if task_day_window is not None:
+        start_utc, end_utc = task_day_window
+        conditions.append(
+            and_(
+                LivePosition.task_id.is_(None),
+                LivePosition.timestamp >= start_utc,
+                LivePosition.timestamp < end_utc,
+            )
+        )
+    return or_(*conditions)
+
+
+def _live_backtest_pilot_summaries(session: Session, task: Task, event: Event) -> list[LiveBacktestPilotSummary]:
+    task_scope = _live_backtest_task_scope_clause(task, event)
     point_counts = {
         int(pilot_id): int(count)
         for pilot_id, count in session.execute(
             select(LivePosition.pilot_id, func.count(LivePosition.id))
-            .where(LivePosition.task_id == task_id, LivePosition.pilot_id.is_not(None))
+            .where(task_scope, LivePosition.pilot_id.is_not(None))
             .group_by(LivePosition.pilot_id)
         ).all()
         if pilot_id is not None
     }
     pilot_ids = set(point_counts)
-    event_pilot_ids = set(session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all())
+    event_pilot_ids = set(session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event.id)).all())
     pilot_ids.update(event_pilot_ids)
     if event_pilot_ids:
         linked_users = session.execute(
@@ -427,7 +454,7 @@ def _live_backtest_pilot_summaries(session: Session, task_id: int, event_id: int
             user_counts = session.execute(
                 select(LivePosition.user_id, func.count(LivePosition.id))
                 .where(
-                    LivePosition.task_id == task_id,
+                    task_scope,
                     LivePosition.pilot_id.is_(None),
                     LivePosition.user_id.in_(sorted(pilot_id_by_user_id)),
                 )
@@ -457,13 +484,18 @@ def _live_backtest_pilot_summaries(session: Session, task_id: int, event_id: int
 
 
 def _live_backtest_task_summary(session: Session, task: Task) -> LiveBacktestTaskSummary:
+    event = session.get(Event, task.event_id)
+    if event is None:
+        pilots: list[LiveBacktestPilotSummary] = []
+    else:
+        pilots = _live_backtest_pilot_summaries(session, task, event)
     return LiveBacktestTaskSummary(
         id=task.id,
         event_id=task.event_id,
         name=task.name,
         status=task.status,
         task_date=task.task_date.isoformat() if task.task_date else None,
-        pilots=_live_backtest_pilot_summaries(session, task.id, task.event_id),
+        pilots=pilots,
     )
 
 
@@ -520,7 +552,7 @@ def admin_live_backtest_track(
         )
     rows = session.scalars(
         select(LivePosition)
-        .where(LivePosition.task_id == task_id, or_(*subject_conditions))
+        .where(_live_backtest_task_scope_clause(task, event), or_(*subject_conditions))
         .order_by(LivePosition.timestamp.asc(), LivePosition.created_at.asc(), LivePosition.id.asc())
     ).all()
     payloads = _payloads_for_positions(session, rows)

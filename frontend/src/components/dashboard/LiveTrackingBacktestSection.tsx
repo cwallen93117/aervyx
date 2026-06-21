@@ -99,7 +99,7 @@ function formatTimestamp(value: string | null | undefined) {
 }
 
 function isHc2026(event: BacktestEvent) {
-  return /\bhc\b/i.test(event.name) && /2026/.test(event.name);
+  return /hc\s*2026/i.test(event.name) || (/\bhc\b/i.test(event.name) && /2026/.test(event.name));
 }
 
 function firstTaskWithTrackData(event: BacktestEvent | null) {
@@ -402,7 +402,7 @@ export default function LiveTrackingBacktestSection({ token, units, overlayConfi
 
   return (
     <div className="section-stack">
-      <SectionCard title="Live Tracking Backtest">
+      <SectionCard title="Live Backtest">
         <div className="stack form-block">
           <div className="participant-intake-row">
             <label className="stack compact">

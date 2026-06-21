@@ -182,6 +182,17 @@ def test_admin_live_backtest_returns_unpruned_historical_task_points() -> None:
                 source="app",
             ),
             LivePosition(
+                task_id=None,
+                pilot_id=pilot.id,
+                lat=35.007,
+                lon=-82.007,
+                alt=1007,
+                speed=44.7,
+                heading=91,
+                timestamp=datetime(2026, 5, 30, 14, 0, 45, tzinfo=UTC),
+                source="app",
+            ),
+            LivePosition(
                 task_id=task.id,
                 pilot_id=pilot.id,
                 lat=35.01,
@@ -200,17 +211,18 @@ def test_admin_live_backtest_returns_unpruned_historical_task_points() -> None:
 
     sources = admin_live_backtest_sources(_=admin, session=session)
     assert sources.events[0].name == "HC 2026"
-    assert sources.events[0].tasks[0].pilots[0].point_count == 3
+    assert sources.events[0].tasks[0].pilots[0].point_count == 4
 
     payload = admin_live_backtest_track(task_id=task.id, pilot_id=pilot.id, _=admin, session=session)
 
     assert payload.event.name == "HC 2026"
     assert payload.task.name == "Task 1"
     assert payload.pilot.pilot_name == "Mick Howard"
-    assert [point.position_source for point in payload.raw_points] == ["cellular", "cellular", "mesh"]
+    assert [point.position_source for point in payload.raw_points] == ["cellular", "cellular", "cellular", "mesh"]
     assert payload.raw_points[1].pilot_id == pilot.id
     assert payload.raw_points[1].user_id == pilot_user.id
-    assert payload.raw_points[2].mesh_seq_number == 7
+    assert payload.raw_points[2].task_id is None
+    assert payload.raw_points[3].mesh_seq_number == 7
     assert payload.task_points[0].name == "Start"
 
 
