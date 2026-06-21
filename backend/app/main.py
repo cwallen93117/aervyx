@@ -11,7 +11,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.core.config import get_settings
 from app.db import Base, SessionLocal, engine, ensure_runtime_schema
-from app.routers import admin_db, admin_integrations, airspace, app_release, auth, events, logbook, map_overlay_config, pilots, provisioner_release, public, results, site_settings, sites, tasks, turnpoints, uploads
+from app.routers import admin_db, admin_integrations, airspace, app_release, auth, challenges, events, logbook, map_overlay_config, pilots, provisioner_release, public, results, site_settings, sites, tasks, turnpoints, uploads
 from app.services.pilot_identity import repair_pilot_email_identities
 from app.services.seeding import bootstrap_demo_data
 
@@ -187,6 +187,7 @@ app.include_router(site_settings.router)
 app.include_router(map_overlay_config.router)
 app.include_router(sites.router)
 app.include_router(public.router)
+app.include_router(challenges.router)
 app.include_router(events.router)
 app.include_router(pilots.router)
 app.include_router(turnpoints.router)

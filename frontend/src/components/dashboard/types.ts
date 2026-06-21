@@ -1,7 +1,7 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 import type { ScorePenaltyCalculation } from "../../lib/scorePenalties";
 
-export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "live_backtest" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
+export type SidebarSection = "events" | "challenges" | "tasks" | "scoring" | "live_tracking" | "live_backtest" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; profile_type_updated_at: string; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
@@ -25,6 +25,7 @@ export type AccountSettingsRecord = {
   pilot_id: number | null;
   has_password?: boolean;
   access_token?: string | null;
+  challenge_settings_json: Record<string, unknown>;
 };
 export type AdminUserRecord = {
   id: number;
@@ -241,6 +242,11 @@ export type EventRecord = {
   penalties_json: Record<string, unknown>;
   is_public_tracking: boolean;
   visibility: "public" | "users" | "participants" | "private";
+  event_kind: "competition" | "challenge";
+  owner_user_id: number | null;
+  source_buddy_group_id: number | null;
+  public_slug: string | null;
+  public_listed: boolean;
   updated_at: string;
   pilot_count: number;
   task_count: number;
@@ -416,6 +422,11 @@ export function blankEventForm() {
     penalties_text: "{}",
     is_public_tracking: false,
     visibility: "private" as "public" | "users" | "participants" | "private",
+    event_kind: "competition" as "competition" | "challenge",
+    owner_user_id: null as number | null,
+    source_buddy_group_id: null as number | null,
+    public_slug: null as string | null,
+    public_listed: true,
   };
 }
 

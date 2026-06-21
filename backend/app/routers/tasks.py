@@ -7,10 +7,11 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.deps import get_current_user, require_staff
+from app.deps import get_current_user
 from app.models import Event, IGCUpload, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse, default_task_point_direction, default_task_point_radius_m
 from app.services.audit import log_action
+from app.services.event_access import require_event_manager
 from app.services.scoring import invalidate_event_meet_stats_cache
 
 router = APIRouter(tags=["tasks"])
@@ -131,12 +132,11 @@ def list_tasks(event_id: int, user: User = Depends(get_current_user), session: S
 
 
 @router.post("/api/events/{event_id}/tasks", response_model=TaskResponse)
-def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+def create_task(event_id: int, payload: TaskInput, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TaskResponse:
+    event = require_event_manager(session, admin, session.get(Event, event_id))
     task_type = _normalize_task_type(payload.task_type)
     task = Task(
-        event_id=event_id,
+        event_id=event.id,
         name=payload.name,
         task_date=payload.task_date,
         is_practice=payload.is_practice,
@@ -156,7 +156,7 @@ def create_task(event_id: int, payload: TaskInput, admin: User = Depends(require
         point_data["direction"] = _normalize_task_point_direction(point_data.get("direction"), point_data["point_type"])
         point_data["radius_m"] = _normalize_task_point_radius(point_data.get("radius_m"), point_data["point_type"])
         session.add(TaskPoint(task_id=task.id, **point_data))
-    log_action(session, actor_user_id=admin.id, action="task.create", entity_type="task", entity_id=str(task.id), details={"event_id": event_id, "point_count": len(payload.points)})
+    log_action(session, actor_user_id=admin.id, action="task.create", entity_type="task", entity_id=str(task.id), details={"event_id": event.id, "point_count": len(payload.points)})
     session.commit()
     return _task_response(session, task)
 
@@ -170,10 +170,11 @@ def get_task(task_id: int, user: User = Depends(get_current_user), session: Sess
 
 
 @router.put("/api/tasks/{task_id}", response_model=TaskResponse)
-def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
+def update_task(task_id: int, payload: TaskInput, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TaskResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    require_event_manager(session, admin, session.get(Event, task.event_id))
     task_type = _normalize_task_type(payload.task_type)
     task.name = payload.name
     task.task_date = payload.task_date
@@ -201,10 +202,11 @@ def update_task(task_id: int, payload: TaskInput, admin: User = Depends(require_
 
 
 @router.post("/api/tasks/{task_id}/publish", response_model=TaskResponse)
-def publish_task(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
+def publish_task(task_id: int, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TaskResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    require_event_manager(session, admin, session.get(Event, task.event_id))
     task.status = "published"
     task.published_at = datetime.now(UTC)
     task.version += 1
@@ -215,10 +217,11 @@ def publish_task(task_id: int, admin: User = Depends(require_staff), session: Se
 
 
 @router.post("/api/tasks/{task_id}/unpublish", response_model=TaskResponse)
-def unpublish_task(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TaskResponse:
+def unpublish_task(task_id: int, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TaskResponse:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    require_event_manager(session, admin, session.get(Event, task.event_id))
     session.execute(delete(ScoreResult).where(ScoreResult.task_id == task_id))
     session.execute(delete(ScorePenalty).where(ScorePenalty.task_id == task_id))
     session.query(TaskScoringInput).where(TaskScoringInput.task_id == task_id).update(
@@ -245,10 +248,11 @@ def unpublish_task(task_id: int, admin: User = Depends(require_staff), session: 
 
 
 @router.delete("/api/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> None:
+def delete_task(task_id: int, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> None:
     task = session.get(Task, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
+    require_event_manager(session, admin, session.get(Event, task.event_id))
     task_name = task.name
     event_id = task.event_id
     upload_ids = session.scalars(select(IGCUpload.id).where(IGCUpload.task_id == task.id)).all()

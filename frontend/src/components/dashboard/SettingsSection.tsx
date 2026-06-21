@@ -25,11 +25,12 @@ export interface SettingsSectionProps {
   onMeshDevicesChanged?: () => void | Promise<void>;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
+type SettingsTab = "profile" | "units" | "challenge_defaults" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
   { key: "units", label: "Units" },
+  { key: "challenge_defaults", label: "Challenge Defaults" },
   { key: "password", label: "Password" },
   { key: "emails", label: "Emails" },
   { key: "meshtastic", label: "Meshtastic" },
@@ -53,6 +54,20 @@ export default function SettingsSection(props: SettingsSectionProps) {
   } = props;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
+  const challengeSettings = settingsForm.challenge_settings_json ?? {};
+  const updateChallengeSetting = (key: string, value: unknown) => {
+    setSettingsForm((current) => ({
+      ...current,
+      challenge_settings_json: {
+        ...(current.challenge_settings_json ?? {}),
+        [key]: value,
+      },
+    }));
+  };
+  const numberChallengeSetting = (key: string, fallback: number) => {
+    const value = challengeSettings[key];
+    return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  };
 
   return (
     <div className="section-stack">
@@ -189,6 +204,82 @@ export default function SettingsSection(props: SettingsSectionProps) {
             </div>
             <div className="button-row">
               <button type="submit">Save unit preferences</button>
+            </div>
+            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
+          </form>
+        </div>
+      )}
+
+      {activeTab === "challenge_defaults" && (
+        <div className="settings-tab-panel">
+          <form className="stack form-block" onSubmit={saveAccountSettings}>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Minimum distance (km)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={numberChallengeSetting("minimum_distance_km", 5)}
+                  onChange={(event) => updateChallengeSetting("minimum_distance_km", Number(event.target.value) || 0)}
+                />
+              </label>
+              <label className="stack compact">
+                <span>Nominal distance (km)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={numberChallengeSetting("nominal_distance_km", 60)}
+                  onChange={(event) => updateChallengeSetting("nominal_distance_km", Number(event.target.value) || 0)}
+                />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Default start gates</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={numberChallengeSetting("default_start_gate_count", 5)}
+                  onChange={(event) => updateChallengeSetting("default_start_gate_count", Math.max(1, Number(event.target.value) || 1))}
+                />
+              </label>
+              <label className="stack compact">
+                <span>Gate interval (minutes)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={Math.round(numberChallengeSetting("default_start_gate_interval_seconds", 900) / 60)}
+                  onChange={(event) => updateChallengeSetting("default_start_gate_interval_seconds", Math.max(0, Number(event.target.value) || 0) * 60)}
+                />
+              </label>
+            </div>
+            <div className="inline-grid">
+              <label className="stack compact">
+                <span>Nominal time (hours)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={numberChallengeSetting("nominal_time_hours", 1.5)}
+                  onChange={(event) => updateChallengeSetting("nominal_time_hours", Number(event.target.value) || 0)}
+                />
+              </label>
+              <label className="stack compact">
+                <span>Scoring formula</span>
+                <select
+                  value={String(challengeSettings.scoring_formula ?? "GAP2021")}
+                  onChange={(event) => updateChallengeSetting("scoring_formula", event.target.value)}
+                >
+                  <option value="GAP2021">GAP2021</option>
+                </select>
+              </label>
+            </div>
+            <div className="button-row">
+              <button type="submit">Save challenge defaults</button>
             </div>
             {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
           </form>

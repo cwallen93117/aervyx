@@ -78,6 +78,11 @@ class ApiConfig {
   // IGC upload — task upload (also syncs to logbook automatically)
   static String taskUploadPath(int taskId) => '/api/tasks/$taskId/uploads';
 
+  // Pilot-created ad hoc challenges.
+  static const String challengesPath = '/api/challenges';
+  static String challengePath(int eventId) => '/api/challenges/$eventId';
+  static String challengeTasksPath(int eventId) => '/api/events/$eventId/tasks';
+
   // IGC upload — logbook-only upload for free flights
   static const String logbookUploadPath = '/api/logbook/flights/upload';
 

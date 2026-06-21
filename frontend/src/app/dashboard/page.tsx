@@ -8,6 +8,7 @@ import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from 
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 import EventsSection from "../../components/dashboard/EventsSection";
+import ChallengesSection from "../../components/dashboard/ChallengesSection";
 import TasksSection from "../../components/dashboard/TasksSection";
 import ScoringSection from "../../components/dashboard/ScoringSection";
 import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection";
@@ -410,6 +411,7 @@ const organizerSidebarItems = [
   { id: "settings", label: "Settings" },
 ] satisfies SidebarItem[];
 const pilotSidebarItems = [
+  { id: "challenges", label: "Challenges" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -445,7 +447,7 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
   if (section && allowedSections.has(section as SidebarSection)) {
     return section as SidebarSection;
   }
-  if (role === "pilot") return "tasks";
+  if (role === "pilot") return "challenges";
   if (role === null) return "scoring";
   return "events";
 }
@@ -512,6 +514,7 @@ function blankSettingsForm(): AccountSettingsRecord {
     civl_id: "",
     pilot_id: null,
     has_password: false,
+    challenge_settings_json: {},
   };
 }
 
@@ -704,7 +707,7 @@ function taskTypeBehavior(taskType: string) {
   }
 }
 
-function eventToForm(event: EventRecord | null | undefined) {
+function eventToForm(event: EventRecord | null | undefined): EventFormState {
   return event
     ? {
         name: event.name,
@@ -758,6 +761,11 @@ function eventToForm(event: EventRecord | null | undefined) {
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
         is_public_tracking: event.is_public_tracking ?? false,
         visibility: event.visibility ?? "private",
+        event_kind: event.event_kind ?? "competition",
+        owner_user_id: event.owner_user_id ?? null,
+        source_buddy_group_id: event.source_buddy_group_id ?? null,
+        public_slug: event.public_slug ?? null,
+        public_listed: event.public_listed ?? true,
       }
     : blankEventForm();
 }
@@ -1135,6 +1143,10 @@ export default function HomePage() {
   const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
   const isAdmin = user?.role === "admin";
   const canManagePlatform = user?.role === "admin" || user?.role === "organizer";
+  const canManageCurrentEvent = Boolean(
+    canManagePlatform ||
+    (user && selectedEvent?.event_kind === "challenge" && selectedEvent.owner_user_id === user.id),
+  );
 
   function showTaskFeedback(feedback: { type: "success" | "error"; text: string }) {
     setTaskFeedback(feedback);
@@ -1717,7 +1729,12 @@ export default function HomePage() {
         apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
       ]);
       const viewer = activeUser ?? user;
-      const visibleTasks = sortTasksByDateAsc(viewer?.role === "pilot" ? loadedTasks.filter((task) => task.status === "published") : loadedTasks);
+      const viewerCanManageLoadedEvent = Boolean(
+        viewer?.role === "admin" ||
+        viewer?.role === "organizer" ||
+        (viewer && activeEvent?.event_kind === "challenge" && activeEvent.owner_user_id === viewer.id),
+      );
+      const visibleTasks = sortTasksByDateAsc(viewer?.role === "pilot" && !viewerCanManageLoadedEvent ? loadedTasks.filter((task) => task.status === "published") : loadedTasks);
       setPilots(loadedPilots);
       setTurnpoints(loadedTurnpoints);
       setTurnpointSources(loadedTurnpointSources);
@@ -1758,6 +1775,16 @@ export default function HomePage() {
     setEventEditorId(event.id);
     setEventForm(eventToForm(event));
     await loadEvent(token, event.id, event);
+  }
+
+  async function openChallengeWorkspace(challenge: EventRecord) {
+    if (!token || !user) return;
+    setEvents((current) => {
+      const existing = current.some((event) => event.id === challenge.id);
+      return existing ? current.map((event) => (event.id === challenge.id ? challenge : event)) : [challenge, ...current];
+    });
+    setActiveSection("tasks");
+    await loadEvent(token, challenge.id, challenge, user, undefined, "tasks");
   }
 
   async function loadTask(activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData = true) {
@@ -1836,6 +1863,7 @@ export default function HomePage() {
           nation: settingsForm.nation || null,
           competition_number: settingsForm.competition_number || null,
           civl_id: settingsForm.civl_id || null,
+          challenge_settings_json: settingsForm.challenge_settings_json,
         }),
       });
       setSettingsForm({
@@ -1856,6 +1884,9 @@ export default function HomePage() {
         competition_number: payload.competition_number,
         civl_id: payload.civl_id,
         pilot_id: payload.pilot_id ?? null,
+        has_password: payload.has_password,
+        access_token: payload.access_token,
+        challenge_settings_json: payload.challenge_settings_json ?? {},
       });
       if (payload.access_token) {
         window.localStorage.setItem(TOKEN_KEY, payload.access_token);
@@ -2836,7 +2867,7 @@ export default function HomePage() {
         availableDirectoryPilots={availableDirectoryPilots}
         pilotForm={pilotForm}
         setPilotForm={setPilotForm}
-        canManagePlatform={canManagePlatform ?? false}
+        canManagePlatform={canManageCurrentEvent}
         isAdmin={isAdmin}
         assignExistingPilot={assignExistingPilot}
         createPilot={createPilot}
@@ -2879,7 +2910,7 @@ export default function HomePage() {
             visibleAirspaces={visibleAirspaces}
             taskSectionMapTurnpoints={taskSectionMapTurnpoints}
             settingsForm={settingsForm}
-            canManagePlatform={canManagePlatform ?? false}
+            canManagePlatform={canManageCurrentEvent}
             taskFeedback={taskFeedback}
             token={token}
             activeSection={activeSection}
@@ -2903,6 +2934,13 @@ export default function HomePage() {
         );
       }
       switch (activeSection) {
+        case "challenges":
+          return (
+            <ChallengesSection
+              token={token}
+              onOpenChallenge={(challenge) => void openChallengeWorkspace(challenge)}
+            />
+          );
         case "events":
           return (
             <EventsSection
@@ -2920,7 +2958,7 @@ export default function HomePage() {
               airspaceSources={airspaceSources}
               visibleAirspaces={visibleAirspaces}
               pilots={pilots}
-              canManagePlatform={canManagePlatform ?? false}
+              canManagePlatform={canManageCurrentEvent}
               isAdmin={isAdmin ?? false}
               selectEvent={selectEvent}
               createEventDraft={createEventDraft}
@@ -2969,7 +3007,7 @@ export default function HomePage() {
               visibleAirspaces={visibleAirspaces}
               taskSectionMapTurnpoints={taskSectionMapTurnpoints}
               settingsForm={settingsForm}
-              canManagePlatform={canManagePlatform ?? false}
+              canManagePlatform={canManageCurrentEvent}
               taskFeedback={taskFeedback}
               token={token}
               activeSection={activeSection}
@@ -3015,7 +3053,7 @@ export default function HomePage() {
               taskResultsColumns={taskResultsColumns}
               eventForm={eventForm}
               settingsForm={settingsForm}
-              canManagePlatform={canManagePlatform ?? false}
+              canManagePlatform={canManageCurrentEvent}
               scoresPortalTab={scoresPortalTab}
               setScoresPortalTab={setScoresPortalTab}
               scoringTab={scoringTab}
@@ -3061,7 +3099,7 @@ export default function HomePage() {
               visibleAirspaces={visibleAirspaces}
               pilotNameById={pilotNameById}
               token={token}
-              canManagePlatform={canManagePlatform ?? false}
+              canManagePlatform={canManageCurrentEvent}
               units={{
                 altitude: settingsForm.altitude_unit,
                 speed: settingsForm.speed_unit,
@@ -3094,7 +3132,7 @@ export default function HomePage() {
               tasks={tasks}
               pilots={pilots}
               isAdmin={isAdmin}
-              canManagePlatform={canManagePlatform ?? false}
+              canManagePlatform={canManageCurrentEvent}
             />
           );
         case "sos":

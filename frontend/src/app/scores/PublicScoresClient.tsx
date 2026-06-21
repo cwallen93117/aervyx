@@ -886,6 +886,7 @@ export function PublicScoresClient() {
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
   const [hasRequestedEventParam, setHasRequestedEventParam] = useState(false);
   const [requestedEventId, setRequestedEventId] = useState<number | null>(null);
+  const [requestedChallengeSlug, setRequestedChallengeSlug] = useState<string | null>(null);
   const [hasAppliedRequestedEvent, setHasAppliedRequestedEvent] = useState(false);
   const [showScoringParameters, setShowScoringParameters] = useState(false);
   const [activeScoringParameterHelpId, setActiveScoringParameterHelpId] = useState<ScoringHelpId | null>(null);
@@ -1086,6 +1087,7 @@ export function PublicScoresClient() {
     const params = new URLSearchParams(window.location.search);
     setHasRequestedEventParam(params.has("event_id"));
     setRequestedEventId(readNumericSearchParam("event_id"));
+    setRequestedChallengeSlug(params.get("challenge")?.trim() || null);
   }, []);
 
   const loadResultTrack = useCallback(async (uploadId: number) => {
@@ -1145,11 +1147,21 @@ export function PublicScoresClient() {
     (async () => {
       try {
         const loadedEvents = await fetchJson<PublicEvent[]>(`${apiBase}/api/public/events`);
+        const directChallenge = requestedChallengeSlug
+          ? await fetchJson<PublicEvent>(`${apiBase}/api/public/challenges/${encodeURIComponent(requestedChallengeSlug)}`)
+          : null;
         if (cancelled) return;
-        setEvents(sortPublicEventsByDate(loadedEvents));
+        const mergedEvents = directChallenge && !loadedEvents.some((event) => event.id === directChallenge.id)
+          ? [directChallenge, ...loadedEvents]
+          : loadedEvents;
+        setEvents(sortPublicEventsByDate(mergedEvents));
+        if (directChallenge) {
+          setSelectedEventId(directChallenge.id);
+          setHasAppliedRequestedEvent(true);
+        }
       } catch {
         if (!cancelled) {
-          setError("Unable to load public competitions.");
+          setError(requestedChallengeSlug ? "Unable to load that challenge." : "Unable to load public competitions.");
         }
       } finally {
         if (!cancelled) {
@@ -1160,7 +1172,7 @@ export function PublicScoresClient() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase]);
+  }, [apiBase, requestedChallengeSlug]);
 
   useEffect(() => {
     if (loadingEvents || hasAppliedRequestedEvent || !hasRequestedEventParam) {

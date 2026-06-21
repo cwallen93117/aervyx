@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.63+80 - 2026-06-21
+
+### Added
+- Added a native Challenges screen for pilots to create and review one-off XC
+  and race-to-goal challenges from the app.
+
 ## 0.4.62+79 - 2026-06-21
 
 ### Changed
