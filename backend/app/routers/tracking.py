@@ -9,8 +9,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from sqlalchemy import select
+from pydantic import BaseModel, Field
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -20,6 +20,8 @@ from app.models import Event, EventPilot, IGCUpload, LivePosition, MeshDevice, M
 from app.services.mesh_ids import normalize_mesh_device_id, resolve_mesh_device_display_names
 from app.services.mqtt_config import clear_legacy_public_mqtt_values, normalize_mqtt_broker_mode
 from app.services.tracking import (
+    _iso_or_none,
+    _payloads_for_positions,
     get_all_active_positions,
     get_live_positions,
     get_live_positions_for_pilots,
@@ -328,9 +330,244 @@ class AssignedPilotResponse(BaseModel):
     last_name: str
 
 
+class LiveBacktestPilotSummary(BaseModel):
+    id: int
+    pilot_name: str
+    competition_number: str | None = None
+    point_count: int = 0
+
+
+class LiveBacktestTaskSummary(BaseModel):
+    id: int
+    event_id: int
+    name: str
+    status: str
+    task_date: str | None = None
+    pilots: list[LiveBacktestPilotSummary]
+
+
+class LiveBacktestEventSummary(BaseModel):
+    id: int
+    name: str
+    location: str
+    starts_on: str
+    ends_on: str
+    timezone: str
+    tasks: list[LiveBacktestTaskSummary]
+
+
+class LiveBacktestSourcesResponse(BaseModel):
+    events: list[LiveBacktestEventSummary]
+
+
+class LiveBacktestTaskPointResponse(BaseModel):
+    position: int
+    name: str
+    point_type: str
+    radius_m: float
+    latitude: float
+    longitude: float
+
+
+class LiveBacktestPositionResponse(PositionResponse):
+    created_at: str | None = None
+    battery_level_seen_at: str | None = None
+    raw_metadata: dict[str, str | None] = Field(default_factory=dict)
+
+
+class LiveBacktestTrackResponse(BaseModel):
+    event: LiveBacktestEventSummary
+    task: LiveBacktestTaskSummary
+    pilot: LiveBacktestPilotSummary
+    task_points: list[LiveBacktestTaskPointResponse]
+    raw_points: list[LiveBacktestPositionResponse]
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+def _pilot_display_name(pilot: Pilot) -> str:
+    return f"{pilot.first_name or ''} {pilot.last_name or ''}".strip() or f"Pilot {pilot.id}"
+
+
+def _live_backtest_user_ids_for_pilot(session: Session, pilot_id: int) -> list[int]:
+    return list(
+        session.scalars(
+            select(User.id)
+            .where(User.pilot_id == pilot_id, User.is_active.is_(True))
+            .order_by(User.id.asc())
+        ).all()
+    )
+
+
+def _live_backtest_pilot_summaries(session: Session, task_id: int, event_id: int) -> list[LiveBacktestPilotSummary]:
+    point_counts = {
+        int(pilot_id): int(count)
+        for pilot_id, count in session.execute(
+            select(LivePosition.pilot_id, func.count(LivePosition.id))
+            .where(LivePosition.task_id == task_id, LivePosition.pilot_id.is_not(None))
+            .group_by(LivePosition.pilot_id)
+        ).all()
+        if pilot_id is not None
+    }
+    pilot_ids = set(point_counts)
+    event_pilot_ids = set(session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all())
+    pilot_ids.update(event_pilot_ids)
+    if event_pilot_ids:
+        linked_users = session.execute(
+            select(User.id, User.pilot_id).where(
+                User.pilot_id.in_(sorted(event_pilot_ids)),
+                User.is_active.is_(True),
+            )
+        ).all()
+        pilot_id_by_user_id = {int(user_id): int(user_pilot_id) for user_id, user_pilot_id in linked_users if user_pilot_id is not None}
+        if pilot_id_by_user_id:
+            user_counts = session.execute(
+                select(LivePosition.user_id, func.count(LivePosition.id))
+                .where(
+                    LivePosition.task_id == task_id,
+                    LivePosition.pilot_id.is_(None),
+                    LivePosition.user_id.in_(sorted(pilot_id_by_user_id)),
+                )
+                .group_by(LivePosition.user_id)
+            ).all()
+            for user_id, count in user_counts:
+                mapped_pilot_id = pilot_id_by_user_id.get(int(user_id))
+                if mapped_pilot_id is not None:
+                    point_counts[mapped_pilot_id] = point_counts.get(mapped_pilot_id, 0) + int(count)
+                    pilot_ids.add(mapped_pilot_id)
+    if not pilot_ids:
+        return []
+    pilots = session.scalars(
+        select(Pilot)
+        .where(Pilot.id.in_(sorted(pilot_ids)))
+        .order_by(Pilot.last_name.asc(), Pilot.first_name.asc(), Pilot.id.asc())
+    ).all()
+    return [
+        LiveBacktestPilotSummary(
+            id=pilot.id,
+            pilot_name=_pilot_display_name(pilot),
+            competition_number=pilot.competition_number,
+            point_count=point_counts.get(pilot.id, 0),
+        )
+        for pilot in pilots
+    ]
+
+
+def _live_backtest_task_summary(session: Session, task: Task) -> LiveBacktestTaskSummary:
+    return LiveBacktestTaskSummary(
+        id=task.id,
+        event_id=task.event_id,
+        name=task.name,
+        status=task.status,
+        task_date=task.task_date.isoformat() if task.task_date else None,
+        pilots=_live_backtest_pilot_summaries(session, task.id, task.event_id),
+    )
+
+
+def _live_backtest_event_summary(session: Session, event: Event) -> LiveBacktestEventSummary:
+    tasks = session.scalars(
+        select(Task)
+        .where(Task.event_id == event.id)
+        .order_by(Task.task_date.is_(None).asc(), Task.task_date.asc(), Task.id.asc())
+    ).all()
+    return LiveBacktestEventSummary(
+        id=event.id,
+        name=event.name,
+        location=event.location,
+        starts_on=event.starts_on.isoformat(),
+        ends_on=event.ends_on.isoformat(),
+        timezone=event.timezone,
+        tasks=[_live_backtest_task_summary(session, task) for task in tasks],
+    )
+
+
+@router.get("/api/admin/live-backtest/sources", response_model=LiveBacktestSourcesResponse)
+def admin_live_backtest_sources(
+    _: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> LiveBacktestSourcesResponse:
+    events = session.scalars(
+        select(Event).order_by(Event.starts_on.desc(), Event.ends_on.desc(), Event.name.asc())
+    ).all()
+    return LiveBacktestSourcesResponse(events=[_live_backtest_event_summary(session, event) for event in events])
+
+
+@router.get("/api/admin/live-backtest/track", response_model=LiveBacktestTrackResponse)
+def admin_live_backtest_track(
+    task_id: int = Query(..., ge=1),
+    pilot_id: int = Query(..., ge=1),
+    _: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> LiveBacktestTrackResponse:
+    task = session.get(Task, task_id)
+    if task is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    event = session.get(Event, task.event_id)
+    if event is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Event not found")
+    pilot = session.get(Pilot, pilot_id)
+    if pilot is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pilot not found")
+
+    user_ids = _live_backtest_user_ids_for_pilot(session, pilot_id)
+    subject_conditions = [LivePosition.pilot_id == pilot_id]
+    if user_ids:
+        subject_conditions.append(
+            (LivePosition.pilot_id.is_(None)) & (LivePosition.user_id.in_(user_ids))
+        )
+    rows = session.scalars(
+        select(LivePosition)
+        .where(LivePosition.task_id == task_id, or_(*subject_conditions))
+        .order_by(LivePosition.timestamp.asc(), LivePosition.created_at.asc(), LivePosition.id.asc())
+    ).all()
+    payloads = _payloads_for_positions(session, rows)
+    raw_points = [
+        LiveBacktestPositionResponse(
+            **payload,
+            created_at=_iso_or_none(row.created_at),
+            battery_level_seen_at=_iso_or_none(row.battery_level_seen_at),
+            raw_metadata={
+                "created_at": _iso_or_none(row.created_at),
+                "battery_level_seen_at": _iso_or_none(row.battery_level_seen_at),
+                "live_position_id": str(row.id),
+            },
+        )
+        for row, payload in zip(rows, payloads, strict=True)
+    ]
+    task_points = session.scalars(
+        select(TaskPoint).where(TaskPoint.task_id == task_id).order_by(TaskPoint.position.asc())
+    ).all()
+
+    task_summary = _live_backtest_task_summary(session, task)
+    pilot_summary = next(
+        (candidate for candidate in task_summary.pilots if candidate.id == pilot.id),
+        LiveBacktestPilotSummary(
+            id=pilot.id,
+            pilot_name=_pilot_display_name(pilot),
+            competition_number=pilot.competition_number,
+            point_count=len(raw_points),
+        ),
+    )
+    return LiveBacktestTrackResponse(
+        event=_live_backtest_event_summary(session, event),
+        task=task_summary,
+        pilot=pilot_summary,
+        task_points=[
+            LiveBacktestTaskPointResponse(
+                position=point.position,
+                name=point.name,
+                point_type=point.point_type,
+                radius_m=point.radius_m,
+                latitude=point.latitude,
+                longitude=point.longitude,
+            )
+            for point in task_points
+        ],
+        raw_points=raw_points,
+    )
 
 @router.post("/api/track/position", response_model=PositionResponse, status_code=status.HTTP_201_CREATED)
 def post_position(

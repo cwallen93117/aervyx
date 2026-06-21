@@ -11,6 +11,7 @@ import EventsSection from "../../components/dashboard/EventsSection";
 import TasksSection from "../../components/dashboard/TasksSection";
 import ScoringSection from "../../components/dashboard/ScoringSection";
 import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection";
+import LiveTrackingBacktestSection from "../../components/dashboard/LiveTrackingBacktestSection";
 import LogbookSection from "../../components/dashboard/LogbookSection";
 import SettingsSection from "../../components/dashboard/SettingsSection";
 import AdminSection from "../../components/dashboard/AdminSection";
@@ -390,6 +391,7 @@ const adminSidebarItems = [
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
+  { id: "live_backtest", label: "Live Tracking Backtest" },
   { id: "drivers", label: "Drivers" },
   { id: "logbook", label: "Logbook" },
   { id: "weather", label: "Weather" },
@@ -3070,6 +3072,19 @@ export default function HomePage() {
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
             />
           );
+        case "live_backtest":
+          return (
+            <LiveTrackingBacktestSection
+              token={token}
+              units={{
+                altitude: settingsForm.altitude_unit,
+                speed: settingsForm.speed_unit,
+                distance: settingsForm.distance_unit,
+                vario: settingsForm.vario_unit,
+              }}
+              overlayConfig={mapOverlayConfig.config?.dashboard_live}
+            />
+          );
         case "drivers":
           return (
             <DriverDashboard
@@ -3245,7 +3260,7 @@ export default function HomePage() {
                     onTfrRefreshComplete={() => setTfrRefreshToken((current) => current + 1)}
                   />
                 )}
-                {!(user.role === "pilot" && activeSection === "tasks") && activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" ? (
+                {!(user.role === "pilot" && activeSection === "tasks") && activeSection !== "logbook" && activeSection !== "settings" && activeSection !== "admin" && activeSection !== "weather" && activeSection !== "airspace" && activeSection !== "sos" && activeSection !== "live_backtest" ? (
                   <span className="hero-event-context">
                     {selectedEvent ? `${selectedEvent.name}${selectedEvent.location ? ` - ${selectedEvent.location}` : ""}` : "Select or create an event to begin."}
                   </span>

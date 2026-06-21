@@ -29,6 +29,7 @@ function SidebarIcon({ id }: { id: string }) {
         </svg>
       );
     case "live_tracking":
+    case "live_backtest":
       return (
         <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
           <path d="M12 20.5s6-5.6 6-10a6 6 0 1 0-12 0c0 4.4 6 10 6 10Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -98,6 +99,7 @@ const itemThemes: Record<string, string> = {
   tasks: "theme-tasks",
   scoring: "theme-scoring",
   live_tracking: "theme-live-tracking",
+  live_backtest: "theme-live-tracking",
   drivers: "theme-drivers",
   logbook: "theme-logbook",
   weather: "theme-weather",

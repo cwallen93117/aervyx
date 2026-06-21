@@ -21,6 +21,7 @@ from app.routers.public import (
     public_task_result_summary,
     public_task_positions,
 )
+from app.routers.tracking import admin_live_backtest_sources, admin_live_backtest_track
 from app.services.pilot_identity import merge_pilots
 
 
@@ -125,6 +126,92 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
     assert payload.events[0].map_task is not None
     assert payload.events[0].map_task.name == "Active task"
     assert [(group.name, group.member_count) for group in payload.buddy_groups] == [("Public crew", 1)]
+
+
+def test_admin_live_backtest_returns_unpruned_historical_task_points() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin")
+    event = Event(
+        name="HC 2026",
+        location="Myles",
+        starts_on=date(2026, 5, 29),
+        ends_on=date(2026, 6, 6),
+        timezone="UTC",
+    )
+    pilot = Pilot(first_name="Mick", last_name="Howard", competition_number="42")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    pilot_user = User(username="mick@example.com", full_name="Mick Howard", role="pilot", pilot_id=pilot.id)
+    session.add(pilot_user)
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 30))
+    session.add_all([task, EventPilot(event_id=event.id, pilot_id=pilot.id)])
+    session.flush()
+    session.add_all(
+        [
+            TaskPoint(
+                task_id=task.id,
+                position=1,
+                name="Start",
+                point_type="start",
+                radius_m=1000,
+                latitude=35.0,
+                longitude=-82.0,
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=pilot.id,
+                lat=35.0,
+                lon=-82.0,
+                alt=1000,
+                speed=44,
+                heading=90,
+                timestamp=datetime(2026, 5, 30, 14, 0, tzinfo=UTC),
+                source="app",
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=None,
+                user_id=pilot_user.id,
+                lat=35.005,
+                lon=-82.005,
+                alt=1005,
+                speed=44.5,
+                heading=91,
+                timestamp=datetime(2026, 5, 30, 14, 0, 30, tzinfo=UTC),
+                source="app",
+            ),
+            LivePosition(
+                task_id=task.id,
+                pilot_id=pilot.id,
+                lat=35.01,
+                lon=-82.01,
+                alt=1010,
+                speed=45,
+                heading=92,
+                timestamp=datetime(2026, 5, 30, 14, 1, tzinfo=UTC),
+                source="mqtt_gateway",
+                device_id="!mesh",
+                mesh_seq_number=7,
+            ),
+        ]
+    )
+    session.commit()
+
+    sources = admin_live_backtest_sources(_=admin, session=session)
+    assert sources.events[0].name == "HC 2026"
+    assert sources.events[0].tasks[0].pilots[0].point_count == 3
+
+    payload = admin_live_backtest_track(task_id=task.id, pilot_id=pilot.id, _=admin, session=session)
+
+    assert payload.event.name == "HC 2026"
+    assert payload.task.name == "Task 1"
+    assert payload.pilot.pilot_name == "Mick Howard"
+    assert [point.position_source for point in payload.raw_points] == ["cellular", "cellular", "mesh"]
+    assert payload.raw_points[1].pilot_id == pilot.id
+    assert payload.raw_points[1].user_id == pilot_user.id
+    assert payload.raw_points[2].mesh_seq_number == 7
+    assert payload.task_points[0].name == "Start"
 
 
 def test_public_live_map_task_falls_back_to_newest_published_task() -> None:
