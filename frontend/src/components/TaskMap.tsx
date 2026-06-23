@@ -2043,7 +2043,7 @@ export const TaskMap = React.memo(function TaskMap({
       { featureCount: 0, pointCount: 0 },
     );
   }, [effectiveTrack]);
-  const maxMapPitch = Math.max(0, Math.min(85, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
+  const maxMapPitch = Math.max(0, Math.min(90, telemetrySmoothing.max_map_pitch_degrees ?? DEFAULT_MAX_MAP_PITCH));
   const estimateVisibleTerrainTiles = useCallback((map: maplibregl.Map) => {
     const bounds = map.getBounds();
     const viewportBounds: TerrainBounds = [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()];

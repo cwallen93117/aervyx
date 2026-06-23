@@ -2079,7 +2079,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     <input
                       type="number"
                       min={0}
-                      max={85}
+                      max={90}
                       step={1}
                       value={siteSettings.max_map_pitch_degrees}
                       onChange={(event) =>
@@ -2093,7 +2093,7 @@ export default function AdminSection(props: AdminSectionProps) {
                 </div>
               </fieldset>
             </div>
-            <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 85 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
+            <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 90 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
             <div className="button-row">
               <button type="button" onClick={() => void saveSiteSettings()}>
                 Save site settings

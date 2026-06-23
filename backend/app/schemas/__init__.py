@@ -233,7 +233,7 @@ class SiteSettingsResponse(BaseModel):
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_speed_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
-    max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
+    max_map_pitch_degrees: int = Field(default=75, ge=0, le=90)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
     live_position_pruning_enabled: bool = True
     mqtt_enabled: bool = True
@@ -265,7 +265,7 @@ class SiteSettingsUpdate(BaseModel):
     telemetry_altitude_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_speed_smoothing_seconds: int = Field(default=3, ge=0, le=30)
     telemetry_glide_ratio_smoothing_seconds: int = Field(default=5, ge=0, le=30)
-    max_map_pitch_degrees: int = Field(default=75, ge=0, le=85)
+    max_map_pitch_degrees: int = Field(default=75, ge=0, le=90)
     site_match_radius_m: int = Field(default=1000, ge=1, le=50000)
     live_position_pruning_enabled: bool = True
     mqtt_enabled: bool = True
