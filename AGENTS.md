@@ -1,14 +1,14 @@
 # Agent Instructions
 
-## Automatic Main Push
+## Automatic Staging Push
 
-Charles expects completed changes in this repository to ship from `main` without an extra reminder.
+Charles expects completed changes in this repository to ship from `staging` without an extra reminder.
 
 - After making code or documentation changes, run the appropriate verification for the change.
-- Commit the changes you made and push them to `origin/main` before reporting the task as done, unless Charles explicitly asks to keep the work local or target a different branch.
+- Commit the changes you made and push them to `origin/staging` before reporting the task as done, unless Charles explicitly asks to keep the work local or target a different branch.
 - Stage only the files and hunks you intentionally changed. Do not include unrelated pre-existing dirty worktree changes.
 - If a push, build, test, or deploy trigger fails, debug it and report the blocker clearly instead of leaving the change only local.
-- Do not update or promote `staging` as part of routine work. Let `staging` fall behind; it is a backup branch/environment for now and can be refreshed later only when Charles explicitly asks.
+- Do not update or promote `main` as part of routine work. Treat `main` as production and change it only when Charles explicitly asks.
 
 ## Android App Release Rule
 
@@ -24,5 +24,5 @@ For any Android/mobile app change, the change is not done until all release arti
 ## Repository Notes
 
 - Production deploys from the `main` branch.
-- `main` is the only routine target for completed work.
-- `staging` is intentionally allowed to lag behind `main` and should be treated as a backup until Charles asks to refresh it.
+- `staging` is the only routine target for completed work.
+- `main` should be kept behind or separate from staging work until Charles explicitly asks to promote staging to production.
