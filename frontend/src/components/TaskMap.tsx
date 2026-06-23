@@ -945,26 +945,6 @@ type AltitudeTrackSegment = {
   color: [number, number, number];
 };
 
-type SpiralSegmentCandidate = {
-  startIdx: number;
-  endIdx: number;
-  dirSign: number;
-};
-
-type SpiralReconstructionSegment = {
-  uploadId: number;
-  featureIndex: number;
-  highlighted: boolean;
-  path: [number, number, number][];
-  timestamps: number[];
-  color: [number, number, number];
-  tStart: number;
-  tEnd: number;
-  radiusM: number;
-  turns: number;
-  direction: "CW" | "CCW";
-};
-
 function trackFeatureSubjectKey(feature: TrackCollection["features"][number]) {
   const value = feature.properties?.subject_key;
   return typeof value === "string" && value ? value : null;
@@ -1071,16 +1051,6 @@ function finiteAltitudeM(coordinate: TrackPosition | [number, number, number]) {
 }
 
 const MAX_ALTITUDE_GRADIENT_SEGMENTS = 5000;
-// Adapted from the MIT-licensed skywalker1905/paragliding_flight_3D_viewer
-// spiral reconstruction model. See THIRD_PARTY_NOTICES.md.
-const SPIRAL_RECONSTRUCTION_THRESHOLD_DEG_PER_SEC = 60;
-const SPIRAL_RECONSTRUCTION_MIN_DURATION_SECONDS = 3;
-const SPIRAL_RECONSTRUCTION_MIN_RADIUS_M = 4;
-const SPIRAL_RECONSTRUCTION_TURNS_PER_SECOND = 0.3;
-const SPIRAL_RECONSTRUCTION_FPS = 24;
-const SPIRAL_RECONSTRUCTION_MAX_TRACKS = 4;
-const SPIRAL_RECONSTRUCTION_MAX_POINTS = 12000;
-const SPIRAL_RECONSTRUCTION_COLOR: [number, number, number] = [255, 140, 40];
 const EMPTY_FEATURE_COLLECTION = { type: "FeatureCollection", features: [] } as const;
 
 function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: number) {
@@ -1101,260 +1071,6 @@ function findReplayCoordinateIndex(timestamps: number[], currentReplayTime: numb
     }
   }
   return high;
-}
-
-function headingAtTrackIndex(path: [number, number, number][], index: number) {
-  if (index <= 0 || index >= path.length) {
-    return 0;
-  }
-  return bearingDegrees([path[index - 1][0], path[index - 1][1]], [path[index][0], path[index][1]]);
-}
-
-function headingDeltaPerSecond(path: [number, number, number][], timestamps: number[], index: number) {
-  if (index <= 1 || index >= path.length || index >= timestamps.length) {
-    return 0;
-  }
-  const currentHeading = headingAtTrackIndex(path, index);
-  const previousHeading = headingAtTrackIndex(path, index - 1);
-  const delta = ((currentHeading - previousHeading + 540) % 360) - 180;
-  const elapsedSeconds = (timestamps[index] - timestamps[index - 1]) / 1000;
-  return elapsedSeconds > 0 ? delta / elapsedSeconds : 0;
-}
-
-function metersPerDegreeLongitude(latitude: number) {
-  return Math.max(1, 111320 * Math.cos((latitude * Math.PI) / 180));
-}
-
-function detectSpiralSegments(
-  path: [number, number, number][],
-  timestamps: number[],
-  thresholdDegPerSec = SPIRAL_RECONSTRUCTION_THRESHOLD_DEG_PER_SEC,
-  minDurationSeconds = SPIRAL_RECONSTRUCTION_MIN_DURATION_SECONDS,
-): SpiralSegmentCandidate[] {
-  const segments: SpiralSegmentCandidate[] = [];
-  const count = Math.min(path.length, timestamps.length);
-  if (count < 4) {
-    return segments;
-  }
-  let index = 1;
-  while (index < count) {
-    if (Math.abs(headingDeltaPerSecond(path, timestamps, index)) <= thresholdDegPerSec) {
-      index += 1;
-      continue;
-    }
-    const startIdx = Math.max(0, index - 1);
-    let signSum = 0;
-    let cursor = index;
-    while (cursor < count && Math.abs(headingDeltaPerSecond(path, timestamps, cursor)) > thresholdDegPerSec) {
-      signSum += headingDeltaPerSecond(path, timestamps, cursor);
-      cursor += 1;
-    }
-    const endIdx = Math.min(count - 1, cursor);
-    const durationSeconds = (timestamps[endIdx] - timestamps[startIdx]) / 1000;
-    if (durationSeconds >= minDurationSeconds && endIdx - startIdx >= 3) {
-      const refLat = path[startIdx][1];
-      const mLon = metersPerDegreeLongitude(refLat);
-      const mLat = 111320;
-      let centerX = 0;
-      let centerY = 0;
-      let n = 0;
-      for (let i = startIdx; i <= endIdx; i += 1) {
-        centerX += path[i][0] * mLon;
-        centerY += path[i][1] * mLat;
-        n += 1;
-      }
-      centerX /= n;
-      centerY /= n;
-      const distances: number[] = [];
-      for (let i = startIdx; i <= endIdx; i += 1) {
-        distances.push(Math.hypot(path[i][0] * mLon - centerX, path[i][1] * mLat - centerY));
-      }
-      distances.sort((left, right) => left - right);
-      const medianRadius = distances[Math.floor(distances.length / 2)] ?? 0;
-      if (medianRadius >= SPIRAL_RECONSTRUCTION_MIN_RADIUS_M) {
-        segments.push({ startIdx, endIdx, dirSign: Math.sign(signSum) || -1 });
-      }
-    }
-    index = cursor + 1;
-  }
-  return segments;
-}
-
-function downsampleSpiralPath(
-  path: [number, number, number][],
-  timestamps: number[],
-  maxPoints = SPIRAL_RECONSTRUCTION_MAX_POINTS,
-) {
-  if (path.length <= maxPoints || maxPoints < 2) {
-    return { path, timestamps };
-  }
-  const sampledPath: [number, number, number][] = [];
-  const sampledTimestamps: number[] = [];
-  const stride = Math.ceil(path.length / maxPoints);
-  for (let index = 0; index < path.length; index += stride) {
-    sampledPath.push(path[index]);
-    sampledTimestamps.push(timestamps[index]);
-  }
-  const lastIndex = path.length - 1;
-  if (sampledPath[sampledPath.length - 1] !== path[lastIndex]) {
-    sampledPath.push(path[lastIndex]);
-    sampledTimestamps.push(timestamps[lastIndex]);
-  }
-  return { path: sampledPath, timestamps: sampledTimestamps };
-}
-
-function reconstructSpiralSegment(
-  path: [number, number, number][],
-  timestamps: number[],
-  segment: SpiralSegmentCandidate,
-  uploadId: number,
-  featureIndex: number,
-  highlighted: boolean,
-  color: [number, number, number],
-): SpiralReconstructionSegment | null {
-  const { startIdx, endIdx, dirSign } = segment;
-  if (endIdx <= startIdx + 1) {
-    return null;
-  }
-  const refLat = path[startIdx][1];
-  const mLat = 111320;
-  const mLon = metersPerDegreeLongitude(refLat);
-  const pointCount = endIdx - startIdx + 1;
-  if (pointCount < 2) {
-    return null;
-  }
-
-  const xs = new Float64Array(pointCount);
-  const ys = new Float64Array(pointCount);
-  const alts = new Float64Array(pointCount);
-  const ts = new Float64Array(pointCount);
-  for (let index = 0; index < pointCount; index += 1) {
-    const coordinate = path[startIdx + index];
-    xs[index] = coordinate[0] * mLon;
-    ys[index] = coordinate[1] * mLat;
-    alts[index] = coordinate[2] ?? 0;
-    ts[index] = timestamps[startIdx + index];
-  }
-
-  const centroidWindowMs = 1500;
-  const centerXs = new Float64Array(pointCount);
-  const centerYs = new Float64Array(pointCount);
-  for (let index = 0; index < pointCount; index += 1) {
-    let low = index;
-    let high = index;
-    while (low > 0 && ts[index] - ts[low - 1] <= centroidWindowMs) {
-      low -= 1;
-    }
-    while (high < pointCount - 1 && ts[high + 1] - ts[index] <= centroidWindowMs) {
-      high += 1;
-    }
-    let sumX = 0;
-    let sumY = 0;
-    let n = 0;
-    for (let cursor = low; cursor <= high; cursor += 1) {
-      sumX += xs[cursor];
-      sumY += ys[cursor];
-      n += 1;
-    }
-    centerXs[index] = sumX / n;
-    centerYs[index] = sumY / n;
-  }
-
-  const thetas = new Float64Array(pointCount);
-  const radii = new Float64Array(pointCount);
-  for (let index = 0; index < pointCount; index += 1) {
-    const dx = xs[index] - centerXs[index];
-    const dy = ys[index] - centerYs[index];
-    thetas[index] = Math.atan2(dy, dx);
-    radii[index] = Math.hypot(dx, dy);
-  }
-
-  const twoPi = 2 * Math.PI;
-  const omegaSign = -dirSign;
-  const reconstructedPath: [number, number, number][] = [];
-  const reconstructedTimestamps: number[] = [];
-  let totalAngleAbs = 0;
-  for (let index = 0; index < pointCount - 1; index += 1) {
-    const elapsedSeconds = (ts[index + 1] - ts[index]) / 1000;
-    if (!(elapsedSeconds > 0)) {
-      continue;
-    }
-    const expected = omegaSign * twoPi * SPIRAL_RECONSTRUCTION_TURNS_PER_SECOND * elapsedSeconds;
-    let shortDelta = thetas[index + 1] - thetas[index];
-    while (shortDelta > Math.PI) {
-      shortDelta -= twoPi;
-    }
-    while (shortDelta <= -Math.PI) {
-      shortDelta += twoPi;
-    }
-    const hiddenTurns = Math.round((expected - shortDelta) / twoPi);
-    const total = shortDelta + hiddenTurns * twoPi;
-    totalAngleAbs += Math.abs(total);
-    const steps = Math.max(2, Math.ceil(elapsedSeconds * SPIRAL_RECONSTRUCTION_FPS));
-    for (let step = 0; step < steps; step += 1) {
-      const ratio = step / steps;
-      const centerX = centerXs[index] + ratio * (centerXs[index + 1] - centerXs[index]);
-      const centerY = centerYs[index] + ratio * (centerYs[index + 1] - centerYs[index]);
-      const radius = radii[index] + ratio * (radii[index + 1] - radii[index]);
-      const theta = thetas[index] + ratio * total;
-      const x = centerX + radius * Math.cos(theta);
-      const y = centerY + radius * Math.sin(theta);
-      const altitude = alts[index] + ratio * (alts[index + 1] - alts[index]);
-      reconstructedPath.push([x / mLon, y / mLat, altitude]);
-      reconstructedTimestamps.push(ts[index] + ratio * (ts[index + 1] - ts[index]));
-    }
-  }
-  reconstructedPath.push([xs[pointCount - 1] / mLon, ys[pointCount - 1] / mLat, alts[pointCount - 1]]);
-  reconstructedTimestamps.push(ts[pointCount - 1]);
-  if (reconstructedPath.length < 2) {
-    return null;
-  }
-
-  let radiusSum = 0;
-  for (let index = 0; index < pointCount; index += 1) {
-    radiusSum += radii[index];
-  }
-  const sampled = downsampleSpiralPath(reconstructedPath, reconstructedTimestamps);
-  return {
-    uploadId,
-    featureIndex,
-    highlighted,
-    path: sampled.path,
-    timestamps: sampled.timestamps,
-    color,
-    tStart: ts[0],
-    tEnd: ts[pointCount - 1],
-    radiusM: radiusSum / pointCount,
-    turns: totalAngleAbs / twoPi,
-    direction: dirSign < 0 ? "CW" : "CCW",
-  };
-}
-
-function clipSpiralSegment(segment: SpiralReconstructionSegment, currentReplayTime: number | null, shouldSlice: boolean) {
-  if (!shouldSlice || currentReplayTime == null) {
-    return segment.path;
-  }
-  if (currentReplayTime < segment.tStart) {
-    return [];
-  }
-  if (currentReplayTime >= segment.tEnd) {
-    return segment.path;
-  }
-  const coordinateIndex = findReplayCoordinateIndex(segment.timestamps, currentReplayTime);
-  if (coordinateIndex < 0) {
-    return [];
-  }
-  const visiblePath = segment.path.slice(0, coordinateIndex + 1);
-  const nextIndex = coordinateIndex + 1;
-  if (nextIndex < segment.path.length) {
-    const startTime = segment.timestamps[coordinateIndex];
-    const endTime = segment.timestamps[nextIndex];
-    if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime) {
-      const ratio = Math.max(0, Math.min(1, (currentReplayTime - startTime) / (endTime - startTime)));
-      visiblePath.push(interpolateTrackPosition(segment.path[coordinateIndex], segment.path[nextIndex], ratio));
-    }
-  }
-  return visiblePath.length > 1 ? visiblePath : [];
 }
 
 function pointTypeColor(pointType: string): [number, number, number] {
@@ -2487,50 +2203,6 @@ export const TaskMap = React.memo(function TaskMap({
     }
     return segments;
   }, [effectiveHighlightedTrackUploadId, forceTrackAltitudeGradient, fullTrackPathData, highlightedAltitudeScale, isReplaying, visibleTrackLengths]);
-  const spiralReconstructionSegments = useMemo<SpiralReconstructionSegment[]>(() => {
-    if (mode !== "replay" || !effectiveTrack) {
-      return [];
-    }
-    const selectedFeatures = effectiveTrack.features
-      .map((feature, featureIndex) => ({ feature, featureIndex }))
-      .filter(({ feature }) => feature.geometry.type === "LineString" && feature.geometry.coordinates.length >= 4)
-      .filter(({ feature }) => (
-        effectiveHighlightedTrackUploadId == null ||
-        Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId
-      ))
-      .slice(0, effectiveHighlightedTrackUploadId == null ? SPIRAL_RECONSTRUCTION_MAX_TRACKS : 1);
-
-    return selectedFeatures.flatMap(({ feature, featureIndex }) => {
-      const timestamps = trackFeatureTimelines[featureIndex]?.timestamps ?? [];
-      if (timestamps.length < 4) {
-        return [];
-      }
-      const path = feature.geometry.coordinates
-        .slice(0, timestamps.length)
-        .map((coordinate) => scaleTrackPosition(coordinate, effectiveAltitudeMultiplier) as [number, number, number]);
-      if (path.length < 4) {
-        return [];
-      }
-      const uploadId = Number(feature.properties?.upload_id ?? 0);
-      const highlighted = uploadId === effectiveHighlightedTrackUploadId;
-      return detectSpiralSegments(path, timestamps)
-        .map((segment) => reconstructSpiralSegment(path, timestamps, segment, uploadId, featureIndex, highlighted, SPIRAL_RECONSTRUCTION_COLOR))
-        .filter((segment): segment is SpiralReconstructionSegment => segment != null);
-    });
-  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack, mode, trackFeatureTimelines]);
-  const visibleSpiralReconstructionSegments = useMemo(() => {
-    if (!spiralReconstructionSegments.length) {
-      return [] as Array<SpiralReconstructionSegment & { visiblePath: [number, number, number][] }>;
-    }
-    const shouldSlice = replayTotal > 0 && (isReplaying || replayHasInteracted);
-    const currentReplayTime = replayTotal > 0 ? replayTimeline[Math.min(replayIndex, replayTotal - 1)] : null;
-    return spiralReconstructionSegments
-      .map((segment) => ({
-        ...segment,
-        visiblePath: clipSpiralSegment(segment, currentReplayTime, shouldSlice),
-      }))
-      .filter((segment) => segment.visiblePath.length > 1);
-  }, [isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, spiralReconstructionSegments]);
   const replayMarkerData = useMemo(() => {
     if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };
@@ -2760,34 +2432,6 @@ export const TaskMap = React.memo(function TaskMap({
         );
       }
     }
-    if (visibleSpiralReconstructionSegments.length) {
-      layers.push(
-        new PathLayer({
-          id: "igc-spiral-reconstruction",
-          data: visibleSpiralReconstructionSegments,
-          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-          positionFormat: "XYZ",
-          billboard: true,
-          getPath: (item: { visiblePath: [number, number, number][] }) => item.visiblePath,
-          getColor: (item: { highlighted: boolean; color: [number, number, number] }) => [
-            item.color[0],
-            item.color[1],
-            item.color[2],
-            item.highlighted ? 245 : 190,
-          ],
-          getWidth: (item: { highlighted: boolean }) => (item.highlighted ? HIGHLIGHTED_TRACK_WIDTH_PIXELS + 1 : TRACK_WIDTH_PIXELS + 1),
-          widthUnits: "pixels",
-          widthMinPixels: 2,
-          widthMaxPixels: 80,
-          pickable: false,
-          jointRounded: true,
-          capRounded: true,
-          parameters: {
-            depthTest: false,
-          },
-        }),
-      );
-    }
     if (scoredTrackDeckPointData.length) {
       layers.push(
         new ScatterplotLayer<ScoredTrackDeckPoint>({
@@ -2992,7 +2636,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
