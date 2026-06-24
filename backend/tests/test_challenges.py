@@ -58,6 +58,7 @@ def test_pilot_creates_unlisted_public_challenge_from_buddy_group_defaults() -> 
     assert event is not None
     assert event.event_kind == "challenge"
     assert event.owner_user_id == owner.id
+    assert event.source_buddy_group_id == group.id
     assert event.visibility == "public"
     assert event.public_listed is False
     assert event.minimum_distance_km == 9

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BuddyGroup, PilotSearchResult } from "./types";
+import type { BuddyGroup, EventRecord, PilotSearchResult } from "./types";
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -28,7 +28,12 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(text || `Request failed: ${response.status}`);
+    let message = text || `Request failed: ${response.status}`;
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown };
+      if (parsed.detail) message = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+    } catch {}
+    throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -37,9 +42,10 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
 
 export interface BuddyGroupsManagerProps {
   token: string;
+  onOpenChallenge: (challenge: EventRecord) => void;
 }
 
-export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
+export default function BuddyGroupsManager({ token, onOpenChallenge }: BuddyGroupsManagerProps) {
   const [groups, setGroups] = useState<BuddyGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [newGroupName, setNewGroupName] = useState("");
@@ -56,8 +62,8 @@ export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
     try {
       const data = await apiFetch<BuddyGroup[]>("/api/buddies/groups", token);
       setGroups(data);
-    } catch {
-      setFeedback({ type: "error", text: "Failed to load buddy groups" });
+    } catch (err) {
+      setFeedback({ type: "error", text: err instanceof Error ? `Failed to load buddy groups: ${err.message}` : "Failed to load buddy groups" });
     } finally {
       setLoading(false);
     }
@@ -152,6 +158,28 @@ export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
     }
   }
 
+  async function createChallenge(group: BuddyGroup) {
+    const today = new Date().toISOString().slice(0, 10);
+    try {
+      const challenge = await apiFetch<EventRecord>("/api/challenges", token, {
+        method: "POST",
+        body: JSON.stringify({
+          name: `${group.name} Challenge`,
+          challenge_type: "open_distance",
+          starts_on: today,
+          ends_on: today,
+          source_buddy_group_id: group.id,
+          visibility: "public",
+          public_listed: false,
+        }),
+      });
+      showFeedback("success", `Created "${challenge.name}"`);
+      onOpenChallenge(challenge);
+    } catch (err) {
+      showFeedback("error", err instanceof Error ? err.message : "Failed to create challenge");
+    }
+  }
+
   function handleSearchInput(groupId: number, query: string) {
     setSearchQuery(query);
     setSearchGroupId(groupId);
@@ -229,6 +257,7 @@ export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
                       <option value="private">Not viewable</option>
                     </select>
                     <div className="buddy-group-actions">
+                      <button type="button" className="ghost-button" onClick={() => createChallenge(group)}>Create challenge</button>
                       <button type="button" className="ghost-button" onClick={() => { setEditingGroupId(group.id); setEditingName(group.name); }}>Rename</button>
                       <button type="button" className="ghost-button danger-text" onClick={() => deleteGroup(group.id, group.name)}>Delete</button>
                     </div>

@@ -6,7 +6,7 @@ import EmailsManager from "./EmailsManager";
 import MeshDevicesManager from "./MeshDevicesManager";
 import PilotClaimSection from "./PilotClaimSection";
 import { PasswordInput } from "../PasswordInput";
-import type { AccountSettingsRecord } from "./types";
+import type { AccountSettingsRecord, EventRecord } from "./types";
 
 export interface SettingsSectionProps {
   token: string;
@@ -23,6 +23,7 @@ export interface SettingsSectionProps {
   pilotId: number | null;
   onPilotClaimed: () => void;
   onMeshDevicesChanged?: () => void | Promise<void>;
+  onOpenChallenge: (challenge: EventRecord) => void;
 }
 
 type SettingsTab = "profile" | "units" | "challenge_defaults" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
@@ -51,6 +52,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
     pilotId,
     onPilotClaimed,
     onMeshDevicesChanged,
+    onOpenChallenge,
   } = props;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
@@ -343,7 +345,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
 
       {activeTab === "buddies" && (
         <div className="settings-tab-panel">
-          <BuddyGroupsManager token={token} />
+          <BuddyGroupsManager token={token} onOpenChallenge={onOpenChallenge} />
         </div>
       )}
     </div>

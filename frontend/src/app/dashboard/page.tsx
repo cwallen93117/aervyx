@@ -389,6 +389,7 @@ type SidebarItem = { id: SidebarSection; label: string; description?: string };
 
 const adminSidebarItems = [
   { id: "events", label: "Events" },
+  { id: "challenges", label: "Challenges" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -403,6 +404,7 @@ const adminSidebarItems = [
 ] satisfies SidebarItem[];
 const organizerSidebarItems = [
   { id: "events", label: "Events" },
+  { id: "challenges", label: "Challenges" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -3198,6 +3200,7 @@ export default function HomePage() {
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
+              onOpenChallenge={(challenge) => void openChallengeWorkspace(challenge)}
             />
           );
         case "admin":
@@ -3244,6 +3247,7 @@ export default function HomePage() {
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
+              onOpenChallenge={(challenge) => void openChallengeWorkspace(challenge)}
             />
           );
       }
