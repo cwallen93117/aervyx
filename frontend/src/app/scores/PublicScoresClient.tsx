@@ -910,6 +910,14 @@ export function PublicScoresClient() {
     () => events.find((event) => event.id === selectedEventId) ?? null,
     [events, selectedEventId],
   );
+  const publicCompetitions = useMemo(
+    () => events.filter((event) => (event.event_kind ?? "competition") !== "challenge"),
+    [events],
+  );
+  const publicBuddyChallenges = useMemo(
+    () => events.filter((event) => (event.event_kind ?? "competition") === "challenge"),
+    [events],
+  );
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === activeTaskId) ?? null,
     [activeTaskId, tasks],
@@ -1685,10 +1693,22 @@ export function PublicScoresClient() {
               onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
               disabled={loadingEvents || !events.length}
             >
-              <option value="">Select a competition</option>
-              {events.length ? events.map((event) => (
-                <option key={event.id} value={event.id}>{event.name}</option>
-              )) : <option value="">No public competitions</option>}
+              <option value="">Competitions</option>
+              {publicCompetitions.length ? (
+                <optgroup label="Official competitions">
+                  {publicCompetitions.map((event) => (
+                    <option key={event.id} value={event.id}>{event.name}</option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {publicBuddyChallenges.length ? (
+                <optgroup label="Buddy challenges">
+                  {publicBuddyChallenges.map((event) => (
+                    <option key={event.id} value={event.id}>{event.name}</option>
+                  ))}
+                </optgroup>
+              ) : null}
+              {!events.length ? <option value="">No public competitions</option> : null}
             </select>
           </div>
           <a href={watchLiveHref} className="public-header-link public-header-link-live">Live</a>
@@ -1729,7 +1749,7 @@ export function PublicScoresClient() {
           {loadingEvents || loadingEvent ? (
             <div className="scores-empty">Loading public scores...</div>
           ) : !selectedEvent ? (
-            <div className="scores-empty">{events.length ? "Select a public competition." : "No public competitions are available yet."}</div>
+            <div className="scores-empty">{events.length ? "Select a competition." : "No public competitions are available yet."}</div>
           ) : activeTaskId == null ? (
             renderOverall()
           ) : selectedTask ? (

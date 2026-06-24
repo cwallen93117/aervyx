@@ -8,9 +8,10 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, Pilot, Task, User
 from app.routers.challenges import create_challenge, get_challenge
+from app.routers.events import create_event
 from app.routers.public import get_public_challenge_by_slug, list_public_events
 from app.routers.tasks import publish_task
-from app.schemas import ChallengeCreate
+from app.schemas import ChallengeCreate, EventCreate
 
 
 def _session() -> Session:
@@ -73,6 +74,55 @@ def test_pilot_creates_unlisted_public_challenge_from_buddy_group_defaults() -> 
     assert [event.name for event in list_public_events(session=session)] == []
     assert get_public_challenge_by_slug(event.public_slug, session=session).id == event.id
     assert outsider.id not in roster
+
+
+def test_pilot_creates_buddy_challenge_through_event_api() -> None:
+    session = _session()
+    owner_pilot = Pilot(first_name="Owner", last_name="Pilot", email="owner@example.com")
+    buddy_pilot = Pilot(first_name="Buddy", last_name="Pilot", email="buddy@example.com")
+    session.add_all([owner_pilot, buddy_pilot])
+    session.flush()
+    owner = User(username="owner@example.com", full_name="Owner Pilot", role="pilot", pilot_id=owner_pilot.id, password_hash="hash")
+    session.add(owner)
+    session.flush()
+    group = BuddyGroup(user_id=owner.id, name="Weekend crew")
+    session.add(group)
+    session.flush()
+    session.add(BuddyGroupMember(group_id=group.id, pilot_id=buddy_pilot.id))
+    session.commit()
+
+    payload = create_event(
+        EventCreate(
+            name="Weekend XC",
+            location="Home ridge",
+            starts_on=date(2026, 6, 21),
+            ends_on=date(2026, 6, 21),
+            timezone="UTC",
+            event_kind="challenge",
+            source_buddy_group_id=group.id,
+            visibility="public",
+            public_listed=True,
+            minimum_distance_km=11,
+            default_start_gate_count=4,
+        ),
+        user=owner,
+        session=session,
+    )
+
+    event = session.get(Event, payload.id)
+    assert event is not None
+    assert event.event_kind == "challenge"
+    assert event.owner_user_id == owner.id
+    assert event.source_buddy_group_id == group.id
+    assert event.public_slug
+    assert event.public_listed is True
+    assert event.minimum_distance_km == 11
+    assert event.default_start_gate_count == 4
+    roster = set(session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event.id)).all())
+    assert roster == {owner_pilot.id, buddy_pilot.id}
+    task = session.scalar(select(Task).where(Task.event_id == event.id))
+    assert task is not None
+    assert task.task_type == "open_distance"
 
 
 def test_non_owner_cannot_manage_challenge_task() -> None:

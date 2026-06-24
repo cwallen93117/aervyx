@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BuddyGroup, EventRecord, PilotSearchResult } from "./types";
+import type { BuddyGroup, PilotSearchResult } from "./types";
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
@@ -42,10 +42,9 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
 
 export interface BuddyGroupsManagerProps {
   token: string;
-  onOpenChallenge: (challenge: EventRecord) => void;
 }
 
-export default function BuddyGroupsManager({ token, onOpenChallenge }: BuddyGroupsManagerProps) {
+export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
   const [groups, setGroups] = useState<BuddyGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [newGroupName, setNewGroupName] = useState("");
@@ -158,28 +157,6 @@ export default function BuddyGroupsManager({ token, onOpenChallenge }: BuddyGrou
     }
   }
 
-  async function createChallenge(group: BuddyGroup) {
-    const today = new Date().toISOString().slice(0, 10);
-    try {
-      const challenge = await apiFetch<EventRecord>("/api/challenges", token, {
-        method: "POST",
-        body: JSON.stringify({
-          name: `${group.name} Challenge`,
-          challenge_type: "open_distance",
-          starts_on: today,
-          ends_on: today,
-          source_buddy_group_id: group.id,
-          visibility: "public",
-          public_listed: false,
-        }),
-      });
-      showFeedback("success", `Created "${challenge.name}"`);
-      onOpenChallenge(challenge);
-    } catch (err) {
-      showFeedback("error", err instanceof Error ? err.message : "Failed to create challenge");
-    }
-  }
-
   function handleSearchInput(groupId: number, query: string) {
     setSearchQuery(query);
     setSearchGroupId(groupId);
@@ -257,7 +234,6 @@ export default function BuddyGroupsManager({ token, onOpenChallenge }: BuddyGrou
                       <option value="private">Not viewable</option>
                     </select>
                     <div className="buddy-group-actions">
-                      <button type="button" className="ghost-button" onClick={() => createChallenge(group)}>Create challenge</button>
                       <button type="button" className="ghost-button" onClick={() => { setEditingGroupId(group.id); setEditingName(group.name); }}>Rename</button>
                       <button type="button" className="ghost-button danger-text" onClick={() => deleteGroup(group.id, group.name)}>Delete</button>
                     </div>

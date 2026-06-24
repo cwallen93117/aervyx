@@ -1,7 +1,7 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 import type { ScorePenaltyCalculation } from "../../lib/scorePenalties";
 
-export type SidebarSection = "events" | "challenges" | "tasks" | "scoring" | "live_tracking" | "live_backtest" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
+export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "live_backtest" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; profile_type_updated_at: string; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";

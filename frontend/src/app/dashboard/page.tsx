@@ -8,7 +8,6 @@ import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from 
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 
 import EventsSection from "../../components/dashboard/EventsSection";
-import ChallengesSection from "../../components/dashboard/ChallengesSection";
 import TasksSection from "../../components/dashboard/TasksSection";
 import ScoringSection from "../../components/dashboard/ScoringSection";
 import LiveTrackingSection from "../../components/dashboard/LiveTrackingSection";
@@ -388,8 +387,7 @@ const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after t
 type SidebarItem = { id: SidebarSection; label: string; description?: string };
 
 const adminSidebarItems = [
-  { id: "events", label: "Events" },
-  { id: "challenges", label: "Challenges" },
+  { id: "events", label: "Events / Challenges" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -403,8 +401,7 @@ const adminSidebarItems = [
   { id: "live_backtest", label: "Live Backtest" },
 ] satisfies SidebarItem[];
 const organizerSidebarItems = [
-  { id: "events", label: "Events" },
-  { id: "challenges", label: "Challenges" },
+  { id: "events", label: "Events / Challenges" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -413,7 +410,7 @@ const organizerSidebarItems = [
   { id: "settings", label: "Settings" },
 ] satisfies SidebarItem[];
 const pilotSidebarItems = [
-  { id: "challenges", label: "Challenges" },
+  { id: "events", label: "Events / Challenges" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -449,7 +446,7 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
   if (section && allowedSections.has(section as SidebarSection)) {
     return section as SidebarSection;
   }
-  if (role === "pilot") return "challenges";
+  if (role === "pilot") return "events";
   if (role === null) return "scoring";
   return "events";
 }
@@ -1781,16 +1778,6 @@ export default function HomePage() {
     await loadEvent(token, event.id, event);
   }
 
-  async function openChallengeWorkspace(challenge: EventRecord) {
-    if (!token || !user) return;
-    setEvents((current) => {
-      const existing = current.some((event) => event.id === challenge.id);
-      return existing ? current.map((event) => (event.id === challenge.id ? challenge : event)) : [challenge, ...current];
-    });
-    setActiveSection("tasks");
-    await loadEvent(token, challenge.id, challenge, user, undefined, "tasks");
-  }
-
   async function loadTask(activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData = true) {
     const task = loadedTask ?? (await apiFetch<TaskRecord>(`/api/tasks/${taskId}`, activeToken));
     const hasAdvancedTaskPoints = task.points.some((point) => isAdvancedPointType(point.point_type));
@@ -2214,6 +2201,11 @@ export default function HomePage() {
       penalties_json: penaltiesJson,
       is_public_tracking: nextForm.is_public_tracking,
       visibility: nextForm.visibility,
+      event_kind: nextForm.event_kind,
+      owner_user_id: nextForm.owner_user_id,
+      source_buddy_group_id: nextForm.event_kind === "challenge" ? nextForm.source_buddy_group_id : null,
+      public_slug: nextForm.public_slug,
+      public_listed: nextForm.event_kind === "challenge" ? nextForm.public_listed : true,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
     const loadedEvents = await refreshEvents(token);
@@ -2235,13 +2227,15 @@ export default function HomePage() {
 
   async function createEventDraft() {
     if (!token) return;
-    const template = blankEventForm();
+    const isChallenge = user?.role === "pilot";
+    const template = { ...blankEventForm(), event_kind: isChallenge ? "challenge" as const : "competition" as const };
     const savedEvent = await apiFetch<EventRecord>("/api/events", token, {
       method: "POST",
       body: JSON.stringify({
         ...template,
-        name: nextDraftEventName(events),
+        name: isChallenge ? "New challenge" : nextDraftEventName(events),
         penalties_json: {},
+        public_listed: isChallenge,
       }),
     });
     const loadedEvents = await refreshEvents(token);
@@ -2250,7 +2244,7 @@ export default function HomePage() {
     setEventEditorId(nextEvent.id);
     setEventForm(eventToForm(nextEvent));
     window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
-    setMessage(`Created event ${nextEvent.name}.`);
+    setMessage(`Created ${isChallenge ? "challenge" : "event"} ${nextEvent.name}.`);
     await loadEvent(token, nextEvent.id, nextEvent);
   }
 
@@ -2939,13 +2933,6 @@ export default function HomePage() {
         );
       }
       switch (activeSection) {
-        case "challenges":
-          return (
-            <ChallengesSection
-              token={token}
-              onOpenChallenge={(challenge) => void openChallengeWorkspace(challenge)}
-            />
-          );
         case "events":
           return (
             <EventsSection
@@ -2964,6 +2951,8 @@ export default function HomePage() {
               visibleAirspaces={visibleAirspaces}
               pilots={pilots}
               canManagePlatform={canManageCurrentEvent}
+              canManageOfficialEvents={canManagePlatform}
+              canCreateChallenge={Boolean(user)}
               isAdmin={isAdmin ?? false}
               selectEvent={selectEvent}
               createEventDraft={createEventDraft}
@@ -3208,7 +3197,6 @@ export default function HomePage() {
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
-              onOpenChallenge={(challenge) => void openChallengeWorkspace(challenge)}
             />
           );
         case "admin":
@@ -3255,7 +3243,6 @@ export default function HomePage() {
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
-              onOpenChallenge={(challenge) => void openChallengeWorkspace(challenge)}
             />
           );
       }
