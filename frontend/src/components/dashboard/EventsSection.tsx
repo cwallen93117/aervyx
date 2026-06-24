@@ -2,7 +2,7 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
-import { TaskMap } from "../TaskMap";
+import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
@@ -526,6 +526,7 @@ export interface EventsSectionProps {
   refreshPilotDirectory: (activeToken: string) => Promise<PilotRecord[]>;
   refreshEvents: (activeToken: string) => Promise<EventRecord[]>;
   token: string;
+  telemetrySmoothing?: MapTelemetrySmoothing;
   setMessage: (msg: string) => void;
   setError: (msg: string) => void;
   renderParticipantCards: () => ReactNode;
@@ -563,6 +564,7 @@ export default function EventsSection(props: EventsSectionProps) {
     refreshPilotDirectory,
     refreshEvents,
     token,
+    telemetrySmoothing,
     setMessage,
     setError,
     renderParticipantCards,
@@ -1558,6 +1560,7 @@ export default function EventsSection(props: EventsSectionProps) {
                         fitKey={`${selectedTurnpointSource.id}-${sourceTurnpoints.length}`}
                         viewStateKey={`turnpoint-source-${selectedTurnpointSource.id}`}
                         fitMaxZoom={12}
+                        telemetrySmoothing={telemetrySmoothing}
                         overlayConfig={{ click_to_add_turnpoint: true }}
                       />
                     </div>

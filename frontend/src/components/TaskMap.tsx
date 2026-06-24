@@ -2488,12 +2488,13 @@ export const TaskMap = React.memo(function TaskMap({
     return segments;
   }, [effectiveHighlightedTrackUploadId, forceTrackAltitudeGradient, fullTrackPathData, highlightedAltitudeScale, isReplaying, visibleTrackLengths]);
   const spiralReconstructionSegments = useMemo<SpiralReconstructionSegment[]>(() => {
-    if (mode !== "replay" || !effectiveTrack) {
+    if (!effectiveTrack) {
       return [];
     }
     const selectedFeatures = effectiveTrack.features
       .map((feature, featureIndex) => ({ feature, featureIndex }))
       .filter(({ feature }) => feature.geometry.type === "LineString" && feature.geometry.coordinates.length >= 4)
+      .filter(({ feature }) => feature.properties?.track_kind === "igc")
       .filter(({ feature }) => (
         effectiveHighlightedTrackUploadId == null ||
         Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId
@@ -2517,12 +2518,12 @@ export const TaskMap = React.memo(function TaskMap({
         .map((segment) => reconstructSpiralSegment(path, timestamps, segment, uploadId, featureIndex, highlighted, SPIRAL_RECONSTRUCTION_COLOR))
         .filter((segment): segment is SpiralReconstructionSegment => segment != null);
     });
-  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack, mode, trackFeatureTimelines]);
+  }, [effectiveAltitudeMultiplier, effectiveHighlightedTrackUploadId, effectiveTrack, trackFeatureTimelines]);
   const visibleSpiralReconstructionSegments = useMemo(() => {
     if (!spiralReconstructionSegments.length) {
       return [] as Array<SpiralReconstructionSegment & { visiblePath: [number, number, number][] }>;
     }
-    const shouldSlice = replayTotal > 0 && (isReplaying || replayHasInteracted);
+    const shouldSlice = mode === "replay" && replayTotal > 0 && (isReplaying || replayHasInteracted);
     const currentReplayTime = replayTotal > 0 ? replayTimeline[Math.min(replayIndex, replayTotal - 1)] : null;
     return spiralReconstructionSegments
       .map((segment) => ({
@@ -2530,7 +2531,7 @@ export const TaskMap = React.memo(function TaskMap({
         visiblePath: clipSpiralSegment(segment, currentReplayTime, shouldSlice),
       }))
       .filter((segment) => segment.visiblePath.length > 1);
-  }, [isReplaying, replayHasInteracted, replayIndex, replayTimeline, replayTotal, spiralReconstructionSegments]);
+  }, [isReplaying, mode, replayHasInteracted, replayIndex, replayTimeline, replayTotal, spiralReconstructionSegments]);
   const replayMarkerData = useMemo(() => {
     if (!effectiveTrack || !replayTotal) {
       return { type: "FeatureCollection", features: [] as Array<Record<string, unknown>> };

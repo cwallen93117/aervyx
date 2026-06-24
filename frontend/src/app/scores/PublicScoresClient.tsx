@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
-import { TaskMap, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
+import { TaskMap, type MapTelemetrySmoothing, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TrackCollection } from "../../components/TaskMap";
 import type { EventRecord } from "../../components/dashboard/types";
 import { TRACK_COLORS, resolveApiBase } from "../../lib/live-tracking-utils";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
@@ -74,8 +74,16 @@ type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; st
 type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number; recorded_at?: string | null; task_date?: string | null; latitude?: number | null; longitude?: number | null; ground_altitude_m?: number | null; agl_altitude_m?: number | null };
 type MeetStatsRecord = { total_airtime_seconds: number; average_airtime_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number; pilot_count: number; day_count: number; flight_count: number };
 type TaskSubTab = "results" | "map";
+type PublicSiteSettings = { max_map_pitch_degrees: number };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
+const defaultTelemetrySmoothing: MapTelemetrySmoothing = {
+  telemetry_vario_smoothing_seconds: 5,
+  telemetry_altitude_smoothing_seconds: 3,
+  telemetry_speed_smoothing_seconds: 3,
+  telemetry_glide_ratio_smoothing_seconds: 5,
+  max_map_pitch_degrees: 75,
+};
 type ScoringParameterRow = { param: string; label: string; value: string; helpId: ScoringHelpId };
 type ScoringParameterDefinition = { param: string; field: keyof PublicEvent; helpId: ScoringHelpId };
 
@@ -884,6 +892,7 @@ export function PublicScoresClient() {
   const [loadingResults, setLoadingResults] = useState(false);
   const [error, setError] = useState("");
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
+  const [telemetrySmoothing, setTelemetrySmoothing] = useState<MapTelemetrySmoothing>(defaultTelemetrySmoothing);
   const [hasRequestedEventParam, setHasRequestedEventParam] = useState(false);
   const [requestedEventId, setRequestedEventId] = useState<number | null>(null);
   const [requestedChallengeSlug, setRequestedChallengeSlug] = useState<string | null>(null);
@@ -1012,6 +1021,8 @@ export function PublicScoresClient() {
           color,
           pilot_name: result?.pilot_name.trim() || feature.properties?.pilot_name || `Pilot ${uploadId}`,
           upload_id: uploadId,
+          line_style: "solid",
+          track_kind: "igc",
         },
       }));
     });
@@ -1295,6 +1306,14 @@ export function PublicScoresClient() {
     let cancelled = false;
     (async () => {
       try {
+        try {
+          const settings = await fetchJson<PublicSiteSettings>(`${apiBase}/api/public/site-settings`);
+          if (!cancelled) {
+            setTelemetrySmoothing({ ...defaultTelemetrySmoothing, max_map_pitch_degrees: settings.max_map_pitch_degrees });
+          }
+        } catch {
+          // Public map keeps the built-in pitch default if settings are unavailable.
+        }
         const data = await fetchJson<{ config?: { public_live?: Record<string, boolean> } }>(`${apiBase}/api/map-overlay-config/public`);
         if (!cancelled && data.config?.public_live) {
           setOverlayConfig(data.config.public_live);
@@ -1640,6 +1659,7 @@ export function PublicScoresClient() {
             fitKey={selectedTask.id}
             fitTurnpoints={turnpoints}
             units={defaultUnits}
+            telemetrySmoothing={telemetrySmoothing}
             overlayConfig={scoresMapOverlayConfig}
           />
         </div>

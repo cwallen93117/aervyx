@@ -389,6 +389,8 @@ def get_flight_track(
                     "pilot_name": pilot_name,
                     "aircraft_icon": (user.aircraft_icon or "hang_glider").strip().lower(),
                     "timestamps": timestamps,
+                    "line_style": "solid",
+                    "track_kind": "igc",
                 },
                 "geometry": {"type": "LineString", "coordinates": coordinates},
             }

@@ -6,6 +6,7 @@ import {
   TaskMap,
   type MapLivePosition,
   type MapTaskPoint,
+  type MapTelemetrySmoothing,
   type MapTurnpoint,
   type MapUnitPreferences,
 } from "../../components/TaskMap";
@@ -57,6 +58,7 @@ type SelectedSource =
   | { type: "buddies"; groupId: number; groupName: string };
 
 type LivePositionWithName = LivePositionRecord & { pilot_name?: string | null };
+type PublicSiteSettings = { max_map_pitch_degrees: number };
 type TaskInfoResponse = {
   id: number;
   name: string;
@@ -66,6 +68,13 @@ type TaskInfoResponse = {
 };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
+const defaultTelemetrySmoothing: MapTelemetrySmoothing = {
+  telemetry_vario_smoothing_seconds: 5,
+  telemetry_altitude_smoothing_seconds: 3,
+  telemetry_speed_smoothing_seconds: 3,
+  telemetry_glide_ratio_smoothing_seconds: 5,
+  max_map_pitch_degrees: 75,
+};
 const noSource: SelectedSource = { type: "none" };
 const allUsersSource: SelectedSource = { type: "all_users" };
 const emptyMapTaskPoints: MapTaskPoint[] = [];
@@ -113,6 +122,7 @@ export function LiveWatchClient() {
   const [focusPosition, setFocusPosition] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
   const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
   const [visibleTrackSubjectKeys, setVisibleTrackSubjectKeys] = useState<Set<string>>(() => new Set());
+  const [telemetrySmoothing, setTelemetrySmoothing] = useState<MapTelemetrySmoothing>(defaultTelemetrySmoothing);
   const sseControllerRef = useRef<AbortController | null>(null);
   const focusRequestIdRef = useRef(0);
 
@@ -133,6 +143,15 @@ export function LiveWatchClient() {
     let cancelled = false;
     (async () => {
       try {
+        try {
+          const settingsResponse = await fetch(`${apiBase}/api/public/site-settings`, { cache: "no-store" });
+          if (settingsResponse.ok && !cancelled) {
+            const settings = (await settingsResponse.json()) as PublicSiteSettings;
+            setTelemetrySmoothing({ ...defaultTelemetrySmoothing, max_map_pitch_degrees: settings.max_map_pitch_degrees });
+          }
+        } catch {
+          // Public map keeps the built-in pitch default if settings are unavailable.
+        }
         const response = await fetch(`${apiBase}/api/public/live/sources`, { cache: "no-store" });
         if (response.ok && !cancelled) {
           setSources((await response.json()) as PublicSources);
@@ -699,6 +718,7 @@ export function LiveWatchClient() {
             legMetrics={taskDistanceMetrics.legMetrics}
             mode="live"
             units={defaultUnits}
+            telemetrySmoothing={telemetrySmoothing}
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}

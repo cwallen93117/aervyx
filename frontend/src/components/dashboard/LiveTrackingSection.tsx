@@ -8,6 +8,7 @@ import {
   TaskMap,
   type MapAirspaceRegion,
   type MapLivePosition,
+  type MapTelemetrySmoothing,
   type TaskEditorOverlayRenderProps,
   type MapTurnpoint,
   type MapUnitPreferences,
@@ -67,6 +68,7 @@ export interface LiveTrackingSectionProps {
   token: string;
   canManagePlatform: boolean;
   units: MapUnitPreferences;
+  telemetrySmoothing?: MapTelemetrySmoothing;
   loadTask: (activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData?: boolean) => Promise<void>;
   overlayConfig?: Record<string, boolean>;
 }
@@ -82,6 +84,7 @@ export default function LiveTrackingSection({
   token,
   canManagePlatform,
   units,
+  telemetrySmoothing,
   loadTask,
   overlayConfig,
 }: LiveTrackingSectionProps) {
@@ -861,6 +864,7 @@ export default function LiveTrackingSection({
                   taskEditorOverlay={liveTaskFullscreenOverlay}
                   mode="live"
                   units={units}
+                  telemetrySmoothing={telemetrySmoothing}
                   showGpsButton
                   overlayConfig={overlayConfig}
                   fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}

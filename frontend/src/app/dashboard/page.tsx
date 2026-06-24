@@ -1057,13 +1057,15 @@ export default function HomePage() {
           || (upload ? `Pilot ${upload.pilot_id}` : `Pilot ${uploadId}`);
         return {
           ...feature,
-          properties: {
-            ...feature.properties,
-            color,
-            pilot_name: pilotName,
-            upload_id: uploadId,
-          },
-        };
+            properties: {
+              ...feature.properties,
+              color,
+              pilot_name: pilotName,
+              upload_id: uploadId,
+              line_style: "solid",
+              track_kind: "igc",
+            },
+          };
       });
     });
     return { type: "FeatureCollection", features };
@@ -2912,6 +2914,7 @@ export default function HomePage() {
             visibleAirspaces={visibleAirspaces}
             taskSectionMapTurnpoints={taskSectionMapTurnpoints}
             settingsForm={settingsForm}
+            telemetrySmoothing={siteSettings}
             canManagePlatform={canManageCurrentEvent}
             taskFeedback={taskFeedback}
             token={token}
@@ -2978,6 +2981,7 @@ export default function HomePage() {
               refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
               refreshEvents={refreshEvents}
               token={token}
+              telemetrySmoothing={siteSettings}
               setMessage={setMessage}
               setError={setError}
               renderParticipantCards={renderParticipantCardsNode}
@@ -3009,6 +3013,7 @@ export default function HomePage() {
               visibleAirspaces={visibleAirspaces}
               taskSectionMapTurnpoints={taskSectionMapTurnpoints}
               settingsForm={settingsForm}
+              telemetrySmoothing={siteSettings}
               canManagePlatform={canManageCurrentEvent}
               taskFeedback={taskFeedback}
               token={token}
@@ -3108,6 +3113,7 @@ export default function HomePage() {
                 distance: settingsForm.distance_unit,
                 vario: settingsForm.vario_unit,
               }}
+              telemetrySmoothing={siteSettings}
               loadTask={loadTask}
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
             />
@@ -3122,6 +3128,7 @@ export default function HomePage() {
                 distance: settingsForm.distance_unit,
                 vario: settingsForm.vario_unit,
               }}
+              telemetrySmoothing={siteSettings}
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
             />
           );
@@ -3184,6 +3191,7 @@ export default function HomePage() {
               refreshToken={airspaceRefreshToken}
               tfrRefreshToken={tfrRefreshToken}
               selectedTfrTime={selectedTfrTime}
+              maxPitchDegrees={siteSettings.max_map_pitch_degrees}
             />
           );
         case "settings":

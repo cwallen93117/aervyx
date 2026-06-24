@@ -6,8 +6,9 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, Task, TaskPoint, TrackPoint, User
+from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, SiteSettings, Task, TaskPoint, TrackPoint, User
 from app.routers.public import (
+    get_public_site_settings,
     get_public_live_sources,
     get_public_task_results,
     get_public_upload_track,
@@ -37,6 +38,20 @@ def _parse_iso_utc(value: str) -> datetime:
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=UTC)
     return parsed.astimezone(UTC)
+
+
+def test_public_site_settings_exposes_only_map_pitch() -> None:
+    session = _session()
+    session.add(SiteSettings(id=1, max_map_pitch_degrees=90))
+    session.commit()
+
+    payload = get_public_site_settings(session=session)
+
+    assert payload.model_dump() == {"max_map_pitch_degrees": 90}
+
+    session.get(SiteSettings, 1).max_map_pitch_degrees = 0
+    session.commit()
+    assert get_public_site_settings(session=session).model_dump() == {"max_map_pitch_degrees": 0}
 
 
 def test_public_events_are_sorted_by_competition_date() -> None:
@@ -1324,6 +1339,8 @@ def test_public_upload_track_is_available_for_public_scored_results() -> None:
     assert feature["properties"]["pilot_name"] == "Eli Cloud"
     assert feature["properties"]["aircraft_icon"] == "paraglider"
     assert feature["properties"]["timestamps"] == ["2026-05-02T12:00:00Z", "2026-05-02T12:05:00Z"]
+    assert feature["properties"]["line_style"] == "solid"
+    assert feature["properties"]["track_kind"] == "igc"
     assert feature["geometry"]["coordinates"] == [[-82.0, 35.0, 1010.0], [-82.1, 35.1, 1110.0]]
 
 

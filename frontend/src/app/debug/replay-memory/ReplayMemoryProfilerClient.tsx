@@ -2,12 +2,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { TaskMap, type TrackCollection } from "../../../components/TaskMap";
+import { TaskMap, type MapTelemetrySmoothing, type TrackCollection } from "../../../components/TaskMap";
 import { type EventRecord, type ResultRecord, type TaskRecord, type UploadRecord } from "../../../components/dashboard/types";
 import { computeTaskOptimization } from "../../../lib/taskOptimization";
 import { collectTerrainBounds, estimateTerrainTileCount } from "../../../lib/terrain-bounds";
 
 const TOKEN_KEY = "flightcomp-platform-token";
+const DEFAULT_TELEMETRY_SMOOTHING: MapTelemetrySmoothing = {
+  telemetry_vario_smoothing_seconds: 5,
+  telemetry_altitude_smoothing_seconds: 3,
+  telemetry_speed_smoothing_seconds: 3,
+  telemetry_glide_ratio_smoothing_seconds: 5,
+  max_map_pitch_degrees: 75,
+};
 type BasemapMode = "streets" | "satellite" | "terrain";
 type ScenarioKey =
   | "map-only-2d-streets"
@@ -67,6 +74,7 @@ type TrackLoadStats = {
   tracksByUploadId: Record<number, TrackCollection>;
   payloadBytesByUploadId: Record<number, number>;
 };
+type PublicSiteSettings = { max_map_pitch_degrees: number };
 
 type BrowserPerformance = Performance & {
   memory?: {
@@ -324,7 +332,23 @@ export default function ReplayMemoryProfilerClient() {
   const [activeScenario, setActiveScenario] = useState<ScenarioDefinition | null>(null);
   const [activeTrack, setActiveTrack] = useState<TrackCollection | null>(null);
   const [mapKey, setMapKey] = useState(0);
+  const [telemetrySmoothing, setTelemetrySmoothing] = useState<MapTelemetrySmoothing>(DEFAULT_TELEMETRY_SMOOTHING);
   const trackStatsRef = useRef<TrackLoadStats>({ tracksByUploadId: {}, payloadBytesByUploadId: {} });
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/api/public/site-settings`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((settings: PublicSiteSettings | null) => {
+        if (!cancelled && settings) {
+          setTelemetrySmoothing({ ...DEFAULT_TELEMETRY_SMOOTHING, max_map_pitch_degrees: settings.max_map_pitch_degrees });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase]);
 
   const selectedUploadIds = useMemo(() => {
     const resultUploadIds = results
@@ -657,13 +681,7 @@ export default function ReplayMemoryProfilerClient() {
               editable={false}
               fitKey={`${task.id}-${activeScenario.key}-${mapKey}`}
               units={{ altitude: "ft", speed: "kph", distance: "km", vario: "fpm" }}
-              telemetrySmoothing={{
-                telemetry_vario_smoothing_seconds: 5,
-                telemetry_altitude_smoothing_seconds: 3,
-                telemetry_speed_smoothing_seconds: 3,
-                telemetry_glide_ratio_smoothing_seconds: 5,
-                max_map_pitch_degrees: 75,
-              }}
+              telemetrySmoothing={telemetrySmoothing}
               mode="replay"
               overlayConfig={{
                 replay_speed: true,

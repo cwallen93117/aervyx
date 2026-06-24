@@ -23,6 +23,7 @@ from app.models import (
     IGCUpload,
     Pilot,
     ScoreResult,
+    SiteSettings,
     Task,
     TaskPoint,
     TrackPoint,
@@ -52,6 +53,17 @@ router = APIRouter(prefix="/api/public", tags=["public"])
 logger = logging.getLogger("aervyx.public")
 
 DISPLAY_STATUS_ORDER = {"did_not_fly": 1, "absent": 2}
+
+
+class PublicSiteSettingsResponse(BaseModel):
+    max_map_pitch_degrees: int
+
+
+@router.get("/site-settings", response_model=PublicSiteSettingsResponse)
+def get_public_site_settings(session: Session = Depends(get_session)) -> PublicSiteSettingsResponse:
+    settings = session.get(SiteSettings, 1)
+    value = settings.max_map_pitch_degrees if settings is not None else 75
+    return PublicSiteSettingsResponse(max_map_pitch_degrees=max(0, min(90, int(value))))
 
 
 def _task_result_sort_key(row: ScoreResultResponse) -> tuple:
@@ -310,6 +322,8 @@ def get_public_upload_track(
                     "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
                     "aircraft_icon": aircraft_icon,
                     "timestamps": timestamps,
+                    "line_style": "solid",
+                    "track_kind": "igc",
                 },
                 "geometry": {"type": "LineString", "coordinates": coordinates},
             }

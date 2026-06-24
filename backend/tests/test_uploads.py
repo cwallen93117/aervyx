@@ -267,6 +267,34 @@ def test_bulk_upload_review_candidate_is_uploaded_but_not_selected(monkeypatch, 
     assert rescore_calls == []
 
 
+def test_upload_track_geojson_marks_igc_solid() -> None:
+    session = _session()
+    admin, task, pilots = _bulk_upload_fixture(session)
+    upload = IGCUpload(
+        event_id=task.event_id,
+        task_id=task.id,
+        pilot_id=pilots[0].id,
+        uploaded_by_user_id=admin.id,
+        filename="solid.igc",
+        sha256="def456",
+        stored_path="/tmp/solid.igc",
+        metadata_json={},
+    )
+    session.add(upload)
+    session.flush()
+    session.add_all([
+        TrackPoint(upload_id=upload.id, sequence=1, recorded_at=dt(2026, 1, 1, 12, 0, tzinfo=timezone.utc), latitude=36.1, longitude=-118.1, pressure_altitude_m=1000, gps_altitude_m=1000),
+        TrackPoint(upload_id=upload.id, sequence=2, recorded_at=dt(2026, 1, 1, 12, 1, tzinfo=timezone.utc), latitude=36.2, longitude=-118.2, pressure_altitude_m=1100, gps_altitude_m=1100),
+    ])
+    session.commit()
+
+    payload = uploads_router.get_track_geojson(upload.id, user=admin, session=session)
+
+    properties = payload["features"][0]["properties"]
+    assert properties["line_style"] == "solid"
+    assert properties["track_kind"] == "igc"
+
+
 def test_delete_upload_keeps_linked_logbook_flight_replayable(tmp_path) -> None:
     session = _session()
     admin, task, pilots = _bulk_upload_fixture(session)
