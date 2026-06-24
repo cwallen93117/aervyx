@@ -155,18 +155,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (_) => const FlightsScreen()),
               ),
             ),
-          if (!isDriverProfile)
-            IconButton(
-              icon: const Icon(Icons.emoji_events_outlined),
-              tooltip: 'Challenges',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ChallengesScreen(
-                    api: context.read<ApiService>(),
-                  ),
+          IconButton(
+            icon: const Icon(Icons.emoji_events_outlined),
+            tooltip: 'Challenges',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ChallengesScreen(
+                  api: context.read<ApiService>(),
                 ),
               ),
             ),
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',

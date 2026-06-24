@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.64+81 - 2026-06-24
+
+### Changed
+- Challenges are now available from the mobile home screen for every signed-in
+  profile, including drivers.
+
 ## 0.4.63+80 - 2026-06-21
 
 ### Added

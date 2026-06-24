@@ -13,6 +13,12 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.24]
+
+### Changed
+- **Mobile v0.4.64+81** makes Challenges available from the mobile home screen
+  for every signed-in profile, including drivers.
+
 ## [2026.06.21]
 
 ### Added
