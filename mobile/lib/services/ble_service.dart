@@ -480,6 +480,37 @@ class BleService extends ChangeNotifier {
     );
   }
 
+  Future<void> _refreshSavedBleReconnectName(
+    String? name, {
+    bool requireBleConnection = true,
+    bool persist = true,
+  }) async {
+    final label = name?.trim();
+    if (label == null || label.isEmpty) return;
+    if (requireBleConnection &&
+        (_connectionType != ConnectionType.ble || _connectedDevice == null)) {
+      return;
+    }
+
+    final saved = await _loadSavedBleDevice();
+    if (saved == null || saved.name == label) return;
+    if (requireBleConnection &&
+        saved.remoteId != _connectedDevice!.device.remoteId.toString()) {
+      return;
+    }
+
+    _lastBleDevice = saved.copyWith(name: label);
+    if (persist) {
+      try {
+        final file = await _lastBleDeviceFile;
+        await file.writeAsString(jsonEncode(_lastBleDevice!.toJson()));
+      } catch (e) {
+        debugPrint('Saved BLE device name update failed: $e');
+      }
+    }
+    notifyListeners();
+  }
+
   Future<void> _setSavedBleAutoReconnectEnabled(bool enabled) async {
     final saved = await _loadSavedBleDevice();
     if (saved == null) return;
@@ -506,6 +537,14 @@ class BleService extends ChangeNotifier {
       lastConnectedAt: DateTime.now().toUtc(),
     );
   }
+
+  @visibleForTesting
+  Future<void> debugRefreshSavedBleReconnectName(String? name) =>
+      _refreshSavedBleReconnectName(
+        name,
+        requireBleConnection: false,
+        persist: false,
+      );
 
   Future<void> forgetSavedBleDevice() async {
     await disconnect();
@@ -730,7 +769,7 @@ class BleService extends ChangeNotifier {
         timeout: timeout,
       );
 
-      _scanSubscription = FlutterBluePlus.scanResults.listen((results) {
+      _scanSubscription = FlutterBluePlus.onScanResults.listen((results) {
         _discoveredDevices = results
             .map((r) => MeshtasticDevice(
                   device: r.device,
@@ -1035,6 +1074,7 @@ class BleService extends ChangeNotifier {
     _statusMessage = 'Reading device configuration...';
     notifyListeners();
     await _readDeviceConfig();
+    await _refreshSavedBleReconnectName(_deviceState.shortName);
 
     _statusMessage = 'Connected to $displayName';
     _configLoaded = true;
@@ -2399,6 +2439,13 @@ class BleService extends ChangeNotifier {
       _deviceState.mqttProxyToClient = false;
       _deviceState.channelUplinkEnabled = usesMqttGatewayBackhaul;
       _deviceState.channelDownlinkEnabled = usesMqttGatewayBackhaul;
+      if (longName != null && longName.isNotEmpty) {
+        _deviceState.longName = longName;
+      }
+      if (shortName != null && shortName.isNotEmpty) {
+        _deviceState.shortName = shortName;
+        await _refreshSavedBleReconnectName(shortName);
+      }
 
       _statusMessage = '${profile.label} profile applied. Device rebooting...';
     } catch (e) {
@@ -2461,6 +2508,7 @@ class BleService extends ChangeNotifier {
       ));
       _deviceState.longName = longName;
       _deviceState.shortName = shortName;
+      await _refreshSavedBleReconnectName(shortName);
       _statusMessage = 'Device name updated';
     } catch (e) {
       _error = 'Failed to set name: $e';

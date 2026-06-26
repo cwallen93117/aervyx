@@ -13,6 +13,12 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.26]
+
+### Changed
+- **Mobile v0.4.65+82** keeps Meshtastic Bluetooth scan names in sync with the
+  device's current short name and avoids showing stale scan results.
+
 ## [2026.06.24]
 
 ### Changed

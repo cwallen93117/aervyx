@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.65+82 - 2026-06-26
+
+### Changed
+- Meshtastic Bluetooth scans now use the connected device's current short name
+  for the saved reconnect target and avoid replaying stale scan results.
+
 ## 0.4.64+81 - 2026-06-24
 
 ### Changed
