@@ -20,6 +20,12 @@ For any Android/mobile app change, the change is not done until all release arti
 - Confirm the mobile API/endpoints/configuration are correct for the release.
 - Upload the APK and release notes to the website app download endpoint.
 - Verify the website/app download page shows the new APK and notes.
+- If upload or verification needs server access, use SSH before calling it blocked:
+  `ssh deploy@192.168.87.94`. Production runs as `aervyx-prod-*` under
+  `/srv/aervyx-staging/repo`; the APK volume is available in
+  `aervyx-prod-backend-1` at `/app/storage/apks`, with the durable seed under
+  `/srv/aervyx-staging/apk-seed`. Do not stop at "no admin token" while this SSH
+  path works.
 
 ## Repository Notes
 

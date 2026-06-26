@@ -622,18 +622,11 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("UPDATE events SET default_start_gate_interval_seconds = 900 WHERE default_start_gate_interval_seconds IS NULL"))
             connection.execute(text("UPDATE events SET event_kind = 'competition' WHERE event_kind IS NULL"))
             connection.execute(text("UPDATE events SET public_listed = TRUE WHERE public_listed IS NULL"))
-            refreshed_inspector = inspect(engine)
-            refreshed_event_columns = {column["name"] for column in refreshed_inspector.get_columns("events")}
-            existing_event_indexes = {idx["name"] for idx in refreshed_inspector.get_indexes("events")}
-            if "event_kind" in refreshed_event_columns and "ix_events_event_kind" not in existing_event_indexes:
-                connection.execute(text("CREATE INDEX ix_events_event_kind ON events (event_kind)"))
-            if "owner_user_id" in refreshed_event_columns and "ix_events_owner_user_id" not in existing_event_indexes:
-                connection.execute(text("CREATE INDEX ix_events_owner_user_id ON events (owner_user_id)"))
-            if "public_slug" in refreshed_event_columns and "ix_events_public_slug" not in existing_event_indexes:
-                connection.execute(text("CREATE UNIQUE INDEX ix_events_public_slug ON events (public_slug)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_events_event_kind ON events (event_kind)"))
+            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_events_owner_user_id ON events (owner_user_id)"))
+            connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_events_public_slug ON events (public_slug)"))
         if "tasks" in table_names:
-            refreshed_task_columns = {column["name"] for column in inspect(engine).get_columns("tasks")}
-            if "task_type" in refreshed_task_columns:
+            if "task_type" in task_columns or "task_type" in task_statements:
                 connection.execute(
                     text(
                         """
@@ -645,13 +638,11 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 )
                 connection.execute(text("UPDATE tasks SET task_type = 'elapsed_time' WHERE task_type = 'speedrun'"))
         if "task_points" in table_names:
-            refreshed_task_point_columns = {column["name"] for column in inspect(engine).get_columns("task_points")}
-            if "direction" in refreshed_task_point_columns:
+            if "direction" in task_point_columns or "direction" in task_point_statements:
                 connection.execute(text("UPDATE task_points SET direction = 'exit' WHERE point_type = 'start' AND (direction IS NULL OR direction NOT IN ('enter', 'exit'))"))
                 connection.execute(text("UPDATE task_points SET direction = 'enter' WHERE point_type <> 'start' AND (direction IS NULL OR direction NOT IN ('enter', 'exit'))"))
         if "score_results" in table_names:
-            refreshed_score_result_details = {column["name"]: column for column in inspect(engine).get_columns("score_results")}
-            refreshed_score_result_columns = set(refreshed_score_result_details)
+            refreshed_score_result_columns = score_result_columns | set(score_result_statements)
             upload_id_column = score_result_details.get("upload_id")
             if upload_id_column and upload_id_column.get("nullable") is False and dialect_name != "sqlite":
                 connection.execute(text("ALTER TABLE score_results ALTER COLUMN upload_id DROP NOT NULL"))
