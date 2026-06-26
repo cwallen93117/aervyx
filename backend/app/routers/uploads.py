@@ -539,6 +539,8 @@ def get_track_geojson(
                     "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
                     "aircraft_icon": aircraft_icon,
                     "timestamps": timestamps,
+                    "line_style": "solid",
+                    "track_kind": "igc",
                 },
                 "geometry": {"type": "LineString", "coordinates": coordinates},
             }

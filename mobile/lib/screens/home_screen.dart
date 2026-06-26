@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/turnpoint.dart';
 import '../models/meshtastic_protobufs.dart';
+import '../services/api_service.dart';
 import '../services/auth_service.dart';
 import '../services/ble_service.dart';
 import '../services/driver_service.dart';
@@ -14,6 +15,7 @@ import '../utils/app_shutdown.dart';
 import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
 import '../widgets/live_tracking_map_helpers.dart';
+import 'challenges_screen.dart';
 import 'flights_screen.dart';
 import 'live_view_screen.dart';
 import 'meshtastic_settings_screen.dart';
@@ -153,6 +155,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 MaterialPageRoute(builder: (_) => const FlightsScreen()),
               ),
             ),
+          IconButton(
+            icon: const Icon(Icons.emoji_events_outlined),
+            tooltip: 'Challenges',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ChallengesScreen(
+                  api: context.read<ApiService>(),
+                ),
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             tooltip: 'Settings',

@@ -6,11 +6,13 @@ export function AirspaceSection({
   refreshToken,
   tfrRefreshToken,
   selectedTfrTime,
+  maxPitchDegrees,
 }: {
   overlayConfig?: Record<string, boolean>;
   refreshToken?: number;
   tfrRefreshToken?: number;
   selectedTfrTime?: string;
+  maxPitchDegrees?: number;
 }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
@@ -19,6 +21,7 @@ export function AirspaceSection({
         refreshToken={refreshToken}
         tfrRefreshToken={tfrRefreshToken}
         selectedTfrTime={selectedTfrTime}
+        maxPitchDegrees={maxPitchDegrees}
       />
     </div>
   );

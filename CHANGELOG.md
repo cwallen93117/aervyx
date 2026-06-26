@@ -13,7 +13,22 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.24]
+
+### Changed
+- **Mobile v0.4.64+81** makes Challenges available from the mobile home screen
+  for every signed-in profile, including drivers.
+
 ## [2026.06.21]
+
+### Added
+- Pilot-created XC and race-to-goal challenges are now available on staging as
+  lightweight, unlisted public comps seeded from buddy groups and scored through
+  the existing task/results pipeline.
+- Account settings now include reusable challenge scoring defaults, so pilots do
+  not need to edit full event parameters for each ad hoc challenge.
+- **Mobile v0.4.63+80** adds a native Challenges screen for creating and
+  reviewing one-off challenges from the app.
 
 ### Changed
 - **Mobile v0.4.62+79** moves driver relay time into the active relay card next

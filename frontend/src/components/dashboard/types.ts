@@ -25,6 +25,7 @@ export type AccountSettingsRecord = {
   pilot_id: number | null;
   has_password?: boolean;
   access_token?: string | null;
+  challenge_settings_json: Record<string, unknown>;
 };
 export type AdminUserRecord = {
   id: number;
@@ -241,6 +242,11 @@ export type EventRecord = {
   penalties_json: Record<string, unknown>;
   is_public_tracking: boolean;
   visibility: "public" | "users" | "participants" | "private";
+  event_kind: "competition" | "challenge";
+  owner_user_id: number | null;
+  source_buddy_group_id: number | null;
+  public_slug: string | null;
+  public_listed: boolean;
   updated_at: string;
   pilot_count: number;
   task_count: number;
@@ -416,6 +422,11 @@ export function blankEventForm() {
     penalties_text: "{}",
     is_public_tracking: false,
     visibility: "private" as "public" | "users" | "participants" | "private",
+    event_kind: "competition" as "competition" | "challenge",
+    owner_user_id: null as number | null,
+    source_buddy_group_id: null as number | null,
+    public_slug: null as string | null,
+    public_listed: true,
   };
 }
 

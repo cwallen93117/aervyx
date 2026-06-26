@@ -23,6 +23,7 @@ from app.models import (
     IGCUpload,
     Pilot,
     ScoreResult,
+    SiteSettings,
     Task,
     TaskPoint,
     TrackPoint,
@@ -52,6 +53,17 @@ router = APIRouter(prefix="/api/public", tags=["public"])
 logger = logging.getLogger("aervyx.public")
 
 DISPLAY_STATUS_ORDER = {"did_not_fly": 1, "absent": 2}
+
+
+class PublicSiteSettingsResponse(BaseModel):
+    max_map_pitch_degrees: int
+
+
+@router.get("/site-settings", response_model=PublicSiteSettingsResponse)
+def get_public_site_settings(session: Session = Depends(get_session)) -> PublicSiteSettingsResponse:
+    settings = session.get(SiteSettings, 1)
+    value = settings.max_map_pitch_degrees if settings is not None else 75
+    return PublicSiteSettingsResponse(max_map_pitch_degrees=max(0, min(90, int(value))))
 
 
 def _task_result_sort_key(row: ScoreResultResponse) -> tuple:
@@ -145,10 +157,27 @@ class PublicTaskInfoResponse(BaseModel):
 def list_public_events(session: Session = Depends(get_session)) -> list[EventResponse]:
     events = session.scalars(
         select(Event)
-        .where(Event.visibility == "public")
+        .where(
+            Event.visibility == "public",
+            (Event.event_kind != "challenge") | (Event.public_listed.is_(True)),
+        )
         .order_by(Event.starts_on.desc(), Event.ends_on.desc(), Event.name.asc())
     ).all()
     return [_event_payload(session, event) for event in events]
+
+
+@router.get("/challenges/{slug}", response_model=EventResponse)
+def get_public_challenge_by_slug(slug: str, session: Session = Depends(get_session)) -> EventResponse:
+    event = session.scalar(
+        select(Event).where(
+            Event.event_kind == "challenge",
+            Event.public_slug == slug,
+            Event.visibility == "public",
+        )
+    )
+    if event is None:
+        raise HTTPException(status_code=404, detail="Challenge not found")
+    return _event_payload(session, event)
 
 
 @router.get("/events/{event_id}/tasks", response_model=list[TaskResponse])
@@ -293,6 +322,8 @@ def get_public_upload_track(
                     "pilot_name": f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown",
                     "aircraft_icon": aircraft_icon,
                     "timestamps": timestamps,
+                    "line_style": "solid",
+                    "track_kind": "igc",
                 },
                 "geometry": {"type": "LineString", "coordinates": coordinates},
             }

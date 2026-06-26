@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   TaskMap,
   type MapLivePosition,
+  type MapTelemetrySmoothing,
   type MapTaskPoint,
   type MapTurnpoint,
   type MapUnitPreferences,
@@ -82,6 +83,7 @@ type BacktestTrackResponse = {
 export interface LiveTrackingBacktestSectionProps {
   token: string;
   units: MapUnitPreferences;
+  telemetrySmoothing?: MapTelemetrySmoothing;
   overlayConfig?: Record<string, boolean>;
 }
 
@@ -195,7 +197,7 @@ function diagnosticFlags(points: BacktestPoint[]) {
   });
 }
 
-export default function LiveTrackingBacktestSection({ token, units, overlayConfig }: LiveTrackingBacktestSectionProps) {
+export default function LiveTrackingBacktestSection({ token, units, telemetrySmoothing, overlayConfig }: LiveTrackingBacktestSectionProps) {
   const apiBase = useMemo(() => resolveApiBase(), []);
   const [events, setEvents] = useState<BacktestEvent[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
@@ -526,6 +528,7 @@ export default function LiveTrackingBacktestSection({ token, units, overlayConfi
                 editable={false}
                 mode="live"
                 units={units}
+                telemetrySmoothing={telemetrySmoothing}
                 showGpsButton
                 overlayConfig={overlayConfig}
                 highlightedLiveSubjectKey={subjectKey}

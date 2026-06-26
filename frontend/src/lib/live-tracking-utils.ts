@@ -485,6 +485,7 @@ export function buildTrackCollection(
     return segments.map((segment, segmentIndex) => {
       const { positions } = segment;
       const latest = positions[positions.length - 1];
+      const trackKind = positions.every((position) => position.source === "igc") ? "igc" : "live";
       return {
         type: "Feature" as const,
         properties: {
@@ -502,6 +503,7 @@ export function buildTrackCollection(
           segment_end_timestamp: latest?.timestamp ?? null,
           display_source: segment.display_source,
           line_style: segment.line_style,
+          track_kind: trackKind,
         },
         geometry: {
           type: "LineString" as const,

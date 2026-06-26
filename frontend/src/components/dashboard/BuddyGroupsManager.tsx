@@ -28,7 +28,12 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
   const response = await fetch(`${resolveApiBase()}${path}`, { ...init, headers, cache: "no-store" });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(text || `Request failed: ${response.status}`);
+    let message = text || `Request failed: ${response.status}`;
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown };
+      if (parsed.detail) message = typeof parsed.detail === "string" ? parsed.detail : JSON.stringify(parsed.detail);
+    } catch {}
+    throw new Error(message);
   }
   if (response.status === 204) return undefined as T;
   const text = await response.text();
@@ -56,8 +61,8 @@ export default function BuddyGroupsManager({ token }: BuddyGroupsManagerProps) {
     try {
       const data = await apiFetch<BuddyGroup[]>("/api/buddies/groups", token);
       setGroups(data);
-    } catch {
-      setFeedback({ type: "error", text: "Failed to load buddy groups" });
+    } catch (err) {
+      setFeedback({ type: "error", text: err instanceof Error ? `Failed to load buddy groups: ${err.message}` : "Failed to load buddy groups" });
     } finally {
       setLoading(false);
     }

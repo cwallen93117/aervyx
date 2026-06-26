@@ -959,6 +959,8 @@ def get_igc_track(
                     "upload_id": upload.id,
                     "filename": upload.filename,
                     "timestamps": timestamps,
+                    "line_style": "solid",
+                    "track_kind": "igc",
                 },
                 "geometry": {
                     "type": "LineString",

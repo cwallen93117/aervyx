@@ -2,7 +2,7 @@
 
 import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { type MapLivePosition, type MapTaskPoint, type MapTurnpoint, TaskMap } from "../TaskMap";
+import { type MapLivePosition, type MapTaskPoint, type MapTelemetrySmoothing, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import { PasswordInput } from "../PasswordInput";
 import { adminDebugBatterySummary } from "../../lib/admin-debug-battery";
@@ -1498,6 +1498,7 @@ export default function AdminSection(props: AdminSectionProps) {
                       editable={false}
                       fitKey={selectedSite ? `${selectedSite.id}:${sitePreviewFitNonce}` : "site-preview-empty"}
                       fitMaxZoom={11}
+                      telemetrySmoothing={siteSettings}
                       overlayConfig={mapOverlayConfig.config?.admin_site_preview}
                     />
                   ) : (
@@ -1986,6 +1987,7 @@ export default function AdminSection(props: AdminSectionProps) {
           meshNodes={meshNodes}
           nowMs={liveTrackingNowMs}
           overlayConfig={mapOverlayConfig.config.dashboard_live}
+          telemetrySmoothing={siteSettings}
           livePositionPruningEnabled={siteSettings.live_position_pruning_enabled}
           liveDataBusy={liveDataBusy}
           liveDataFeedback={liveDataFeedback}
@@ -2530,6 +2532,7 @@ function LiveTrackingTab({
   meshNodes,
   nowMs,
   overlayConfig,
+  telemetrySmoothing,
   livePositionPruningEnabled,
   liveDataBusy,
   liveDataFeedback,
@@ -2540,6 +2543,7 @@ function LiveTrackingTab({
   meshNodes: MeshNode[];
   nowMs: number;
   overlayConfig?: MapOverlayConfigRecord["config"]["dashboard_live"];
+  telemetrySmoothing?: MapTelemetrySmoothing;
   livePositionPruningEnabled: boolean;
   liveDataBusy: boolean;
   liveDataFeedback: { type: "success" | "error" | "pending"; text: string } | null;
@@ -2953,6 +2957,7 @@ function LiveTrackingTab({
             fitKey={`live-tracking-${livePositions.length}`}
             focusPosition={focusPos}
             mode="live"
+            telemetrySmoothing={telemetrySmoothing}
             overlayConfig={overlayConfig}
           />
         </div>

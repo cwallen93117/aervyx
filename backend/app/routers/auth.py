@@ -23,6 +23,8 @@ from app.schemas import (
     AccountSettingsUpdate,
     AccountSettingsUpdateResponse,
     AccountPreferencesUpdate,
+    ChallengeSettingsResponse,
+    ChallengeSettingsUpdate,
     GoogleAuthRequest,
     LoginRequest,
     MeshDeviceCreate,
@@ -125,6 +127,7 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         civl_id=pilot.civl_id if pilot else None,
         pilot_id=user.pilot_id,
         has_password=bool(user.password_hash),
+        challenge_settings_json=user.challenge_settings_json or {},
         access_token=access_token,
     )
 
@@ -653,6 +656,8 @@ def update_settings(
     user.distance_unit = distance_unit
     user.vario_unit = vario_unit
     user.aircraft_icon = aircraft_icon
+    if payload.challenge_settings_json is not None:
+        user.challenge_settings_json = payload.challenge_settings_json
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     if pilot is not None:
@@ -716,11 +721,31 @@ def update_preferences(
         if vario_unit not in VALID_VARIO_UNITS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
         user.vario_unit = vario_unit
+    if payload.challenge_settings_json is not None:
+        user.challenge_settings_json = payload.challenge_settings_json
 
     session.add(user)
     session.commit()
     session.refresh(user)
     return UserSummary.model_validate(user)
+
+
+@router.get("/challenge-settings", response_model=ChallengeSettingsResponse)
+def get_challenge_settings(user: User = Depends(get_current_user)) -> ChallengeSettingsResponse:
+    return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
+
+
+@router.patch("/challenge-settings", response_model=ChallengeSettingsResponse)
+def update_challenge_settings(
+    payload: ChallengeSettingsUpdate,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> ChallengeSettingsResponse:
+    user.challenge_settings_json = payload.settings
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
 
 
 @router.post("/change-password")

@@ -2,11 +2,12 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
-import { TaskMap } from "../TaskMap";
+import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
   AirspaceSourceRecord,
+  BuddyGroup,
   EventFormState,
   EventRecord,
   EventTab,
@@ -509,6 +510,8 @@ export interface EventsSectionProps {
   visibleAirspaces: MapAirspaceRegion[];
   pilots: PilotRecord[];
   canManagePlatform: boolean;
+  canManageOfficialEvents: boolean;
+  canCreateChallenge: boolean;
   isAdmin: boolean;
   selectEvent: (event: EventRecord) => void;
   createEventDraft: () => void;
@@ -526,6 +529,7 @@ export interface EventsSectionProps {
   refreshPilotDirectory: (activeToken: string) => Promise<PilotRecord[]>;
   refreshEvents: (activeToken: string) => Promise<EventRecord[]>;
   token: string;
+  telemetrySmoothing?: MapTelemetrySmoothing;
   setMessage: (msg: string) => void;
   setError: (msg: string) => void;
   renderParticipantCards: () => ReactNode;
@@ -546,6 +550,8 @@ export default function EventsSection(props: EventsSectionProps) {
     airspaceSources,
     visibleAirspaces,
     canManagePlatform,
+    canManageOfficialEvents,
+    canCreateChallenge,
     isAdmin,
     selectEvent,
     createEventDraft,
@@ -563,6 +569,7 @@ export default function EventsSection(props: EventsSectionProps) {
     refreshPilotDirectory,
     refreshEvents,
     token,
+    telemetrySmoothing,
     setMessage,
     setError,
     renderParticipantCards,
@@ -580,6 +587,8 @@ export default function EventsSection(props: EventsSectionProps) {
   ];
   const [scoringTemplateEventId, setScoringTemplateEventId] = useState("");
   const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
+  const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
+  const [buddyGroupsFeedback, setBuddyGroupsFeedback] = useState("");
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
   const [selectedTurnpointSourceId, setSelectedTurnpointSourceId] = useState<number | null>(null);
@@ -597,6 +606,7 @@ export default function EventsSection(props: EventsSectionProps) {
     const db = b.starts_on ? new Date(b.starts_on).getTime() : -Infinity;
     return db - da;
   });
+  const canCreateAnyEvent = canManageOfficialEvents || canCreateChallenge;
 
   const autoSaveOverlaySettings = (nextForm: EventFormState) => {
     setEventForm(nextForm);
@@ -607,6 +617,26 @@ export default function EventsSection(props: EventsSectionProps) {
     setStartsOnDisplay(formatLongDate(eventForm.starts_on));
     setEndsOnDisplay(formatLongDate(eventForm.ends_on));
   }, [eventForm.starts_on, eventForm.ends_on]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadBuddyGroups() {
+      if (!token) return;
+      try {
+        const groups = await apiFetch<BuddyGroup[]>("/api/buddies/groups", token);
+        if (!cancelled) {
+          setBuddyGroups(groups);
+          setBuddyGroupsFeedback("");
+        }
+      } catch (caught) {
+        if (!cancelled) setBuddyGroupsFeedback(caught instanceof Error ? `Buddy groups: ${caught.message}` : "Buddy groups could not be loaded.");
+      }
+    }
+    void loadBuddyGroups();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
 
   const commitScheduleDate = (field: "starts_on" | "ends_on", displayValue: string) => {
     const parsed = parseLongDate(displayValue);
@@ -928,11 +958,11 @@ export default function EventsSection(props: EventsSectionProps) {
               ))}
             </select>
             </label>
-            {canManagePlatform ? (
+            {canCreateAnyEvent || canManagePlatform ? (
               <div className="event-selector-actions">
-                <button className="ghost-button" type="button" onClick={() => void createEventDraft()}>Create a New Event</button>
-                <button className="primary-button" type="button" onClick={() => void saveEventForm(eventForm, `${eventEditorId ? "Updated" : "Created"} event ${eventForm.name || "draft"}.`)}>{eventEditorId ? "Save event" : "Create event"}</button>
-                {eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
+                {canCreateAnyEvent ? <button className="ghost-button" type="button" onClick={() => void createEventDraft()}>Create Event / Challenge</button> : null}
+                {canManagePlatform ? <button className="primary-button" type="button" onClick={() => void saveEventForm(eventForm, `${eventEditorId ? "Updated" : "Created"} ${eventForm.event_kind === "challenge" ? "challenge" : "event"} ${eventForm.name || "draft"}.`)}>{eventEditorId ? "Save" : "Create"}</button> : null}
+                {canManageOfficialEvents && eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
                 {isAdmin && eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
               </div>
             ) : null}
@@ -961,6 +991,45 @@ export default function EventsSection(props: EventsSectionProps) {
                     <span>Location</span>
                     <input placeholder="Enter location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
                   </label>
+                  <label className="stack compact">
+                    <span>Competition type</span>
+                    <select
+                      value={eventForm.event_kind}
+                      onChange={(event) => {
+                        const nextKind = event.target.value as "competition" | "challenge";
+                        setEventForm({
+                          ...eventForm,
+                          event_kind: nextKind,
+                          source_buddy_group_id: nextKind === "challenge" ? eventForm.source_buddy_group_id : null,
+                          public_listed: nextKind === "challenge" ? eventForm.public_listed : true,
+                        });
+                      }}
+                    >
+                      <option value="competition" disabled={!canManageOfficialEvents}>Official event</option>
+                      <option value="challenge">Buddy challenge</option>
+                    </select>
+                  </label>
+                  {eventForm.event_kind === "challenge" ? (
+                    <>
+                      <label className="stack compact">
+                        <span>Buddy group</span>
+                        <select
+                          value={eventForm.source_buddy_group_id ?? ""}
+                          onChange={(event) => setEventForm({ ...eventForm, source_buddy_group_id: Number(event.target.value) || null })}
+                        >
+                          <option value="">No buddy group</option>
+                          {buddyGroups.map((group) => (
+                            <option key={group.id} value={group.id}>{group.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {buddyGroupsFeedback ? <p className="muted">{buddyGroupsFeedback}</p> : null}
+                      <label className="task-advanced-toggle">
+                        <input type="checkbox" checked={eventForm.public_listed} onChange={(event) => setEventForm({ ...eventForm, public_listed: event.target.checked })} />
+                        <span>List under public buddy challenges</span>
+                      </label>
+                    </>
+                  ) : null}
                   <label className="task-advanced-toggle">
                     <input type="checkbox" checked={eventForm.is_public_tracking ?? false} onChange={(event) => setEventForm({ ...eventForm, is_public_tracking: event.target.checked })} />
                     <span>Public live tracking</span>
@@ -1558,6 +1627,7 @@ export default function EventsSection(props: EventsSectionProps) {
                         fitKey={`${selectedTurnpointSource.id}-${sourceTurnpoints.length}`}
                         viewStateKey={`turnpoint-source-${selectedTurnpointSource.id}`}
                         fitMaxZoom={12}
+                        telemetrySmoothing={telemetrySmoothing}
                         overlayConfig={{ click_to_add_turnpoint: true }}
                       />
                     </div>

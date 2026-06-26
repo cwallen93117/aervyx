@@ -2,7 +2,7 @@
 
 import type { KeyboardEvent } from "react";
 import { SectionCard } from "../SectionCard";
-import { type MapAirspaceRegion, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
+import { type MapAirspaceRegion, type MapLegMetric, type MapTelemetrySmoothing, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import { TaskBuilderMap } from "../TaskBuilderMap";
 import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import { sortTasksByDateAsc } from "./taskSorting";
@@ -52,6 +52,7 @@ export interface TasksSectionProps {
   visibleAirspaces: MapAirspaceRegion[];
   taskSectionMapTurnpoints: MapTurnpoint[];
   settingsForm: AccountSettingsRecord;
+  telemetrySmoothing?: MapTelemetrySmoothing;
   canManagePlatform: boolean;
   taskFeedback: { type: "success" | "error"; text: string } | null;
   token: string;
@@ -97,6 +98,7 @@ export default function TasksSection(props: TasksSectionProps) {
     visibleAirspaces,
     taskSectionMapTurnpoints,
     settingsForm,
+    telemetrySmoothing,
     canManagePlatform,
     taskFeedback,
     token,
@@ -434,6 +436,7 @@ export default function TasksSection(props: TasksSectionProps) {
                   distance: settingsForm.distance_unit,
                   vario: settingsForm.vario_unit,
                 }}
+                telemetrySmoothing={telemetrySmoothing}
                 overlayConfig={overlayConfig}
               />
             </div>

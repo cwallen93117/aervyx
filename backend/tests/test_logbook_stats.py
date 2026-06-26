@@ -4,7 +4,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import Pilot, PilotFlight, PilotFlightTrackPoint
+from app.models import Pilot, PilotFlight, PilotFlightTrackPoint, User
+from app.routers.logbook import get_flight_track
 from app.services.igc import TrackFix
 from app.services.logbook import derive_flight_stats, recompute_track_backed_flight_stats
 
@@ -211,3 +212,21 @@ def test_recompute_track_backed_flight_stats_returns_false_without_track_points(
     updated = recompute_track_backed_flight_stats(session, flight)
 
     assert updated is False
+
+
+def test_get_flight_track_marks_igc_solid() -> None:
+    session = _session()
+    flight = _flight(session)
+    user = User(username="robin@example.com", full_name="Robin Wing", role="pilot", pilot_id=flight.pilot_id)
+    session.add(user)
+    _add_track_points(session, flight, [
+        _fix(0, pressure_altitude_m=1000, gps_altitude_m=1000),
+        _fix(10, pressure_altitude_m=1010, gps_altitude_m=1010, latitude=35.1, longitude=-82.1),
+    ])
+    session.commit()
+
+    payload = get_flight_track(flight.id, user=user, session=session)
+
+    properties = payload["features"][0]["properties"]
+    assert properties["line_style"] == "solid"
+    assert properties["track_kind"] == "igc"

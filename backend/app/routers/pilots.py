@@ -12,6 +12,7 @@ from app.deps import get_current_user, require_staff
 from app.models import Event, EventPilot, Pilot, User
 from app.schemas import PilotResponse, PilotUpsert
 from app.services.audit import log_action
+from app.services.event_access import require_event_manager
 from app.services.pilot_identity import (
     apply_pilot_profile,
     ensure_event_membership,
@@ -91,9 +92,8 @@ def list_people(search: str | None = None, admin: User = Depends(require_staff),
 
 
 @router.post("/api/events/{event_id}/pilots", response_model=PilotResponse)
-def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> PilotResponse:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> PilotResponse:
+    require_event_manager(session, admin, session.get(Event, event_id))
     email = normalize_email(payload.email)
     pilot = find_canonical_pilot(
         session,
@@ -124,9 +124,8 @@ def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(requ
 
 
 @router.post("/api/events/{event_id}/pilots/{pilot_id}/assign", response_model=PilotResponse)
-def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> PilotResponse:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> PilotResponse:
+    require_event_manager(session, admin, session.get(Event, event_id))
     pilot = session.get(Pilot, pilot_id)
     if pilot is None:
         raise HTTPException(status_code=404, detail="Pilot not found")
@@ -164,9 +163,8 @@ def update_pilot(pilot_id: int, payload: PilotUpsert, actor: User = Depends(get_
 
 
 @router.delete("/api/events/{event_id}/pilots/{pilot_id}", status_code=204)
-def remove_pilot(event_id: int, pilot_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> Response:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+def remove_pilot(event_id: int, pilot_id: int, admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> Response:
+    require_event_manager(session, admin, session.get(Event, event_id))
     event_pilot = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == pilot_id))
     if event_pilot is None:
         raise HTTPException(status_code=404, detail="Pilot is not assigned to this event")
@@ -177,9 +175,8 @@ def remove_pilot(event_id: int, pilot_id: int, admin: User = Depends(require_sta
 
 
 @router.post("/api/events/{event_id}/pilots/import-csv", response_model=list[PilotResponse])
-async def import_pilots(event_id: int, file: UploadFile = File(...), admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> list[PilotResponse]:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
+async def import_pilots(event_id: int, file: UploadFile = File(...), admin: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[PilotResponse]:
+    require_event_manager(session, admin, session.get(Event, event_id))
     content = await file.read()
     reader = csv.DictReader(io.StringIO(content.decode("utf-8-sig")))
     imported: list[PilotResponse] = []

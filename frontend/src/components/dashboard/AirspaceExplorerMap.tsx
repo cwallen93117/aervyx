@@ -87,17 +87,20 @@ export default function AirspaceExplorerMap({
   refreshToken,
   tfrRefreshToken,
   selectedTfrTime,
+  maxPitchDegrees,
 }: {
   overlayConfig?: Record<string, boolean>;
   refreshToken?: number;
   tfrRefreshToken?: number;
   selectedTfrTime?: string;
+  maxPitchDegrees?: number;
 }) {
   const oc = overlayConfig;
   const showAirspaceRegions = oc?.airspace_regions !== false;
   const showAirspaceLabels = showAirspaceRegions && oc?.airspace_labels !== false;
   const showTfrs = oc?.tfrs !== false;
   const showTfrLabels = showTfrs && oc?.tfr_labels !== false;
+  const maxPitch = Math.max(0, Math.min(90, maxPitchDegrees ?? MAX_PITCH));
   const showAirspaceRegionsRef = useRef(showAirspaceRegions);
   const showTfrsRef = useRef(showTfrs);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -322,7 +325,7 @@ export default function AirspaceExplorerMap({
       },
       center: CONUS_CENTER,
       zoom: INITIAL_ZOOM,
-      maxPitch: MAX_PITCH,
+      maxPitch,
       attributionControl: {},
     });
 
@@ -494,6 +497,15 @@ export default function AirspaceExplorerMap({
       map.remove();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    map.setMaxPitch(maxPitch);
+    if (map.getPitch() > maxPitch) {
+      map.easeTo({ pitch: maxPitch, duration: 200 });
+    }
+  }, [maxPitch]);
 
   // -------------------------------------------------------------------
   // Sync 3D mode — swap fill ↔ extrusion layers, adjust pitch

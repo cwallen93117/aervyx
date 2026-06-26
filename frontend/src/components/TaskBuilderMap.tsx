@@ -1,6 +1,6 @@
 "use client";
 
-import { TaskMap, type MapAirspaceRegion, type MapLegMetric, type MapTaskPoint, type MapTurnpoint, type MapUnitPreferences, type TaskEditorOverlayContent, type TrackCollection } from "./TaskMap";
+import { TaskMap, type MapAirspaceRegion, type MapLegMetric, type MapTaskPoint, type MapTelemetrySmoothing, type MapTurnpoint, type MapUnitPreferences, type TaskEditorOverlayContent, type TrackCollection } from "./TaskMap";
 
 export interface TaskBuilderMapProps {
   selectedEventId: number | null;
@@ -15,6 +15,7 @@ export interface TaskBuilderMapProps {
   onSelectTurnpoint?: (turnpoint: MapTurnpoint) => void;
   taskEditorOverlay?: TaskEditorOverlayContent;
   units?: MapUnitPreferences;
+  telemetrySmoothing?: MapTelemetrySmoothing;
   overlayConfig?: Record<string, boolean>;
 }
 
@@ -31,6 +32,7 @@ export function TaskBuilderMap({
   onSelectTurnpoint,
   taskEditorOverlay,
   units,
+  telemetrySmoothing,
   overlayConfig,
 }: TaskBuilderMapProps) {
   const viewStateKey = `tasks-${selectedEventId ?? "none"}-${selectedTaskId ?? "draft"}`;
@@ -50,6 +52,7 @@ export function TaskBuilderMap({
       fitKey={selectedTaskId}
       viewStateKey={viewStateKey}
       units={units}
+      telemetrySmoothing={telemetrySmoothing}
       overlayConfig={overlayConfig}
     />
   );

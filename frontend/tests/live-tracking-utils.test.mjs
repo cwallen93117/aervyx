@@ -175,6 +175,18 @@ test("phone-only 1 Hz live points produce one solid track", () => {
   );
 });
 
+test("IGC-derived live replacement track stays solid and tagged as IGC", () => {
+  const positions = [
+    position({ id: "igc-a", lat: 40.0, lon: -75.0, timestamp: "2026-05-28T20:00:00Z", received_at: "2026-05-28T20:00:00Z", source: "igc" }),
+    position({ id: "igc-b", lat: 40.0001, lon: -75.0001, timestamp: "2026-05-28T20:00:01Z", received_at: "2026-05-28T20:00:01Z", source: "igc" }),
+  ];
+
+  const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Mick Howard"]]));
+
+  assert.equal(track.features[0].properties.line_style, "solid");
+  assert.equal(track.features[0].properties.track_kind, "igc");
+});
+
 test("phone outage with mesh points produces solid phone and dashed mesh-fill segments", () => {
   const appA = position({
     id: "app-a",
