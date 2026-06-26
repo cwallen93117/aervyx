@@ -1070,7 +1070,6 @@ function finiteAltitudeM(coordinate: TrackPosition | [number, number, number]) {
   return coordinate.length > 2 && Number.isFinite(coordinate[2]) ? coordinate[2] ?? null : null;
 }
 
-const MAX_ALTITUDE_GRADIENT_SEGMENTS = 5000;
 // Adapted from the MIT-licensed skywalker1905/paragliding_flight_3D_viewer
 // spiral reconstruction model. See THIRD_PARTY_NOTICES.md.
 const SPIRAL_RECONSTRUCTION_THRESHOLD_DEG_PER_SEC = 60;
@@ -2456,21 +2455,10 @@ export const TaskMap = React.memo(function TaskMap({
     if (!highlightedPaths.length) {
       return [];
     }
-    const visibleSegmentTotal = highlightedPaths.reduce((total, highlightedPath) => {
-      const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
-      return total + Math.max(0, visibleLength - 1);
-    }, 0);
-    const stride = forceTrackAltitudeGradient ? 1 : Math.max(1, Math.ceil(visibleSegmentTotal / MAX_ALTITUDE_GRADIENT_SEGMENTS));
     const segments: AltitudeTrackSegment[] = [];
-    let segmentCursor = 0;
     for (const highlightedPath of highlightedPaths) {
       const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
       for (let index = 1; index < visibleLength; index += 1) {
-        const shouldKeepSegment = segmentCursor % stride === 0 || index === visibleLength - 1;
-        segmentCursor += 1;
-        if (!shouldKeepSegment) {
-          continue;
-        }
         const previousAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index - 1]);
         const currentAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index]);
         if (previousAltitudeM == null || currentAltitudeM == null) {
