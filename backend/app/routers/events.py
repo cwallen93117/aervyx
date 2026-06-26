@@ -11,6 +11,7 @@ from app.deps import get_current_user, require_admin, require_staff
 from app.models import AirspaceRegion, AirspaceSource, BuddyGroup, BuddyGroupMember, Event, EventCollaborator, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
+from app.services.challenge_defaults import CHALLENGE_TEMPLATE_KIND, challenge_event_defaults, copy_challenge_default_assets
 from app.services.event_access import can_manage_event
 from app.services.pilot_identity import ensure_event_membership, participant_event_ids_for_user
 
@@ -203,7 +204,7 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
 def list_events(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[EventResponse]:
     # Staff (admin/organizer) can see all events regardless of visibility
     if user.role in STAFF_ROLES:
-        events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
+        events = session.scalars(select(Event).where(Event.event_kind != CHALLENGE_TEMPLATE_KIND).order_by(Event.updated_at.desc(), Event.name.asc())).all()
         return [_event_payload(session, event) for event in events]
 
     participant_event_ids = participant_event_ids_for_user(session, user)
@@ -213,7 +214,7 @@ def list_events(user: User = Depends(get_current_user), session: Session = Depen
         owner_or_collaborator_filters.append(Event.id.in_(collaborator_event_ids))
     events = session.scalars(
         select(Event)
-        .where(or_(Event.visibility.in_(["public", "users", "participants"]), *owner_or_collaborator_filters))
+        .where(Event.event_kind != CHALLENGE_TEMPLATE_KIND, or_(Event.visibility.in_(["public", "users", "participants"]), *owner_or_collaborator_filters))
         .order_by(Event.updated_at.desc(), Event.name.asc())
     ).all()
     visible_events = [event for event in events if _event_visible_to_user(session, event, user, participant_event_ids)]
@@ -240,6 +241,7 @@ def create_event(payload: EventCreate, user: User = Depends(get_current_user), s
     group = _load_owned_buddy_group(session, user, payload.source_buddy_group_id) if event_kind == "challenge" else None
     data = payload.model_dump()
     if event_kind == "challenge":
+        data.update(challenge_event_defaults(user))
         data["owner_user_id"] = user.id
         data["source_buddy_group_id"] = group.id if group else None
         data["public_slug"] = payload.public_slug or _public_slug(session)
@@ -255,6 +257,7 @@ def create_event(payload: EventCreate, user: User = Depends(get_current_user), s
     if event_kind == "challenge":
         session.add(EventCollaborator(event_id=event.id, user_id=user.id, role="owner"))
         seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
+        copy_challenge_default_assets(session, user, event)
         _ensure_challenge_task(session, event)
     log_action(
         session,

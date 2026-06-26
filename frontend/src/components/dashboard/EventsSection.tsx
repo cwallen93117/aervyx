@@ -7,6 +7,7 @@ import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
   AirspaceSourceRecord,
+  AccountSettingsRecord,
   BuddyGroup,
   EventFormState,
   EventRecord,
@@ -281,6 +282,52 @@ const eventTabItems = [
   { id: "participants", label: "Participants" },
   { id: "scoring", label: "Scoring Parameters" },
 ] satisfies Array<{ id: EventTab; label: string }>;
+const challengeScoringFields = [
+  "scoring_formula",
+  "nominal_distance_km",
+  "nominal_time_hours",
+  "nominal_launch",
+  "minimum_distance_km",
+  "nominal_goal_percent",
+  "score_back_time_minutes",
+  "goal_ss_penalty",
+  "day_quality_override",
+  "time_points_if_not_in_goal",
+  "jump_the_gun_factor",
+  "jump_the_gun_max_seconds",
+  "default_start_gate_count",
+  "default_start_gate_interval_seconds",
+  "stopped_glide_bonus",
+  "use_1000_points_for_max_day_quality",
+  "normalize_1000_before_day_quality",
+  "use_distance_points",
+  "use_time_points",
+  "use_leading_points",
+  "use_arrival_position_points",
+  "use_arrival_time_points",
+  "use_departure_points",
+  "use_difficulty_for_distance_points",
+  "use_distance_squared_for_lc",
+  "use_semi_circle_control_zone_for_goal_line",
+  "use_proportional_leading_weight_if_nobody_in_goal",
+  "redistribute_removed_time_points_as_distance_points",
+  "use_best_score_for_ftv_validity",
+  "use_constant_leading_weight",
+  "use_pwca2019_for_lc",
+  "use_flat_decline_of_timepoints",
+  "scoring_altitude",
+  "final_glide_decelerator",
+  "no_final_glide_decelerator_reason",
+  "min_time_span_for_valid_task_minutes",
+  "leading_weight_factor",
+  "turnpoint_radius_tolerance",
+  "turnpoint_radius_minimum_absolute_tolerance_m",
+  "number_of_decimals_task_results",
+  "number_of_decimals_competition_results",
+  "visible_airspace_classes_json",
+  "show_restricted_fields",
+  "penalties_json",
+] as const;
 const airspaceCategoryOptions = [
   { value: "B", label: "Class B" },
   { value: "C", label: "Class C" },
@@ -402,6 +449,85 @@ function scoringFormFromEvent(sourceEvent: EventRecord, currentForm: EventFormSt
   };
 }
 
+function challengeDefaultsToForm(settings: Record<string, unknown>): EventFormState {
+  const form = blankChallengeDefaultsForm();
+  for (const field of challengeScoringFields) {
+    if (settings[field] !== undefined) {
+      (form as Record<string, unknown>)[field] = settings[field];
+    }
+  }
+  return form;
+}
+
+function formToChallengeDefaults(form: EventFormState, existing: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...existing };
+  for (const field of challengeScoringFields) {
+    next[field] = (form as unknown as Record<string, unknown>)[field];
+  }
+  return next;
+}
+
+function blankChallengeDefaultsForm(): EventFormState {
+  return {
+    name: "Challenge Defaults",
+    location: "",
+    starts_on: new Date().toISOString().slice(0, 10),
+    ends_on: new Date().toISOString().slice(0, 10),
+    timezone: "UTC",
+    scoring_formula: "GAP2021",
+    nominal_distance_km: 60,
+    nominal_time_hours: 1.5,
+    nominal_launch: 0.95,
+    minimum_distance_km: 5,
+    nominal_goal_percent: 0.3,
+    score_back_time_minutes: 15,
+    goal_ss_penalty: 0,
+    day_quality_override: 0,
+    time_points_if_not_in_goal: 1,
+    jump_the_gun_factor: 0,
+    jump_the_gun_max_seconds: 0,
+    default_start_gate_count: 5,
+    default_start_gate_interval_seconds: 900,
+    stopped_glide_bonus: 0,
+    use_1000_points_for_max_day_quality: false,
+    normalize_1000_before_day_quality: false,
+    use_distance_points: true,
+    use_time_points: true,
+    use_leading_points: true,
+    use_arrival_position_points: false,
+    use_arrival_time_points: false,
+    use_departure_points: false,
+    use_difficulty_for_distance_points: true,
+    use_distance_squared_for_lc: false,
+    use_semi_circle_control_zone_for_goal_line: true,
+    use_proportional_leading_weight_if_nobody_in_goal: true,
+    redistribute_removed_time_points_as_distance_points: false,
+    use_best_score_for_ftv_validity: true,
+    use_constant_leading_weight: false,
+    use_pwca2019_for_lc: false,
+    use_flat_decline_of_timepoints: false,
+    scoring_altitude: "GPS",
+    final_glide_decelerator: "none",
+    no_final_glide_decelerator_reason: "",
+    min_time_span_for_valid_task_minutes: 60,
+    leading_weight_factor: 1,
+    turnpoint_radius_tolerance: 0.0005,
+    turnpoint_radius_minimum_absolute_tolerance_m: 5,
+    number_of_decimals_task_results: 2,
+    number_of_decimals_competition_results: 1,
+    visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"],
+    show_restricted_fields: true,
+    penalties_text: "{}",
+    is_public_tracking: false,
+    visibility: "private",
+    event_kind: "challenge",
+    owner_user_id: null,
+    source_buddy_group_id: null,
+    public_slug: null,
+    public_listed: false,
+  };
+}
+
 function airspaceSourceLabel(kind: AirspaceSourceRecord["kind"]): string {
   return kind === "restricted_field" ? "Restricted fields" : kind === "airspace" ? "Airspace" : "";
 }
@@ -509,12 +635,15 @@ export interface EventsSectionProps {
   airspaceSources: AirspaceSourceRecord[];
   visibleAirspaces: MapAirspaceRegion[];
   pilots: PilotRecord[];
+  settingsForm: AccountSettingsRecord;
+  setSettingsForm: (form: AccountSettingsRecord | ((current: AccountSettingsRecord) => AccountSettingsRecord)) => void;
+  saveChallengeSettings: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
   canManagePlatform: boolean;
   canManageOfficialEvents: boolean;
   canCreateChallenge: boolean;
   isAdmin: boolean;
   selectEvent: (event: EventRecord) => void;
-  createEventDraft: () => void;
+  createEventDraft: (kind: "competition" | "challenge") => void;
   duplicateSelectedEvent: () => void;
     deleteEvent: () => void;
     saveEvent: (event: FormEvent<HTMLFormElement>) => void;
@@ -549,6 +678,9 @@ export default function EventsSection(props: EventsSectionProps) {
     turnpointSources,
     airspaceSources,
     visibleAirspaces,
+    settingsForm,
+    setSettingsForm,
+    saveChallengeSettings,
     canManagePlatform,
     canManageOfficialEvents,
     canCreateChallenge,
@@ -589,6 +721,10 @@ export default function EventsSection(props: EventsSectionProps) {
   const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
   const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
   const [buddyGroupsFeedback, setBuddyGroupsFeedback] = useState("");
+  const [challengeDefaultsForm, setChallengeDefaultsForm] = useState<EventFormState>(() => challengeDefaultsToForm(settingsForm.challenge_settings_json ?? {}));
+  const [challengeTurnpointSources, setChallengeTurnpointSources] = useState<TurnpointSourceRecord[]>([]);
+  const [challengeAirspaceSources, setChallengeAirspaceSources] = useState<AirspaceSourceRecord[]>([]);
+  const [challengeSettingsFeedback, setChallengeSettingsFeedback] = useState<PresetFeedback>(null);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
   const [selectedTurnpointSourceId, setSelectedTurnpointSourceId] = useState<number | null>(null);
@@ -607,6 +743,8 @@ export default function EventsSection(props: EventsSectionProps) {
     return db - da;
   });
   const canCreateAnyEvent = canManageOfficialEvents || canCreateChallenge;
+  const isChallenge = eventForm.event_kind === "challenge";
+  const visibleEventTabs = isChallenge ? eventTabItems.filter((tab) => tab.id === "details") : eventTabItems;
 
   const autoSaveOverlaySettings = (nextForm: EventFormState) => {
     setEventForm(nextForm);
@@ -617,6 +755,44 @@ export default function EventsSection(props: EventsSectionProps) {
     setStartsOnDisplay(formatLongDate(eventForm.starts_on));
     setEndsOnDisplay(formatLongDate(eventForm.ends_on));
   }, [eventForm.starts_on, eventForm.ends_on]);
+
+  useEffect(() => {
+    setChallengeDefaultsForm(challengeDefaultsToForm(settingsForm.challenge_settings_json ?? {}));
+  }, [settingsForm.challenge_settings_json]);
+
+  useEffect(() => {
+    if (isChallenge && eventTab !== "details" && eventTab !== "challenge_settings") {
+      setEventTab("details");
+    }
+  }, [eventTab, isChallenge, setEventTab]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadChallengeDefaultSources() {
+      const templateEventId = settingsForm.challenge_settings_json?.template_event_id;
+      if (!token || typeof templateEventId !== "number") {
+        setChallengeTurnpointSources([]);
+        setChallengeAirspaceSources([]);
+        return;
+      }
+      try {
+        const [loadedTurnpoints, loadedAirspaces] = await Promise.all([
+          apiFetch<TurnpointSourceRecord[]>(`/api/events/${templateEventId}/turnpoint-sources`, token),
+          apiFetch<AirspaceSourceRecord[]>(`/api/events/${templateEventId}/airspace-sources`, token),
+        ]);
+        if (!cancelled) {
+          setChallengeTurnpointSources(loadedTurnpoints);
+          setChallengeAirspaceSources(loadedAirspaces);
+        }
+      } catch (caught) {
+        if (!cancelled) setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load challenge default files." });
+      }
+    }
+    void loadChallengeDefaultSources();
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsForm.challenge_settings_json?.template_event_id, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -912,6 +1088,28 @@ export default function EventsSection(props: EventsSectionProps) {
     }
   }
 
+  async function saveChallengeDefaults(nextSettings?: Record<string, unknown>) {
+    try {
+      setChallengeSettingsFeedback({ type: "pending", text: "Saving challenge settings..." });
+      const saved = await saveChallengeSettings(nextSettings ?? formToChallengeDefaults(challengeDefaultsForm, settingsForm.challenge_settings_json ?? {}));
+      setSettingsForm((current) => ({ ...current, challenge_settings_json: saved }));
+      setChallengeSettingsFeedback({ type: "success", text: "Saved challenge settings." });
+    } catch (caught) {
+      setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save challenge settings." });
+    }
+  }
+
+  async function uploadChallengeDefaultFile(path: string, file: File) {
+    const response = await uploadFile(path, file) as { settings?: Record<string, unknown> };
+    const settings = response.settings ?? {};
+    setSettingsForm((current) => ({ ...current, challenge_settings_json: settings }));
+    setChallengeSettingsFeedback({ type: "success", text: `Uploaded ${file.name}.` });
+  }
+
+  function updateChallengeDefaults(patch: Partial<EventFormState>) {
+    setChallengeDefaultsForm((current) => ({ ...current, ...patch }));
+  }
+
   async function loadScoringTemplate() {
     if (!token || !eventEditorId || !scoringTemplateEventId) return;
     const sourceEventId = Number(scoringTemplateEventId);
@@ -960,22 +1158,194 @@ export default function EventsSection(props: EventsSectionProps) {
             </label>
             {canCreateAnyEvent || canManagePlatform ? (
               <div className="event-selector-actions">
-                {canCreateAnyEvent ? <button className="ghost-button" type="button" onClick={() => void createEventDraft()}>Create Event / Challenge</button> : null}
+                {canManageOfficialEvents ? <button className="ghost-button" type="button" onClick={() => void createEventDraft("competition")}>Create Official Event</button> : null}
+                {canCreateChallenge ? <button className="ghost-button" type="button" onClick={() => void createEventDraft("challenge")}>Create Challenge</button> : null}
                 {canManagePlatform ? <button className="primary-button" type="button" onClick={() => void saveEventForm(eventForm, `${eventEditorId ? "Updated" : "Created"} ${eventForm.event_kind === "challenge" ? "challenge" : "event"} ${eventForm.name || "draft"}.`)}>{eventEditorId ? "Save" : "Create"}</button> : null}
                 {canManageOfficialEvents && eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
                 {isAdmin && eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
+                <button type="button" className="ghost-button" onClick={() => setEventTab("challenge_settings")}>Challenge Settings</button>
               </div>
             ) : null}
           </div>
         </SectionCard>
       <div className="tab-row">
-        {eventTabItems.map((tab) => (
+        {visibleEventTabs.map((tab) => (
           <button key={tab.id} type="button" className={eventTab === tab.id ? "tab-button active" : "tab-button"} onClick={() => setEventTab(tab.id)}>
             {tab.label}
           </button>
         ))}
       </div>
       <div className="event-workspace-grid event-workspace-stack">
+        {eventTab === "challenge_settings" ? (
+          <SectionCard title="Challenge Settings">
+            <div className="stack form-block compact-event-form compact-clusters">
+              {challengeSettingsFeedback ? <div className={`status-chip ${challengeSettingsFeedback.type}`}>{challengeSettingsFeedback.text}</div> : null}
+              <div className="fieldset-grid two-up">
+                <fieldset className="fieldset-cluster">
+                  <legend>Default files</legend>
+                  <div className="cluster-stack">
+                    <label className="stack compact">
+                      <span>Waypoint file</span>
+                      <select
+                        value={Number(settingsForm.challenge_settings_json?.turnpoint_source_id ?? "") || ""}
+                        onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), turnpoint_source_id: Number(event.target.value) || null })}
+                      >
+                        <option value="">No default waypoint file</option>
+                        {challengeTurnpointSources.map((source) => (
+                          <option key={source.id} value={source.id}>{source.filename}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="file-input">
+                      Upload waypoint file
+                      <input
+                        type="file"
+                        accept=".csv,.geojson,.json,.gpx"
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            await uploadChallengeDefaultFile("/api/auth/challenge-settings/turnpoints/upload", file);
+                          } catch (caught) {
+                            setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Failed to upload ${file.name}.` });
+                          } finally {
+                            event.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                    </label>
+                    <label className="stack compact">
+                      <span>Airspace file</span>
+                      <select
+                        value={Number(settingsForm.challenge_settings_json?.airspace_source_id ?? "") || ""}
+                        onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), airspace_source_id: Number(event.target.value) || null })}
+                      >
+                        <option value="">No default airspace file</option>
+                        {challengeAirspaceSources.filter((source) => source.kind !== "restricted_field").map((source) => (
+                          <option key={source.id} value={source.id}>{source.filename}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="file-input">
+                      Upload airspace
+                      <input
+                        type="file"
+                        accept=".txt,.openair,.air,.geojson,.json"
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            await uploadChallengeDefaultFile("/api/auth/challenge-settings/airspaces/upload?kind=airspace", file);
+                          } catch (caught) {
+                            setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Failed to upload ${file.name}.` });
+                          } finally {
+                            event.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                    </label>
+                    <label className="stack compact">
+                      <span>Restricted-field file</span>
+                      <select
+                        value={Number(settingsForm.challenge_settings_json?.restricted_field_source_id ?? "") || ""}
+                        onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), restricted_field_source_id: Number(event.target.value) || null })}
+                      >
+                        <option value="">No default restricted fields</option>
+                        {challengeAirspaceSources.filter((source) => source.kind === "restricted_field").map((source) => (
+                          <option key={source.id} value={source.id}>{source.filename}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="file-input">
+                      Upload restricted fields
+                      <input
+                        type="file"
+                        accept=".txt,.openair,.air,.geojson,.json"
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          if (!file) return;
+                          try {
+                            await uploadChallengeDefaultFile("/api/auth/challenge-settings/airspaces/upload?kind=restricted_field", file);
+                          } catch (caught) {
+                            setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Failed to upload ${file.name}.` });
+                          } finally {
+                            event.currentTarget.value = "";
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                </fieldset>
+                <fieldset className="fieldset-cluster">
+                  <legend>Default scoring</legend>
+                  <div className="cluster-stack">
+                    <label className="stack compact">
+                      <span>Scoring formula</span>
+                      <select value={challengeDefaultsForm.scoring_formula} onChange={(event) => updateChallengeDefaults({ scoring_formula: event.target.value })}>
+                        {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <div className="inline-grid">
+                      <label className="stack compact">
+                        <span>Minimum distance (km)</span>
+                        <input type="number" min={0} step="0.1" value={challengeDefaultsForm.minimum_distance_km} onChange={(event) => updateChallengeDefaults({ minimum_distance_km: Number(event.target.value) || 0 })} />
+                      </label>
+                      <label className="stack compact">
+                        <span>Nominal distance (km)</span>
+                        <input type="number" min={0} step="1" value={challengeDefaultsForm.nominal_distance_km} onChange={(event) => updateChallengeDefaults({ nominal_distance_km: Number(event.target.value) || 0 })} />
+                      </label>
+                    </div>
+                    <div className="inline-grid">
+                      <label className="stack compact">
+                        <span>Nominal time (hours)</span>
+                        <input type="number" min={0} step="0.1" value={challengeDefaultsForm.nominal_time_hours} onChange={(event) => updateChallengeDefaults({ nominal_time_hours: Number(event.target.value) || 0 })} />
+                      </label>
+                      <label className="stack compact">
+                        <span>Nominal launch</span>
+                        <input type="number" min={0} max={1} step="0.01" value={challengeDefaultsForm.nominal_launch} onChange={(event) => updateChallengeDefaults({ nominal_launch: Number(event.target.value) || 0 })} />
+                      </label>
+                    </div>
+                    <div className="inline-grid">
+                      <label className="stack compact">
+                        <span>Default start gates</span>
+                        <input type="number" min={1} step="1" value={challengeDefaultsForm.default_start_gate_count} onChange={(event) => updateChallengeDefaults({ default_start_gate_count: Math.max(1, Number(event.target.value) || 1) })} />
+                      </label>
+                      <label className="stack compact">
+                        <span>Gate interval (minutes)</span>
+                        <input type="number" min={0} step="1" value={Math.round(challengeDefaultsForm.default_start_gate_interval_seconds / 60)} onChange={(event) => updateChallengeDefaults({ default_start_gate_interval_seconds: Math.max(0, Number(event.target.value) || 0) * 60 })} />
+                      </label>
+                    </div>
+                    <div className="event-airspace-class-row">
+                      {airspaceCategoryOptions.map((option) => (
+                        <label key={option.value} className="task-advanced-toggle">
+                          <input
+                            type="checkbox"
+                            checked={challengeDefaultsForm.visible_airspace_classes_json.includes(option.value)}
+                            onChange={() => {
+                              const existing = new Set(challengeDefaultsForm.visible_airspace_classes_json);
+                              if (existing.has(option.value)) existing.delete(option.value);
+                              else existing.add(option.value);
+                              updateChallengeDefaults({ visible_airspace_classes_json: Array.from(existing) });
+                            }}
+                          />
+                          <span>{option.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <label className="task-advanced-toggle">
+                      <input type="checkbox" checked={challengeDefaultsForm.show_restricted_fields} onChange={(event) => updateChallengeDefaults({ show_restricted_fields: event.target.checked })} />
+                      <span>Show restricted fields</span>
+                    </label>
+                    <div className="button-row">
+                      <button type="button" className="primary-button" onClick={() => void saveChallengeDefaults()}>Save challenge settings</button>
+                      {selectedEvent ? <button type="button" className="ghost-button" onClick={() => setChallengeDefaultsForm(scoringFormFromEvent(selectedEvent, challengeDefaultsForm))}>Copy scoring from selected event</button> : null}
+                    </div>
+                  </div>
+                </fieldset>
+              </div>
+            </div>
+          </SectionCard>
+        ) : null}
         {eventTab === "details" ? (
         <SectionCard>
           <form className="stack form-block compact-event-form compact-clusters" onSubmit={saveEvent}>

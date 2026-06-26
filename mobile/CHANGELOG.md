@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.66+83 - 2026-06-26
+
+### Added
+- Challenges now include a mobile task builder that loads the challenge waypoint
+  file, lets pilots select waypoint markers, edit type/direction/radius/order,
+  and saves the task back to the website.
+
 ## 0.4.65+82 - 2026-06-26
 
 ### Changed
