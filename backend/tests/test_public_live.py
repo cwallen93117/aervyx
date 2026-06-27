@@ -111,6 +111,15 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
         timezone="UTC",
         is_public_tracking=True,
     )
+    challenge = Event(
+        name="Weekend Challenge",
+        location="Ridge",
+        starts_on=date(2026, 5, 10),
+        ends_on=date(2026, 5, 10),
+        timezone="UTC",
+        is_public_tracking=True,
+        event_kind="challenge",
+    )
     hidden_event = Event(
         name="Private Practice",
         location="Valley",
@@ -119,7 +128,7 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
         timezone="UTC",
         is_public_tracking=False,
     )
-    session.add_all([owner, pilot, live_event, hidden_event])
+    session.add_all([owner, pilot, live_event, challenge, hidden_event])
     session.flush()
     session.add_all(
         [
@@ -137,10 +146,11 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
 
     payload = get_public_live_sources(session)
 
-    assert [event.name for event in payload.events] == ["Open Distance Classic"]
-    assert [task.name for task in payload.events[0].tasks] == ["Published task", "Active task"]
-    assert payload.events[0].map_task is not None
-    assert payload.events[0].map_task.name == "Active task"
+    assert [(event.name, event.event_kind) for event in payload.events] == [("Weekend Challenge", "challenge"), ("Open Distance Classic", "competition")]
+    competition = next(event for event in payload.events if event.name == "Open Distance Classic")
+    assert [task.name for task in competition.tasks] == ["Published task", "Active task"]
+    assert competition.map_task is not None
+    assert competition.map_task.name == "Active task"
     assert [(group.name, group.member_count) for group in payload.buddy_groups] == [("Public crew", 1)]
 
 
