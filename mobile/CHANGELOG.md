@@ -1,5 +1,12 @@
 # Aervyx Mobile Changelog
 
+## 0.4.68+85 - 2026-06-27
+
+### Changed
+- Swipe navigation now includes Live View and orders the flow as main screen,
+  Challenges, Logbook, Live View, then Settings.
+- The main screen top buttons now match that order.
+
 ## 0.4.67+84 - 2026-06-27
 
 ### Added

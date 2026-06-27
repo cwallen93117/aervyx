@@ -141,21 +141,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.map),
-            tooltip: 'Live View',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const LiveViewScreen()),
-            ),
-          ),
-          if (!isDriverProfile)
-            IconButton(
-              icon: const Icon(Icons.flight),
-              tooltip: 'Flights',
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const FlightsScreen()),
-              ),
-            ),
-          IconButton(
             icon: const Icon(Icons.emoji_events_outlined),
             tooltip: 'Challenges',
             onPressed: () => Navigator.of(context).push(
@@ -164,6 +149,21 @@ class _HomeScreenState extends State<HomeScreen> {
                   api: context.read<ApiService>(),
                 ),
               ),
+            ),
+          ),
+          if (!isDriverProfile)
+            IconButton(
+              icon: const Icon(Icons.flight),
+              tooltip: 'Logbook',
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const FlightsScreen()),
+              ),
+            ),
+          IconButton(
+            icon: const Icon(Icons.map),
+            tooltip: 'Live View',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LiveViewScreen()),
             ),
           ),
           IconButton(

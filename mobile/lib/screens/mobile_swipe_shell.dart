@@ -6,15 +6,17 @@ import '../services/auth_service.dart';
 import 'challenges_screen.dart';
 import 'flights_screen.dart';
 import 'home_screen.dart';
+import 'live_view_screen.dart';
 import 'settings_screen.dart';
 
-enum MobileSwipePage { map, logbook, challenges, settings }
+enum MobileSwipePage { map, challenges, logbook, liveView, settings }
 
 @visibleForTesting
 List<MobileSwipePage> mobileSwipePages({required bool isDriver}) => [
       MobileSwipePage.map,
-      if (!isDriver) MobileSwipePage.logbook,
       MobileSwipePage.challenges,
+      if (!isDriver) MobileSwipePage.logbook,
+      MobileSwipePage.liveView,
       MobileSwipePage.settings,
     ];
 
@@ -32,10 +34,11 @@ class MobileSwipeShell extends StatelessWidget {
         for (final page in pages)
           switch (page) {
             MobileSwipePage.map => const HomeScreen(),
-            MobileSwipePage.logbook => const FlightsScreen(),
             MobileSwipePage.challenges => ChallengesScreen(
                 api: context.read<ApiService>(),
               ),
+            MobileSwipePage.logbook => const FlightsScreen(),
+            MobileSwipePage.liveView => const LiveViewScreen(),
             MobileSwipePage.settings => const SettingsScreen(),
           },
       ],

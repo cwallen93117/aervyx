@@ -16,6 +16,9 @@ asks for a different release path.
 ## [2026.06.27]
 
 ### Added
+- **Mobile v0.4.68+85** adds Live View to swipe navigation and orders the
+  swipe/top-button flow as main screen, Challenges, Logbook, Live View, then
+  Settings.
 - **Mobile v0.4.67+84** lets pilots swipe horizontally between the map,
   logbook, challenges, and settings screens without adding shutdown to the
   swipe flow.
