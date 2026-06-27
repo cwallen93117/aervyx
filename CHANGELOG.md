@@ -13,6 +13,13 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.06.27]
+
+### Added
+- **Mobile v0.4.67+84** lets pilots swipe horizontally between the map,
+  logbook, challenges, and settings screens without adding shutdown to the
+  swipe flow.
+
 ## [2026.06.26]
 
 ### Added
