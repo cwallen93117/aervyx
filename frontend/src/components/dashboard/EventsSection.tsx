@@ -338,6 +338,20 @@ const airspaceCategoryOptions = [
   { value: "TFR", label: "TFR" },
   { value: "OTHER", label: "Other / advisory" },
 ] satisfies Array<{ value: AirspaceCategoryOption; label: string }>;
+const fallbackTimeZoneOptions = [
+  "UTC",
+  "America/New_York",
+  "America/Chicago",
+  "America/Denver",
+  "America/Los_Angeles",
+  "America/Phoenix",
+  "Europe/London",
+  "Europe/Paris",
+  "Europe/Berlin",
+  "Europe/Vienna",
+  "Australia/Sydney",
+  "Pacific/Auckland",
+] as const;
 
 type PresetFeedback = { type: "success" | "error" | "pending"; text: string } | null;
 type TurnpointSymbol = "" | "grass_strip" | "paved_runway" | "dot" | "bar";
@@ -556,6 +570,17 @@ function parseLongDate(value: string): string | null {
   return `${year}-${month}-${day}`;
 }
 
+function browserTimeZone(): string {
+  if (typeof Intl === "undefined") return "UTC";
+  return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function timeZoneOptions(localTimeZone: string, selectedTimeZone: string): string[] {
+  const intlWithZones = Intl as typeof Intl & { supportedValuesOf?: (key: "timeZone") => string[] };
+  const allZones = intlWithZones.supportedValuesOf?.("timeZone") ?? [...fallbackTimeZoneOptions];
+  return Array.from(new Set([localTimeZone, selectedTimeZone, "UTC", ...allZones].filter(Boolean)));
+}
+
 function normalizeEditableSymbol(value: unknown): TurnpointSymbol {
   return value === "grass_strip" || value === "paved_runway" || value === "dot" || value === "bar" ? value : "";
 }
@@ -745,11 +770,17 @@ export default function EventsSection(props: EventsSectionProps) {
   const canCreateAnyEvent = canManageOfficialEvents || canCreateChallenge;
   const isChallenge = eventForm.event_kind === "challenge";
   const visibleEventTabs = isChallenge ? eventTabItems.filter((tab) => tab.id === "details") : eventTabItems;
+  const localTimeZone = useMemo(() => browserTimeZone(), []);
+  const timezoneOptions = useMemo(() => timeZoneOptions(localTimeZone, eventForm.timezone), [localTimeZone, eventForm.timezone]);
 
   const autoSaveOverlaySettings = (nextForm: EventFormState) => {
     setEventForm(nextForm);
     void saveEventForm(nextForm, "Saved overlay settings.");
   };
+
+  useEffect(() => {
+    if (!eventForm.timezone) setEventForm({ ...eventForm, timezone: localTimeZone });
+  }, [eventForm, localTimeZone, setEventForm]);
 
   useEffect(() => {
     setStartsOnDisplay(formatLongDate(eventForm.starts_on));
@@ -1474,7 +1505,11 @@ export default function EventsSection(props: EventsSectionProps) {
                     </label>
                     <label className="stack compact">
                       <span>Timezone</span>
-                      <input placeholder="Enter timezone" value={eventForm.timezone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })} />
+                      <select value={eventForm.timezone || localTimeZone} onChange={(event) => setEventForm({ ...eventForm, timezone: event.target.value })}>
+                        {timezoneOptions.map((timezone) => (
+                          <option key={timezone} value={timezone}>{timezone === localTimeZone ? `Current location - ${timezone}` : timezone}</option>
+                        ))}
+                      </select>
                     </label>
                     <div className="inline-grid">
                       <label className="stack compact">
