@@ -14,6 +14,7 @@ class ChallengeSummary {
   final String endsOn;
   final int pilotCount;
   final String challengeType;
+  final bool canEdit;
 
   ChallengeSummary({
     required this.id,
@@ -22,6 +23,7 @@ class ChallengeSummary {
     required this.endsOn,
     required this.pilotCount,
     required this.challengeType,
+    required this.canEdit,
   });
 
   factory ChallengeSummary.fromJson(Map<String, dynamic> json) {
@@ -32,6 +34,7 @@ class ChallengeSummary {
       endsOn: json['ends_on'] as String? ?? '',
       pilotCount: json['pilot_count'] as int? ?? 0,
       challengeType: json['challenge_type'] as String? ?? 'open_distance',
+      canEdit: json['can_edit'] as bool? ?? false,
     );
   }
 }
@@ -110,7 +113,8 @@ class ChallengeTask {
       startGateCount: json['start_gate_count'] as int? ?? 1,
       startGateIntervalSeconds: json['start_gate_interval_seconds'] as int?,
       points: (json['points'] as List<dynamic>? ?? const [])
-          .map((item) => ChallengeTaskPoint.fromJson(item as Map<String, dynamic>))
+          .map((item) =>
+              ChallengeTaskPoint.fromJson(item as Map<String, dynamic>))
           .toList(),
     );
   }
@@ -199,7 +203,8 @@ class ChallengeTaskPoint {
       latitude: (json['latitude'] as num).toDouble(),
       longitude: (json['longitude'] as num).toDouble(),
       pointType: type,
-      direction: json['direction'] as String? ?? defaultDirectionForPointType(type),
+      direction:
+          json['direction'] as String? ?? defaultDirectionForPointType(type),
       radiusMeters: (json['radius_m'] as num?)?.toDouble() ??
           defaultRadiusForPointType(type),
     );
@@ -218,9 +223,13 @@ class ChallengeTaskPoint {
       longitude: longitude,
       pointType: nextType,
       direction: direction ??
-          (pointType == null ? this.direction : defaultDirectionForPointType(nextType)),
+          (pointType == null
+              ? this.direction
+              : defaultDirectionForPointType(nextType)),
       radiusMeters: radiusMeters ??
-          (pointType == null ? this.radiusMeters : defaultRadiusForPointType(nextType)),
+          (pointType == null
+              ? this.radiusMeters
+              : defaultRadiusForPointType(nextType)),
     );
   }
 
@@ -236,7 +245,8 @@ class ChallengeTaskPoint {
       };
 }
 
-String defaultDirectionForPointType(String type) => type == 'start' ? 'exit' : 'enter';
+String defaultDirectionForPointType(String type) =>
+    type == 'start' ? 'exit' : 'enter';
 
 double defaultRadiusForPointType(String type) {
   switch (type) {
@@ -342,8 +352,9 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
         'public_listed': false,
         'is_public_tracking': _publicTracking,
       });
-      _nameController.text =
-          _challengeType == 'open_distance' ? 'New XC Challenge' : 'New R2G Challenge';
+      _nameController.text = _challengeType == 'open_distance'
+          ? 'New XC Challenge'
+          : 'New R2G Challenge';
       _locationController.clear();
       await _loadChallenges();
       if (!mounted) return;
@@ -366,6 +377,75 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
     return local.toIso8601String().substring(0, 10);
   }
 
+  Widget _createChallengeCard(ThemeData theme) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Create challenge', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Name'),
+            ),
+            const SizedBox(height: 12),
+            SegmentedButton<String>(
+              segments: const [
+                ButtonSegment(value: 'open_distance', label: Text('XC')),
+                ButtonSegment(
+                    value: 'race_to_goal_with_gates', label: Text('R2G')),
+              ],
+              selected: {_challengeType},
+              onSelectionChanged: (value) {
+                setState(() => _challengeType = value.first);
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _locationController,
+              decoration: const InputDecoration(labelText: 'Location'),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickDate(start: true),
+                    child: Text('Starts ${_dateString(_startsOn)}'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickDate(start: false),
+                    child: Text('Ends ${_dateString(_endsOn)}'),
+                  ),
+                ),
+              ],
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _publicTracking,
+              onChanged: (value) => setState(() => _publicTracking = value),
+              title: const Text('Public live tracking'),
+            ),
+            FilledButton.icon(
+              onPressed: _saving ? null : _createChallenge,
+              icon: const Icon(Icons.add),
+              label: Text(_saving ? 'Creating...' : 'Create and build task'),
+            ),
+            if (_error != null) ...[
+              const SizedBox(height: 8),
+              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -376,76 +456,11 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Text('Create challenge', style: theme.textTheme.titleMedium),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Name'),
-                    ),
-                    const SizedBox(height: 12),
-                    SegmentedButton<String>(
-                      segments: const [
-                        ButtonSegment(value: 'open_distance', label: Text('XC')),
-                        ButtonSegment(value: 'race_to_goal_with_gates', label: Text('R2G')),
-                      ],
-                      selected: {_challengeType},
-                      onSelectionChanged: (value) {
-                        setState(() => _challengeType = value.first);
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: _locationController,
-                      decoration: const InputDecoration(labelText: 'Location'),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _pickDate(start: true),
-                            child: Text('Starts ${_dateString(_startsOn)}'),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: OutlinedButton(
-                            onPressed: () => _pickDate(start: false),
-                            child: Text('Ends ${_dateString(_endsOn)}'),
-                          ),
-                        ),
-                      ],
-                    ),
-                    SwitchListTile(
-                      contentPadding: EdgeInsets.zero,
-                      value: _publicTracking,
-                      onChanged: (value) => setState(() => _publicTracking = value),
-                      title: const Text('Public live tracking'),
-                    ),
-                    FilledButton.icon(
-                      onPressed: _saving ? null : _createChallenge,
-                      icon: const Icon(Icons.add),
-                      label: Text(_saving ? 'Creating...' : 'Create and build task'),
-                    ),
-                    if (_error != null) ...[
-                      const SizedBox(height: 8),
-                      Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
             Text('My challenges', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             if (_loading)
-              const Center(child: Padding(
+              const Center(
+                  child: Padding(
                 padding: EdgeInsets.all(24),
                 child: CircularProgressIndicator(),
               ))
@@ -459,7 +474,8 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                     child: ListTile(
                       leading: const Icon(Icons.emoji_events_outlined),
                       title: Text(challenge.name),
-                      subtitle: Text('${challenge.startsOn} - ${challenge.endsOn}'),
+                      subtitle:
+                          Text('${challenge.startsOn} - ${challenge.endsOn}'),
                       trailing: Text('${challenge.pilotCount} pilots'),
                       onTap: () async {
                         await Navigator.of(context).push(MaterialPageRoute(
@@ -472,6 +488,8 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
                       },
                     ),
                   )),
+            const SizedBox(height: 16),
+            _createChallengeCard(theme),
           ],
         ),
       ),
@@ -494,7 +512,8 @@ class ChallengeTaskBuilderScreen extends StatefulWidget {
       _ChallengeTaskBuilderScreenState();
 }
 
-class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen> {
+class _ChallengeTaskBuilderScreenState
+    extends State<ChallengeTaskBuilderScreen> {
   final MapController _mapController = MapController();
   LiveMapStyle _mapStyle = LiveMapStyle.map;
   bool _loading = true;
@@ -504,6 +523,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
   List<TurnpointSourceSummary> _sources = [];
   int? _sourceId;
   List<ChallengeWaypoint> _waypoints = [];
+  bool get _canEdit => widget.challenge.canEdit;
 
   @override
   void initState() {
@@ -519,7 +539,8 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
     try {
       final responses = await Future.wait([
         widget.api.getList(ApiConfig.challengeTasksPath(widget.challenge.id)),
-        widget.api.getList(ApiConfig.eventTurnpointSourcesPath(widget.challenge.id)),
+        widget.api
+            .getList(ApiConfig.eventTurnpointSourcesPath(widget.challenge.id)),
       ]);
       final tasks = responses[0]
           .whereType<Map<String, dynamic>>()
@@ -565,6 +586,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
   }
 
   void _addWaypoint(ChallengeWaypoint waypoint) {
+    if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
     if (task.points.any((point) => point.turnpointId == waypoint.id)) return;
@@ -577,6 +599,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
   }
 
   void _updatePoint(int index, ChallengeTaskPoint point) {
+    if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
     final points = [...task.points];
@@ -585,6 +608,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
   }
 
   void _movePoint(int index, int delta) {
+    if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
     final nextIndex = index + delta;
@@ -596,6 +620,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
   }
 
   void _removePoint(int index) {
+    if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
     final points = [...task.points]..removeAt(index);
@@ -603,6 +628,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
   }
 
   Future<void> _saveTask() async {
+    if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
     if (_sourceId == null) {
@@ -661,13 +687,15 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.challenge.name),
-        actions: [
-          IconButton(
-            onPressed: _saving ? null : _saveTask,
-            icon: const Icon(Icons.save_outlined),
-            tooltip: 'Save task',
-          ),
-        ],
+        actions: _canEdit
+            ? [
+                IconButton(
+                  onPressed: _saving ? null : _saveTask,
+                  icon: const Icon(Icons.save_outlined),
+                  tooltip: 'Save task',
+                ),
+              ]
+            : null,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -679,7 +707,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
                     children: [
                       if (_sources.isEmpty)
                         Text(
-                          'No waypoint file is attached to this challenge. Configure Challenge Settings on the website, then create a new challenge.',
+                          'No waypoint file is attached to this challenge yet.',
                           style: TextStyle(color: theme.colorScheme.error),
                         )
                       else
@@ -700,7 +728,8 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
                         ),
                       if (_error != null) ...[
                         const SizedBox(height: 8),
-                        Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
+                        Text(_error!,
+                            style: TextStyle(color: theme.colorScheme.error)),
                       ],
                     ],
                   ),
@@ -786,7 +815,8 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
                         top: 12,
                         child: LiveMapStyleDropdown(
                           value: _mapStyle,
-                          onChanged: (value) => setState(() => _mapStyle = value),
+                          onChanged: (value) =>
+                              setState(() => _mapStyle = value),
                         ),
                       ),
                     ],
@@ -798,6 +828,7 @@ class _ChallengeTaskBuilderScreenState extends State<ChallengeTaskBuilderScreen>
                     child: _TaskPointEditor(
                       points: task.points,
                       saving: _saving,
+                      editable: _canEdit,
                       onChanged: _updatePoint,
                       onMove: _movePoint,
                       onRemove: _removePoint,
@@ -822,7 +853,9 @@ class _NumberedTaskMarker extends StatelessWidget {
         color: Colors.deepOrange,
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 2),
-        boxShadow: [BoxShadow(color: Colors.black.withAlpha(70), blurRadius: 4)],
+        boxShadow: [
+          BoxShadow(color: Colors.black.withAlpha(70), blurRadius: 4)
+        ],
       ),
       alignment: Alignment.center,
       child: Text(
@@ -839,6 +872,7 @@ class _NumberedTaskMarker extends StatelessWidget {
 class _TaskPointEditor extends StatelessWidget {
   final List<ChallengeTaskPoint> points;
   final bool saving;
+  final bool editable;
   final void Function(int index, ChallengeTaskPoint point) onChanged;
   final void Function(int index, int delta) onMove;
   final void Function(int index) onRemove;
@@ -847,6 +881,7 @@ class _TaskPointEditor extends StatelessWidget {
   const _TaskPointEditor({
     required this.points,
     required this.saving,
+    required this.editable,
     required this.onChanged,
     required this.onMove,
     required this.onRemove,
@@ -868,47 +903,66 @@ class _TaskPointEditor extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'Task waypoints',
+                      editable ? 'Task waypoints' : 'Task route',
                       style: theme.textTheme.titleMedium,
                     ),
                   ),
-                  FilledButton.icon(
-                    onPressed: saving ? null : onSave,
-                    icon: const Icon(Icons.save_outlined),
-                    label: Text(saving ? 'Saving...' : 'Save'),
-                  ),
+                  if (editable)
+                    FilledButton.icon(
+                      onPressed: saving ? null : onSave,
+                      icon: const Icon(Icons.save_outlined),
+                      label: Text(saving ? 'Saving...' : 'Save'),
+                    ),
                 ],
               ),
             ),
             const Divider(height: 1),
             Expanded(
               child: points.isEmpty
-                  ? const Center(child: Text('Tap waypoint markers on the map to add them.'))
+                  ? Center(
+                      child: Text(editable
+                          ? 'Tap waypoint markers on the map to add them.'
+                          : 'No task waypoints yet.'))
                   : ListView.builder(
                       itemCount: points.length,
                       itemBuilder: (context, index) {
                         final point = points[index];
+                        if (!editable) {
+                          return ListTile(
+                            leading: CircleAvatar(child: Text('${index + 1}')),
+                            title: Text(point.name),
+                            subtitle: Text(
+                                '${point.pointType} - ${point.radiusMeters.round()} m'),
+                          );
+                        }
                         return ExpansionTile(
                           key: ValueKey('${point.turnpointId}-$index'),
                           leading: CircleAvatar(child: Text('${index + 1}')),
                           title: Text(point.name),
-                          subtitle:
-                              Text('${point.pointType} • ${point.radiusMeters.round()} m'),
+                          subtitle: Text(
+                              '${point.pointType} - ${point.radiusMeters.round()} m'),
                           childrenPadding:
                               const EdgeInsets.fromLTRB(16, 0, 16, 12),
                           children: [
                             DropdownButtonFormField<String>(
                               initialValue: point.pointType,
-                              decoration: const InputDecoration(labelText: 'Type'),
+                              decoration:
+                                  const InputDecoration(labelText: 'Type'),
                               items: const [
-                                DropdownMenuItem(value: 'start', child: Text('Start')),
-                                DropdownMenuItem(value: 'turnpoint', child: Text('Turnpoint')),
-                                DropdownMenuItem(value: 'ess', child: Text('ESS')),
-                                DropdownMenuItem(value: 'goal', child: Text('Goal')),
+                                DropdownMenuItem(
+                                    value: 'start', child: Text('Start')),
+                                DropdownMenuItem(
+                                    value: 'turnpoint',
+                                    child: Text('Turnpoint')),
+                                DropdownMenuItem(
+                                    value: 'ess', child: Text('ESS')),
+                                DropdownMenuItem(
+                                    value: 'goal', child: Text('Goal')),
                               ],
                               onChanged: (value) {
                                 if (value != null) {
-                                  onChanged(index, point.copyWith(pointType: value));
+                                  onChanged(
+                                      index, point.copyWith(pointType: value));
                                 }
                               },
                             ),
@@ -918,15 +972,18 @@ class _TaskPointEditor extends StatelessWidget {
                                 Expanded(
                                   child: DropdownButtonFormField<String>(
                                     initialValue: point.direction,
-                                    decoration:
-                                        const InputDecoration(labelText: 'Direction'),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Direction'),
                                     items: const [
-                                      DropdownMenuItem(value: 'enter', child: Text('Enter')),
-                                      DropdownMenuItem(value: 'exit', child: Text('Exit')),
+                                      DropdownMenuItem(
+                                          value: 'enter', child: Text('Enter')),
+                                      DropdownMenuItem(
+                                          value: 'exit', child: Text('Exit')),
                                     ],
                                     onChanged: (value) {
                                       if (value != null) {
-                                        onChanged(index, point.copyWith(direction: value));
+                                        onChanged(index,
+                                            point.copyWith(direction: value));
                                       }
                                     },
                                   ),
@@ -934,15 +991,18 @@ class _TaskPointEditor extends StatelessWidget {
                                 const SizedBox(width: 12),
                                 Expanded(
                                   child: TextFormField(
-                                    initialValue: point.radiusMeters.round().toString(),
+                                    initialValue:
+                                        point.radiusMeters.round().toString(),
                                     keyboardType: TextInputType.number,
-                                    decoration:
-                                        const InputDecoration(labelText: 'Radius m'),
+                                    decoration: const InputDecoration(
+                                        labelText: 'Radius m'),
                                     onFieldSubmitted: (value) {
                                       final parsed = double.tryParse(value);
                                       if (parsed != null && parsed > 0) {
-                                        onChanged(index,
-                                            point.copyWith(radiusMeters: parsed));
+                                        onChanged(
+                                            index,
+                                            point.copyWith(
+                                                radiusMeters: parsed));
                                       }
                                     },
                                   ),
@@ -953,7 +1013,9 @@ class _TaskPointEditor extends StatelessWidget {
                             Row(
                               children: [
                                 IconButton(
-                                  onPressed: index == 0 ? null : () => onMove(index, -1),
+                                  onPressed: index == 0
+                                      ? null
+                                      : () => onMove(index, -1),
                                   icon: const Icon(Icons.arrow_upward),
                                 ),
                                 IconButton(

@@ -16,6 +16,9 @@ asks for a different release path.
 ## [2026.06.27]
 
 ### Added
+- **Mobile v0.4.69+86** makes buddy challenge maps load copied waypoint
+  defaults, moves challenge creation below My Challenges, and shows non-owners a
+  read-only task view.
 - **Mobile v0.4.68+85** adds Live View to swipe navigation and orders the
   swipe/top-button flow as main screen, Challenges, Logbook, Live View, then
   Settings.

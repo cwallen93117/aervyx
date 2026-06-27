@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from shutil import copy2
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
@@ -178,15 +178,24 @@ def _copy_airspace_source(session: Session, source: AirspaceSource, event: Event
         )
 
 
-def copy_challenge_default_assets(session: Session, user: User, event: Event) -> None:
+def copy_challenge_default_assets(session: Session, user: User, event: Event, *, missing_only: bool = False) -> None:
     settings = dict(user.challenge_settings_json or {})
     source_id = settings.get("turnpoint_source_id")
     source = session.get(TurnpointSource, source_id) if isinstance(source_id, int) else None
-    if source is not None:
+    has_turnpoints = bool(session.scalar(select(func.count()).select_from(TurnpointSource).where(TurnpointSource.event_id == event.id)))
+    if source is not None and (not missing_only or not has_turnpoints):
         _copy_turnpoint_source(session, source, event)
 
     for key in ("airspace_source_id", "restricted_field_source_id"):
         airspace_source_id = settings.get(key)
         airspace_source = session.get(AirspaceSource, airspace_source_id) if isinstance(airspace_source_id, int) else None
-        if airspace_source is not None:
+        has_airspace = bool(
+            session.scalar(
+                select(func.count()).select_from(AirspaceSource).where(
+                    AirspaceSource.event_id == event.id,
+                    AirspaceSource.kind == ("restricted_field" if key == "restricted_field_source_id" else "airspace"),
+                )
+            )
+        )
+        if airspace_source is not None and (not missing_only or not has_airspace):
             _copy_airspace_source(session, airspace_source, event)

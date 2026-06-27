@@ -14,7 +14,7 @@ from app.schemas import ChallengeCreate, ChallengeResponse, ChallengeUpdate
 from app.services.audit import log_action
 from app.services.challenge_defaults import challenge_event_defaults, copy_challenge_default_assets
 from app.services.event_access import can_manage_event, require_event_manager
-from app.services.pilot_identity import ensure_event_membership
+from app.services.pilot_identity import ensure_event_membership, participant_event_ids_for_user
 
 router = APIRouter(prefix="/api/challenges", tags=["challenges"])
 
@@ -42,11 +42,12 @@ def _challenge_type_for_event(session: Session, event_id: int) -> str:
     return task_type if task_type in CHALLENGE_TYPES else "open_distance"
 
 
-def _challenge_payload(session: Session, event: Event) -> ChallengeResponse:
+def _challenge_payload(session: Session, event: Event, user: User) -> ChallengeResponse:
     payload = _event_payload(session, event).model_dump()
     slug = payload.get("public_slug")
     payload["challenge_type"] = _challenge_type_for_event(session, event.id)
     payload["public_url"] = f"/scores?challenge={slug}" if slug else None
+    payload["can_edit"] = can_manage_event(session, user, event)
     return ChallengeResponse(**payload)
 
 
@@ -54,9 +55,27 @@ def _load_owned_buddy_group(session: Session, user: User, group_id: int | None) 
     if group_id is None:
         return None
     group = session.get(BuddyGroup, group_id)
-    if group is None or group.user_id != user.id:
+    if group is None or (user.role not in {"admin", "organizer"} and group.user_id != user.id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Buddy group not found")
     return group
+
+
+def _asset_source_user(session: Session, user: User, event: Event, group: BuddyGroup | None) -> User:
+    if group is not None:
+        return session.get(User, group.user_id) or user
+    if event.owner_user_id is not None:
+        return session.get(User, event.owner_user_id) or user
+    return user
+
+
+def _can_view_challenge(session: Session, user: User, event: Event, participant_event_ids: set[int] | None = None) -> bool:
+    if can_manage_event(session, user, event) or user.role in {"admin", "organizer"}:
+        return True
+    if participant_event_ids is None:
+        participant_event_ids = participant_event_ids_for_user(session, user)
+    if event.id in participant_event_ids:
+        return True
+    return (event.visibility or "private") in {"public", "users"}
 
 
 def _seed_roster_from_buddy_group(session: Session, event: Event, group: BuddyGroup | None, user: User) -> int:
@@ -83,13 +102,12 @@ def list_challenges(user: User = Depends(get_current_user), session: Session = D
             .order_by(Event.updated_at.desc(), Event.name.asc())
         ).all()
     else:
-        collaborator_event_ids = session.scalars(
-            select(EventCollaborator.event_id).where(EventCollaborator.user_id == user.id)
-        ).all()
-        visible_ids = set(collaborator_event_ids)
+        participant_ids = participant_event_ids_for_user(session, user)
+        visible_ids = set(participant_ids)
         visibility_filters = [Event.owner_user_id == user.id]
         if visible_ids:
             visibility_filters.append(Event.id.in_(visible_ids))
+        visibility_filters.append(Event.visibility.in_(["public", "users"]))
         events = session.scalars(
             select(Event)
             .where(
@@ -98,7 +116,7 @@ def list_challenges(user: User = Depends(get_current_user), session: Session = D
             )
             .order_by(Event.updated_at.desc(), Event.name.asc())
         ).all()
-    return [_challenge_payload(session, event) for event in events]
+    return [_challenge_payload(session, event, user) for event in events]
 
 
 @router.post("", response_model=ChallengeResponse, status_code=status.HTTP_201_CREATED)
@@ -127,7 +145,7 @@ def create_challenge(payload: ChallengeCreate, user: User = Depends(get_current_
     session.flush()
     session.add(EventCollaborator(event_id=event.id, user_id=user.id, role="owner"))
     seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
-    copy_challenge_default_assets(session, user, event)
+    copy_challenge_default_assets(session, _asset_source_user(session, user, event, group), event)
     task_type = payload.challenge_type if payload.challenge_type in CHALLENGE_TYPES else "open_distance"
     session.add(
         Task(
@@ -150,7 +168,7 @@ def create_challenge(payload: ChallengeCreate, user: User = Depends(get_current_
     )
     session.commit()
     session.refresh(event)
-    return _challenge_payload(session, event)
+    return _challenge_payload(session, event, user)
 
 
 @router.get("/{event_id}", response_model=ChallengeResponse)
@@ -158,9 +176,9 @@ def get_challenge(event_id: int, user: User = Depends(get_current_user), session
     event = session.get(Event, event_id)
     if event is None or (event.event_kind or "competition") != "challenge":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Challenge not found")
-    if not can_manage_event(session, user, event):
+    if not _can_view_challenge(session, user, event):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Challenge access required")
-    return _challenge_payload(session, event)
+    return _challenge_payload(session, event, user)
 
 
 @router.patch("/{event_id}", response_model=ChallengeResponse)
@@ -188,10 +206,15 @@ def update_challenge(event_id: int, payload: ChallengeUpdate, user: User = Depen
         event.public_listed = payload.public_listed
     if payload.is_public_tracking is not None:
         event.is_public_tracking = payload.is_public_tracking
+    group = session.get(BuddyGroup, event.source_buddy_group_id) if event.source_buddy_group_id is not None else None
+    if "source_buddy_group_id" in payload.model_fields_set:
+        group = _load_owned_buddy_group(session, user, payload.source_buddy_group_id)
+        event.source_buddy_group_id = group.id if group else None
+    copy_challenge_default_assets(session, _asset_source_user(session, user, event, group), event, missing_only=True)
     log_action(session, actor_user_id=user.id, action="challenge.update", entity_type="event", entity_id=str(event.id), details=payload.model_dump(exclude_unset=True, mode="json"))
     session.commit()
     session.refresh(event)
-    return _challenge_payload(session, event)
+    return _challenge_payload(session, event, user)
 
 
 @router.post("/{event_id}/sync-buddy-roster", response_model=ChallengeResponse)
@@ -204,4 +227,4 @@ def sync_buddy_roster(event_id: int, user: User = Depends(get_current_user), ses
     log_action(session, actor_user_id=user.id, action="challenge.roster.sync", entity_type="event", entity_id=str(event.id), details={"source_buddy_group_id": event.source_buddy_group_id, "member_count": added_count})
     session.commit()
     session.refresh(event)
-    return _challenge_payload(session, event)
+    return _challenge_payload(session, event, user)

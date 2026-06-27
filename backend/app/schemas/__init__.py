@@ -459,6 +459,7 @@ class ChallengeUpdate(BaseModel):
     ends_on: date | None = None
     timezone: str | None = None
     location: str | None = None
+    source_buddy_group_id: int | None = None
     visibility: str | None = None
     public_listed: bool | None = None
     is_public_tracking: bool | None = None
@@ -467,6 +468,7 @@ class ChallengeUpdate(BaseModel):
 class ChallengeResponse(EventResponse):
     challenge_type: str = "open_distance"
     public_url: str | None = None
+    can_edit: bool = False
 
 
 class PilotUpsert(BaseModel):

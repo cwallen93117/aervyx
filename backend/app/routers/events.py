@@ -56,6 +56,14 @@ def _load_owned_buddy_group(session: Session, user: User, group_id: int | None) 
     return group
 
 
+def _challenge_asset_source_user(session: Session, user: User, event: Event, group: BuddyGroup | None) -> User:
+    if group is not None:
+        return session.get(User, group.user_id) or user
+    if event.owner_user_id is not None:
+        return session.get(User, event.owner_user_id) or user
+    return user
+
+
 def _seed_roster_from_buddy_group(session: Session, event: Event, group: BuddyGroup | None, user: User) -> int:
     pilot_ids: set[int] = set()
     owner_pilot_id = user.pilot_id if event.owner_user_id == user.id else session.scalar(select(User.pilot_id).where(User.id == event.owner_user_id))
@@ -257,7 +265,7 @@ def create_event(payload: EventCreate, user: User = Depends(get_current_user), s
     if event_kind == "challenge":
         session.add(EventCollaborator(event_id=event.id, user_id=user.id, role="owner"))
         seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
-        copy_challenge_default_assets(session, user, event)
+        copy_challenge_default_assets(session, _challenge_asset_source_user(session, user, event, group), event)
         _ensure_challenge_task(session, event)
     log_action(
         session,
@@ -428,7 +436,7 @@ def update_event(event_id: int, payload: EventCreate, user: User = Depends(get_c
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    if user.role not in STAFF_ROLES and not can_manage_event(session, user, event):
+    if not can_manage_event(session, user, event):
         raise HTTPException(status_code=403, detail="Event management access required")
     event_kind = payload.event_kind or "competition"
     if event_kind not in {"competition", "challenge"}:
@@ -452,6 +460,7 @@ def update_event(event_id: int, payload: EventCreate, user: User = Depends(get_c
     seeded_count = 0
     if event_kind == "challenge":
         seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
+        copy_challenge_default_assets(session, _challenge_asset_source_user(session, user, event, group), event, missing_only=True)
         _ensure_challenge_task(session, event)
     log_action(
         session,
