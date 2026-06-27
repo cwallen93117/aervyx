@@ -89,6 +89,7 @@ class PublicTaskSummary(BaseModel):
 class PublicEventSummary(BaseModel):
     id: int
     name: str
+    event_kind: str
     location: str
     starts_on: str
     ends_on: str
@@ -529,6 +530,7 @@ def get_public_live_sources(session: Session = Depends(get_session)) -> PublicLi
             PublicEventSummary(
                 id=event.id,
                 name=event.name,
+                event_kind=event.event_kind or "competition",
                 location=event.location,
                 starts_on=event.starts_on.isoformat(),
                 ends_on=event.ends_on.isoformat(),
