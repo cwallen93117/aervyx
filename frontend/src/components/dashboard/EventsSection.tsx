@@ -339,7 +339,6 @@ const airspaceCategoryOptions = [
   { value: "OTHER", label: "Other / advisory" },
 ] satisfies Array<{ value: AirspaceCategoryOption; label: string }>;
 const fallbackTimeZoneOptions = [
-  "UTC",
   "America/New_York",
   "America/Chicago",
   "America/Denver",
@@ -577,8 +576,10 @@ function browserTimeZone(): string {
 
 function timeZoneOptions(localTimeZone: string, selectedTimeZone: string): string[] {
   const intlWithZones = Intl as typeof Intl & { supportedValuesOf?: (key: "timeZone") => string[] };
-  const allZones = intlWithZones.supportedValuesOf?.("timeZone") ?? [...fallbackTimeZoneOptions];
-  return Array.from(new Set([localTimeZone, selectedTimeZone, "UTC", ...allZones].filter(Boolean)));
+  const allZones = (intlWithZones.supportedValuesOf?.("timeZone") ?? [...fallbackTimeZoneOptions]).filter(
+    (timezone) => timezone !== "UTC" || timezone === localTimeZone || timezone === selectedTimeZone,
+  );
+  return Array.from(new Set([localTimeZone, selectedTimeZone, ...allZones].filter(Boolean)));
 }
 
 function normalizeEditableSymbol(value: unknown): TurnpointSymbol {
