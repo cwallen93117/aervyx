@@ -1894,6 +1894,16 @@ export default function HomePage() {
     }
   }
 
+  async function saveChallengeSettings(settings: Record<string, unknown>) {
+    if (!token) return settings;
+    const payload = await apiFetch<{ settings: Record<string, unknown> }>("/api/auth/challenge-settings", token, {
+      method: "PATCH",
+      body: JSON.stringify({ settings }),
+    });
+    setSettingsForm((current) => ({ ...current, challenge_settings_json: payload.settings ?? {} }));
+    return payload.settings ?? {};
+  }
+
   async function savePasswordSettings(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!token) return;
@@ -2225,10 +2235,10 @@ export default function HomePage() {
     await persistEventForm(eventForm);
   }
 
-  async function createEventDraft() {
+  async function createEventDraft(kind: "competition" | "challenge") {
     if (!token) return;
-    const isChallenge = user?.role === "pilot";
-    const template = { ...blankEventForm(), event_kind: isChallenge ? "challenge" as const : "competition" as const };
+    const isChallenge = kind === "challenge";
+    const template = { ...blankEventForm(), event_kind: kind };
     const savedEvent = await apiFetch<EventRecord>("/api/events", token, {
       method: "POST",
       body: JSON.stringify({
@@ -2950,6 +2960,9 @@ export default function HomePage() {
               airspaceSources={airspaceSources}
               visibleAirspaces={visibleAirspaces}
               pilots={pilots}
+              settingsForm={settingsForm}
+              setSettingsForm={setSettingsForm}
+              saveChallengeSettings={saveChallengeSettings}
               canManagePlatform={canManageCurrentEvent}
               canManageOfficialEvents={canManagePlatform}
               canCreateChallenge={Boolean(user)}

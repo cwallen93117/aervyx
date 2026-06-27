@@ -82,6 +82,11 @@ class ApiConfig {
   static const String challengesPath = '/api/challenges';
   static String challengePath(int eventId) => '/api/challenges/$eventId';
   static String challengeTasksPath(int eventId) => '/api/events/$eventId/tasks';
+  static String taskPath(int taskId) => '/api/tasks/$taskId';
+  static String eventTurnpointSourcesPath(int eventId) =>
+      '/api/events/$eventId/turnpoint-sources';
+  static String eventTurnpointSourcePointsPath(int eventId, int sourceId) =>
+      '/api/events/$eventId/turnpoint-sources/$sourceId/turnpoints';
 
   // IGC upload — logbook-only upload for free flights
   static const String logbookUploadPath = '/api/logbook/flights/upload';

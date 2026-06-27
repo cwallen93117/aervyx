@@ -15,9 +15,17 @@ asks for a different release path.
 
 ## [2026.06.26]
 
+### Added
+- **Mobile v0.4.66+83** adds a challenge task builder that uses the selected
+  waypoint file, saves through the shared task API, and syncs with the website.
+- Challenge Settings in Events / Challenges now define default scoring,
+  waypoint, airspace, and restricted-field files for newly created challenges.
+
 ### Changed
 - **Mobile v0.4.65+82** keeps Meshtastic Bluetooth scan names in sync with the
   device's current short name and avoids showing stale scan results.
+- Challenge records now use a simplified Events / Challenges layout while
+  official events keep the full event setup workflow.
 
 ## [2026.06.24]
 

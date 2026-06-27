@@ -121,6 +121,8 @@ const TERRAIN_EXAGGERATION = 1.25;
 const DEFAULT_MAX_MAP_PITCH = 75;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
+const TRACK_3D_RIBBON_WIDTH_METERS = 8;
+const HIGHLIGHTED_TRACK_3D_RIBBON_WIDTH_METERS = 11;
 const LARGE_REPLAY_3D_POINT_THRESHOLD = 50000;
 const LARGE_REPLAY_3D_TRACK_THRESHOLD = 8;
 const SCALE_BAR_MAX_WIDTH_PIXELS = 96;
@@ -1070,7 +1072,6 @@ function finiteAltitudeM(coordinate: TrackPosition | [number, number, number]) {
   return coordinate.length > 2 && Number.isFinite(coordinate[2]) ? coordinate[2] ?? null : null;
 }
 
-const MAX_ALTITUDE_GRADIENT_SEGMENTS = 5000;
 // Adapted from the MIT-licensed skywalker1905/paragliding_flight_3D_viewer
 // spiral reconstruction model. See THIRD_PARTY_NOTICES.md.
 const SPIRAL_RECONSTRUCTION_THRESHOLD_DEG_PER_SEC = 60;
@@ -2381,6 +2382,7 @@ export const TaskMap = React.memo(function TaskMap({
         color: [number, number, number];
         highlighted: boolean;
         lineStyle: "solid" | "dashed";
+        trackKind: string | null;
       }>;
     }
     return effectiveTrack.features.flatMap((feature, featureIndex) => {
@@ -2388,6 +2390,7 @@ export const TaskMap = React.memo(function TaskMap({
         return [];
       }
       const lineStyle = feature.properties?.line_style === "dashed" ? "dashed" : "solid";
+      const trackKind = typeof feature.properties?.track_kind === "string" ? feature.properties.track_kind : null;
       const baseItem = {
         featureIndex,
         uploadId: Number(feature.properties?.upload_id ?? 0),
@@ -2397,6 +2400,7 @@ export const TaskMap = React.memo(function TaskMap({
           Number(feature.properties?.upload_id ?? 0) === effectiveHighlightedTrackUploadId ||
           trackFeatureSubjectKey(feature) === effectiveHighlightedLiveSubjectKey,
         lineStyle,
+        trackKind,
       };
       if (lineStyle === "dashed") {
         return dashedTrackPaths(feature.geometry.coordinates).map((dashPath) => ({
@@ -2456,21 +2460,10 @@ export const TaskMap = React.memo(function TaskMap({
     if (!highlightedPaths.length) {
       return [];
     }
-    const visibleSegmentTotal = highlightedPaths.reduce((total, highlightedPath) => {
-      const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
-      return total + Math.max(0, visibleLength - 1);
-    }, 0);
-    const stride = forceTrackAltitudeGradient ? 1 : Math.max(1, Math.ceil(visibleSegmentTotal / MAX_ALTITUDE_GRADIENT_SEGMENTS));
     const segments: AltitudeTrackSegment[] = [];
-    let segmentCursor = 0;
     for (const highlightedPath of highlightedPaths) {
       const visibleLength = Math.min(highlightedPath.path.length, visibleTrackLengths[highlightedPath.featureIndex] ?? 0);
       for (let index = 1; index < visibleLength; index += 1) {
-        const shouldKeepSegment = segmentCursor % stride === 0 || index === visibleLength - 1;
-        segmentCursor += 1;
-        if (!shouldKeepSegment) {
-          continue;
-        }
         const previousAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index - 1]);
         const currentAltitudeM = finiteAltitudeM(highlightedPath.originalPath[index]);
         if (previousAltitudeM == null || currentAltitudeM == null) {
@@ -2657,76 +2650,50 @@ export const TaskMap = React.memo(function TaskMap({
         }))
         .filter((item) => item.visiblePath.length > 1);
       if (pathData.length) {
-        /*
-        Previous 3D ribbon experiment, kept here for later tuning if we want to revisit
-        extruded replay tracks instead of the flat PathLayer.
-
-        Constants that were used:
-          const TRACK_RIBBON_WIDTH_METERS = 8;
-          const HIGHLIGHTED_TRACK_RIBBON_WIDTH_METERS = 11;
-          const TRACK_RIBBON_ELEVATION_RATIO = 0.3;
-          const METERS_PER_DEGREE_LATITUDE = 111320;
-
-        Helper functions that were used:
-          metersPerDegreeLongitude(...)
-          normalizeVector(...)
-          buildTrackRibbonSides(...)
-          buildTrackRibbonPolygonFromSides(...)
-
         if (isPerspective3D) {
-          const ribbonBaseData = fullTrackPathData
-            .map((item) => {
-              const widthMeters = item.highlighted ? HIGHLIGHTED_TRACK_RIBBON_WIDTH_METERS : TRACK_RIBBON_WIDTH_METERS;
-              const ribbonSides = buildTrackRibbonSides(item.path, widthMeters);
-              if (!ribbonSides) {
-                return null;
-              }
-              return {
-                leftSide: ribbonSides.leftSide,
-                rightSide: ribbonSides.rightSide,
-                color: item.color,
-                elevation: widthMeters * TRACK_RIBBON_ELEVATION_RATIO,
-              };
-            })
-            .filter((item) => item != null);
-
-          const ribbonData = ribbonBaseData
-            .map((item, index) => ({
-              ...item,
-              visibleLength: visibleTrackLengths[index] ?? 0,
-            }))
-            .filter((item) => item.visibleLength > 1);
-
-          layers.push(
-            new PolygonLayer({
-              id: "igc-track-3d",
-              data: ribbonData,
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              extruded: true,
-              filled: true,
-              wireframe: false,
-              getPolygon: (item) =>
-                buildTrackRibbonPolygonFromSides(item.leftSide, item.rightSide, item.visibleLength) ?? [],
-              getElevation: (item) => item.elevation,
-              getFillColor: (item) => [...item.color, 210],
-              pickable: false,
-              parameters: {
-                depthTest: false,
-              },
-            }),
-          );
-        } else {
-        */
+          const ribbonPathData = pathData.filter((item) => item.trackKind === "igc" && item.lineStyle === "solid");
+          if (ribbonPathData.length) {
+            layers.push(
+              new PathLayer({
+                id: "igc-track-3d-ribbon",
+                data: ribbonPathData,
+                coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+                positionFormat: "XYZ",
+                billboard: false,
+                getPath: (item: { visiblePath: [number, number, number][] }) => item.visiblePath,
+                getColor: (item: { color: [number, number, number]; highlighted: boolean }) => [
+                  item.color[0],
+                  item.color[1],
+                  item.color[2],
+                  item.highlighted ? 210 : 170,
+                ],
+                getWidth: (item: { highlighted: boolean }) =>
+                  item.highlighted ? HIGHLIGHTED_TRACK_3D_RIBBON_WIDTH_METERS : TRACK_3D_RIBBON_WIDTH_METERS,
+                widthUnits: "meters",
+                widthMinPixels: 0,
+                widthMaxPixels: 200,
+                pickable: false,
+                jointRounded: true,
+                capRounded: true,
+                parameters: {
+                  depthTest: false,
+                  depthMask: false,
+                },
+              }),
+            );
+          }
+        }
         layers.push(
-            new PathLayer({
-              id: "igc-track-3d",
-              data: pathData,
-              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
-              positionFormat: "XYZ",
-              getPath: (item: { visiblePath: [number, number, number][] }) => item.visiblePath,
-              getColor: (item: { color: [number, number, number] }) => item.color,
-              getWidth: (item: { highlighted: boolean }) =>
-                item.highlighted ? HIGHLIGHTED_TRACK_WIDTH_PIXELS : TRACK_WIDTH_PIXELS,
+          new PathLayer({
+            id: "igc-track-3d",
+            data: pathData,
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            positionFormat: "XYZ",
+            billboard: true,
+            getPath: (item: { visiblePath: [number, number, number][] }) => item.visiblePath,
+            getColor: (item: { color: [number, number, number] }) => item.color,
+            getWidth: (item: { highlighted: boolean }) =>
+              item.highlighted ? HIGHLIGHTED_TRACK_WIDTH_PIXELS : TRACK_WIDTH_PIXELS,
             widthUnits: "pixels",
             widthMinPixels: 1,
             pickable: false,
@@ -2737,15 +2704,39 @@ export const TaskMap = React.memo(function TaskMap({
             },
           }),
         );
-        // }
       }
       if (altitudeTrackSegments.length) {
+        if (isPerspective3D) {
+          layers.push(
+            new PathLayer({
+              id: "igc-track-altitude-gradient-ribbon",
+              data: altitudeTrackSegments,
+              coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+              positionFormat: "XYZ",
+              billboard: false,
+              getPath: (item: AltitudeTrackSegment) => item.path,
+              getColor: (item: AltitudeTrackSegment) => [item.color[0], item.color[1], item.color[2], 210],
+              getWidth: HIGHLIGHTED_TRACK_3D_RIBBON_WIDTH_METERS,
+              widthUnits: "meters",
+              widthMinPixels: 0,
+              widthMaxPixels: 200,
+              pickable: false,
+              jointRounded: true,
+              capRounded: true,
+              parameters: {
+                depthTest: false,
+                depthMask: false,
+              },
+            }),
+          );
+        }
         layers.push(
           new PathLayer({
             id: "igc-track-altitude-gradient",
             data: altitudeTrackSegments,
             coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
             positionFormat: "XYZ",
+            billboard: true,
             getPath: (item: AltitudeTrackSegment) => item.path,
             getColor: (item: AltitudeTrackSegment) => item.color,
             getWidth: HIGHLIGHTED_TRACK_WIDTH_PIXELS,
@@ -2993,7 +2984,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, isPerspective3D, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import or_, select
@@ -11,60 +10,15 @@ from app.db import get_session
 from app.deps import get_current_user
 from app.models import BuddyGroup, BuddyGroupMember, Event, EventCollaborator, EventPilot, Task, User
 from app.routers.events import _event_payload
-from app.schemas import ChallengeCreate, ChallengeResponse, ChallengeUpdate, EventCreate
+from app.schemas import ChallengeCreate, ChallengeResponse, ChallengeUpdate
 from app.services.audit import log_action
+from app.services.challenge_defaults import challenge_event_defaults, copy_challenge_default_assets
 from app.services.event_access import can_manage_event, require_event_manager
 from app.services.pilot_identity import ensure_event_membership
 
 router = APIRouter(prefix="/api/challenges", tags=["challenges"])
 
 CHALLENGE_TYPES = {"open_distance", "race_to_goal_with_gates"}
-EVENT_SETTING_FIELDS = {
-    "scoring_formula",
-    "nominal_distance_km",
-    "nominal_time_hours",
-    "nominal_launch",
-    "minimum_distance_km",
-    "nominal_goal_percent",
-    "score_back_time_minutes",
-    "goal_ss_penalty",
-    "day_quality_override",
-    "time_points_if_not_in_goal",
-    "jump_the_gun_factor",
-    "jump_the_gun_max_seconds",
-    "default_start_gate_count",
-    "default_start_gate_interval_seconds",
-    "stopped_glide_bonus",
-    "use_1000_points_for_max_day_quality",
-    "normalize_1000_before_day_quality",
-    "use_distance_points",
-    "use_time_points",
-    "use_leading_points",
-    "use_arrival_position_points",
-    "use_arrival_time_points",
-    "use_departure_points",
-    "use_difficulty_for_distance_points",
-    "use_distance_squared_for_lc",
-    "use_semi_circle_control_zone_for_goal_line",
-    "use_proportional_leading_weight_if_nobody_in_goal",
-    "redistribute_removed_time_points_as_distance_points",
-    "use_best_score_for_ftv_validity",
-    "use_constant_leading_weight",
-    "use_pwca2019_for_lc",
-    "use_flat_decline_of_timepoints",
-    "scoring_altitude",
-    "final_glide_decelerator",
-    "no_final_glide_decelerator_reason",
-    "min_time_span_for_valid_task_minutes",
-    "leading_weight_factor",
-    "turnpoint_radius_tolerance",
-    "turnpoint_radius_minimum_absolute_tolerance_m",
-    "number_of_decimals_task_results",
-    "number_of_decimals_competition_results",
-    "visible_airspace_classes_json",
-    "show_restricted_fields",
-    "penalties_json",
-}
 
 
 def _public_slug(session: Session) -> str:
@@ -75,18 +29,7 @@ def _public_slug(session: Session) -> str:
 
 
 def _challenge_settings(user: User) -> dict:
-    defaults = EventCreate(
-        name="Challenge",
-        location="",
-        starts_on=datetime.now(UTC).date(),
-        ends_on=datetime.now(UTC).date(),
-    ).model_dump()
-    settings = dict(user.challenge_settings_json or {})
-    return {
-        field: settings.get(field, defaults[field])
-        for field in EVENT_SETTING_FIELDS
-        if field in defaults
-    }
+    return challenge_event_defaults(user)
 
 
 def _challenge_type_for_event(session: Session, event_id: int) -> str:
@@ -184,6 +127,7 @@ def create_challenge(payload: ChallengeCreate, user: User = Depends(get_current_
     session.flush()
     session.add(EventCollaborator(event_id=event.id, user_id=user.id, role="owner"))
     seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
+    copy_challenge_default_assets(session, user, event)
     task_type = payload.challenge_type if payload.challenge_type in CHALLENGE_TYPES else "open_distance"
     session.add(
         Task(
