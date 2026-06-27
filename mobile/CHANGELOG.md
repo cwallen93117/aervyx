@@ -1,5 +1,11 @@
 # Aervyx Mobile Changelog
 
+## 0.4.67+84 - 2026-06-27
+
+### Added
+- Swipe navigation now moves between the map, logbook, challenges, and settings
+  screens while keeping shutdown out of the swipe flow.
+
 ## 0.4.66+83 - 2026-06-26
 
 ### Added

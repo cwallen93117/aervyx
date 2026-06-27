@@ -5,12 +5,12 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'screens/login_screen.dart';
-import 'screens/home_screen.dart';
 import 'services/auth_service.dart';
 import 'services/ble_service.dart';
 import 'services/persistent_runtime_service.dart';
 import 'services/tracking_service.dart';
 import 'services/update_service.dart';
+import 'screens/mobile_swipe_shell.dart';
 import 'utils/app_shutdown.dart';
 import 'widgets/aervyx_logo.dart';
 
@@ -298,7 +298,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
           }
           if (!auth.isLoggedIn) return const LoginScreen();
           // Home adapts itself for pilot and driver profiles.
-          return const HomeScreen();
+          return const MobileSwipeShell();
         },
       ),
     );
