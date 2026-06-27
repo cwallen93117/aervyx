@@ -1,5 +1,13 @@
 # Aervyx Mobile Changelog
 
+## 0.4.69+86 - 2026-06-27
+
+### Changed
+- Buddy challenge maps now use copied waypoint defaults from the selected buddy
+  group owner when a challenge is missing its own waypoint file.
+- The Challenges screen now lists My Challenges before the create form and shows
+  non-owners a read-only task view.
+
 ## 0.4.68+85 - 2026-06-27
 
 ### Changed

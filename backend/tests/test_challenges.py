@@ -7,11 +7,11 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.models import AirspaceRegion, AirspaceSource, BuddyGroup, BuddyGroupMember, Event, EventPilot, Pilot, Task, TaskPoint, Turnpoint, TurnpointSource, User
-from app.routers.challenges import create_challenge, get_challenge
-from app.routers.events import create_event
+from app.routers.challenges import create_challenge, get_challenge, list_challenges, update_challenge
+from app.routers.events import create_event, update_event
 from app.routers.public import get_public_challenge_by_slug, list_public_events
-from app.routers.tasks import publish_task
-from app.schemas import ChallengeCreate, EventCreate
+from app.routers.tasks import create_task, publish_task, update_task
+from app.schemas import ChallengeCreate, ChallengeUpdate, EventCreate, TaskInput
 
 
 def _session() -> Session:
@@ -219,6 +219,74 @@ def test_challenge_creation_copies_default_sources_and_task_points_can_use_them(
     assert session.scalar(select(TaskPoint).where(TaskPoint.task_id == task.id)).turnpoint_id == copied_turnpoint.id
 
 
+def test_challenge_update_copies_buddy_group_owner_defaults_once() -> None:
+    session = _session()
+    owner = User(username="owner@example.com", full_name="Owner", role="admin", password_hash="hash")
+    default_owner = User(username="defaults@example.com", full_name="Defaults", role="admin", password_hash="hash")
+    session.add_all([owner, default_owner])
+    session.flush()
+    template = Event(
+        name="Challenge Defaults",
+        location="",
+        starts_on=date(2026, 6, 20),
+        ends_on=date(2026, 6, 20),
+        timezone="UTC",
+        event_kind="challenge_defaults",
+        owner_user_id=default_owner.id,
+        visibility="private",
+        public_listed=False,
+    )
+    group = BuddyGroup(user_id=default_owner.id, name="Massey crew")
+    event = Event(
+        name="Massey Challenges",
+        location="",
+        starts_on=date(2026, 6, 26),
+        ends_on=date(2029, 6, 27),
+        timezone="UTC",
+        event_kind="challenge",
+        owner_user_id=owner.id,
+        visibility="public",
+        public_listed=True,
+    )
+    session.add_all([template, group, event])
+    session.flush()
+    source = TurnpointSource(
+        event_id=template.id,
+        filename="Myles Comp 2024 Waypoints.gpx",
+        content_type="application/gpx+xml",
+        file_format="gpx",
+        sha256="tp",
+        stored_path="missing-default.gpx",
+        enabled=True,
+    )
+    session.add(source)
+    session.flush()
+    session.add(Turnpoint(event_id=template.id, source_id=source.id, name="MASSEY", latitude=39.3, longitude=-75.8, source_row_index=0))
+    default_owner.challenge_settings_json = {"template_event_id": template.id, "turnpoint_source_id": source.id}
+    session.commit()
+
+    payload = EventCreate(
+        name=event.name,
+        location=event.location,
+        starts_on=event.starts_on,
+        ends_on=event.ends_on,
+        timezone=event.timezone,
+        event_kind="challenge",
+        owner_user_id=event.owner_user_id,
+        source_buddy_group_id=group.id,
+        visibility="public",
+        public_listed=True,
+    )
+
+    update_event(event.id, payload, user=owner, session=session)
+    update_event(event.id, payload, user=owner, session=session)
+
+    copied_sources = session.scalars(select(TurnpointSource).where(TurnpointSource.event_id == event.id)).all()
+    assert len(copied_sources) == 1
+    assert copied_sources[0].filename == "Myles Comp 2024 Waypoints.gpx"
+    assert session.scalar(select(Turnpoint).where(Turnpoint.event_id == event.id)).name == "MASSEY"
+
+
 def test_non_owner_cannot_manage_challenge_task() -> None:
     session = _session()
     owner = User(username="owner@example.com", full_name="Owner", role="pilot", password_hash="hash")
@@ -245,6 +313,67 @@ def test_non_owner_cannot_manage_challenge_task() -> None:
 
     assert exc.value.status_code == 403
     assert publish_task(task.id, admin=owner, session=session).status == "published"
+
+
+def test_challenge_creator_can_save_task_and_non_owner_can_only_view() -> None:
+    session = _session()
+    owner_pilot = Pilot(first_name="Owner", last_name="Pilot", email="owner@example.com")
+    member_pilot = Pilot(first_name="Member", last_name="Pilot", email="member@example.com")
+    session.add_all([owner_pilot, member_pilot])
+    session.flush()
+    owner = User(username="owner@example.com", full_name="Owner", role="pilot", pilot_id=owner_pilot.id, password_hash="hash")
+    member = User(username="member@example.com", full_name="Member", role="pilot", pilot_id=member_pilot.id, password_hash="hash")
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    session.add_all([owner, member, admin])
+    session.flush()
+    event = Event(
+        name="Buddy Challenge",
+        location="",
+        starts_on=date(2026, 6, 21),
+        ends_on=date(2026, 6, 21),
+        timezone="UTC",
+        event_kind="challenge",
+        owner_user_id=owner.id,
+        visibility="private",
+    )
+    session.add(event)
+    session.flush()
+    session.add_all([EventPilot(event_id=event.id, pilot_id=owner_pilot.id), EventPilot(event_id=event.id, pilot_id=member_pilot.id)])
+    session.commit()
+
+    created = create_task(
+        event.id,
+        TaskInput(
+            name="Phone task",
+            task_type="open_distance",
+            task_date=date(2026, 6, 21),
+            points=[{"position": 1, "point_type": "start", "name": "Start", "latitude": 39.0, "longitude": -75.0}],
+        ),
+        admin=owner,
+        session=session,
+    )
+    updated = update_task(
+        created.id,
+        TaskInput(
+            name="Phone task edited",
+            task_type="open_distance",
+            task_date=date(2026, 6, 21),
+            points=[{"position": 1, "point_type": "goal", "name": "Goal", "latitude": 39.1, "longitude": -75.1}],
+        ),
+        admin=owner,
+        session=session,
+    )
+
+    assert updated.name == "Phone task edited"
+    member_challenges = list_challenges(user=member, session=session)
+    assert [(challenge.id, challenge.can_edit) for challenge in member_challenges] == [(event.id, False)]
+    assert get_challenge(event.id, user=member, session=session).can_edit is False
+    with pytest.raises(HTTPException) as member_exc:
+        update_task(created.id, TaskInput(name="Blocked", points=[]), admin=member, session=session)
+    with pytest.raises(HTTPException) as admin_exc:
+        update_challenge(event.id, ChallengeUpdate(name="Admin edit"), user=admin, session=session)
+    assert member_exc.value.status_code == 403
+    assert admin_exc.value.status_code == 403
 
 
 def test_private_challenge_slug_is_not_public() -> None:
