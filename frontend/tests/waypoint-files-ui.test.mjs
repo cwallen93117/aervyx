@@ -18,6 +18,12 @@ test("waypoint files settings exposes an add waypoint file upload", () => {
   assert.match(source, /\/api\/auth\/challenge-settings\/turnpoints\/upload/);
 });
 
+test("waypoint file rows expose View and Edit actions", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  assert.match(source, /<th className="participant-table-actions">Actions<\/th>/);
+  assert.match(source, /\{canEdit \? "Edit" : "View"\}/);
+});
+
 test("waypoint symbol picker keeps icon and text for LZ and Launch", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
   assert.match(source, /label: "LZ"/);

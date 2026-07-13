@@ -208,7 +208,6 @@ export default function WaypointFilesEditor({
 
   const selectedTurnpointSource = sources.find((source) => source.id === selectedSourceId) ?? null;
   const selectedCanEdit = selectedTurnpointSource ? waypointSourceCanEdit(selectedTurnpointSource, defaultCanEdit) : false;
-  const anySourceEditable = sources.some((source) => waypointSourceCanEdit(source, defaultCanEdit));
   const selectedSourceExtraColumns = Array.from(new Set(sourceTurnpoints.flatMap((turnpoint) => Object.keys(turnpoint.extra_json ?? {}))));
   const turnpointTableColSpan = 5 + selectedSourceExtraColumns.length + (selectedCanEdit ? 1 : 0);
   const sortedSourceTurnpoints = useMemo(() => {
@@ -403,15 +402,13 @@ export default function WaypointFilesEditor({
               <th>Waypoints</th>
               {showVisibility ? <th>Visible</th> : null}
               <th>Uploaded</th>
-              {anySourceEditable ? <th className="participant-table-actions">Actions</th> : null}
+              <th className="participant-table-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {sources.length ? (
               sources.map((source) => {
                 const canEdit = waypointSourceCanEdit(source, defaultCanEdit);
-                const colSpan = 4 + (showContext ? 1 : 0) + (showVisibility ? 1 : 0) + (anySourceEditable ? 1 : 0);
-                void colSpan;
                 return (
                   <tr key={`${source.event_id}-${source.id}`}>
                     <td className="turnpoint-file-name-cell">
@@ -436,24 +433,23 @@ export default function WaypointFilesEditor({
                       </td>
                     ) : null}
                     <td>{new Date(source.uploaded_at).toLocaleString()}</td>
-                    {anySourceEditable ? (
-                      <td className="participant-table-actions">
-                        {canEdit ? (
-                          <>
-                            <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(source)}>Download</button>
-                            <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(source)}>Rename</button>
-                            <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(source)}>Save as</button>
-                            <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
-                          </>
-                        ) : null}
-                      </td>
-                    ) : null}
+                    <td className="participant-table-actions">
+                      <button type="button" className="ghost-button" onClick={() => void loadSourceTurnpoints(source)}>{canEdit ? "Edit" : "View"}</button>
+                      {canEdit ? (
+                        <>
+                          <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(source)}>Download</button>
+                          <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(source)}>Rename</button>
+                          <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(source)}>Save as</button>
+                          <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
+                        </>
+                      ) : null}
+                    </td>
                   </tr>
                 );
               })
             ) : (
               <tr>
-                <td colSpan={4 + (showContext ? 1 : 0) + (showVisibility ? 1 : 0) + (anySourceEditable ? 1 : 0)} className="participant-table-empty">{emptyMessage}</td>
+                <td colSpan={5 + (showContext ? 1 : 0) + (showVisibility ? 1 : 0)} className="participant-table-empty">{emptyMessage}</td>
               </tr>
             )}
           </tbody>

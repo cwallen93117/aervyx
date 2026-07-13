@@ -10,7 +10,7 @@ from app.db import Base
 from app.core.config import get_settings
 from app.models import Event, EventPilot, Pilot, Turnpoint, TurnpointSource, User
 from app.routers.auth import list_waypoint_files, update_challenge_settings
-from app.routers.turnpoints import create_source_turnpoint, save_turnpoint_source_as, update_turnpoint, update_turnpoint_source
+from app.routers.turnpoints import create_source_turnpoint, list_source_turnpoints, save_turnpoint_source_as, update_turnpoint, update_turnpoint_source
 from app.schemas import ChallengeSettingsUpdate, TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
 from app.services.turnpoints import normalize_symbol, parse_csv_turnpoints, parse_csv_turnpoints_with_schema, parse_geojson_turnpoints, parse_gpx_turnpoints, serialize_csv_turnpoints
 
@@ -292,3 +292,25 @@ def test_challenge_settings_rejects_inaccessible_waypoint_source(tmp_path: Path)
 
     saved = update_challenge_settings(ChallengeSettingsUpdate(settings={"turnpoint_source_id": source.id}), user=owner, session=session)
     assert saved.settings["turnpoint_source_id"] == source.id
+
+
+def test_owner_can_open_challenge_default_waypoint_file(tmp_path: Path) -> None:
+    session = _session()
+    owner = User(username="owner@example.com", full_name="Owner", role="pilot", password_hash="hash")
+    session.add(owner)
+    session.flush()
+    defaults = Event(name="Challenge Defaults", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="challenge_defaults", owner_user_id=owner.id, visibility="private")
+    session.add(defaults)
+    session.flush()
+    path = tmp_path / "defaults.csv"
+    path.write_text("name,latitude,longitude,symbol\nLZ,1,2,lz\n", encoding="utf-8")
+    source = TurnpointSource(event_id=defaults.id, filename="defaults.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
+    session.add(source)
+    session.flush()
+    session.add(Turnpoint(event_id=defaults.id, source_id=source.id, name="LZ", latitude=1, longitude=2, symbol="lz", source_row_index=0))
+    session.commit()
+
+    turnpoints = list_source_turnpoints(defaults.id, source.id, user=owner, session=session)
+
+    assert len(turnpoints) == 1
+    assert turnpoints[0].symbol == "lz"
