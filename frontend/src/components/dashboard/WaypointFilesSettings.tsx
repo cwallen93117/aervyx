@@ -73,9 +73,48 @@ export default function WaypointFilesSettings({ token }: { token: string }) {
     void loadSources();
   }, [loadSources]);
 
+  async function uploadWaypointFile(file: File) {
+    if (!token) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    setFeedback({ type: "pending", text: `Uploading ${file.name}...` });
+    try {
+      const response = await fetch(`${resolveApiBase()}/api/auth/challenge-settings/turnpoints/upload`, {
+        method: "POST",
+        cache: "no-store",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`);
+      await loadSources();
+      setFeedback({ type: "success", text: `Added ${file.name}.` });
+    } catch (caught) {
+      setFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Could not upload ${file.name}.` });
+    }
+  }
+
   return (
     <div className="stack form-block">
       {feedback ? <div className={`status-chip ${feedback.type}`}>{feedback.text}</div> : null}
+      <div className="participant-intake-row">
+        <div className="stack compact">
+          <span>Add waypoint file</span>
+          <p className="hint">CSV, GeoJSON, or GPX files are stored with your waypoint files.</p>
+        </div>
+        <label className="file-input">
+          Add waypoint file
+          <input
+            type="file"
+            accept=".csv,.geojson,.json,.gpx"
+            onChange={async (event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              await uploadWaypointFile(file);
+              event.currentTarget.value = "";
+            }}
+          />
+        </label>
+      </div>
       <WaypointFilesEditor
         token={token}
         sources={sources}
