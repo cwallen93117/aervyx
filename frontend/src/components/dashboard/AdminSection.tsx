@@ -180,7 +180,7 @@ const MAP_CONTEXTS = [
 
 const MAP_GROUPS = [
   { key: "tasks", label: "Tasks", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
-  { key: "airspace", label: "Airspace", maps: ["task_builder", "scoring", "dashboard_live", "airspace_explorer"] },
+  { key: "airspace", label: "Airspace", maps: ["task_builder", "scoring", "dashboard_live", "public_live", "airspace_explorer"] },
   { key: "flight_tracks", label: "Flight Tracks", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live"] },
   { key: "live_tracking", label: "Live Tracking", maps: ["dashboard_live", "public_live"] },
   { key: "replay", label: "Replay", maps: ["logbook_replay"] },

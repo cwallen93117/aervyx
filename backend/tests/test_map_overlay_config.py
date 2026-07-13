@@ -32,6 +32,8 @@ def test_default_grouped_config_includes_legacy_contexts() -> None:
     assert response.config["groups"]["scoring"]["airspace"] is False
     assert response.config["task_builder"]["turnpoints"] is True
     assert response.config["airspace_explorer"]["tfrs"] is True
+    assert response.config["groups"]["public_live"]["airspace"] is True
+    assert response.config["public_live"]["faa_airspace"] is True
 
 
 def test_flat_config_is_migrated_to_grouped_config() -> None:
@@ -66,6 +68,8 @@ def test_flat_config_is_migrated_to_grouped_config() -> None:
     assert response.config["task_builder"]["optimized_route"] is False
     assert response.config["groups"]["public_live"]["live_tracking"] is False
     assert response.config["public_live"]["live_positions"] is False
+    assert response.config["groups"]["public_live"]["airspace"] is True
+    assert response.config["public_live"]["faa_airspace"] is True
 
 
 def test_grouped_patch_expands_to_legacy_booleans() -> None:
