@@ -8,6 +8,8 @@ const root = process.cwd();
 test("public live map passes public airspace settings into TaskMap", () => {
   const source = readFileSync(join(root, "src/app/live/LiveWatchClient.tsx"), "utf8");
   assert.match(source, /setPublicAirspaceCategories\(normalizeAirspaceCategories\(settings\.public_airspace_categories_json\)\)/);
+  assert.match(source, /setLiveTaskAirspaces\(task\.airspaces \?\? \[\]\)/);
+  assert.match(source, /airspaces=\{liveTaskAirspaces\}/);
   assert.match(source, /faaAirspaceCategories=\{publicAirspaceCategories\}/);
   assert.match(source, /overlayConfig=\{overlayConfig\}/);
 });
@@ -22,5 +24,7 @@ test("airspace chip is above the basemap picker and exposes browser-verifiable s
   const source = readFileSync(join(root, "src/components/TaskMap.tsx"), "utf8");
   assert.match(source, /data-faa-airspace-enabled=\{faaAirspaceEnabled \? "true" : "false"\}/);
   assert.match(source, /data-faa-airspace-count=\{faaAirspaceData\.features\.length\}/);
+  assert.match(source, /data-uploaded-airspace-count=\{effectiveAirspaces\.length\}/);
+  assert.match(source, /const effectiveAirspaces = showFaaAirspace/);
   assert.ok(source.indexOf("<span>Show Airspace</span>") < source.indexOf("<span>Map</span>"));
 });

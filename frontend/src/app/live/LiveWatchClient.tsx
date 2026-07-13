@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   TaskMap,
+  type MapAirspaceRegion,
   type MapLivePosition,
   type MapTaskPoint,
   type MapTelemetrySmoothing,
@@ -67,6 +68,7 @@ type TaskInfoResponse = {
   task_type: string;
   task_date: string | null;
   turnpoints: { position: number; name: string; point_type: string; radius_m: number; latitude: number; longitude: number }[];
+  airspaces?: MapAirspaceRegion[];
 };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
@@ -113,6 +115,7 @@ export function LiveWatchClient() {
   const [pilotNameById, setPilotNameById] = useState<Map<string, string>>(new Map());
   const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
+  const [liveTaskAirspaces, setLiveTaskAirspaces] = useState<MapAirspaceRegion[]>([]);
   const [loading, setLoading] = useState(false);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [eventFitRequestId, setEventFitRequestId] = useState(0);
@@ -403,6 +406,7 @@ export function LiveWatchClient() {
     if (!selectedMapTaskId) {
       setTurnpoints([]);
       setTaskPoints([]);
+      setLiveTaskAirspaces([]);
       return () => {
         cancelled = true;
       };
@@ -410,6 +414,7 @@ export function LiveWatchClient() {
 
     setTurnpoints([]);
     setTaskPoints([]);
+    setLiveTaskAirspaces([]);
     (async () => {
       try {
         const response = await fetch(`${apiBase}/api/public/live/task/${selectedMapTaskId}/info`, { cache: "no-store" });
@@ -434,10 +439,12 @@ export function LiveWatchClient() {
           latitude: point.latitude,
           longitude: point.longitude,
         })));
+        setLiveTaskAirspaces(task.airspaces ?? []);
       } catch {
         if (!cancelled) {
           setTurnpoints([]);
           setTaskPoints([]);
+          setLiveTaskAirspaces([]);
         }
       }
     })();
@@ -725,6 +732,7 @@ export function LiveWatchClient() {
         <div className="live-map" style={{ position: "relative" }}>
           <TaskMap
             turnpoints={visibleTurnpoints}
+            airspaces={liveTaskAirspaces}
             taskPoints={visibleTaskPoints}
             livePositions={livePositions}
             track={visibleTrack}

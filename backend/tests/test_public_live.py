@@ -6,7 +6,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, SiteSettings, Task, TaskPoint, TrackPoint, User
+from app.models import AirspaceRegion, AirspaceSource, BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, SiteSettings, Task, TaskPoint, TrackPoint, User
 from app.routers.public import (
     get_public_site_settings,
     get_public_live_sources,
@@ -19,6 +19,7 @@ from app.routers.public import (
     public_event_positions,
     public_meet_stats,
     public_pilot_summary,
+    public_task_info,
     public_task_result_summary,
     public_task_positions,
 )
@@ -302,6 +303,77 @@ def test_public_live_map_task_is_empty_without_active_or_published_tasks() -> No
 
     assert payload.events[0].tasks == []
     assert payload.events[0].map_task is None
+
+
+def test_public_task_info_includes_visible_uploaded_airspaces() -> None:
+    session = _session()
+    event = Event(
+        name="Airspace Comp",
+        location="Ridge",
+        starts_on=date(2026, 5, 1),
+        ends_on=date(2026, 5, 7),
+        timezone="UTC",
+        visibility="public",
+        is_public_tracking=True,
+        visible_airspace_classes_json=["D"],
+        show_restricted_fields=False,
+    )
+    session.add(event)
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published", task_date=date(2026, 5, 2))
+    source = AirspaceSource(
+        event_id=event.id,
+        kind="airspace",
+        filename="event-airspace.txt",
+        file_format="openair",
+        sha256="abc123",
+        stored_path="/tmp/event-airspace.txt",
+        enabled=True,
+    )
+    disabled_source = AirspaceSource(
+        event_id=event.id,
+        kind="airspace",
+        filename="disabled.txt",
+        file_format="openair",
+        sha256="def456",
+        stored_path="/tmp/disabled.txt",
+        enabled=False,
+    )
+    session.add_all([task, source, disabled_source])
+    session.flush()
+    session.add_all(
+        [
+            AirspaceRegion(
+                event_id=event.id,
+                source_id=source.id,
+                name="Visible Class D",
+                display_category="D",
+                geometry_json={"type": "Polygon", "coordinates": [[[-82.0, 35.0], [-81.9, 35.0], [-81.9, 35.1], [-82.0, 35.1], [-82.0, 35.0]]]},
+                is_restricted_field=False,
+            ),
+            AirspaceRegion(
+                event_id=event.id,
+                source_id=source.id,
+                name="Hidden Restricted Field",
+                display_category="RESTRICTED_FIELD",
+                geometry_json={"type": "Polygon", "coordinates": [[[-82.2, 35.0], [-82.1, 35.0], [-82.1, 35.1], [-82.2, 35.1], [-82.2, 35.0]]]},
+                is_restricted_field=True,
+            ),
+            AirspaceRegion(
+                event_id=event.id,
+                source_id=disabled_source.id,
+                name="Disabled Source",
+                display_category="D",
+                geometry_json={"type": "Polygon", "coordinates": [[[-82.4, 35.0], [-82.3, 35.0], [-82.3, 35.1], [-82.4, 35.1], [-82.4, 35.0]]]},
+                is_restricted_field=False,
+            ),
+        ]
+    )
+    session.commit()
+
+    payload = public_task_info(task.id, session=session)
+
+    assert [airspace.name for airspace in payload.airspaces] == ["Visible Class D"]
 
 
 def test_public_event_positions_are_limited_to_competition_pilots() -> None:

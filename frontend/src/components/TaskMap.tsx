@@ -2048,8 +2048,6 @@ export const TaskMap = React.memo(function TaskMap({
 
   // Overlay config: filter data layers based on admin toggle matrix
   const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
-  const effectiveAirspaces = oc?.airspaces === false ? [] : (airspaces ?? []);
-  const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
   const effectiveTrack = oc?.flight_track === false ? null : track;
   const effectiveHighlightedTrackUploadId = oc?.track_highlight === false ? null : highlightedTrackUploadId;
   const effectiveHighlightedLiveSubjectKey = oc?.track_highlight === false ? null : highlightedLiveSubjectKey ?? null;
@@ -2066,7 +2064,18 @@ export const TaskMap = React.memo(function TaskMap({
     () => normalizeAirspaceCategories(faaAirspaceCategories),
     [faaAirspaceCategories],
   );
+  const uploadedAirspaceAvailable = oc?.airspaces !== false && (airspaces ?? []).length > 0;
+  const faaAirspaceAvailable = oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
+  const airspaceToggleAvailable = uploadedAirspaceAvailable || faaAirspaceAvailable;
+  const effectiveAirspaces = showFaaAirspace && oc?.airspaces !== false ? (airspaces ?? []) : [];
+  const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
   const faaAirspaceEnabled = showFaaAirspace && oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
+  const handleAirspaceToggle = useCallback((event: React.MouseEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    if (airspaceToggleAvailable) {
+      setShowFaaAirspace((current) => !current);
+    }
+  }, [airspaceToggleAvailable]);
   const terrainBounds = useMemo(
     () => collectTerrainBounds({
       track: effectiveTrack,
@@ -4212,6 +4221,7 @@ export const TaskMap = React.memo(function TaskMap({
       ref={shellRef}
       data-faa-airspace-enabled={faaAirspaceEnabled ? "true" : "false"}
       data-faa-airspace-count={faaAirspaceData.features.length}
+      data-uploaded-airspace-count={effectiveAirspaces.length}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
       <div
@@ -4281,13 +4291,13 @@ export const TaskMap = React.memo(function TaskMap({
         ) : null}
       </div>
       <div className="map-picker-stack">
-        {oc?.faa_airspace !== false ? (
-          <label className="map-style-picker">
+        {airspaceToggleAvailable ? (
+          <label className="map-style-picker" onClick={handleAirspaceToggle}>
             <input
               type="checkbox"
               checked={showFaaAirspace}
-              disabled={!effectiveFaaAirspaceCategories.length}
-              onChange={(event) => setShowFaaAirspace(event.target.checked)}
+              disabled={!airspaceToggleAvailable}
+              readOnly
             />
             <span>Show Airspace</span>
           </label>

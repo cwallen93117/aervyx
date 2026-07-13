@@ -9,7 +9,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -17,6 +17,8 @@ from app.db import get_session
 from app.models import (
     BuddyGroup,
     BuddyGroupMember,
+    AirspaceRegion,
+    AirspaceSource,
     DriverAssignment,
     Event,
     EventPilot,
@@ -32,7 +34,7 @@ from app.models import (
 from app.routers.events import _event_payload
 from app.routers.site_settings import DEFAULT_AIRSPACE_CATEGORIES, normalize_airspace_categories
 from app.routers.tasks import _task_response
-from app.schemas import EventResponse, MeetStatsResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
+from app.schemas import AirspaceRegionResponse, EventResponse, MeetStatsResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
 from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
 from app.services.scoring import MEET_STATS_SCOPE_PUBLIC, build_cached_meet_stats_payload, build_result_payload
 from app.services.tracking import (
@@ -154,6 +156,7 @@ class PublicTaskInfoResponse(BaseModel):
     task_type: str
     task_date: str | None
     turnpoints: list[PublicTurnpointInfo]
+    airspaces: list[AirspaceRegionResponse] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -850,12 +853,38 @@ def public_task_info(
 ) -> PublicTaskInfoResponse:
     """Task metadata and turnpoints for map rendering."""
     task = _get_public_task(task_id, session)
+    event = session.get(Event, task.event_id)
 
     task_points = session.scalars(
         select(TaskPoint)
         .where(TaskPoint.task_id == task_id)
         .order_by(TaskPoint.position.asc())
     ).all()
+    enabled_source_ids = set(session.scalars(
+        select(AirspaceSource.id).where(
+            AirspaceSource.event_id == task.event_id,
+            AirspaceSource.enabled.is_(True),
+        )
+    ).all())
+    visible_classes = set(event.visible_airspace_classes_json or ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"]) if event else set()
+    show_restricted_fields = True if event is None or event.show_restricted_fields is None else event.show_restricted_fields
+    airspace_regions = []
+    if enabled_source_ids:
+        regions = session.scalars(
+            select(AirspaceRegion)
+            .where(AirspaceRegion.event_id == task.event_id)
+            .order_by(AirspaceRegion.is_restricted_field.asc(), AirspaceRegion.name.asc())
+        ).all()
+        airspace_regions = [
+            region
+            for region in regions
+            if region.source_id in enabled_source_ids
+            and (
+                show_restricted_fields
+                if region.is_restricted_field
+                else region.display_category in visible_classes
+            )
+        ]
 
     return PublicTaskInfoResponse(
         id=task.id,
@@ -873,6 +902,7 @@ def public_task_info(
             )
             for tp in task_points
         ],
+        airspaces=[AirspaceRegionResponse.model_validate(region) for region in airspace_regions],
     )
 
 
