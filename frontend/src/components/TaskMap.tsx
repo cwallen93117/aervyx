@@ -4210,6 +4210,8 @@ export const TaskMap = React.memo(function TaskMap({
     <div
       className={mapShellClassName}
       ref={shellRef}
+      data-faa-airspace-enabled={faaAirspaceEnabled ? "true" : "false"}
+      data-faa-airspace-count={faaAirspaceData.features.length}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
       <div
