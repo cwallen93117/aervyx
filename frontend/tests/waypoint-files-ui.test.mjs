@@ -35,6 +35,16 @@ test("waypoint symbol picker keeps icon and text for LZ and Launch", () => {
   assert.match(source, /<span>\{option\.label\}<\/span>/);
 });
 
+test("waypoint symbol picker bar icon matches the map marker shape", () => {
+  const pickerSource = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  const mapSource = readFileSync(join(root, "src/components/TaskMap.tsx"), "utf8");
+  const barPath = "M9 7h30L27 22v14h8v5H13v-5h8V22L9 7zm8 5l7 8 7-8H17z";
+  assert.match(pickerSource, /<svg className="turnpoint-symbol-icon bar"/);
+  assert.ok(pickerSource.includes(barPath));
+  assert.ok(mapSource.includes(barPath));
+  assert.match(pickerSource, /<circle cx="34" cy="12" r="4" fill="#ef4444"/);
+});
+
 test("map renders LZ and Launch waypoint symbols as marker icons", () => {
   const source = readFileSync(join(root, "src/components/TaskMap.tsx"), "utf8");
   assert.match(source, /lz:/);

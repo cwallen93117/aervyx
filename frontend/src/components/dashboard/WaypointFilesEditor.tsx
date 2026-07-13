@@ -138,7 +138,14 @@ export function TurnpointSymbolIcon({ symbol }: { symbol: TurnpointSymbol }) {
   if (symbol === "grass_strip" || symbol === "paved_runway") {
     return <span className={`turnpoint-symbol-icon ${symbol}`} aria-hidden="true">✈</span>;
   }
-  if (symbol === "bar") return <span className="turnpoint-symbol-icon bar" aria-hidden="true" />;
+  if (symbol === "bar") {
+    return (
+      <svg className="turnpoint-symbol-icon bar" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
+        <path fill="#7c3aed" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" d="M9 7h30L27 22v14h8v5H13v-5h8V22L9 7zm8 5l7 8 7-8H17z" />
+        <circle cx="34" cy="12" r="4" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
+      </svg>
+    );
+  }
   if (symbol === "dot") return <span className="turnpoint-symbol-icon dot" aria-hidden="true" />;
   if (symbol === "lz") return <span className="turnpoint-symbol-icon lz" aria-hidden="true">◎↓</span>;
   if (symbol === "launch") return <span className="turnpoint-symbol-icon launch" aria-hidden="true">▲↗</span>;
