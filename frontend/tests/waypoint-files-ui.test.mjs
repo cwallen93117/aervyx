@@ -11,6 +11,13 @@ test("settings tab row includes waypoint files after pilot buddies", () => {
   assert.match(source, /<WaypointFilesSettings token=\{token\} \/>/);
 });
 
+test("waypoint files settings exposes an add waypoint file upload", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
+  assert.match(source, />Add waypoint file</);
+  assert.match(source, /accept="\.csv,\.geojson,\.json,\.gpx"/);
+  assert.match(source, /\/api\/auth\/challenge-settings\/turnpoints\/upload/);
+});
+
 test("waypoint symbol picker keeps icon and text for LZ and Launch", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
   assert.match(source, /label: "LZ"/);
