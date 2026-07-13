@@ -5,7 +5,9 @@ import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } fr
 import { type MapLivePosition, type MapTaskPoint, type MapTelemetrySmoothing, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import { PasswordInput } from "../PasswordInput";
+import { AirspaceCategoryControls } from "./SettingsSection";
 import { adminDebugBatterySummary } from "../../lib/admin-debug-battery";
+import { normalizeAirspaceCategories } from "../../lib/faaAirspace";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MeshDevicePurpose, MeshDeviceRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
@@ -2094,6 +2096,18 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                 </div>
               </fieldset>
+              <div className="fieldset-cluster">
+                <div className="cluster-label">Public Airspace</div>
+                <AirspaceCategoryControls
+                  selected={normalizeAirspaceCategories(siteSettings.public_airspace_categories_json)}
+                  onChange={(categories) =>
+                    setSiteSettings((current) => ({
+                      ...current,
+                      public_airspace_categories_json: categories,
+                    }))
+                  }
+                />
+              </div>
             </div>
             <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 90 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
             <div className="button-row">

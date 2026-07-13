@@ -40,18 +40,22 @@ def _parse_iso_utc(value: str) -> datetime:
     return parsed.astimezone(UTC)
 
 
-def test_public_site_settings_exposes_only_map_pitch() -> None:
+def test_public_site_settings_exposes_map_pitch_and_public_airspace_defaults() -> None:
     session = _session()
-    session.add(SiteSettings(id=1, max_map_pitch_degrees=90))
+    session.add(SiteSettings(id=1, max_map_pitch_degrees=90, public_airspace_categories_json=["B", "TFR", "bad"]))
     session.commit()
 
     payload = get_public_site_settings(session=session)
 
-    assert payload.model_dump() == {"max_map_pitch_degrees": 90}
+    assert payload.model_dump() == {"max_map_pitch_degrees": 90, "public_airspace_categories_json": ["B", "TFR"]}
 
     session.get(SiteSettings, 1).max_map_pitch_degrees = 0
+    session.get(SiteSettings, 1).public_airspace_categories_json = None
     session.commit()
-    assert get_public_site_settings(session=session).model_dump() == {"max_map_pitch_degrees": 0}
+    assert get_public_site_settings(session=session).model_dump() == {
+        "max_map_pitch_degrees": 0,
+        "public_airspace_categories_json": ["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"],
+    }
 
 
 def test_public_events_are_sorted_by_competition_date() -> None:

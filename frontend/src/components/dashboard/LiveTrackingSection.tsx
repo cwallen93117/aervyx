@@ -15,6 +15,7 @@ import {
   type TrackCollection,
 } from "../TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import type { AirspaceCategory } from "../../lib/faaAirspace";
 import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import type { BuddyGroup, TaskPointRecord, TaskRecord } from "./types";
 import {
@@ -71,6 +72,7 @@ export interface LiveTrackingSectionProps {
   telemetrySmoothing?: MapTelemetrySmoothing;
   loadTask: (activeToken: string, taskId: number, loadedTask?: TaskRecord, includeScoringData?: boolean) => Promise<void>;
   overlayConfig?: Record<string, boolean>;
+  faaAirspaceCategories?: AirspaceCategory[];
 }
 
 export default function LiveTrackingSection({
@@ -87,6 +89,7 @@ export default function LiveTrackingSection({
   telemetrySmoothing,
   loadTask,
   overlayConfig,
+  faaAirspaceCategories,
 }: LiveTrackingSectionProps) {
   const [positionsByPilot, setPositionsByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
   const [igcTracksByPilot, setIgcTracksByPilot] = useState<Map<string, LivePositionRecord[]>>(new Map());
@@ -867,6 +870,7 @@ export default function LiveTrackingSection({
                   telemetrySmoothing={telemetrySmoothing}
                   showGpsButton
                   overlayConfig={overlayConfig}
+                  faaAirspaceCategories={faaAirspaceCategories}
                   fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
                   fullscreenSidebarLabel="pilot list"
                   focusPosition={focusPosition}

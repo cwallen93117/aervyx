@@ -8,6 +8,9 @@ import {
   type AirspaceCategory,
   CATEGORY_COLORS,
   CATEGORY_LABELS,
+  CLASS_AIRSPACE_CATEGORIES,
+  SPECIAL_USE_AIRSPACE_CATEGORIES,
+  TFR_AIRSPACE_CATEGORIES,
   fetchAllAirspace,
   fetchTFRs,
   downloadOpenAir,
@@ -18,9 +21,9 @@ import {
 // Category groups for the sidebar controls
 // ---------------------------------------------------------------------------
 
-const CLASS_CATEGORIES: AirspaceCategory[] = ["B", "C", "D"];
-const SUA_CATEGORIES: AirspaceCategory[] = ["P", "R", "W", "A", "MOA"];
-const TFR_CATEGORIES: AirspaceCategory[] = ["TFR"];
+const CLASS_CATEGORIES = CLASS_AIRSPACE_CATEGORIES;
+const SUA_CATEGORIES = SPECIAL_USE_AIRSPACE_CATEGORIES;
+const TFR_CATEGORIES = TFR_AIRSPACE_CATEGORIES;
 
 const ALL_CATEGORIES = [...CLASS_CATEGORIES, ...SUA_CATEGORIES, ...TFR_CATEGORIES];
 

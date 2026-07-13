@@ -42,6 +42,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       cloudflare_ddns_last_public_ip VARCHAR(45),
                       cloudflare_ddns_last_update_result VARCHAR(255),
                       cloudflare_ddns_last_error TEXT,
+                      public_airspace_categories_json JSON,
                       mesh_profiles JSON,
                       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
@@ -62,10 +63,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_enabled,
                       mqtt_broker_mode,
                       mqtt_port,
-                      mqtt_topic_prefix
-                    ) VALUES (1, 5, 3, 3, 5, 75, 1000, TRUE, 'local_mosquitto', 1883, 'msh')
+                      mqtt_topic_prefix,
+                      public_airspace_categories_json
+                    ) VALUES (1, 5, 3, 3, 5, 75, 1000, TRUE, 'local_mosquitto', 1883, 'msh', :default_public_airspace_categories)
                     """
-                )
+                ),
+                {"default_public_airspace_categories": json.dumps(["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"])},
             )
         else:
             site_settings_columns = {column["name"] for column in inspector.get_columns("site_settings")}
@@ -117,6 +120,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_last_update_result VARCHAR(255)"))
             if "cloudflare_ddns_last_error" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN cloudflare_ddns_last_error TEXT"))
+            if "public_airspace_categories_json" not in site_settings_columns:
+                connection.execute(text("ALTER TABLE site_settings ADD COLUMN public_airspace_categories_json JSON"))
             if "mesh_profiles" not in site_settings_columns:
                 connection.execute(text("ALTER TABLE site_settings ADD COLUMN mesh_profiles JSON"))
             if "updated_at" not in site_settings_columns:
@@ -167,10 +172,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
                       mqtt_password = CASE WHEN mqtt_password = 'large4cats' THEN NULL ELSE mqtt_password END,
                       cloudflare_ddns_enabled = COALESCE(cloudflare_ddns_enabled, FALSE),
                       cloudflare_ddns_check_interval_hours = COALESCE(cloudflare_ddns_check_interval_hours, 12),
+                      public_airspace_categories_json = COALESCE(public_airspace_categories_json, :default_public_airspace_categories),
                       updated_at = COALESCE(updated_at, CURRENT_TIMESTAMP)
                     WHERE id = 1
                     """
-                )
+                ),
+                {"default_public_airspace_categories": json.dumps(["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"])},
             )
 
         if "integration_credentials" not in table_names:

@@ -6,6 +6,7 @@ import { AppSidebar } from "../../components/AppSidebar";
 import { SectionCard } from "../../components/SectionCard";
 import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories } from "../../lib/faaAirspace";
 
 import EventsSection from "../../components/dashboard/EventsSection";
 import TasksSection from "../../components/dashboard/TasksSection";
@@ -546,6 +547,7 @@ function blankSiteSettingsForm(): SiteSettingsRecord {
     cloudflare_ddns_last_public_ip: null,
     cloudflare_ddns_last_update_result: null,
     cloudflare_ddns_last_error: null,
+    public_airspace_categories_json: DEFAULT_AIRSPACE_CATEGORIES,
     mesh_profiles: null,
     updated_at: null,
   };
@@ -2021,6 +2023,7 @@ export default function HomePage() {
           cloudflare_ddns_clear_api_token: siteSettings.cloudflare_ddns_clear_api_token,
           cloudflare_ddns_record_names: siteSettings.cloudflare_ddns_record_names,
           cloudflare_ddns_check_interval_hours: siteSettings.cloudflare_ddns_check_interval_hours,
+          public_airspace_categories_json: siteSettings.public_airspace_categories_json,
           mesh_profiles: siteSettings.mesh_profiles,
         }),
       });
@@ -3118,6 +3121,7 @@ export default function HomePage() {
               telemetrySmoothing={siteSettings}
               loadTask={loadTask}
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
+              faaAirspaceCategories={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
             />
           );
         case "live_backtest":

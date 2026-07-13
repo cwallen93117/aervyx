@@ -9,6 +9,7 @@ import { formatCalendarDateLabel } from "../../lib/dateLabels";
 import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints, type ScorePenaltyCalculation, type ScorePenaltyRecord } from "../../lib/scorePenalties";
 import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories, type AirspaceCategory } from "../../lib/faaAirspace";
 
 type PublicEvent = EventRecord;
 
@@ -74,7 +75,7 @@ type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; st
 type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number; recorded_at?: string | null; task_date?: string | null; latitude?: number | null; longitude?: number | null; ground_altitude_m?: number | null; agl_altitude_m?: number | null };
 type MeetStatsRecord = { total_airtime_seconds: number; average_airtime_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number; pilot_count: number; day_count: number; flight_count: number };
 type TaskSubTab = "results" | "map";
-type PublicSiteSettings = { max_map_pitch_degrees: number };
+type PublicSiteSettings = { max_map_pitch_degrees: number; public_airspace_categories_json?: string[] };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
 const defaultTelemetrySmoothing: MapTelemetrySmoothing = {
@@ -893,6 +894,7 @@ export function PublicScoresClient() {
   const [error, setError] = useState("");
   const [overlayConfig, setOverlayConfig] = useState<Record<string, boolean> | undefined>(undefined);
   const [telemetrySmoothing, setTelemetrySmoothing] = useState<MapTelemetrySmoothing>(defaultTelemetrySmoothing);
+  const [publicAirspaceCategories, setPublicAirspaceCategories] = useState<AirspaceCategory[]>(() => DEFAULT_AIRSPACE_CATEGORIES);
   const [hasRequestedEventParam, setHasRequestedEventParam] = useState(false);
   const [requestedEventId, setRequestedEventId] = useState<number | null>(null);
   const [requestedChallengeSlug, setRequestedChallengeSlug] = useState<string | null>(null);
@@ -1318,6 +1320,7 @@ export function PublicScoresClient() {
           const settings = await fetchJson<PublicSiteSettings>(`${apiBase}/api/public/site-settings`);
           if (!cancelled) {
             setTelemetrySmoothing({ ...defaultTelemetrySmoothing, max_map_pitch_degrees: settings.max_map_pitch_degrees });
+            setPublicAirspaceCategories(normalizeAirspaceCategories(settings.public_airspace_categories_json));
           }
         } catch {
           // Public map keeps the built-in pitch default if settings are unavailable.
@@ -1669,6 +1672,7 @@ export function PublicScoresClient() {
             units={defaultUnits}
             telemetrySmoothing={telemetrySmoothing}
             overlayConfig={scoresMapOverlayConfig}
+            faaAirspaceCategories={publicAirspaceCategories}
           />
         </div>
       </div>

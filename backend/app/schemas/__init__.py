@@ -266,6 +266,7 @@ class SiteSettingsResponse(BaseModel):
     cloudflare_ddns_last_public_ip: str | None = None
     cloudflare_ddns_last_update_result: str | None = None
     cloudflare_ddns_last_error: str | None = None
+    public_airspace_categories_json: list[str] = Field(default_factory=lambda: ["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"])
     mesh_profiles: dict | None = None
     updated_at: datetime | None = None
 
@@ -295,6 +296,7 @@ class SiteSettingsUpdate(BaseModel):
     cloudflare_ddns_clear_api_token: bool = False
     cloudflare_ddns_record_names: list[str] = Field(default_factory=lambda: ["mqtt.aervyx.net", "mqtt-staging.aervyx.net"])
     cloudflare_ddns_check_interval_hours: int = Field(default=12, ge=1, le=168)
+    public_airspace_categories_json: list[str] = Field(default_factory=lambda: ["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"])
     mesh_profiles: dict | None = None
 
 

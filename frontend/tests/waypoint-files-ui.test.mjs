@@ -5,9 +5,10 @@ import assert from "node:assert/strict";
 
 const root = process.cwd();
 
-test("settings tab row includes waypoint files after pilot buddies", () => {
+test("settings tab row keeps waypoint files before final airspace tab", () => {
   const source = readFileSync(join(root, "src/components/dashboard/SettingsSection.tsx"), "utf8");
   assert.ok(source.indexOf('label: "Pilot Buddies"') < source.indexOf('label: "Waypoint Files"'));
+  assert.ok(source.indexOf('label: "Waypoint Files"') < source.indexOf('label: "Airspace"'));
   assert.match(source, /<WaypointFilesSettings token=\{token\} \/>/);
 });
 

@@ -7169,6 +7169,13 @@ button[type="submit"]:hover,
   white-space: nowrap;
 }
 
+.airspace-settings-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: 0 0 auto;
+}
+
 .settings-type-control select {
   min-width: 110px;
   height: 32px;

@@ -30,6 +30,7 @@ from app.models import (
     User,
 )
 from app.routers.events import _event_payload
+from app.routers.site_settings import DEFAULT_AIRSPACE_CATEGORIES, normalize_airspace_categories
 from app.routers.tasks import _task_response
 from app.schemas import EventResponse, MeetStatsResponse, PilotSummaryResponse, ScoreResultResponse, TaskResponse, TaskResultSummaryResponse
 from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
@@ -57,13 +58,18 @@ DISPLAY_STATUS_ORDER = {"did_not_fly": 1, "absent": 2}
 
 class PublicSiteSettingsResponse(BaseModel):
     max_map_pitch_degrees: int
+    public_airspace_categories_json: list[str]
 
 
 @router.get("/site-settings", response_model=PublicSiteSettingsResponse)
 def get_public_site_settings(session: Session = Depends(get_session)) -> PublicSiteSettingsResponse:
     settings = session.get(SiteSettings, 1)
     value = settings.max_map_pitch_degrees if settings is not None else 75
-    return PublicSiteSettingsResponse(max_map_pitch_degrees=max(0, min(90, int(value))))
+    categories = normalize_airspace_categories(settings.public_airspace_categories_json if settings is not None else None)
+    return PublicSiteSettingsResponse(
+        max_map_pitch_degrees=max(0, min(90, int(value))),
+        public_airspace_categories_json=categories or list(DEFAULT_AIRSPACE_CATEGORIES),
+    )
 
 
 def _task_result_sort_key(row: ScoreResultResponse) -> tuple:

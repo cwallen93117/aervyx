@@ -110,6 +110,26 @@ def test_live_position_pruning_setting_persists(monkeypatch) -> None:
     assert row.live_position_pruning_enabled is False
 
 
+def test_public_airspace_categories_setting_persists(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.routers.site_settings.get_settings",
+        lambda: SimpleNamespace(mosquitto_password_file=None),
+    )
+    factory = _session_factory()
+
+    with factory() as session:
+        response = update_site_settings(
+            payload=_payload(public_airspace_categories_json=["TFR", "B", "bogus", "B"]),
+            _=_admin(),
+            session=session,
+        )
+        row = session.get(SiteSettings, 1)
+
+    assert response.public_airspace_categories_json == ["TFR", "B"]
+    assert row is not None
+    assert row.public_airspace_categories_json == ["TFR", "B"]
+
+
 def test_legacy_public_settings_normalize_to_local_mosquitto() -> None:
     factory = _session_factory()
 

@@ -26,6 +26,7 @@ import {
   subjectKeyForPosition,
 } from "../../lib/live-tracking-utils";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories, type AirspaceCategory } from "../../lib/faaAirspace";
 
 type PublicEventSource = {
   id: number;
@@ -59,7 +60,7 @@ type SelectedSource =
   | { type: "buddies"; groupId: number; groupName: string };
 
 type LivePositionWithName = LivePositionRecord & { pilot_name?: string | null };
-type PublicSiteSettings = { max_map_pitch_degrees: number };
+type PublicSiteSettings = { max_map_pitch_degrees: number; public_airspace_categories_json?: string[] };
 type TaskInfoResponse = {
   id: number;
   name: string;
@@ -124,6 +125,7 @@ export function LiveWatchClient() {
   const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
   const [visibleTrackSubjectKeys, setVisibleTrackSubjectKeys] = useState<Set<string>>(() => new Set());
   const [telemetrySmoothing, setTelemetrySmoothing] = useState<MapTelemetrySmoothing>(defaultTelemetrySmoothing);
+  const [publicAirspaceCategories, setPublicAirspaceCategories] = useState<AirspaceCategory[]>(() => DEFAULT_AIRSPACE_CATEGORIES);
   const sseControllerRef = useRef<AbortController | null>(null);
   const focusRequestIdRef = useRef(0);
 
@@ -149,6 +151,7 @@ export function LiveWatchClient() {
           if (settingsResponse.ok && !cancelled) {
             const settings = (await settingsResponse.json()) as PublicSiteSettings;
             setTelemetrySmoothing({ ...defaultTelemetrySmoothing, max_map_pitch_degrees: settings.max_map_pitch_degrees });
+            setPublicAirspaceCategories(normalizeAirspaceCategories(settings.public_airspace_categories_json));
           }
         } catch {
           // Public map keeps the built-in pitch default if settings are unavailable.
@@ -734,6 +737,7 @@ export function LiveWatchClient() {
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}
+            faaAirspaceCategories={publicAirspaceCategories}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"
             focusPosition={focusPosition}

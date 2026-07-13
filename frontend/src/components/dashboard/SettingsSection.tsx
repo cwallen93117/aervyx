@@ -7,6 +7,16 @@ import MeshDevicesManager from "./MeshDevicesManager";
 import PilotClaimSection from "./PilotClaimSection";
 import WaypointFilesSettings from "./WaypointFilesSettings";
 import { PasswordInput } from "../PasswordInput";
+import {
+  CATEGORY_COLORS,
+  CATEGORY_LABELS,
+  CLASS_AIRSPACE_CATEGORIES,
+  DEFAULT_AIRSPACE_CATEGORIES,
+  SPECIAL_USE_AIRSPACE_CATEGORIES,
+  TFR_AIRSPACE_CATEGORIES,
+  normalizeAirspaceCategories,
+  type AirspaceCategory,
+} from "../../lib/faaAirspace";
 import type { AccountSettingsRecord } from "./types";
 
 export interface SettingsSectionProps {
@@ -26,7 +36,7 @@ export interface SettingsSectionProps {
   onMeshDevicesChanged?: () => void | Promise<void>;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "waypoint_files";
+type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "waypoint_files" | "airspace";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
@@ -37,7 +47,85 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: "pilot_record", label: "Pilot Record" },
   { key: "buddies", label: "Pilot Buddies" },
   { key: "waypoint_files", label: "Waypoint Files" },
+  { key: "airspace", label: "Airspace" },
 ];
+
+function updateAirspaceCategories(
+  settingsForm: AccountSettingsRecord,
+  setSettingsForm: SettingsSectionProps["setSettingsForm"],
+  categories: AirspaceCategory[],
+) {
+  setSettingsForm({
+    ...settingsForm,
+    challenge_settings_json: {
+      ...(settingsForm.challenge_settings_json ?? {}),
+      airspace_categories_json: categories,
+    },
+  });
+}
+
+export function AirspaceCategoryControls({
+  selected,
+  onChange,
+}: {
+  selected: AirspaceCategory[];
+  onChange: (categories: AirspaceCategory[]) => void;
+}) {
+  const selectedSet = new Set(selected);
+  const toggleCategory = (category: AirspaceCategory) => {
+    const next = new Set(selectedSet);
+    if (next.has(category)) next.delete(category);
+    else next.add(category);
+    onChange(normalizeAirspaceCategories(DEFAULT_AIRSPACE_CATEGORIES.filter((item) => next.has(item))));
+  };
+  const toggleGroup = (categories: AirspaceCategory[]) => {
+    const allOn = categories.every((category) => selectedSet.has(category));
+    const next = new Set(selectedSet);
+    for (const category of categories) {
+      if (allOn) next.delete(category);
+      else next.add(category);
+    }
+    onChange(normalizeAirspaceCategories(DEFAULT_AIRSPACE_CATEGORIES.filter((item) => next.has(item))));
+  };
+  const renderCategory = (category: AirspaceCategory, label = CATEGORY_LABELS[category]) => (
+    <label key={category} className="settings-type-control">
+      <input type="checkbox" checked={selectedSet.has(category)} onChange={() => toggleCategory(category)} />
+      <span className="airspace-settings-swatch" style={{ background: CATEGORY_COLORS[category] }} />
+      <span>{label}</span>
+    </label>
+  );
+
+  return (
+    <div className="fieldset-grid two-up">
+      <fieldset className="fieldset-cluster">
+        <legend>Controlled Airspace</legend>
+        <div className="cluster-stack">
+          <label className="settings-type-control">
+            <input type="checkbox" checked={CLASS_AIRSPACE_CATEGORIES.every((category) => selectedSet.has(category))} onChange={() => toggleGroup(CLASS_AIRSPACE_CATEGORIES)} />
+            <span>Show All</span>
+          </label>
+          {CLASS_AIRSPACE_CATEGORIES.map((category) => renderCategory(category))}
+        </div>
+      </fieldset>
+      <fieldset className="fieldset-cluster">
+        <legend>Special Use Airspace</legend>
+        <div className="cluster-stack">
+          <label className="settings-type-control">
+            <input type="checkbox" checked={SPECIAL_USE_AIRSPACE_CATEGORIES.every((category) => selectedSet.has(category))} onChange={() => toggleGroup(SPECIAL_USE_AIRSPACE_CATEGORIES)} />
+            <span>Show All</span>
+          </label>
+          {SPECIAL_USE_AIRSPACE_CATEGORIES.map((category) => renderCategory(category))}
+        </div>
+      </fieldset>
+      <fieldset className="fieldset-cluster">
+        <legend>Temporary Flight Restrictions</legend>
+        <div className="cluster-stack">
+          {TFR_AIRSPACE_CATEGORIES.map((category) => renderCategory(category, "Active TFRs"))}
+        </div>
+      </fieldset>
+    </div>
+  );
+}
 
 export default function SettingsSection(props: SettingsSectionProps) {
   const {
@@ -261,6 +349,21 @@ export default function SettingsSection(props: SettingsSectionProps) {
       {activeTab === "waypoint_files" && (
         <div className="settings-tab-panel">
           <WaypointFilesSettings token={token} />
+        </div>
+      )}
+
+      {activeTab === "airspace" && (
+        <div className="settings-tab-panel">
+          <form className="stack form-block" onSubmit={saveAccountSettings}>
+            <AirspaceCategoryControls
+              selected={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
+              onChange={(categories) => updateAirspaceCategories(settingsForm, setSettingsForm, categories)}
+            />
+            <div className="button-row">
+              <button type="submit">Save airspace settings</button>
+            </div>
+            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
+          </form>
         </div>
       )}
     </div>
