@@ -549,6 +549,20 @@ class TurnpointSourceSaveAs(BaseModel):
     filename: str
 
 
+class WaypointFileResponse(BaseModel):
+    source_id: int
+    event_id: int
+    event_name: str
+    event_kind: str
+    filename: str
+    file_format: str
+    sha256: str
+    enabled: bool = True
+    uploaded_at: datetime
+    turnpoint_count: int = 0
+    can_edit: bool = False
+
+
 class AirspaceSourceResponse(BaseModel):
     id: int
     event_id: int

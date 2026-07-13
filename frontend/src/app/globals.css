@@ -2929,6 +2929,51 @@ button[type="submit"]:hover,
     min-width: 96px;
   }
 
+  .turnpoint-symbol-select {
+    position: relative;
+    min-width: 126px;
+  }
+
+  .turnpoint-symbol-select-button,
+  .turnpoint-symbol-select-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    min-height: 34px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-sm);
+    background: var(--panel);
+    color: var(--ink);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .turnpoint-symbol-select-menu {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 4px);
+    left: 0;
+    width: max(100%, 160px);
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--panel);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .turnpoint-symbol-select-option {
+    border: 0;
+    border-radius: var(--r-sm);
+    background: transparent;
+  }
+
+  .turnpoint-symbol-select-option:hover {
+    background: var(--wash);
+  }
+
   .turnpoint-table-scroll {
     max-height: min(560px, 70vh);
     overflow: auto;
@@ -3027,6 +3072,18 @@ button[type="submit"]:hover,
     border-bottom: 2px solid currentColor;
     border-left: 2px solid currentColor;
     transform: rotate(-45deg);
+  }
+
+  .turnpoint-symbol-icon.lz {
+    color: #dc2626;
+    font-weight: 800;
+    font-size: 12px;
+  }
+
+  .turnpoint-symbol-icon.launch {
+    color: #0369a1;
+    font-weight: 800;
+    font-size: 12px;
   }
 
   @media (max-width: 900px) {

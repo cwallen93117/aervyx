@@ -3,6 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
+import WaypointFilesEditor, { type WaypointFileSourceRecord, waypointSourceCanEdit } from "./WaypointFilesEditor";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
@@ -367,6 +368,20 @@ type EditableTurnpoint = {
   extra_json: Record<string, string>;
 };
 
+type WaypointFileResponse = {
+  source_id: number;
+  event_id: number;
+  event_name: string;
+  event_kind: string;
+  filename: string;
+  file_format: string;
+  sha256: string;
+  enabled: boolean;
+  uploaded_at: string;
+  turnpoint_count: number;
+  can_edit: boolean;
+};
+
 const turnpointSymbolOptions = [
   { value: "", label: "Blank" },
   { value: "grass_strip", label: "Grass Strip" },
@@ -478,6 +493,22 @@ function formToChallengeDefaults(form: EventFormState, existing: Record<string, 
     next[field] = (form as unknown as Record<string, unknown>)[field];
   }
   return next;
+}
+
+function waypointFileResponseToSource(record: WaypointFileResponse): WaypointFileSourceRecord {
+  return {
+    id: record.source_id,
+    event_id: record.event_id,
+    event_name: record.event_name,
+    event_kind: record.event_kind,
+    filename: record.filename,
+    file_format: record.file_format,
+    sha256: record.sha256,
+    enabled: record.enabled,
+    uploaded_at: record.uploaded_at,
+    turnpoint_count: record.turnpoint_count,
+    can_edit: record.can_edit,
+  };
 }
 
 function blankChallengeDefaultsForm(): EventFormState {
@@ -750,6 +781,7 @@ export default function EventsSection(props: EventsSectionProps) {
   const [challengeDefaultsForm, setChallengeDefaultsForm] = useState<EventFormState>(() => challengeDefaultsToForm(settingsForm.challenge_settings_json ?? {}));
   const [challengeTurnpointSources, setChallengeTurnpointSources] = useState<TurnpointSourceRecord[]>([]);
   const [challengeAirspaceSources, setChallengeAirspaceSources] = useState<AirspaceSourceRecord[]>([]);
+  const [waypointFileSources, setWaypointFileSources] = useState<WaypointFileSourceRecord[]>([]);
   const [challengeSettingsFeedback, setChallengeSettingsFeedback] = useState<PresetFeedback>(null);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
@@ -773,6 +805,7 @@ export default function EventsSection(props: EventsSectionProps) {
   const visibleEventTabs = isChallenge ? eventTabItems.filter((tab) => tab.id === "details") : eventTabItems;
   const localTimeZone = useMemo(() => browserTimeZone(), []);
   const timezoneOptions = useMemo(() => timeZoneOptions(localTimeZone, eventForm.timezone), [localTimeZone, eventForm.timezone]);
+  const challengeWaypointFileSources = waypointFileSources.filter((source) => waypointSourceCanEdit(source));
 
   const autoSaveOverlaySettings = (nextForm: EventFormState) => {
     setEventForm(nextForm);
@@ -825,6 +858,26 @@ export default function EventsSection(props: EventsSectionProps) {
       cancelled = true;
     };
   }, [settingsForm.challenge_settings_json?.template_event_id, token]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWaypointFiles() {
+      if (!token) {
+        setWaypointFileSources([]);
+        return;
+      }
+      try {
+        const loaded = await apiFetch<WaypointFileResponse[]>("/api/auth/waypoint-files", token);
+        if (!cancelled) setWaypointFileSources(loaded.map(waypointFileResponseToSource));
+      } catch (caught) {
+        if (!cancelled) setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load waypoint files." });
+      }
+    }
+    void loadWaypointFiles();
+    return () => {
+      cancelled = true;
+    };
+  }, [settingsForm.challenge_settings_json, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1223,8 +1276,10 @@ export default function EventsSection(props: EventsSectionProps) {
                         onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), turnpoint_source_id: Number(event.target.value) || null })}
                       >
                         <option value="">No default waypoint file</option>
-                        {challengeTurnpointSources.map((source) => (
-                          <option key={source.id} value={source.id}>{source.filename}</option>
+                        {challengeWaypointFileSources.map((source) => (
+                          <option key={`${source.event_id}-${source.id}`} value={source.id}>
+                            {source.event_name ? `${source.filename} - ${source.event_name}` : source.filename}
+                          </option>
                         ))}
                       </select>
                     </label>
@@ -1936,230 +1991,21 @@ export default function EventsSection(props: EventsSectionProps) {
                   </label>
                 </div>
               ) : null}
-              <div className="participant-table-wrap">
-                <table className="participant-table">
-                  <thead>
-                    <tr>
-                      <th>File name</th>
-                      <th>Format</th>
-                      <th>Turnpoints</th>
-                      <th>Visible</th>
-                      <th>Uploaded</th>
-                      {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {turnpointSources.length ? (
-                      turnpointSources.map((source) => (
-                        <tr key={source.id}>
-                          <td className="turnpoint-file-name-cell">
-                            <button type="button" className="link-button" onClick={() => void loadSourceTurnpoints(source.id)}>
-                              <strong>{source.filename}</strong>
-                            </button>
-                          </td>
-                          <td>{source.file_format.toUpperCase()}</td>
-                          <td>{source.turnpoint_count}</td>
-                          <td>
-                            <label className="task-advanced-toggle">
-                              <input
-                                type="checkbox"
-                                checked={source.enabled}
-                                disabled={!canManagePlatform}
-                                onChange={(event) => void toggleTurnpointSource(source, event.target.checked)}
-                              />
-                              <span>{source.enabled ? "Visible" : "Hidden"}</span>
-                            </label>
-                          </td>
-                          <td>{new Date(source.uploaded_at).toLocaleString()}</td>
-                          {canManagePlatform ? (
-                            <td className="participant-table-actions">
-                              <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(source)}>Download</button>
-                              <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(source)}>Rename</button>
-                              <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(source)}>Save as</button>
-                              <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
-                            </td>
-                          ) : null}
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={canManagePlatform ? 6 : 5} className="participant-table-empty">No turnpoint files uploaded for this event yet.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-              {selectedTurnpointSource ? (
-                <div className="turnpoint-file-detail">
-                  <div className="results-sheet-header">
-                    <div>
-                      <h3>{selectedTurnpointSource.filename}</h3>
-                      <p className="hint">{sourceTurnpoints.length} waypoint{sourceTurnpoints.length === 1 ? "" : "s"} in this file. Click the map to draft a new waypoint.</p>
-                    </div>
-                    <div className="button-row">
-                      {canManagePlatform ? (
-                        <>
-                          <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(selectedTurnpointSource)}>Download</button>
-                          <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(selectedTurnpointSource)}>Rename</button>
-                          <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(selectedTurnpointSource)}>Save as</button>
-                        </>
-                      ) : null}
-                      <button type="button" className="ghost-button" onClick={() => void reloadSelectedSource()}>Refresh</button>
-                      <button type="button" className="turnpoint-detail-close" onClick={closeTurnpointSourceDetail} aria-label="Close turnpoint file detail">x</button>
-                    </div>
-                  </div>
-                  <div className="turnpoint-file-layout">
-                    <div className="turnpoint-editor-map">
-                      <TaskMap
-                        turnpoints={sourceTurnpoints}
-                        airspaces={[]}
-                        taskPoints={[]}
-                        track={null}
-                        editable={canManagePlatform}
-                        onSelectTurnpoint={(turnpoint) => {
-                          if (!canManagePlatform) return;
-                          const sourceTurnpoint = sourceTurnpoints.find((candidate) => candidate.id === turnpoint.id);
-                          if (!sourceTurnpoint) return;
-                          setDraftTurnpoint(null);
-                          setEditingTurnpointId(sourceTurnpoint.id);
-                          setTurnpointEdit(turnpointToEditable(sourceTurnpoint));
-                        }}
-                        onMapClick={(position) => {
-                          if (!canManagePlatform) return;
-                          setEditingTurnpointId(null);
-                          setTurnpointEdit(null);
-                          setDraftTurnpoint(turnpointToEditable(null, position));
-                        }}
-                        fitKey={`${selectedTurnpointSource.id}-${sourceTurnpoints.length}`}
-                        viewStateKey={`turnpoint-source-${selectedTurnpointSource.id}`}
-                        fitMaxZoom={12}
-                        telemetrySmoothing={telemetrySmoothing}
-                        overlayConfig={{ click_to_add_turnpoint: true }}
-                      />
-                    </div>
-                    <div className="stack compact turnpoint-draft-panel">
-                      {draftTurnpoint ? (
-                        <>
-                          <strong>New waypoint</strong>
-                          <div className="turnpoint-edit-grid">
-                            <label><span>Name</span><input value={draftTurnpoint.name} onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, name: event.target.value })} /></label>
-                            <label><span>Latitude</span><input value={draftTurnpoint.latitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, latitude: event.target.value })} /></label>
-                            <label><span>Longitude</span><input value={draftTurnpoint.longitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, longitude: event.target.value })} /></label>
-                            <label><span>Altitude</span><input value={draftTurnpoint.elevation_m} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, elevation_m: event.target.value })} /></label>
-                            <label><span>Symbol</span>{renderSymbolSelect(draftTurnpoint.symbol, (symbol) => setDraftTurnpoint({ ...draftTurnpoint, symbol }))}</label>
-                          </div>
-                          {selectedSourceExtraColumns.length ? (
-                            <div className="turnpoint-extra-grid">
-                              {selectedSourceExtraColumns.map((key) => (
-                                <label key={key}><span>{key}</span><input value={draftTurnpoint.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("draft", key, event.target.value)} /></label>
-                              ))}
-                            </div>
-                          ) : null}
-                          <div className="button-row">
-                            <button type="button" className="primary-button" onClick={() => void saveDraftTurnpoint()}>Save waypoint</button>
-                            <button type="button" className="ghost-button" onClick={() => setDraftTurnpoint(null)}>Cancel</button>
-                          </div>
-                        </>
-                      ) : turnpointEdit && editingTurnpointId ? (
-                        <>
-                          <strong>Edit waypoint</strong>
-                          <div className="turnpoint-edit-grid">
-                            <label><span>Name</span><input value={turnpointEdit.name} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, name: event.target.value })} /></label>
-                            <label><span>Latitude</span><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></label>
-                            <label><span>Longitude</span><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></label>
-                            <label><span>Altitude</span><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></label>
-                            <label><span>Symbol</span>{renderSymbolSelect(turnpointEdit.symbol, (symbol) => setTurnpointEdit({ ...turnpointEdit, symbol }))}</label>
-                          </div>
-                          {selectedSourceExtraColumns.length ? (
-                            <div className="turnpoint-extra-grid">
-                              {selectedSourceExtraColumns.map((key) => (
-                                <label key={key}><span>{key}</span><input value={turnpointEdit.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("edit", key, event.target.value)} /></label>
-                              ))}
-                            </div>
-                          ) : null}
-                          <div className="button-row">
-                            <button type="button" className="primary-button" onClick={() => void saveTurnpointEdit()}>Save waypoint</button>
-                            <button type="button" className="ghost-button" onClick={() => { setEditingTurnpointId(null); setTurnpointEdit(null); }}>Cancel</button>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="hint">Click a waypoint to edit it, or click open map space to place a new waypoint draft.</p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="participant-table-wrap turnpoint-table-scroll">
-                    <table className="participant-table turnpoint-edit-table">
-                      <thead>
-                        <tr>
-                          <th>
-                            <button type="button" className="turnpoint-sort-button" onClick={() => toggleTurnpointSort("name")} aria-label={`Sort waypoints by name ${turnpointSort?.key === "name" && turnpointSort.direction === "asc" ? "descending" : "ascending"}`}>
-                              <span>Name</span>
-                              <span>{sortLabel("name")}</span>
-                            </button>
-                          </th>
-                          <th>Lat</th>
-                          <th>Long</th>
-                          <th>Alt</th>
-                          <th>
-                            <button type="button" className="turnpoint-sort-button" onClick={() => toggleTurnpointSort("symbol")} aria-label={`Sort waypoints by symbol ${turnpointSort?.key === "symbol" && turnpointSort.direction === "asc" ? "descending" : "ascending"}`}>
-                              <span>Symbol</span>
-                              <span>{sortLabel("symbol")}</span>
-                            </button>
-                          </th>
-                          {selectedSourceExtraColumns.map((key) => <th key={key}>{key}</th>)}
-                          {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sourceTurnpointsLoading ? (
-                          <tr><td colSpan={turnpointTableColSpan} className="participant-table-empty">Loading waypoints...</td></tr>
-                        ) : sortedSourceTurnpoints.length ? (
-                          sortedSourceTurnpoints.map((turnpoint) => {
-                            const isEditing = editingTurnpointId === turnpoint.id && turnpointEdit;
-                            return (
-                              <tr key={turnpoint.id}>
-                                {isEditing ? (
-                                  <>
-                                    <td><input value={turnpointEdit.name} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, name: event.target.value })} /></td>
-                                    <td><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></td>
-                                    <td><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></td>
-                                    <td><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></td>
-                                    <td>{renderSymbolSelect(turnpointEdit.symbol, (symbol) => setTurnpointEdit({ ...turnpointEdit, symbol }))}</td>
-                                    {selectedSourceExtraColumns.map((key) => (
-                                      <td key={key}><input value={turnpointEdit.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("edit", key, event.target.value)} /></td>
-                                    ))}
-                                    <td className="participant-table-actions">
-                                      <button type="button" className="primary-button" onClick={() => void saveTurnpointEdit()}>Save</button>
-                                      <button type="button" className="ghost-button" onClick={() => { setEditingTurnpointId(null); setTurnpointEdit(null); }}>Cancel</button>
-                                    </td>
-                                  </>
-                                ) : (
-                                  <>
-                                    <td><strong>{turnpoint.name}</strong></td>
-                                    <td>{turnpoint.latitude.toFixed(6)}</td>
-                                    <td>{turnpoint.longitude.toFixed(6)}</td>
-                                    <td>{turnpoint.elevation_m == null ? "" : Math.round(turnpoint.elevation_m)}</td>
-                                    <td className="turnpoint-symbol-cell"><TurnpointSymbolIcon symbol={normalizeEditableSymbol(turnpoint.symbol)} /> {turnpointSymbolLabel(turnpoint.symbol)}</td>
-                                    {selectedSourceExtraColumns.map((key) => <td key={key}>{String(turnpoint.extra_json?.[key] ?? "")}</td>)}
-                                    {canManagePlatform ? (
-                                      <td className="participant-table-actions">
-                                        <button type="button" className="ghost-button" onClick={() => { setEditingTurnpointId(turnpoint.id); setTurnpointEdit(turnpointToEditable(turnpoint)); }}>Edit</button>
-                                        <button type="button" className="ghost-button danger-button" onClick={() => void deleteSourceTurnpoint(turnpoint)}>Delete</button>
-                                      </td>
-                                    ) : null}
-                                  </>
-                                )}
-                              </tr>
-                            );
-                          })
-                        ) : (
-                          <tr><td colSpan={turnpointTableColSpan} className="participant-table-empty">No waypoints in this file.</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              ) : null}
+              <WaypointFilesEditor
+                token={token}
+                sources={turnpointSources}
+                defaultCanEdit={canManagePlatform}
+                telemetrySmoothing={telemetrySmoothing}
+                setMessage={setMessage}
+                setError={setError}
+                emptyMessage="No turnpoint files uploaded for this event yet."
+                onSourcesChanged={async () => {
+                  if (selectedEventId) {
+                    await loadEvent(token, selectedEventId);
+                    await refreshEvents(token);
+                  }
+                }}
+              />
             </div>
           ) : (
             <p className="hint">Create or select an event before uploading turnpoint files.</p>
