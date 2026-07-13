@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db import get_session
-from app.deps import get_current_user, require_staff
+from app.deps import get_current_user
 from app.models import Event, TaskPoint, Turnpoint, TurnpointSource, User
 from app.schemas import TurnpointResponse, TurnpointSourceResponse, TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointUploadResponse, TurnpointWrite
 from app.services.audit import log_action
 from app.services.turnpoints import normalize_symbol, rewrite_turnpoint_source_file, validate_coordinate, parse_turnpoint_upload
+from app.services.waypoint_access import can_edit_waypoints, can_view_waypoints
 
 router = APIRouter(tags=["turnpoints"])
 
@@ -67,7 +68,8 @@ def _delete_legacy_unsourced_turnpoints(session: Session, event_id: int) -> None
 
 @router.get("/api/events/{event_id}/turnpoints", response_model=list[TurnpointResponse])
 def list_turnpoints(event_id: int, search: str | None = Query(default=None), user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TurnpointResponse]:
-    if session.get(Event, event_id) is None:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
         raise HTTPException(status_code=404, detail="Event not found")
     query = select(Turnpoint).where(Turnpoint.event_id == event_id)
     source_ids = list(session.scalars(select(TurnpointSource.id).where(TurnpointSource.event_id == event_id)).all())
@@ -83,15 +85,19 @@ def list_turnpoints(event_id: int, search: str | None = Query(default=None), use
 
 @router.get("/api/events/{event_id}/turnpoint-sources", response_model=list[TurnpointSourceResponse])
 def list_turnpoint_sources(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TurnpointSourceResponse]:
-    if session.get(Event, event_id) is None:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
         raise HTTPException(status_code=404, detail="Event not found")
     sources = session.scalars(select(TurnpointSource).where(TurnpointSource.event_id == event_id).order_by(TurnpointSource.uploaded_at.desc(), TurnpointSource.id.desc())).all()
     return [_source_payload(session, source) for source in sources]
 
 
-def _source_or_404(session: Session, event_id: int, source_id: int) -> TurnpointSource:
-    if session.get(Event, event_id) is None:
+def _source_or_404(session: Session, event_id: int, source_id: int, user: User, *, for_write: bool = False) -> TurnpointSource:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
         raise HTTPException(status_code=404, detail="Event not found")
+    if for_write and not can_edit_waypoints(session, user, event):
+        raise HTTPException(status_code=403, detail="Waypoint file edit access required")
     source = session.get(TurnpointSource, source_id)
     if source is None or source.event_id != event_id:
         raise HTTPException(status_code=404, detail="Turnpoint source not found")
@@ -143,13 +149,13 @@ def _apply_turnpoint_payload(turnpoint: Turnpoint, payload: TurnpointWrite) -> N
 
 @router.get("/api/events/{event_id}/turnpoint-sources/{source_id}/turnpoints", response_model=list[TurnpointResponse])
 def list_source_turnpoints(event_id: int, source_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TurnpointResponse]:
-    source = _source_or_404(session, event_id, source_id)
+    source = _source_or_404(session, event_id, source_id, user)
     return [_turnpoint_response(turnpoint) for turnpoint in _source_turnpoints(session, source)]
 
 
 @router.get("/api/events/{event_id}/turnpoint-sources/{source_id}/download")
-def download_turnpoint_source(event_id: int, source_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> FileResponse:
-    source = _source_or_404(session, event_id, source_id)
+def download_turnpoint_source(event_id: int, source_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> FileResponse:
+    source = _source_or_404(session, event_id, source_id, user, for_write=True)
     stored_path = Path(source.stored_path)
     if not stored_path.exists():
         raise HTTPException(status_code=404, detail="Stored turnpoint file not found")
@@ -162,8 +168,8 @@ def download_turnpoint_source(event_id: int, source_id: int, admin: User = Depen
 
 
 @router.post("/api/events/{event_id}/turnpoint-sources/{source_id}/turnpoints", response_model=TurnpointResponse)
-def create_source_turnpoint(event_id: int, source_id: int, payload: TurnpointWrite, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointResponse:
-    source = _source_or_404(session, event_id, source_id)
+def create_source_turnpoint(event_id: int, source_id: int, payload: TurnpointWrite, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TurnpointResponse:
+    source = _source_or_404(session, event_id, source_id, user, for_write=True)
     existing = _source_turnpoints(session, source)
     next_row_index = max((turnpoint.source_row_index or 0 for turnpoint in existing), default=-1) + 1
     turnpoint = Turnpoint(event_id=event_id, source_id=source.id, name="", latitude=0, longitude=0, source_row_index=next_row_index)
@@ -171,37 +177,43 @@ def create_source_turnpoint(event_id: int, source_id: int, payload: TurnpointWri
     session.add(turnpoint)
     session.flush()
     rewrite_turnpoint_source_file(source, _source_turnpoints(session, source))
-    log_action(session, actor_user_id=admin.id, action="turnpoint.create", entity_type="turnpoint", entity_id=str(turnpoint.id), details={"event_id": event_id, "source_id": source.id, "filename": source.filename})
+    log_action(session, actor_user_id=user.id, action="turnpoint.create", entity_type="turnpoint", entity_id=str(turnpoint.id), details={"event_id": event_id, "source_id": source.id, "filename": source.filename})
     session.commit()
     session.refresh(turnpoint)
     return _turnpoint_response(turnpoint)
 
 
 @router.put("/api/events/{event_id}/turnpoints/{turnpoint_id}", response_model=TurnpointResponse)
-def update_turnpoint(event_id: int, turnpoint_id: int, payload: TurnpointWrite, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointResponse:
-    if session.get(Event, event_id) is None:
+def update_turnpoint(event_id: int, turnpoint_id: int, payload: TurnpointWrite, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TurnpointResponse:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
         raise HTTPException(status_code=404, detail="Event not found")
+    if not can_edit_waypoints(session, user, event):
+        raise HTTPException(status_code=403, detail="Waypoint file edit access required")
     turnpoint = session.get(Turnpoint, turnpoint_id)
     if turnpoint is None or turnpoint.event_id != event_id or turnpoint.source_id is None:
         raise HTTPException(status_code=404, detail="Turnpoint not found")
-    source = _source_or_404(session, event_id, turnpoint.source_id)
+    source = _source_or_404(session, event_id, turnpoint.source_id, user, for_write=True)
     _apply_turnpoint_payload(turnpoint, payload)
     session.flush()
     rewrite_turnpoint_source_file(source, _source_turnpoints(session, source))
-    log_action(session, actor_user_id=admin.id, action="turnpoint.update", entity_type="turnpoint", entity_id=str(turnpoint.id), details={"event_id": event_id, "source_id": source.id, "filename": source.filename})
+    log_action(session, actor_user_id=user.id, action="turnpoint.update", entity_type="turnpoint", entity_id=str(turnpoint.id), details={"event_id": event_id, "source_id": source.id, "filename": source.filename})
     session.commit()
     session.refresh(turnpoint)
     return _turnpoint_response(turnpoint)
 
 
 @router.delete("/api/events/{event_id}/turnpoints/{turnpoint_id}", status_code=204)
-def delete_turnpoint(event_id: int, turnpoint_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> None:
-    if session.get(Event, event_id) is None:
+def delete_turnpoint(event_id: int, turnpoint_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> None:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
         raise HTTPException(status_code=404, detail="Event not found")
+    if not can_edit_waypoints(session, user, event):
+        raise HTTPException(status_code=403, detail="Waypoint file edit access required")
     turnpoint = session.get(Turnpoint, turnpoint_id)
     if turnpoint is None or turnpoint.event_id != event_id or turnpoint.source_id is None:
         raise HTTPException(status_code=404, detail="Turnpoint not found")
-    source = _source_or_404(session, event_id, turnpoint.source_id)
+    source = _source_or_404(session, event_id, turnpoint.source_id, user, for_write=True)
     _delete_task_points_for_turnpoints(session, [turnpoint.id])
     session.delete(turnpoint)
     session.flush()
@@ -209,13 +221,13 @@ def delete_turnpoint(event_id: int, turnpoint_id: int, admin: User = Depends(req
     for index, item in enumerate(remaining):
         item.source_row_index = index
     rewrite_turnpoint_source_file(source, remaining)
-    log_action(session, actor_user_id=admin.id, action="turnpoint.delete-row", entity_type="turnpoint", entity_id=str(turnpoint_id), details={"event_id": event_id, "source_id": source.id, "filename": source.filename})
+    log_action(session, actor_user_id=user.id, action="turnpoint.delete-row", entity_type="turnpoint", entity_id=str(turnpoint_id), details={"event_id": event_id, "source_id": source.id, "filename": source.filename})
     session.commit()
 
 
 @router.post("/api/events/{event_id}/turnpoint-sources/{source_id}/save-as", response_model=TurnpointSourceResponse)
-def save_turnpoint_source_as(event_id: int, source_id: int, payload: TurnpointSourceSaveAs, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
-    source = _source_or_404(session, event_id, source_id)
+def save_turnpoint_source_as(event_id: int, source_id: int, payload: TurnpointSourceSaveAs, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
+    source = _source_or_404(session, event_id, source_id, user, for_write=True)
     filename = _clean_source_filename(payload.filename, source.file_format)
     settings = get_settings()
     stored_path = Path(settings.upload_root) / "turnpoints" / f"version-{uuid.uuid4().hex}" / filename
@@ -248,16 +260,19 @@ def save_turnpoint_source_as(event_id: int, source_id: int, payload: TurnpointSo
         )
     session.flush()
     rewrite_turnpoint_source_file(duplicate, _source_turnpoints(session, duplicate))
-    log_action(session, actor_user_id=admin.id, action="turnpoint.save_as", entity_type="turnpoint_source", entity_id=str(duplicate.id), details={"event_id": event_id, "source_id": source.id, "filename": filename})
+    log_action(session, actor_user_id=user.id, action="turnpoint.save_as", entity_type="turnpoint_source", entity_id=str(duplicate.id), details={"event_id": event_id, "source_id": source.id, "filename": filename})
     session.commit()
     session.refresh(duplicate)
     return _source_payload(session, duplicate)
 
 
 @router.post("/api/events/{event_id}/turnpoints/upload", response_model=TurnpointUploadResponse)
-async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
-    if session.get(Event, event_id) is None:
+async def upload_turnpoints(event_id: int, file: UploadFile = File(...), user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TurnpointUploadResponse:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
         raise HTTPException(status_code=404, detail="Event not found")
+    if not can_edit_waypoints(session, user, event):
+        raise HTTPException(status_code=403, detail="Waypoint file edit access required")
     content = await file.read()
     sha256 = hashlib.sha256(content).hexdigest()
     parsed = parse_turnpoint_upload(file.filename or "turnpoints.csv", content)
@@ -295,18 +310,14 @@ async def upload_turnpoints(event_id: int, file: UploadFile = File(...), admin: 
             )
         )
     _delete_legacy_unsourced_turnpoints(session, event_id)
-    log_action(session, actor_user_id=admin.id, action="turnpoint.upload", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "filename": source.filename, "sha256": sha256, "count": len(parsed.records)})
+    log_action(session, actor_user_id=user.id, action="turnpoint.upload", entity_type="turnpoint_source", entity_id=str(source.id), details={"event_id": event_id, "filename": source.filename, "sha256": sha256, "count": len(parsed.records)})
     session.commit()
     return TurnpointUploadResponse(source_id=source.id, format=parsed.file_format, imported_count=len(parsed.records), sha256=sha256, filename=source.filename)
 
 
 @router.patch("/api/events/{event_id}/turnpoint-sources/{source_id}", response_model=TurnpointSourceResponse)
-def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSourceUpdate, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
-    source = session.get(TurnpointSource, source_id)
-    if source is None or source.event_id != event_id:
-        raise HTTPException(status_code=404, detail="Turnpoint source not found")
+def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSourceUpdate, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> TurnpointSourceResponse:
+    source = _source_or_404(session, event_id, source_id, user, for_write=True)
     details: dict[str, object] = {"event_id": event_id, "filename": source.filename}
     if payload.enabled is not None:
         source.enabled = payload.enabled
@@ -316,19 +327,15 @@ def update_turnpoint_source(event_id: int, source_id: int, payload: TurnpointSou
         details["new_filename"] = source.filename
     if payload.enabled is None and payload.filename is None:
         raise HTTPException(status_code=400, detail="No turnpoint source changes provided.")
-    log_action(session, actor_user_id=admin.id, action="turnpoint.update_source", entity_type="turnpoint_source", entity_id=str(source.id), details=details)
+    log_action(session, actor_user_id=user.id, action="turnpoint.update_source", entity_type="turnpoint_source", entity_id=str(source.id), details=details)
     session.commit()
     session.refresh(source)
     return _source_payload(session, source)
 
 
 @router.delete("/api/events/{event_id}/turnpoint-sources/{source_id}", status_code=204)
-def delete_turnpoint_source(event_id: int, source_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> None:
-    if session.get(Event, event_id) is None:
-        raise HTTPException(status_code=404, detail="Event not found")
-    source = session.get(TurnpointSource, source_id)
-    if source is None or source.event_id != event_id:
-        raise HTTPException(status_code=404, detail="Turnpoint source not found")
+def delete_turnpoint_source(event_id: int, source_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> None:
+    source = _source_or_404(session, event_id, source_id, user, for_write=True)
 
     filename = source.filename
     stored_path = Path(source.stored_path)
@@ -343,5 +350,5 @@ def delete_turnpoint_source(event_id: int, source_id: int, admin: User = Depends
         if stored_path.parent.exists() and not any(stored_path.parent.iterdir()):
             stored_path.parent.rmdir()
 
-    log_action(session, actor_user_id=admin.id, action="turnpoint.delete", entity_type="turnpoint_source", entity_id=str(source_id), details={"event_id": event_id, "source_id": source_id, "filename": filename})
+    log_action(session, actor_user_id=user.id, action="turnpoint.delete", entity_type="turnpoint_source", entity_id=str(source_id), details={"event_id": event_id, "source_id": source_id, "filename": filename})
     session.commit()

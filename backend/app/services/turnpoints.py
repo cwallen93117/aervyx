@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 from app.models import Turnpoint, TurnpointSource
 
 
-CANONICAL_SYMBOLS = {"grass_strip", "paved_runway", "dot", "bar"}
+CANONICAL_SYMBOLS = {"grass_strip", "paved_runway", "dot", "bar", "lz", "launch"}
 CORE_FIELD_KEYS = {"name", "code", "latitude", "longitude", "elevation_m", "symbol"}
 SUPPORTED_FORMATS = {".csv": "csv", ".geojson": "geojson", ".json": "geojson", ".gpx": "gpx"}
 
@@ -75,6 +75,11 @@ def normalize_symbol(value: str | None) -> str | None:
         "bar": "bar",
         "cocktail": "bar",
         "cocktail_glass": "bar",
+        "lz": "lz",
+        "landing_zone": "lz",
+        "landing": "lz",
+        "launch": "launch",
+        "takeoff": "launch",
     }
     normalized = aliases.get(lowered, lowered)
     return normalized if normalized in CANONICAL_SYMBOLS else None

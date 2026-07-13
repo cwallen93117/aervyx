@@ -16,7 +16,7 @@ from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin, resolve_user_from_token_subject, token_subject_for_user
-from app.models import AirspaceRegion, AirspaceSource, LivePosition, MeshDevice, Pilot, TrackingSession, Turnpoint, TurnpointSource, User, UserEmail
+from app.models import AirspaceRegion, AirspaceSource, Event, LivePosition, MeshDevice, Pilot, TrackingSession, Turnpoint, TurnpointSource, User, UserEmail
 from app.schemas import (
     AdminUserCredentialsUpdate,
     AdminUserResponse,
@@ -43,6 +43,7 @@ from app.schemas import (
     UserEmailCreate,
     UserEmailResponse,
     UserSummary,
+    WaypointFileResponse,
 )
 from app.services.airspace import parse_airspace_upload
 from app.services.challenge_defaults import ensure_challenge_defaults_event
@@ -55,6 +56,7 @@ from app.services.pilot_identity import (
     repair_user_email_identity,
 )
 from app.services.turnpoints import parse_turnpoint_upload
+from app.services.waypoint_access import can_edit_waypoints, waypoint_file_records_for_user
 from app.services.mesh_ids import normalize_mesh_device_id
 
 logger = logging.getLogger(__name__)
@@ -135,6 +137,18 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         challenge_settings_json=user.challenge_settings_json or {},
         access_token=access_token,
     )
+
+
+def _validate_challenge_waypoint_source(session: Session, user: User, settings: dict) -> None:
+    source_id = settings.get("turnpoint_source_id")
+    if source_id is None:
+        return
+    if not isinstance(source_id, int):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid waypoint file selection")
+    source = session.get(TurnpointSource, source_id)
+    event = session.get(Event, source.event_id) if source is not None else None
+    if source is None or not can_edit_waypoints(session, user, event):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Waypoint file access required")
 
 
 def _normalize_mesh_device_id(value: str | None) -> str | None:
@@ -662,6 +676,7 @@ def update_settings(
     user.vario_unit = vario_unit
     user.aircraft_icon = aircraft_icon
     if payload.challenge_settings_json is not None:
+        _validate_challenge_waypoint_source(session, user, payload.challenge_settings_json)
         user.challenge_settings_json = payload.challenge_settings_json
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
@@ -727,6 +742,7 @@ def update_preferences(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
         user.vario_unit = vario_unit
     if payload.challenge_settings_json is not None:
+        _validate_challenge_waypoint_source(session, user, payload.challenge_settings_json)
         user.challenge_settings_json = payload.challenge_settings_json
 
     session.add(user)
@@ -746,11 +762,17 @@ def update_challenge_settings(
     user: User = Depends(get_current_user),
     session: Session = Depends(get_session),
 ) -> ChallengeSettingsResponse:
+    _validate_challenge_waypoint_source(session, user, payload.settings)
     user.challenge_settings_json = payload.settings
     session.add(user)
     session.commit()
     session.refresh(user)
     return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
+
+
+@router.get("/waypoint-files", response_model=list[WaypointFileResponse])
+def list_waypoint_files(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[WaypointFileResponse]:
+    return [WaypointFileResponse(**record) for record in waypoint_file_records_for_user(session, user)]
 
 
 @router.post("/challenge-settings/turnpoints/upload", response_model=ChallengeSettingsResponse)

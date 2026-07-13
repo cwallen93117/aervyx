@@ -162,6 +162,10 @@ const TURNPOINT_SYMBOL_SVGS: Record<string, string> = {
     '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path fill="#111827" stroke="#ffffff" stroke-width="2" stroke-linejoin="round" d="M24 4l5 3v12l14 8v7l-14-4v8l5 4v4l-10-3-10 3v-4l5-4v-8L5 34v-7l14-8V7l5-3z"/></svg>',
   bar:
     '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path fill="#7c3aed" stroke="#ffffff" stroke-width="2" stroke-linejoin="round" d="M9 7h30L27 22v14h8v5H13v-5h8V22L9 7zm8 5l7 8 7-8H17z"/><circle cx="34" cy="12" r="4" fill="#ef4444" stroke="#ffffff" stroke-width="1.5"/></svg>',
+  lz:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><circle cx="21" cy="21" r="14" fill="#fee2e2" stroke="#dc2626" stroke-width="4"/><circle cx="21" cy="21" r="5" fill="#dc2626"/><path d="M34 11v18m0 0l-7-7m7 7l7-7" fill="none" stroke="#dc2626" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  launch:
+    '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><path d="M6 38l11-19 8 12 6-8 11 15H6z" fill="#dbeafe" stroke="#0369a1" stroke-width="3" stroke-linejoin="round"/><path d="M25 20l13-13m0 0H27m11 0v11" fill="none" stroke="#0369a1" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/></svg>',
 };
 
 function ensureTurnpointSymbolImages(map: maplibregl.Map) {
@@ -1526,7 +1530,7 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
       id: "turnpoints-layer",
       type: "circle",
       source: "turnpoints",
-      filter: ["!", ["in", ["get", "symbol"], ["literal", ["grass_strip", "paved_runway", "bar"]]]],
+      filter: ["!", ["in", ["get", "symbol"], ["literal", ["grass_strip", "paved_runway", "bar", "lz", "launch"]]]],
       paint: { "circle-radius": 5, "circle-color": "#0f766e", "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" },
     });
   }
@@ -1535,7 +1539,7 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
       id: "turnpoints-icons",
       type: "symbol",
       source: "turnpoints",
-      filter: ["in", ["get", "symbol"], ["literal", ["grass_strip", "paved_runway", "bar"]]],
+      filter: ["in", ["get", "symbol"], ["literal", ["grass_strip", "paved_runway", "bar", "lz", "launch"]]],
       layout: {
         "icon-image": ["concat", "turnpoint-symbol-", ["get", "symbol"]],
         "icon-size": 0.72,
