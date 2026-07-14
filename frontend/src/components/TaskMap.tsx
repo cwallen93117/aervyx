@@ -461,6 +461,8 @@ function removeFaaAirspaceOverlay(map: maplibregl.Map) {
     FAA_AIRSPACE_LABEL_SOURCE_ID,
     FAA_AIRSPACE_SOURCE_ID,
   ].forEach((sourceId) => removeSourceIfPresent(map, sourceId));
+  map.triggerRepaint();
+  window.requestAnimationFrame(() => map.triggerRepaint());
 }
 
 function buildFaaAirspaceLabelData(data: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {

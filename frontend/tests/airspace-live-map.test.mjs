@@ -27,6 +27,7 @@ test("airspace chip is above the basemap picker and exposes browser-verifiable s
   assert.match(source, /data-uploaded-airspace-count=\{effectiveAirspaces\.length\}/);
   assert.match(source, /const effectiveAirspaces = showFaaAirspace/);
   assert.match(source, /removeFaaAirspaceOverlay\(map\)/);
+  assert.match(source, /map\.triggerRepaint\(\)/);
   assert.match(source, /if \(!faaAirspaceEnabled\) \{/);
   assert.ok(source.indexOf("<span>Show Airspace</span>") < source.indexOf("<span>Map</span>"));
 });
