@@ -346,6 +346,12 @@ function removeSourceIfPresent(map: maplibregl.Map, id: string) {
   }
 }
 
+function setLayerVisibility(map: maplibregl.Map, layerId: string, visible: boolean) {
+  if (map.getLayer(layerId)) {
+    map.setLayoutProperty(layerId, "visibility", visible ? "visible" : "none");
+  }
+}
+
 const FAA_AIRSPACE_SOURCE_ID = "faa-airspace-overlay";
 const FAA_AIRSPACE_LABEL_SOURCE_ID = "faa-airspace-overlay-labels";
 
@@ -448,6 +454,13 @@ function ensureFaaAirspaceLayers(map: maplibregl.Map, isPerspective3D = false) {
       minzoom: 7,
     });
   }
+}
+
+function setFaaAirspaceLayerVisibility(map: maplibregl.Map, visible: boolean) {
+  setLayerVisibility(map, "faa-airspace-overlay-fill", visible);
+  setLayerVisibility(map, "faa-airspace-overlay-extrusion", visible);
+  setLayerVisibility(map, "faa-airspace-overlay-outline", visible);
+  setLayerVisibility(map, "faa-airspace-overlay-labels", visible);
 }
 
 function buildFaaAirspaceLabelData(data: GeoJSON.FeatureCollection): GeoJSON.FeatureCollection {
@@ -3668,16 +3681,19 @@ export const TaskMap = React.memo(function TaskMap({
       return;
     }
     const sync = () => {
-      ensureGeoJsonSource(map, FAA_AIRSPACE_SOURCE_ID, faaAirspaceData as never);
-      ensureGeoJsonSource(map, FAA_AIRSPACE_LABEL_SOURCE_ID, faaAirspaceLabelData as never);
+      const visibleFaaAirspaceData = faaAirspaceEnabled ? faaAirspaceData : emptyFeatureCollection();
+      const visibleFaaAirspaceLabelData = faaAirspaceEnabled ? faaAirspaceLabelData : emptyFeatureCollection();
+      ensureGeoJsonSource(map, FAA_AIRSPACE_SOURCE_ID, visibleFaaAirspaceData as never);
+      ensureGeoJsonSource(map, FAA_AIRSPACE_LABEL_SOURCE_ID, visibleFaaAirspaceLabelData as never);
       ensureMapLayers(map, isPerspective3D);
+      setFaaAirspaceLayerVisibility(map, faaAirspaceEnabled);
     };
     if (map.isStyleLoaded()) {
       sync();
     } else {
       map.once("styledata", sync);
     }
-  }, [faaAirspaceData, faaAirspaceLabelData, isPerspective3D, styleGeneration]);
+  }, [faaAirspaceData, faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, styleGeneration]);
 
   // Sync live position data to map
   useEffect(() => {
