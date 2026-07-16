@@ -3673,7 +3673,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [airspaceData, airspaceLabelData, isPerspective3D, styleGeneration]);
+  }, [airspaceData, airspaceLabelData, isPerspective3D, mapReadyNonce, styleGeneration]);
 
   // Sync FAA airspace overlay data to map
   useEffect(() => {
