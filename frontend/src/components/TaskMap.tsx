@@ -1537,9 +1537,7 @@ function hexToRgb(hex: string): [number, number, number] {
   return [(parsed >> 16) & 255, (parsed >> 8) & 255, parsed & 255];
 }
 
-function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
-  ensureTurnpointSymbolImages(map);
-  ensureFaaAirspaceLayers(map, isPerspective3D);
+function ensureUploadedAirspaceLayers(map: maplibregl.Map, isPerspective3D = false) {
   if (hasSource(map, "airspaces")) {
     if (isPerspective3D) {
       removeLayerIfPresent(map, "airspaces-fill");
@@ -1674,6 +1672,10 @@ function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
       },
     });
   }
+}
+
+function ensureMapLayers(map: maplibregl.Map, isPerspective3D = false) {
+  ensureTurnpointSymbolImages(map);
   if (hasSource(map, "turnpoints") && !map.getLayer("turnpoints-layer")) {
     safeAddLayer(map, {
       id: "turnpoints-layer",
@@ -3666,7 +3668,7 @@ export const TaskMap = React.memo(function TaskMap({
     const sync = () => {
       ensureGeoJsonSource(map, "airspaces", airspaceData as never);
       ensureGeoJsonSource(map, "airspace-labels", airspaceLabelData as never);
-      ensureMapLayers(map, isPerspective3D);
+      ensureUploadedAirspaceLayers(map, isPerspective3D);
     };
     if (map.isStyleLoaded()) {
       sync();
@@ -3688,7 +3690,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
       ensureGeoJsonSource(map, FAA_AIRSPACE_SOURCE_ID, faaAirspaceData as never);
       ensureGeoJsonSource(map, FAA_AIRSPACE_LABEL_SOURCE_ID, faaAirspaceLabelData as never);
-      ensureMapLayers(map, isPerspective3D);
+      ensureFaaAirspaceLayers(map, isPerspective3D);
       map.triggerRepaint();
     };
     if (map.isStyleLoaded()) {
