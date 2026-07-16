@@ -18,6 +18,22 @@ from app.services.mosquitto_passwords import write_mosquitto_password_file
 
 router = APIRouter(prefix="/api/site-settings", tags=["site-settings"])
 
+DEFAULT_AIRSPACE_CATEGORIES = ["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"]
+
+
+def normalize_airspace_categories(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return list(DEFAULT_AIRSPACE_CATEGORIES)
+    allowed = set(DEFAULT_AIRSPACE_CATEGORIES)
+    normalized: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        candidate = item.strip().upper()
+        if candidate in allowed and candidate not in normalized:
+            normalized.append(candidate)
+    return normalized
+
 
 # Curated set of Meshtastic device settings exposed per profile.
 # Mirrors the categories in the official Meshtastic Android app
@@ -237,6 +253,7 @@ def _get_site_settings(session: Session) -> SiteSettings:
             mqtt_topic_prefix="msh",
             cloudflare_ddns_record_names=normalize_cloudflare_record_names(None),
             cloudflare_ddns_check_interval_hours=12,
+            public_airspace_categories_json=DEFAULT_AIRSPACE_CATEGORIES,
             mesh_profiles=DEFAULT_MESH_PROFILES,
         )
         session.add(settings)
@@ -248,6 +265,10 @@ def _get_site_settings(session: Session) -> SiteSettings:
         settings.mqtt_broker_mode = broker_mode
         changed = clear_legacy_public_mqtt_values(settings) or changed
         changed = normalize_cloudflare_ddns_settings(settings) or changed
+        public_categories = normalize_airspace_categories(settings.public_airspace_categories_json)
+        if settings.public_airspace_categories_json != public_categories:
+            settings.public_airspace_categories_json = public_categories
+            changed = True
         if changed:
             session.add(settings)
             session.commit()
@@ -341,6 +362,7 @@ def update_site_settings(
     settings.cloudflare_ddns_encrypted_api_token = encrypted_cloudflare_token
     settings.cloudflare_ddns_record_names = cloudflare_record_names
     settings.cloudflare_ddns_check_interval_hours = payload.cloudflare_ddns_check_interval_hours
+    settings.public_airspace_categories_json = normalize_airspace_categories(payload.public_airspace_categories_json)
     if payload.mesh_profiles is not None:
         settings.mesh_profiles = payload.mesh_profiles
     session.add(settings)

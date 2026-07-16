@@ -51,6 +51,7 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
         "cloudflare_ddns_last_public_ip",
         "cloudflare_ddns_last_update_result",
         "cloudflare_ddns_last_error",
+        "public_airspace_categories_json",
         "mesh_profiles",
     }.issubset(columns)
 
@@ -59,7 +60,8 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
             text(
                 """
                 SELECT mqtt_enabled, mqtt_broker_mode, mqtt_port, mqtt_tls_enabled, mqtt_topic_prefix,
-                       cloudflare_ddns_enabled, cloudflare_ddns_check_interval_hours
+                       cloudflare_ddns_enabled, cloudflare_ddns_check_interval_hours,
+                       public_airspace_categories_json
                 FROM site_settings
                 WHERE id = 1
                 """
@@ -73,6 +75,7 @@ def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> Non
     assert row.mqtt_topic_prefix == "msh"
     assert bool(row.cloudflare_ddns_enabled) is False
     assert row.cloudflare_ddns_check_interval_hours == 12
+    assert row.public_airspace_categories_json == '["B", "C", "D", "P", "R", "W", "A", "MOA", "TFR"]'
 
 
 def test_runtime_schema_normalizes_legacy_public_mqtt_values() -> None:

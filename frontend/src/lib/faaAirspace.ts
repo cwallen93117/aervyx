@@ -32,6 +32,14 @@ function resolveApiBase() {
 // ---------------------------------------------------------------------------
 
 export type AirspaceCategory = "B" | "C" | "D" | "E" | "MODE-C" | "P" | "R" | "W" | "A" | "MOA" | "TFR";
+export const CLASS_AIRSPACE_CATEGORIES: AirspaceCategory[] = ["B", "C", "D"];
+export const SPECIAL_USE_AIRSPACE_CATEGORIES: AirspaceCategory[] = ["P", "R", "W", "A", "MOA"];
+export const TFR_AIRSPACE_CATEGORIES: AirspaceCategory[] = ["TFR"];
+export const DEFAULT_AIRSPACE_CATEGORIES: AirspaceCategory[] = [
+  ...CLASS_AIRSPACE_CATEGORIES,
+  ...SPECIAL_USE_AIRSPACE_CATEGORIES,
+  ...TFR_AIRSPACE_CATEGORIES,
+];
 
 export interface AirspaceProperties {
   /** Normalized display category */
@@ -142,6 +150,30 @@ export async function fetchTFRs(signal?: AbortSignal): Promise<GeoJSONFC> {
 /** Fetch all airspace (class + SUA) in a single request */
 export async function fetchAllAirspace(bounds: BoundsBox, signal?: AbortSignal): Promise<GeoJSONFC> {
   return fetchFromBackend(bounds, "B,C,D,P,R,W,A,MOA", signal);
+}
+
+export async function fetchAirspaceCategories(
+  bounds: BoundsBox,
+  categories: AirspaceCategory[],
+  signal?: AbortSignal,
+): Promise<GeoJSONFC> {
+  const selected = normalizeAirspaceCategories(categories);
+  if (!selected.length) return { type: "FeatureCollection", features: [] };
+  return fetchFromBackend(bounds, selected.join(","), signal);
+}
+
+export function normalizeAirspaceCategories(value: unknown): AirspaceCategory[] {
+  if (!Array.isArray(value)) return [...DEFAULT_AIRSPACE_CATEGORIES];
+  const allowed = new Set(DEFAULT_AIRSPACE_CATEGORIES);
+  const normalized: AirspaceCategory[] = [];
+  for (const item of value) {
+    if (typeof item !== "string") continue;
+    const candidate = item.trim().toUpperCase() as AirspaceCategory;
+    if (allowed.has(candidate) && !normalized.includes(candidate)) {
+      normalized.push(candidate);
+    }
+  }
+  return normalized;
 }
 
 // ---------------------------------------------------------------------------

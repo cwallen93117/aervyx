@@ -125,6 +125,7 @@ export type SiteSettingsRecord = {
   cloudflare_ddns_last_public_ip: string | null;
   cloudflare_ddns_last_update_result: string | null;
   cloudflare_ddns_last_error: string | null;
+  public_airspace_categories_json: string[];
   mesh_profiles: Record<string, Record<string, unknown>> | null;
   updated_at?: string | null;
 };

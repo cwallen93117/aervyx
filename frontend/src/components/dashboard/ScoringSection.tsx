@@ -5,6 +5,7 @@ import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { formatCalendarDateLabel } from "../../lib/dateLabels";
 import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints } from "../../lib/scorePenalties";
 import { resolveApiBase } from "../../lib/live-tracking-utils";
+import { normalizeAirspaceCategories } from "../../lib/faaAirspace";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
@@ -1177,6 +1178,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           }}
                           telemetrySmoothing={siteSettings}
                           overlayConfig={overlayConfig}
+                          faaAirspaceCategories={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
                         />
                       </div>
                     </div>

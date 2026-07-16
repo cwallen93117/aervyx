@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   TaskMap,
+  type MapAirspaceRegion,
   type MapLivePosition,
   type MapTaskPoint,
   type MapTelemetrySmoothing,
@@ -26,6 +27,7 @@ import {
   subjectKeyForPosition,
 } from "../../lib/live-tracking-utils";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories, type AirspaceCategory } from "../../lib/faaAirspace";
 
 type PublicEventSource = {
   id: number;
@@ -59,13 +61,14 @@ type SelectedSource =
   | { type: "buddies"; groupId: number; groupName: string };
 
 type LivePositionWithName = LivePositionRecord & { pilot_name?: string | null };
-type PublicSiteSettings = { max_map_pitch_degrees: number };
+type PublicSiteSettings = { max_map_pitch_degrees: number; public_airspace_categories_json?: string[] };
 type TaskInfoResponse = {
   id: number;
   name: string;
   task_type: string;
   task_date: string | null;
   turnpoints: { position: number; name: string; point_type: string; radius_m: number; latitude: number; longitude: number }[];
+  airspaces?: MapAirspaceRegion[];
 };
 
 const defaultUnits: MapUnitPreferences = { altitude: "ft", speed: "mph", distance: "mi", vario: "fpm" };
@@ -112,6 +115,7 @@ export function LiveWatchClient() {
   const [pilotNameById, setPilotNameById] = useState<Map<string, string>>(new Map());
   const [turnpoints, setTurnpoints] = useState<MapTurnpoint[]>([]);
   const [taskPoints, setTaskPoints] = useState<MapTaskPoint[]>([]);
+  const [liveTaskAirspaces, setLiveTaskAirspaces] = useState<MapAirspaceRegion[]>([]);
   const [loading, setLoading] = useState(false);
   const [sourcesLoaded, setSourcesLoaded] = useState(false);
   const [eventFitRequestId, setEventFitRequestId] = useState(0);
@@ -124,6 +128,7 @@ export function LiveWatchClient() {
   const [highlightedSubjectKey, setHighlightedSubjectKey] = useState<string | null>(null);
   const [visibleTrackSubjectKeys, setVisibleTrackSubjectKeys] = useState<Set<string>>(() => new Set());
   const [telemetrySmoothing, setTelemetrySmoothing] = useState<MapTelemetrySmoothing>(defaultTelemetrySmoothing);
+  const [publicAirspaceCategories, setPublicAirspaceCategories] = useState<AirspaceCategory[]>(() => DEFAULT_AIRSPACE_CATEGORIES);
   const sseControllerRef = useRef<AbortController | null>(null);
   const focusRequestIdRef = useRef(0);
 
@@ -149,6 +154,7 @@ export function LiveWatchClient() {
           if (settingsResponse.ok && !cancelled) {
             const settings = (await settingsResponse.json()) as PublicSiteSettings;
             setTelemetrySmoothing({ ...defaultTelemetrySmoothing, max_map_pitch_degrees: settings.max_map_pitch_degrees });
+            setPublicAirspaceCategories(normalizeAirspaceCategories(settings.public_airspace_categories_json));
           }
         } catch {
           // Public map keeps the built-in pitch default if settings are unavailable.
@@ -400,6 +406,7 @@ export function LiveWatchClient() {
     if (!selectedMapTaskId) {
       setTurnpoints([]);
       setTaskPoints([]);
+      setLiveTaskAirspaces([]);
       return () => {
         cancelled = true;
       };
@@ -407,6 +414,7 @@ export function LiveWatchClient() {
 
     setTurnpoints([]);
     setTaskPoints([]);
+    setLiveTaskAirspaces([]);
     (async () => {
       try {
         const response = await fetch(`${apiBase}/api/public/live/task/${selectedMapTaskId}/info`, { cache: "no-store" });
@@ -431,10 +439,12 @@ export function LiveWatchClient() {
           latitude: point.latitude,
           longitude: point.longitude,
         })));
+        setLiveTaskAirspaces(task.airspaces ?? []);
       } catch {
         if (!cancelled) {
           setTurnpoints([]);
           setTaskPoints([]);
+          setLiveTaskAirspaces([]);
         }
       }
     })();
@@ -722,6 +732,7 @@ export function LiveWatchClient() {
         <div className="live-map" style={{ position: "relative" }}>
           <TaskMap
             turnpoints={visibleTurnpoints}
+            airspaces={liveTaskAirspaces}
             taskPoints={visibleTaskPoints}
             livePositions={livePositions}
             track={visibleTrack}
@@ -734,6 +745,7 @@ export function LiveWatchClient() {
             editable={false}
             showGpsButton
             overlayConfig={overlayConfig}
+            faaAirspaceCategories={publicAirspaceCategories}
             fullscreenSidebar={renderPilotSidebar("live-sidebar live-sidebar-fullscreen")}
             fullscreenSidebarLabel="pilot list"
             focusPosition={focusPosition}

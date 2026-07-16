@@ -6,6 +6,7 @@ import { AppSidebar } from "../../components/AppSidebar";
 import { SectionCard } from "../../components/SectionCard";
 import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
+import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories } from "../../lib/faaAirspace";
 
 import EventsSection from "../../components/dashboard/EventsSection";
 import TasksSection from "../../components/dashboard/TasksSection";
@@ -383,6 +384,7 @@ const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
 const SESSION_COOKIE = "flightcomp_session";
+const TOKEN_REFRESH_EVENT = "flightcomp-token-refresh";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 type SidebarItem = { id: SidebarSection; label: string; description?: string };
 
@@ -546,6 +548,7 @@ function blankSiteSettingsForm(): SiteSettingsRecord {
     cloudflare_ddns_last_public_ip: null,
     cloudflare_ddns_last_update_result: null,
     cloudflare_ddns_last_error: null,
+    public_airspace_categories_json: DEFAULT_AIRSPACE_CATEGORIES,
     mesh_profiles: null,
     updated_at: null,
   };
@@ -794,6 +797,7 @@ async function tryRefreshToken(): Promise<string | null> {
     const data = (await response.json()) as { access_token: string; refresh_token?: string };
     window.localStorage.setItem(TOKEN_KEY, data.access_token);
     if (data.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+    window.dispatchEvent(new CustomEvent(TOKEN_REFRESH_EVENT, { detail: data.access_token }));
     return data.access_token;
   } catch {
     return null;
@@ -1193,6 +1197,16 @@ export default function HomePage() {
     [canManagePlatform, taskDraft.points, turnpoints],
   );
   const sidebarItems = sidebarItemsForRole(user?.role ?? null);
+
+  useEffect(() => {
+    function updateToken(event: Event) {
+      const nextToken = event instanceof CustomEvent && typeof event.detail === "string" ? event.detail : "";
+      if (nextToken) setToken(nextToken);
+    }
+
+    window.addEventListener(TOKEN_REFRESH_EVENT, updateToken);
+    return () => window.removeEventListener(TOKEN_REFRESH_EVENT, updateToken);
+  }, []);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
@@ -2021,6 +2035,7 @@ export default function HomePage() {
           cloudflare_ddns_clear_api_token: siteSettings.cloudflare_ddns_clear_api_token,
           cloudflare_ddns_record_names: siteSettings.cloudflare_ddns_record_names,
           cloudflare_ddns_check_interval_hours: siteSettings.cloudflare_ddns_check_interval_hours,
+          public_airspace_categories_json: siteSettings.public_airspace_categories_json,
           mesh_profiles: siteSettings.mesh_profiles,
         }),
       });
@@ -3118,6 +3133,7 @@ export default function HomePage() {
               telemetrySmoothing={siteSettings}
               loadTask={loadTask}
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
+              faaAirspaceCategories={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
             />
           );
         case "live_backtest":

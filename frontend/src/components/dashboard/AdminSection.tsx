@@ -5,7 +5,9 @@ import React, { Fragment, useCallback, useEffect, useMemo, useRef, useState } fr
 import { type MapLivePosition, type MapTaskPoint, type MapTelemetrySmoothing, type MapTurnpoint, TaskMap } from "../TaskMap";
 import { SectionCard } from "../SectionCard";
 import { PasswordInput } from "../PasswordInput";
+import { AirspaceCategoryControls } from "./SettingsSection";
 import { adminDebugBatterySummary } from "../../lib/admin-debug-battery";
+import { normalizeAirspaceCategories } from "../../lib/faaAirspace";
 import type { AdminSiteRecord, AdminUserRecord, DebugStatusResponse, MapOverlayConfigRecord, MeshDevicePurpose, MeshDeviceRecord, MqttBrokerMode, SiteSettingsRecord, User } from "./types";
 
 type AdminTab = "platform_users" | "site_settings" | "sites_database" | "live_tracking" | "map_config" | "meshtastic" | "faa_credentials";
@@ -178,7 +180,8 @@ const MAP_CONTEXTS = [
 
 const MAP_GROUPS = [
   { key: "tasks", label: "Tasks", maps: ["task_builder", "scoring", "dashboard_live", "public_live"] },
-  { key: "airspace", label: "Airspace", maps: ["task_builder", "scoring", "dashboard_live", "airspace_explorer"] },
+  { key: "airspace", label: "Airspace", maps: ["task_builder", "scoring", "dashboard_live", "public_live", "airspace_explorer"] },
+  { key: "high_floor_airspace", label: "Floors above 18,000 ft", maps: ["task_builder", "scoring", "dashboard_live", "public_live", "airspace_explorer"] },
   { key: "flight_tracks", label: "Flight Tracks", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live"] },
   { key: "live_tracking", label: "Live Tracking", maps: ["dashboard_live", "public_live"] },
   { key: "replay", label: "Replay", maps: ["logbook_replay"] },
@@ -186,6 +189,7 @@ const MAP_GROUPS = [
   { key: "map_controls", label: "Map Controls", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "airspace_explorer", "admin_site_preview"] },
   { key: "site_preview", label: "Site Preview", maps: ["admin_site_preview"] },
 ] as const;
+const HIGH_FLOOR_AIRSPACE_CONTEXTS = ["task_builder", "scoring", "dashboard_live", "public_live", "airspace_explorer"] as const;
 type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
 type SortDir = "asc" | "desc";
 type LiveTrackingSortField = "status" | "device_pilot" | "purpose" | "sources" | "device_id" | "battery" | "fix_path" | "last_heard";
@@ -447,13 +451,13 @@ export interface AdminSectionProps {
   siteSettings: SiteSettingsRecord;
   setSiteSettings: (settings: SiteSettingsRecord | ((current: SiteSettingsRecord) => SiteSettingsRecord)) => void;
   siteSettingsFeedback: { type: "success" | "error"; text: string } | null;
-  saveSiteSettings: () => void;
+  saveSiteSettings: () => void | Promise<void>;
   debugStatus: DebugStatusResponse | null;
   refreshDebugStatus: (onResponse?: (response: Response) => void) => void;
   mapOverlayConfig: MapOverlayConfigRecord;
   setMapOverlayConfig: (config: MapOverlayConfigRecord | ((current: MapOverlayConfigRecord) => MapOverlayConfigRecord)) => void;
   mapOverlayConfigFeedback: { type: "success" | "error"; text: string } | null;
-  saveMapOverlayConfig: () => void;
+  saveMapOverlayConfig: () => void | Promise<void>;
   token: string;
   apiBase: string;
 }
@@ -514,6 +518,7 @@ export default function AdminSection(props: AdminSectionProps) {
   const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
   const [liveTrackingNowMs, setLiveTrackingNowMs] = useState(() => Date.now());
   const mqttBrokerMode = normalizeMqttBrokerMode(siteSettings.mqtt_broker_mode);
+  const showHighFloorAirspace = HIGH_FLOOR_AIRSPACE_CONTEXTS.every((context) => mapOverlayConfig.config?.groups?.[context]?.high_floor_airspace === true);
 
   const captureServerClock = useCallback((response: Response) => {
     const dateHeader = response.headers.get("Date");
@@ -522,6 +527,31 @@ export default function AdminSection(props: AdminSectionProps) {
     if (Number.isNaN(serverTimeMs)) return;
     setServerClockOffsetMs(serverTimeMs - Date.now());
   }, []);
+
+  function setShowHighFloorAirspace(enabled: boolean) {
+    setMapOverlayConfig((prev) => {
+      const groups = { ...(prev.config?.groups ?? {}) };
+      for (const context of HIGH_FLOOR_AIRSPACE_CONTEXTS) {
+        groups[context] = {
+          ...(groups[context] ?? {}),
+          high_floor_airspace: enabled,
+        };
+      }
+      return {
+        ...prev,
+        config: {
+          ...prev.config,
+          schema_version: 2,
+          groups,
+        },
+      };
+    });
+  }
+
+  async function saveSiteSettingsAndMapConfig() {
+    await Promise.resolve(saveSiteSettings());
+    await Promise.resolve(saveMapOverlayConfig());
+  }
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -2094,10 +2124,30 @@ export default function AdminSection(props: AdminSectionProps) {
                   </label>
                 </div>
               </fieldset>
+              <div className="fieldset-cluster">
+                <div className="cluster-label">Public Airspace</div>
+                <AirspaceCategoryControls
+                  selected={normalizeAirspaceCategories(siteSettings.public_airspace_categories_json)}
+                  onChange={(categories) =>
+                    setSiteSettings((current) => ({
+                      ...current,
+                      public_airspace_categories_json: categories,
+                    }))
+                  }
+                />
+                <label className="settings-type-control" style={{ marginTop: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={showHighFloorAirspace}
+                    onChange={(event) => setShowHighFloorAirspace(event.target.checked)}
+                  />
+                  <span>Show floors above 18,000 ft</span>
+                </label>
+              </div>
             </div>
             <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 90 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
             <div className="button-row">
-              <button type="button" onClick={() => void saveSiteSettings()}>
+              <button type="button" onClick={() => void saveSiteSettingsAndMapConfig()}>
                 Save site settings
               </button>
             </div>

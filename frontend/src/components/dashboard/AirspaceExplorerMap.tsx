@@ -8,6 +8,9 @@ import {
   type AirspaceCategory,
   CATEGORY_COLORS,
   CATEGORY_LABELS,
+  CLASS_AIRSPACE_CATEGORIES,
+  SPECIAL_USE_AIRSPACE_CATEGORIES,
+  TFR_AIRSPACE_CATEGORIES,
   fetchAllAirspace,
   fetchTFRs,
   downloadOpenAir,
@@ -18,9 +21,9 @@ import {
 // Category groups for the sidebar controls
 // ---------------------------------------------------------------------------
 
-const CLASS_CATEGORIES: AirspaceCategory[] = ["B", "C", "D"];
-const SUA_CATEGORIES: AirspaceCategory[] = ["P", "R", "W", "A", "MOA"];
-const TFR_CATEGORIES: AirspaceCategory[] = ["TFR"];
+const CLASS_CATEGORIES = CLASS_AIRSPACE_CATEGORIES;
+const SUA_CATEGORIES = SPECIAL_USE_AIRSPACE_CATEGORIES;
+const TFR_CATEGORIES = TFR_AIRSPACE_CATEGORIES;
 
 const ALL_CATEGORIES = [...CLASS_CATEGORIES, ...SUA_CATEGORIES, ...TFR_CATEGORIES];
 
@@ -34,6 +37,7 @@ const CONUS_CENTER: [number, number] = [-98.5, 39.8];
 const INITIAL_ZOOM = 5;
 const FT_TO_M = 0.3048;
 const MAX_PITCH = 75;
+const HIGH_AIRSPACE_FLOOR_FT = 18000;
 
 // Source & layer IDs
 const SRC_AIRSPACE = "faa-airspace";
@@ -71,6 +75,24 @@ function filterTfrsByTime(data: GeoJSON.FeatureCollection, selectedTime?: string
   };
 }
 
+function altitudeFeet(value: unknown, uom: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return String(uom).toUpperCase() === "FL" ? n * 100 : n;
+}
+
+function filterHighAirspace(data: GeoJSON.FeatureCollection | null, showHighAirspace: boolean): GeoJSON.FeatureCollection {
+  if (!data || showHighAirspace) return data ?? emptyFeatureCollection();
+  return {
+    type: "FeatureCollection",
+    features: data.features.filter((feature) => {
+      const p = feature.properties as Partial<AirspaceProperties> | null;
+      const lowerFt = altitudeFeet(p?.lowerVal, p?.lowerUom);
+      return lowerFt === null || lowerFt <= HIGH_AIRSPACE_FLOOR_FT;
+    }),
+  };
+}
+
 function formatPopupTime(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
   const parsed = new Date(value);
@@ -100,6 +122,7 @@ export default function AirspaceExplorerMap({
   const showAirspaceLabels = showAirspaceRegions && oc?.airspace_labels !== false;
   const showTfrs = oc?.tfrs !== false;
   const showTfrLabels = showTfrs && oc?.tfr_labels !== false;
+  const showHighAirspace = oc?.high_floor_airspace === true;
   const maxPitch = Math.max(0, Math.min(90, maxPitchDegrees ?? MAX_PITCH));
   const showAirspaceRegionsRef = useRef(showAirspaceRegions);
   const showTfrsRef = useRef(showTfrs);
@@ -128,6 +151,10 @@ export default function AirspaceExplorerMap({
   const visibleTfrData = useMemo(
     () => showTfrs && tfrData ? filterTfrsByTime(tfrData, selectedTfrTime) : emptyFeatureCollection(),
     [selectedTfrTime, showTfrs, tfrData],
+  );
+  const visibleAirspaceData = useMemo(
+    () => showAirspaceRegions ? filterHighAirspace(airspaceData, showHighAirspace) : emptyFeatureCollection(),
+    [airspaceData, showAirspaceRegions, showHighAirspace],
   );
 
   // Track which bounds have already been loaded so we don't re-fetch
@@ -210,12 +237,6 @@ export default function AirspaceExplorerMap({
       };
 
       setAirspaceData(merged);
-      setFeatureCount(merged.features.length);
-
-      const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(merged);
-      }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to load airspace");
@@ -223,6 +244,14 @@ export default function AirspaceExplorerMap({
       if (!ctrl.signal.aborted) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    setFeatureCount(visibleAirspaceData.features.length);
+    const map = mapRef.current;
+    if (!map?.isStyleLoaded()) return;
+    const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(visibleAirspaceData);
+  }, [visibleAirspaceData]);
 
   // -------------------------------------------------------------------
   // Fetch TFRs (once on mount, refresh every 5 min)
@@ -667,6 +696,11 @@ export default function AirspaceExplorerMap({
     ].filter((f) => {
       const cat = (f.properties as { category: AirspaceCategory }).category;
       if (!visibleCategories.has(cat)) return false;
+      if (!showHighAirspace) {
+        const p = f.properties as Partial<AirspaceProperties>;
+        const lowerFt = altitudeFeet(p.lowerVal, p.lowerUom);
+        if (lowerFt !== null && lowerFt > HIGH_AIRSPACE_FLOOR_FT) return false;
+      }
       // Only include features that intersect the current viewport
       if (bounds && f.geometry) {
         const bbox = featureBBox(f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon);

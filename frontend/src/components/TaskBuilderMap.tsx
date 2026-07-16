@@ -1,6 +1,7 @@
 "use client";
 
 import { TaskMap, type MapAirspaceRegion, type MapLegMetric, type MapTaskPoint, type MapTelemetrySmoothing, type MapTurnpoint, type MapUnitPreferences, type TaskEditorOverlayContent, type TrackCollection } from "./TaskMap";
+import type { AirspaceCategory } from "../lib/faaAirspace";
 
 export interface TaskBuilderMapProps {
   selectedEventId: number | null;
@@ -17,6 +18,7 @@ export interface TaskBuilderMapProps {
   units?: MapUnitPreferences;
   telemetrySmoothing?: MapTelemetrySmoothing;
   overlayConfig?: Record<string, boolean>;
+  faaAirspaceCategories?: AirspaceCategory[];
 }
 
 export function TaskBuilderMap({
@@ -34,6 +36,7 @@ export function TaskBuilderMap({
   units,
   telemetrySmoothing,
   overlayConfig,
+  faaAirspaceCategories,
 }: TaskBuilderMapProps) {
   const viewStateKey = `tasks-${selectedEventId ?? "none"}-${selectedTaskId ?? "draft"}`;
 
@@ -54,6 +57,7 @@ export function TaskBuilderMap({
       units={units}
       telemetrySmoothing={telemetrySmoothing}
       overlayConfig={overlayConfig}
+      faaAirspaceCategories={faaAirspaceCategories}
     />
   );
 }
