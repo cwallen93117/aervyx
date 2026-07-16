@@ -189,6 +189,7 @@ const MAP_GROUPS = [
   { key: "map_controls", label: "Map Controls", maps: ["task_builder", "scoring", "logbook_replay", "dashboard_live", "public_live", "airspace_explorer", "admin_site_preview"] },
   { key: "site_preview", label: "Site Preview", maps: ["admin_site_preview"] },
 ] as const;
+const HIGH_FLOOR_AIRSPACE_CONTEXTS = ["task_builder", "scoring", "dashboard_live", "public_live", "airspace_explorer"] as const;
 type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
 type SortDir = "asc" | "desc";
 type LiveTrackingSortField = "status" | "device_pilot" | "purpose" | "sources" | "device_id" | "battery" | "fix_path" | "last_heard";
@@ -450,13 +451,13 @@ export interface AdminSectionProps {
   siteSettings: SiteSettingsRecord;
   setSiteSettings: (settings: SiteSettingsRecord | ((current: SiteSettingsRecord) => SiteSettingsRecord)) => void;
   siteSettingsFeedback: { type: "success" | "error"; text: string } | null;
-  saveSiteSettings: () => void;
+  saveSiteSettings: () => void | Promise<void>;
   debugStatus: DebugStatusResponse | null;
   refreshDebugStatus: (onResponse?: (response: Response) => void) => void;
   mapOverlayConfig: MapOverlayConfigRecord;
   setMapOverlayConfig: (config: MapOverlayConfigRecord | ((current: MapOverlayConfigRecord) => MapOverlayConfigRecord)) => void;
   mapOverlayConfigFeedback: { type: "success" | "error"; text: string } | null;
-  saveMapOverlayConfig: () => void;
+  saveMapOverlayConfig: () => void | Promise<void>;
   token: string;
   apiBase: string;
 }
@@ -517,6 +518,7 @@ export default function AdminSection(props: AdminSectionProps) {
   const [serverClockOffsetMs, setServerClockOffsetMs] = useState(0);
   const [liveTrackingNowMs, setLiveTrackingNowMs] = useState(() => Date.now());
   const mqttBrokerMode = normalizeMqttBrokerMode(siteSettings.mqtt_broker_mode);
+  const showHighFloorAirspace = HIGH_FLOOR_AIRSPACE_CONTEXTS.every((context) => mapOverlayConfig.config?.groups?.[context]?.high_floor_airspace === true);
 
   const captureServerClock = useCallback((response: Response) => {
     const dateHeader = response.headers.get("Date");
@@ -525,6 +527,31 @@ export default function AdminSection(props: AdminSectionProps) {
     if (Number.isNaN(serverTimeMs)) return;
     setServerClockOffsetMs(serverTimeMs - Date.now());
   }, []);
+
+  function setShowHighFloorAirspace(enabled: boolean) {
+    setMapOverlayConfig((prev) => {
+      const groups = { ...(prev.config?.groups ?? {}) };
+      for (const context of HIGH_FLOOR_AIRSPACE_CONTEXTS) {
+        groups[context] = {
+          ...(groups[context] ?? {}),
+          high_floor_airspace: enabled,
+        };
+      }
+      return {
+        ...prev,
+        config: {
+          ...prev.config,
+          schema_version: 2,
+          groups,
+        },
+      };
+    });
+  }
+
+  async function saveSiteSettingsAndMapConfig() {
+    await Promise.resolve(saveSiteSettings());
+    await Promise.resolve(saveMapOverlayConfig());
+  }
 
   const toggleUserSort = useCallback((field: UserSortField) => {
     setUserSortField((prev) => {
@@ -2108,11 +2135,19 @@ export default function AdminSection(props: AdminSectionProps) {
                     }))
                   }
                 />
+                <label className="settings-type-control" style={{ marginTop: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={showHighFloorAirspace}
+                    onChange={(event) => setShowHighFloorAirspace(event.target.checked)}
+                  />
+                  <span>Show floors above 18,000 ft</span>
+                </label>
               </div>
             </div>
             <p className="hint">Use 0 to disable smoothing. Smoothing values allow 0 to 30 seconds. Maximum map pitch allows 0 to 90 degrees, where 0 is top-down and higher values tilt closer to horizontal.</p>
             <div className="button-row">
-              <button type="button" onClick={() => void saveSiteSettings()}>
+              <button type="button" onClick={() => void saveSiteSettingsAndMapConfig()}>
                 Save site settings
               </button>
             </div>
