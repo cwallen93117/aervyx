@@ -37,6 +37,7 @@ const CONUS_CENTER: [number, number] = [-98.5, 39.8];
 const INITIAL_ZOOM = 5;
 const FT_TO_M = 0.3048;
 const MAX_PITCH = 75;
+const HIGH_AIRSPACE_FLOOR_FT = 18000;
 
 // Source & layer IDs
 const SRC_AIRSPACE = "faa-airspace";
@@ -70,6 +71,24 @@ function filterTfrsByTime(data: GeoJSON.FeatureCollection, selectedTime?: string
       if (!Number.isNaN(startMs) && selectedMs < startMs) return false;
       if (!Number.isNaN(endMs) && selectedMs > endMs) return false;
       return true;
+    }),
+  };
+}
+
+function altitudeFeet(value: unknown, uom: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return String(uom).toUpperCase() === "FL" ? n * 100 : n;
+}
+
+function filterHighAirspace(data: GeoJSON.FeatureCollection | null, showHighAirspace: boolean): GeoJSON.FeatureCollection {
+  if (!data || showHighAirspace) return data ?? emptyFeatureCollection();
+  return {
+    type: "FeatureCollection",
+    features: data.features.filter((feature) => {
+      const p = feature.properties as Partial<AirspaceProperties> | null;
+      const lowerFt = altitudeFeet(p?.lowerVal, p?.lowerUom);
+      return lowerFt === null || lowerFt <= HIGH_AIRSPACE_FLOOR_FT;
     }),
   };
 }
@@ -114,6 +133,7 @@ export default function AirspaceExplorerMap({
   const [visibleCategories, setVisibleCategories] = useState<Set<AirspaceCategory>>(
     () => new Set(ALL_CATEGORIES),
   );
+  const [showHighAirspace, setShowHighAirspace] = useState(false);
   const [is3D, setIs3D] = useState(false);
 
   // Derived "show all" states
@@ -131,6 +151,10 @@ export default function AirspaceExplorerMap({
   const visibleTfrData = useMemo(
     () => showTfrs && tfrData ? filterTfrsByTime(tfrData, selectedTfrTime) : emptyFeatureCollection(),
     [selectedTfrTime, showTfrs, tfrData],
+  );
+  const visibleAirspaceData = useMemo(
+    () => showAirspaceRegions ? filterHighAirspace(airspaceData, showHighAirspace) : emptyFeatureCollection(),
+    [airspaceData, showAirspaceRegions, showHighAirspace],
   );
 
   // Track which bounds have already been loaded so we don't re-fetch
@@ -213,12 +237,6 @@ export default function AirspaceExplorerMap({
       };
 
       setAirspaceData(merged);
-      setFeatureCount(merged.features.length);
-
-      const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
-      if (src) {
-        src.setData(merged);
-      }
     } catch (e: unknown) {
       if (e instanceof DOMException && e.name === "AbortError") return;
       setError(e instanceof Error ? e.message : "Failed to load airspace");
@@ -226,6 +244,14 @@ export default function AirspaceExplorerMap({
       if (!ctrl.signal.aborted) setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    setFeatureCount(visibleAirspaceData.features.length);
+    const map = mapRef.current;
+    if (!map?.isStyleLoaded()) return;
+    const src = map.getSource(SRC_AIRSPACE) as maplibregl.GeoJSONSource | undefined;
+    if (src) src.setData(visibleAirspaceData);
+  }, [visibleAirspaceData]);
 
   // -------------------------------------------------------------------
   // Fetch TFRs (once on mount, refresh every 5 min)
@@ -670,6 +696,11 @@ export default function AirspaceExplorerMap({
     ].filter((f) => {
       const cat = (f.properties as { category: AirspaceCategory }).category;
       if (!visibleCategories.has(cat)) return false;
+      if (!showHighAirspace) {
+        const p = f.properties as Partial<AirspaceProperties>;
+        const lowerFt = altitudeFeet(p.lowerVal, p.lowerUom);
+        if (lowerFt !== null && lowerFt > HIGH_AIRSPACE_FLOOR_FT) return false;
+      }
       // Only include features that intersect the current viewport
       if (bounds && f.geometry) {
         const bbox = featureBBox(f.geometry as GeoJSON.Polygon | GeoJSON.MultiPolygon);
@@ -741,6 +772,14 @@ export default function AirspaceExplorerMap({
                       {CATEGORY_LABELS[cat]}
                     </label>
                   ))}
+                  <label className={styles.categoryRow} style={{ marginTop: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={showHighAirspace}
+                      onChange={() => setShowHighAirspace((value) => !value)}
+                    />
+                    Show floors above 18,000 ft
+                  </label>
                 </div>
               </>
             ) : null}
