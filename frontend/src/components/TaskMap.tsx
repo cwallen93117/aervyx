@@ -3725,7 +3725,11 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
+    let frame: number | null = null;
     const sync = () => {
+      if (!map.isStyleLoaded()) {
+        return;
+      }
       if (!faaAirspaceEnabled) {
         removeFaaAirspaceOverlay(map);
         return;
@@ -3740,7 +3744,16 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, styleGeneration, visibleFaaAirspaceData]);
+    frame = window.requestAnimationFrame(sync);
+    map.once("idle", sync);
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      map.off("styledata", sync);
+      map.off("idle", sync);
+    };
+  }, [faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, mapReadyNonce, styleGeneration, visibleFaaAirspaceData]);
 
   // Sync live position data to map
   useEffect(() => {

@@ -23,12 +23,15 @@ test("public live overlay defaults include FAA airspace", () => {
 test("airspace chip is above the basemap picker and exposes browser-verifiable state", () => {
   const source = readFileSync(join(root, "src/components/TaskMap.tsx"), "utf8");
   assert.match(source, /data-faa-airspace-enabled=\{faaAirspaceEnabled \? "true" : "false"\}/);
-  assert.match(source, /data-faa-airspace-count=\{faaAirspaceData\.features\.length\}/);
+  assert.match(source, /data-faa-airspace-count=\{visibleFaaAirspaceData\.features\.length\}/);
   assert.match(source, /data-uploaded-airspace-count=\{effectiveAirspaces\.length\}/);
-  assert.match(source, /const effectiveAirspaces = oc\?\.airspaces === false \? \[\] : \(airspaces \?\? \[\]\)/);
+  assert.match(source, /const effectiveAirspaces = oc\?\.airspaces === false \? \[\] : filterHighEventAirspaces/);
   assert.match(source, /\[airspaceData, airspaceLabelData, isPerspective3D, mapReadyNonce, styleGeneration\]/);
   assert.match(source, /removeFaaAirspaceOverlay\(map\)/);
   assert.match(source, /map\.triggerRepaint\(\)/);
   assert.match(source, /if \(!faaAirspaceEnabled\) \{/);
+  assert.match(source, /\[faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, mapReadyNonce, styleGeneration, visibleFaaAirspaceData\]/);
+  assert.match(source, /map\.once\("idle", sync\)/);
+  assert.match(source, /map\.off\("idle", sync\)/);
   assert.ok(source.indexOf("<span>Show Airspace</span>") < source.indexOf("<span>Map</span>"));
 });
