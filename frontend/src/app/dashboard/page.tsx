@@ -384,6 +384,7 @@ const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
 const SESSION_COOKIE = "flightcomp_session";
+const TOKEN_REFRESH_EVENT = "flightcomp-token-refresh";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 type SidebarItem = { id: SidebarSection; label: string; description?: string };
 
@@ -796,6 +797,7 @@ async function tryRefreshToken(): Promise<string | null> {
     const data = (await response.json()) as { access_token: string; refresh_token?: string };
     window.localStorage.setItem(TOKEN_KEY, data.access_token);
     if (data.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+    window.dispatchEvent(new CustomEvent(TOKEN_REFRESH_EVENT, { detail: data.access_token }));
     return data.access_token;
   } catch {
     return null;
@@ -1195,6 +1197,16 @@ export default function HomePage() {
     [canManagePlatform, taskDraft.points, turnpoints],
   );
   const sidebarItems = sidebarItemsForRole(user?.role ?? null);
+
+  useEffect(() => {
+    function updateToken(event: Event) {
+      const nextToken = event instanceof CustomEvent && typeof event.detail === "string" ? event.detail : "";
+      if (nextToken) setToken(nextToken);
+    }
+
+    window.addEventListener(TOKEN_REFRESH_EVENT, updateToken);
+    return () => window.removeEventListener(TOKEN_REFRESH_EVENT, updateToken);
+  }, []);
 
   useEffect(() => {
     const savedToken = window.localStorage.getItem(TOKEN_KEY);
