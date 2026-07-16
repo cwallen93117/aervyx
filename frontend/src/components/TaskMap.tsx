@@ -3730,7 +3730,7 @@ export const TaskMap = React.memo(function TaskMap({
       if (!map.isStyleLoaded()) {
         return;
       }
-      if (!faaAirspaceEnabled) {
+      if (!faaAirspaceEnabledRef.current) {
         removeFaaAirspaceOverlay(map);
         return;
       }
