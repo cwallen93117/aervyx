@@ -31,7 +31,8 @@ test("airspace chip is above the basemap picker and exposes browser-verifiable s
   assert.match(source, /map\.triggerRepaint\(\)/);
   assert.match(source, /if \(!faaAirspaceEnabledRef\.current\) \{/);
   assert.match(source, /\[faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, mapReadyNonce, styleGeneration, visibleFaaAirspaceData\]/);
-  assert.match(source, /map\.once\("idle", sync\)/);
-  assert.match(source, /map\.off\("idle", sync\)/);
+  const faaSync = source.slice(source.indexOf("// Sync FAA airspace overlay data to map"), source.indexOf("// Sync live position data to map"));
+  assert.match(faaSync, /sync\(\);/);
+  assert.doesNotMatch(faaSync, /map\.once\(/);
   assert.ok(source.indexOf("<span>Show Airspace</span>") < source.indexOf("<span>Map</span>"));
 });
