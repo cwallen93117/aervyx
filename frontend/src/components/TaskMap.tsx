@@ -2079,10 +2079,9 @@ export const TaskMap = React.memo(function TaskMap({
     () => normalizeAirspaceCategories(faaAirspaceCategories),
     [faaAirspaceCategories],
   );
-  const uploadedAirspaceAvailable = oc?.airspaces !== false && (airspaces ?? []).length > 0;
   const faaAirspaceAvailable = oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
-  const airspaceToggleAvailable = uploadedAirspaceAvailable || faaAirspaceAvailable;
-  const effectiveAirspaces = showFaaAirspace && oc?.airspaces !== false ? (airspaces ?? []) : [];
+  const airspaceToggleAvailable = faaAirspaceAvailable;
+  const effectiveAirspaces = oc?.airspaces === false ? [] : (airspaces ?? []);
   const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
   const faaAirspaceEnabled = showFaaAirspace && oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
   const handleAirspaceToggle = useCallback((event: React.MouseEvent<HTMLLabelElement>) => {
@@ -3690,6 +3689,7 @@ export const TaskMap = React.memo(function TaskMap({
       ensureGeoJsonSource(map, FAA_AIRSPACE_SOURCE_ID, faaAirspaceData as never);
       ensureGeoJsonSource(map, FAA_AIRSPACE_LABEL_SOURCE_ID, faaAirspaceLabelData as never);
       ensureMapLayers(map, isPerspective3D);
+      map.triggerRepaint();
     };
     if (map.isStyleLoaded()) {
       sync();
