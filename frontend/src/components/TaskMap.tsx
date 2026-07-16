@@ -3665,16 +3665,30 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
+    let frame: number | null = null;
     const sync = () => {
+      if (!map.isStyleLoaded()) {
+        return;
+      }
       ensureGeoJsonSource(map, "airspaces", airspaceData as never);
       ensureGeoJsonSource(map, "airspace-labels", airspaceLabelData as never);
       ensureUploadedAirspaceLayers(map, isPerspective3D);
+      map.triggerRepaint();
     };
     if (map.isStyleLoaded()) {
       sync();
     } else {
       map.once("styledata", sync);
     }
+    frame = window.requestAnimationFrame(sync);
+    map.once("idle", sync);
+    return () => {
+      if (frame !== null) {
+        window.cancelAnimationFrame(frame);
+      }
+      map.off("styledata", sync);
+      map.off("idle", sync);
+    };
   }, [airspaceData, airspaceLabelData, isPerspective3D, mapReadyNonce, styleGeneration]);
 
   // Sync FAA airspace overlay data to map
