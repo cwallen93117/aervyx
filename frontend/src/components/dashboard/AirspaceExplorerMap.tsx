@@ -122,6 +122,7 @@ export default function AirspaceExplorerMap({
   const showAirspaceLabels = showAirspaceRegions && oc?.airspace_labels !== false;
   const showTfrs = oc?.tfrs !== false;
   const showTfrLabels = showTfrs && oc?.tfr_labels !== false;
+  const showHighAirspace = oc?.high_floor_airspace === true;
   const maxPitch = Math.max(0, Math.min(90, maxPitchDegrees ?? MAX_PITCH));
   const showAirspaceRegionsRef = useRef(showAirspaceRegions);
   const showTfrsRef = useRef(showTfrs);
@@ -133,7 +134,6 @@ export default function AirspaceExplorerMap({
   const [visibleCategories, setVisibleCategories] = useState<Set<AirspaceCategory>>(
     () => new Set(ALL_CATEGORIES),
   );
-  const [showHighAirspace, setShowHighAirspace] = useState(false);
   const [is3D, setIs3D] = useState(false);
 
   // Derived "show all" states
@@ -772,14 +772,6 @@ export default function AirspaceExplorerMap({
                       {CATEGORY_LABELS[cat]}
                     </label>
                   ))}
-                  <label className={styles.categoryRow} style={{ marginTop: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={showHighAirspace}
-                      onChange={() => setShowHighAirspace((value) => !value)}
-                    />
-                    Show floors above 18,000 ft
-                  </label>
                 </div>
               </>
             ) : null}

@@ -17,6 +17,7 @@ MAP_OVERLAY_CONTEXTS = [
 MAP_OVERLAY_GROUPS = [
     "tasks",
     "airspace",
+    "high_floor_airspace",
     "flight_tracks",
     "live_tracking",
     "replay",
@@ -29,14 +30,14 @@ LEGACY_MAP_OVERLAY_DEFAULTS: dict[str, dict[str, bool]] = {
     "task_builder": {
         "turnpoints": True, "task_route": True, "task_cylinders": True,
         "optimized_route": True, "leg_labels": True, "airspaces": True,
-        "airspace_labels": True, "faa_airspace": True, "flight_track": True, "distance_summary": True,
+        "airspace_labels": True, "faa_airspace": True, "high_floor_airspace": False, "flight_track": True, "distance_summary": True,
         "fullscreen_toggle": True, "2d_3d_toggle": True, "basemap_selector": True,
         "altitude_slider": True, "click_to_add_turnpoint": True, "fullscreen_editor_panel": True,
     },
     "scoring": {
         "turnpoints": True, "task_route": True, "task_cylinders": True,
         "optimized_route": True, "leg_labels": True, "airspaces": False,
-        "airspace_labels": False, "faa_airspace": False, "flight_track": True, "track_highlight": True,
+        "airspace_labels": False, "faa_airspace": False, "high_floor_airspace": False, "flight_track": True, "track_highlight": True,
         "distance_summary": True, "fullscreen_toggle": True, "2d_3d_toggle": True,
         "basemap_selector": True, "altitude_slider": True, "fullscreen_editor_panel": True,
     },
@@ -47,20 +48,20 @@ LEGACY_MAP_OVERLAY_DEFAULTS: dict[str, dict[str, bool]] = {
     },
     "dashboard_live": {
         "turnpoints": True, "task_route": True, "task_cylinders": True,
-        "airspaces": True, "airspace_labels": True, "faa_airspace": True, "flight_track": True,
+        "airspaces": True, "airspace_labels": True, "faa_airspace": True, "high_floor_airspace": False, "flight_track": True,
         "live_positions": True, "live_labels": True, "fullscreen_toggle": True,
         "2d_3d_toggle": True, "basemap_selector": True, "altitude_slider": True,
     },
     "public_live": {
         "turnpoints": True, "task_route": True, "task_cylinders": True,
-        "faa_airspace": True, "flight_track": True, "live_positions": True, "live_labels": True,
+        "faa_airspace": True, "high_floor_airspace": False, "flight_track": True, "live_positions": True, "live_labels": True,
         "gps_button": True, "fullscreen_toggle": True, "2d_3d_toggle": True,
         "basemap_selector": True, "altitude_slider": True,
     },
     "airspace_explorer": {
         "airspace_regions": True, "airspace_labels": True, "tfrs": True,
         "tfr_labels": True, "category_toggles": True, "export_openair": True,
-        "2d_3d_toggle": True, "legend": True,
+        "high_floor_airspace": False, "2d_3d_toggle": True, "legend": True,
     },
     "soaring_forecast": {
         "weather_raster": True, "wind_barbs": True, "sounding_popup": True,
@@ -82,6 +83,7 @@ MAP_OVERLAY_GROUP_FEATURES: dict[str, dict[str, list[str]]] = {
             "fullscreen_editor_panel",
         ],
         "airspace": ["airspaces", "airspace_labels", "faa_airspace"],
+        "high_floor_airspace": ["high_floor_airspace"],
         "flight_tracks": ["flight_track"],
         "map_controls": ["fullscreen_toggle", "2d_3d_toggle", "basemap_selector", "altitude_slider"],
     },
@@ -91,6 +93,7 @@ MAP_OVERLAY_GROUP_FEATURES: dict[str, dict[str, list[str]]] = {
             "leg_labels", "distance_summary", "fullscreen_editor_panel",
         ],
         "airspace": ["airspaces", "airspace_labels", "faa_airspace"],
+        "high_floor_airspace": ["high_floor_airspace"],
         "flight_tracks": ["flight_track", "track_highlight"],
         "map_controls": ["fullscreen_toggle", "2d_3d_toggle", "basemap_selector", "altitude_slider"],
     },
@@ -102,6 +105,7 @@ MAP_OVERLAY_GROUP_FEATURES: dict[str, dict[str, list[str]]] = {
     "dashboard_live": {
         "tasks": ["turnpoints", "task_route", "task_cylinders"],
         "airspace": ["airspaces", "airspace_labels", "faa_airspace"],
+        "high_floor_airspace": ["high_floor_airspace"],
         "flight_tracks": ["flight_track"],
         "live_tracking": ["live_positions", "live_labels"],
         "map_controls": ["fullscreen_toggle", "2d_3d_toggle", "basemap_selector", "altitude_slider"],
@@ -109,6 +113,7 @@ MAP_OVERLAY_GROUP_FEATURES: dict[str, dict[str, list[str]]] = {
     "public_live": {
         "tasks": ["turnpoints", "task_route", "task_cylinders"],
         "airspace": ["faa_airspace"],
+        "high_floor_airspace": ["high_floor_airspace"],
         "flight_tracks": ["flight_track"],
         "live_tracking": ["live_positions", "live_labels"],
         "map_controls": ["gps_button", "fullscreen_toggle", "2d_3d_toggle", "basemap_selector", "altitude_slider"],
@@ -118,6 +123,7 @@ MAP_OVERLAY_GROUP_FEATURES: dict[str, dict[str, list[str]]] = {
             "airspace_regions", "airspace_labels", "tfrs", "tfr_labels",
             "category_toggles", "export_openair", "legend",
         ],
+        "high_floor_airspace": ["high_floor_airspace"],
         "map_controls": ["2d_3d_toggle"],
     },
     "soaring_forecast": {

@@ -33,7 +33,9 @@ def test_default_grouped_config_includes_legacy_contexts() -> None:
     assert response.config["task_builder"]["turnpoints"] is True
     assert response.config["airspace_explorer"]["tfrs"] is True
     assert response.config["groups"]["public_live"]["airspace"] is True
+    assert response.config["groups"]["public_live"]["high_floor_airspace"] is False
     assert response.config["public_live"]["faa_airspace"] is True
+    assert response.config["public_live"]["high_floor_airspace"] is False
 
 
 def test_flat_config_is_migrated_to_grouped_config() -> None:
@@ -69,6 +71,7 @@ def test_flat_config_is_migrated_to_grouped_config() -> None:
     assert response.config["groups"]["public_live"]["live_tracking"] is False
     assert response.config["public_live"]["live_positions"] is False
     assert response.config["groups"]["public_live"]["airspace"] is True
+    assert response.config["groups"]["public_live"]["high_floor_airspace"] is False
     assert response.config["public_live"]["faa_airspace"] is True
 
 
@@ -82,6 +85,7 @@ def test_grouped_patch_expands_to_legacy_booleans() -> None:
                 "groups": {
                     "task_builder": {"tasks": False, "map_controls": True},
                     "airspace_explorer": {"airspace": False},
+                    "public_live": {"high_floor_airspace": True},
                 },
             }
         ),
@@ -97,6 +101,8 @@ def test_grouped_patch_expands_to_legacy_booleans() -> None:
     assert response.config["airspace_explorer"]["airspace_regions"] is False
     assert response.config["airspace_explorer"]["tfrs"] is False
     assert response.config["airspace_explorer"]["legend"] is False
+    assert response.config["groups"]["public_live"]["high_floor_airspace"] is True
+    assert response.config["public_live"]["high_floor_airspace"] is True
 
 
 def test_public_endpoint_only_returns_public_live_slice() -> None:
@@ -113,4 +119,6 @@ def test_public_endpoint_only_returns_public_live_slice() -> None:
     assert set(response.config) == {"schema_version", "groups", "public_live"}
     assert set(response.config["groups"]) == {"public_live"}
     assert response.config["groups"]["public_live"]["live_tracking"] is False
+    assert response.config["groups"]["public_live"]["high_floor_airspace"] is False
     assert response.config["public_live"]["live_positions"] is False
+    assert response.config["public_live"]["high_floor_airspace"] is False

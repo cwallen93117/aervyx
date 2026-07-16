@@ -1094,6 +1094,7 @@ export function PublicScoresClient() {
     "2d_3d_toggle": overlayConfig?.["2d_3d_toggle"] ?? true,
     basemap_selector: overlayConfig?.basemap_selector ?? true,
     altitude_slider: overlayConfig?.altitude_slider ?? true,
+    high_floor_airspace: overlayConfig?.high_floor_airspace === true,
   }), [overlayConfig]);
   const watchLiveHref = useMemo(() => (
     selectedEventId != null

@@ -20,6 +20,7 @@ import {
   fetchAirspaceCategories,
   normalizeAirspaceCategories,
   type AirspaceCategory,
+  type AirspaceProperties,
 } from "../lib/faaAirspace";
 
 export type MapTurnpoint = { id: number; name: string; code: string | null; latitude: number; longitude: number; symbol?: string | null };
@@ -127,6 +128,8 @@ const ALTITUDE_MULTIPLIER_OPTIONS = [1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5] as const
 const TERRAIN_SOURCE_ID = "terrain-dem";
 const TERRAIN_EXAGGERATION = 1.25;
 const DEFAULT_MAX_MAP_PITCH = 75;
+const HIGH_AIRSPACE_FLOOR_FT = 18000;
+const HIGH_AIRSPACE_FLOOR_M = HIGH_AIRSPACE_FLOOR_FT * 0.3048;
 const TRACK_WIDTH_PIXELS = 1.25;
 const HIGHLIGHTED_TRACK_WIDTH_PIXELS = 2;
 const TRACK_3D_RIBBON_WIDTH_METERS = 8;
@@ -484,6 +487,29 @@ function buildFaaAirspaceLabelData(data: GeoJSON.FeatureCollection): GeoJSON.Fea
       }];
     }),
   };
+}
+
+function altitudeFeet(value: unknown, uom: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return String(uom).toUpperCase() === "FL" ? n * 100 : n;
+}
+
+function filterHighFaaAirspace(data: GeoJSON.FeatureCollection, showHighAirspace: boolean): GeoJSON.FeatureCollection {
+  if (showHighAirspace) return data;
+  return {
+    type: "FeatureCollection",
+    features: data.features.filter((feature) => {
+      const p = feature.properties as Partial<AirspaceProperties> | null;
+      const lowerFt = altitudeFeet(p?.lowerVal, p?.lowerUom);
+      return lowerFt === null || lowerFt <= HIGH_AIRSPACE_FLOOR_FT;
+    }),
+  };
+}
+
+function filterHighEventAirspaces(airspaces: MapAirspaceRegion[], showHighAirspace: boolean): MapAirspaceRegion[] {
+  if (showHighAirspace) return airspaces;
+  return airspaces.filter((airspace) => airspace.lower_limit_m == null || airspace.lower_limit_m <= HIGH_AIRSPACE_FLOOR_M);
 }
 
 function rebuildTaskGeometrySources(map: maplibregl.Map) {
@@ -2081,9 +2107,10 @@ export const TaskMap = React.memo(function TaskMap({
     () => normalizeAirspaceCategories(faaAirspaceCategories),
     [faaAirspaceCategories],
   );
+  const showHighAirspace = oc?.high_floor_airspace === true;
   const faaAirspaceAvailable = oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
   const airspaceToggleAvailable = faaAirspaceAvailable;
-  const effectiveAirspaces = oc?.airspaces === false ? [] : (airspaces ?? []);
+  const effectiveAirspaces = oc?.airspaces === false ? [] : filterHighEventAirspaces(airspaces ?? [], showHighAirspace);
   const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
   const faaAirspaceEnabled = showFaaAirspace && oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
   const handleAirspaceToggle = useCallback((event: React.MouseEvent<HTMLLabelElement>) => {
@@ -2364,7 +2391,8 @@ export const TaskMap = React.memo(function TaskMap({
         },
       })),
   }), [effectiveAirspaceLabels]);
-  const faaAirspaceLabelData = useMemo(() => buildFaaAirspaceLabelData(faaAirspaceData), [faaAirspaceData]);
+  const visibleFaaAirspaceData = useMemo(() => filterHighFaaAirspace(faaAirspaceData, showHighAirspace), [faaAirspaceData, showHighAirspace]);
+  const faaAirspaceLabelData = useMemo(() => buildFaaAirspaceLabelData(visibleFaaAirspaceData), [visibleFaaAirspaceData]);
   const taskPointData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskRoutePoints.map((point) => ({ type: "Feature", properties: { name: point.name, point_type: point.point_type }, geometry: { type: "Point", coordinates: [point.longitude, point.latitude] } })) }), [effectiveTaskRoutePoints]);
   const scoredTrackPointData = useMemo(() => ({
     type: "FeatureCollection",
@@ -3702,7 +3730,7 @@ export const TaskMap = React.memo(function TaskMap({
         removeFaaAirspaceOverlay(map);
         return;
       }
-      ensureGeoJsonSource(map, FAA_AIRSPACE_SOURCE_ID, faaAirspaceData as never);
+      ensureGeoJsonSource(map, FAA_AIRSPACE_SOURCE_ID, visibleFaaAirspaceData as never);
       ensureGeoJsonSource(map, FAA_AIRSPACE_LABEL_SOURCE_ID, faaAirspaceLabelData as never);
       ensureFaaAirspaceLayers(map, isPerspective3D);
       map.triggerRepaint();
@@ -3712,7 +3740,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", sync);
     }
-  }, [faaAirspaceData, faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, styleGeneration]);
+  }, [faaAirspaceLabelData, faaAirspaceEnabled, isPerspective3D, styleGeneration, visibleFaaAirspaceData]);
 
   // Sync live position data to map
   useEffect(() => {
@@ -4255,7 +4283,7 @@ export const TaskMap = React.memo(function TaskMap({
       className={mapShellClassName}
       ref={shellRef}
       data-faa-airspace-enabled={faaAirspaceEnabled ? "true" : "false"}
-      data-faa-airspace-count={faaAirspaceData.features.length}
+      data-faa-airspace-count={visibleFaaAirspaceData.features.length}
       data-uploaded-airspace-count={effectiveAirspaces.length}
       style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
     >
