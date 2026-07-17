@@ -6,6 +6,115 @@ from sqlalchemy.engine import Engine
 from app.services.map_overlay_config import DEFAULT_MAP_OVERLAY_CONFIG
 
 
+LEGACY_EVENT_COLUMNS = ("event_kind", "owner_user_id", "source_buddy_group_id", "public_slug", "public_listed")
+
+
+def _remove_challenge_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    event_columns = {column["name"] for column in inspector.get_columns("events")} if "events" in tables else set()
+    user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in tables else set()
+
+    with engine.begin() as connection:
+        if "event_kind" in event_columns:
+            if {"visibility", "public_listed"}.issubset(event_columns):
+                connection.execute(
+                    text(
+                        "UPDATE events SET visibility = 'participants' "
+                        "WHERE event_kind = 'challenge' AND visibility = 'public' AND public_listed = FALSE"
+                    )
+                )
+            connection.execute(text("DELETE FROM events WHERE event_kind = 'challenge_defaults'"))
+
+        connection.execute(text("DROP TABLE IF EXISTS event_collaborators"))
+        for index_name in ("ix_events_event_kind", "ix_events_owner_user_id", "ix_events_public_slug"):
+            connection.execute(text(f"DROP INDEX IF EXISTS {index_name}"))
+        for column_name in LEGACY_EVENT_COLUMNS:
+            if column_name in event_columns:
+                connection.execute(text(f"ALTER TABLE events DROP COLUMN {column_name}"))
+        if "challenge_settings_json" in user_columns:
+            connection.execute(text("ALTER TABLE users DROP COLUMN challenge_settings_json"))
+
+
+def _ensure_turnpoint_library_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "events" not in tables or "turnpoint_sources" not in tables:
+        return
+    dialect_name = engine.dialect.name
+    source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")}
+    source_event_fk = next(
+        (fk for fk in inspector.get_foreign_keys("turnpoint_sources") if fk.get("constrained_columns") == ["event_id"]),
+        None,
+    )
+    turnpoint_event_fk = next(
+        (fk for fk in inspector.get_foreign_keys("turnpoints") if fk.get("constrained_columns") == ["event_id"]),
+        None,
+    ) if "turnpoints" in tables else None
+    slot_source_fk = next(
+        (fk for fk in inspector.get_foreign_keys("event_turnpoint_slots") if fk.get("constrained_columns") == ["source_id"]),
+        None,
+    ) if "event_turnpoint_slots" in tables else None
+    with engine.begin() as connection:
+        if "event_turnpoint_slots" not in tables:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE event_turnpoint_slots (
+                      id INTEGER PRIMARY KEY,
+                      event_id INTEGER NOT NULL,
+                      slot_number INTEGER NOT NULL,
+                      source_id INTEGER NOT NULL,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
+                      FOREIGN KEY(source_id) REFERENCES turnpoint_sources(id) ON DELETE CASCADE,
+                      CONSTRAINT uq_event_turnpoint_slot UNIQUE (event_id, slot_number),
+                      CONSTRAINT uq_event_turnpoint_source UNIQUE (event_id, source_id)
+                    )
+                    """
+                )
+            )
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_event_turnpoint_source_idx ON event_turnpoint_slots (event_id, source_id)"))
+        insert_prefix = "INSERT OR IGNORE" if dialect_name == "sqlite" else "INSERT"
+        insert_suffix = "" if dialect_name == "sqlite" else " ON CONFLICT DO NOTHING"
+        enabled_filter = " AND COALESCE(enabled, TRUE) = TRUE" if "enabled" in source_columns else ""
+        connection.execute(text(
+            f"{insert_prefix} INTO event_turnpoint_slots (event_id, slot_number, source_id) "
+            "SELECT event_id, id, id FROM turnpoint_sources WHERE event_id IS NOT NULL"
+            f"{enabled_filter}{insert_suffix}"
+        ))
+        connection.execute(text("DELETE FROM event_turnpoint_slots WHERE source_id IS NULL"))
+        if dialect_name == "postgresql":
+            connection.execute(text("ALTER TABLE turnpoint_sources ALTER COLUMN event_id DROP NOT NULL"))
+            if "turnpoints" in tables:
+                connection.execute(text("ALTER TABLE turnpoints ALTER COLUMN event_id DROP NOT NULL"))
+            connection.execute(text("ALTER TABLE event_turnpoint_slots ALTER COLUMN source_id SET NOT NULL"))
+            preparer = connection.dialect.identifier_preparer
+            for table_name, fk in (("turnpoint_sources", source_event_fk), ("turnpoints", turnpoint_event_fk)):
+                if not fk or str((fk.get("options") or {}).get("ondelete", "")).upper() == "SET NULL":
+                    continue
+                constraint_name = fk.get("name") or f"{table_name}_event_id_fkey"
+                quoted_table = preparer.quote(table_name)
+                quoted_constraint = preparer.quote(constraint_name)
+                connection.execute(text(f"ALTER TABLE {quoted_table} DROP CONSTRAINT {quoted_constraint}"))
+                connection.execute(
+                    text(
+                        f"ALTER TABLE {quoted_table} ADD CONSTRAINT {quoted_constraint} "
+                        "FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL"
+                    )
+                )
+            if slot_source_fk and str((slot_source_fk.get("options") or {}).get("ondelete", "")).upper() != "CASCADE":
+                constraint_name = slot_source_fk.get("name") or "event_turnpoint_slots_source_id_fkey"
+                quoted_constraint = preparer.quote(constraint_name)
+                connection.execute(text(f"ALTER TABLE event_turnpoint_slots DROP CONSTRAINT {quoted_constraint}"))
+                connection.execute(
+                    text(
+                        f"ALTER TABLE event_turnpoint_slots ADD CONSTRAINT {quoted_constraint} "
+                        "FOREIGN KEY (source_id) REFERENCES turnpoint_sources(id) ON DELETE CASCADE"
+                    )
+                )
+
+
 def ensure_runtime_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -481,6 +590,10 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_event_meet_stats_cache_event_scope ON event_meet_stats_cache (event_id, scope)"))
 
+    _ensure_turnpoint_library_schema(engine)
+    _remove_challenge_schema(engine)
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
@@ -541,11 +654,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT FALSE",
         "visibility": "ALTER TABLE events ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
-        "event_kind": "ALTER TABLE events ADD COLUMN event_kind VARCHAR(20) NOT NULL DEFAULT 'competition'",
-        "owner_user_id": "ALTER TABLE events ADD COLUMN owner_user_id INTEGER",
-        "source_buddy_group_id": "ALTER TABLE events ADD COLUMN source_buddy_group_id INTEGER",
-        "public_slug": "ALTER TABLE events ADD COLUMN public_slug VARCHAR(80)",
-        "public_listed": "ALTER TABLE events ADD COLUMN public_listed BOOLEAN NOT NULL DEFAULT TRUE",
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race_to_goal_with_gates'",
@@ -597,8 +705,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN vario_unit VARCHAR(10) DEFAULT 'fpm'"))
         if "users" in table_names and "aircraft_icon" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN aircraft_icon VARCHAR(20) DEFAULT 'hang_glider'"))
-        if "users" in table_names and "challenge_settings_json" not in user_columns:
-            connection.execute(text("ALTER TABLE users ADD COLUMN challenge_settings_json JSON"))
         if "users" in table_names and "mesh_device_id" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN mesh_device_id VARCHAR(80)"))
             existing_user_indexes = {idx["name"] for idx in inspector.get_indexes("users")}
@@ -627,11 +733,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
         if "events" in table_names:
             connection.execute(text("UPDATE events SET default_start_gate_count = 5 WHERE default_start_gate_count IS NULL"))
             connection.execute(text("UPDATE events SET default_start_gate_interval_seconds = 900 WHERE default_start_gate_interval_seconds IS NULL"))
-            connection.execute(text("UPDATE events SET event_kind = 'competition' WHERE event_kind IS NULL"))
-            connection.execute(text("UPDATE events SET public_listed = TRUE WHERE public_listed IS NULL"))
-            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_events_event_kind ON events (event_kind)"))
-            connection.execute(text("CREATE INDEX IF NOT EXISTS ix_events_owner_user_id ON events (owner_user_id)"))
-            connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_events_public_slug ON events (public_slug)"))
         if "tasks" in table_names:
             if "task_type" in task_columns or "task_type" in task_statements:
                 connection.execute(
@@ -791,27 +892,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_buddy_group_members_group_id ON buddy_group_members (group_id)"))
             connection.execute(text("CREATE INDEX ix_buddy_group_members_pilot_id ON buddy_group_members (pilot_id)"))
-
-        if "event_collaborators" not in table_names:
-            connection.execute(
-                text(
-                    """
-                    CREATE TABLE event_collaborators (
-                      id INTEGER PRIMARY KEY,
-                      event_id INTEGER NOT NULL,
-                      user_id INTEGER NOT NULL,
-                      role VARCHAR(20) NOT NULL DEFAULT 'editor',
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
-                      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                      UNIQUE(event_id, user_id)
-                    )
-                    """
-                )
-            )
-            connection.execute(text("CREATE INDEX ix_event_collaborators_event_id ON event_collaborators (event_id)"))
-            connection.execute(text("CREATE INDEX ix_event_collaborators_user_id ON event_collaborators (user_id)"))
-            connection.execute(text("CREATE INDEX ix_event_collaborators_event_user ON event_collaborators (event_id, user_id)"))
 
         if "user_emails" not in table_names:
             connection.execute(

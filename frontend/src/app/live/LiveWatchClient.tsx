@@ -32,7 +32,6 @@ import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories, type Airspace
 type PublicEventSource = {
   id: number;
   name: string;
-  event_kind: "competition" | "challenge";
   location: string;
   starts_on: string;
   ends_on: string;
@@ -235,8 +234,6 @@ export function LiveWatchClient() {
     () => sources.events.find((event) => event.id === selectedEventId) ?? null,
     [selectedEventId, sources.events],
   );
-  const competitionSources = useMemo(() => sources.events.filter((event) => event.event_kind !== "challenge"), [sources.events]);
-  const challengeSources = useMemo(() => sources.events.filter((event) => event.event_kind === "challenge"), [sources.events]);
   const selectedMapTaskId = selectedEvent?.map_task?.id ?? null;
   const showEventTaskMap = selected.type === "event" && selectedMapTaskId !== null;
   const visibleTaskPoints = showEventTaskMap ? taskPoints : emptyMapTaskPoints;
@@ -666,7 +663,7 @@ export function LiveWatchClient() {
               : selected.type === "none"
                 ? "Choose a live source."
                 : selected.type === "event"
-                ? "Waiting for competition pilots..."
+                ? "Waiting for event pilots..."
                 : selected.type === "buddies"
                   ? "Waiting for group pilots..."
                   : "Waiting for pilots..."}
@@ -696,24 +693,11 @@ export function LiveWatchClient() {
           >
             {selected.type === "none" ? <option value="">Select live source</option> : null}
             <option value="all_users">All users</option>
-            {competitionSources.length > 0 ? (
-              <optgroup label="Competitions">
-                {competitionSources.map((event) => (
-                  <option key={`event:${event.id}`} value={`event:${event.id}`}>
-                    {event.name}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
-            {challengeSources.length > 0 ? (
-              <optgroup label="Challenges">
-                {challengeSources.map((event) => (
-                  <option key={`event:${event.id}`} value={`event:${event.id}`}>
-                    {event.name}
-                  </option>
-                ))}
-              </optgroup>
-            ) : null}
+            {sources.events.map((event) => (
+              <option key={`event:${event.id}`} value={`event:${event.id}`}>
+                {event.name}
+              </option>
+            ))}
             {sources.buddy_groups.length > 0 ? (
               <optgroup label="Buddy groups">
                 {sources.buddy_groups.map((group) => (

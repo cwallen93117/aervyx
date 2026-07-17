@@ -2048,6 +2048,7 @@ export const TaskMap = React.memo(function TaskMap({
   const editableRef = useRef(editable);
   const onSelectTurnpointRef = useRef(onSelectTurnpoint);
   const onMapClickRef = useRef(onMapClick);
+  const terrainExaggerationRef = useRef(1);
   const animationFrameRef = useRef<number | null>(null);
   const lastFrameTimeRef = useRef<number | null>(null);
   const replayClockRef = useRef<number | null>(null);
@@ -2065,6 +2066,7 @@ export const TaskMap = React.memo(function TaskMap({
   const fullscreenSidebarContentId = useId();
   const fullscreenSidebarPanelContentId = useId();
   const oc = overlayConfig;
+  const needsTerrainElevation = editable && Boolean(onMapClick) && oc?.click_to_add_turnpoint !== false;
   const hasTaskEditorOverlay = Boolean(taskEditorOverlay) && oc?.fullscreen_editor_panel !== false;
   // In 2D mode, collapse all track/marker/label altitudes to 0 so they render
   // flat on the map plane; in 3D they scale by the user-selected multiplier.
@@ -3391,7 +3393,7 @@ export const TaskMap = React.memo(function TaskMap({
       }
       const map = new maplibregl.Map({
         container,
-        style: createBasemapStyle(basemapMode, debugInitialPerspective3D, terrainBounds) as never,
+        style: createBasemapStyle(basemapMode, debugInitialPerspective3D || needsTerrainElevation, terrainBounds) as never,
         ...(persistedViewState
           ? {
               center: persistedViewState.center,
@@ -3408,8 +3410,8 @@ export const TaskMap = React.memo(function TaskMap({
       });
       renderedBasemapStyleRef.current = {
         basemapMode,
-        includeTerrain: debugInitialPerspective3D,
-        terrainBoundsKey: debugInitialPerspective3D ? currentTerrainBoundsKey : "2d",
+        includeTerrain: debugInitialPerspective3D || needsTerrainElevation,
+        terrainBoundsKey: debugInitialPerspective3D || needsTerrainElevation ? currentTerrainBoundsKey : "2d",
       };
       const navigationControl = new maplibregl.NavigationControl({ showCompass: true });
       map.addControl(navigationControl, "top-right");
@@ -3465,14 +3467,11 @@ export const TaskMap = React.memo(function TaskMap({
           return;
         }
         if (onMapClickRef.current) {
-          const terrainMap = map as maplibregl.Map & {
-            queryTerrainElevation?: (lngLat: maplibregl.LngLatLike, options?: { exaggerated?: boolean }) => number | null;
-          };
-          const elevationM = terrainMap.queryTerrainElevation?.(event.lngLat, { exaggerated: false }) ?? null;
+          const elevationM = map.queryTerrainElevation(event.lngLat);
           onMapClickRef.current({
             latitude: event.lngLat.lat,
             longitude: event.lngLat.lng,
-            elevationM: elevationM != null && Number.isFinite(elevationM) ? elevationM : null,
+            elevationM: elevationM != null && Number.isFinite(elevationM) ? elevationM / terrainExaggerationRef.current : null,
           });
         }
       });
@@ -3574,7 +3573,11 @@ export const TaskMap = React.memo(function TaskMap({
     if (!map) {
       return;
     }
-    const nextStyle = { basemapMode, includeTerrain: isPerspective3D, terrainBoundsKey: isPerspective3D ? currentTerrainBoundsKey : "2d" };
+    const nextStyle = {
+      basemapMode,
+      includeTerrain: isPerspective3D || needsTerrainElevation,
+      terrainBoundsKey: isPerspective3D || needsTerrainElevation ? currentTerrainBoundsKey : "2d",
+    };
     const previousStyle = renderedBasemapStyleRef.current;
     if (
       previousStyle?.basemapMode === nextStyle.basemapMode &&
@@ -3601,7 +3604,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", setMapStyle);
     }
-  }, [basemapMode, isPerspective3D, terrainBounds, currentTerrainBoundsKey]);
+  }, [basemapMode, isPerspective3D, needsTerrainElevation, terrainBounds, currentTerrainBoundsKey]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -3640,14 +3643,9 @@ export const TaskMap = React.memo(function TaskMap({
       }
       try {
         const terrainMap = map as maplibregl.Map & { setTerrain?: (terrain: unknown) => void };
-        terrainMap.setTerrain?.(
-          isPerspective3D
-            ? {
-                source: TERRAIN_SOURCE_ID,
-                exaggeration: TERRAIN_EXAGGERATION * Math.max(1, altitudeMultiplier),
-              }
-            : null,
-        );
+        const exaggeration = isPerspective3D ? TERRAIN_EXAGGERATION * Math.max(1, altitudeMultiplier) : 1;
+        terrainExaggerationRef.current = exaggeration;
+        terrainMap.setTerrain?.(isPerspective3D || needsTerrainElevation ? { source: TERRAIN_SOURCE_ID, exaggeration } : null);
       } catch (error) {
         console.warn("Map terrain update was skipped.", error);
       }
@@ -3657,7 +3655,7 @@ export const TaskMap = React.memo(function TaskMap({
     } else {
       map.once("styledata", applyTerrain);
     }
-  }, [altitudeMultiplier, isPerspective3D, styleGeneration]);
+  }, [altitudeMultiplier, isPerspective3D, needsTerrainElevation, styleGeneration]);
 
   const applyFitBounds = useCallback((map: maplibregl.Map, animate = false) => {
     const ms = animate ? 800 : 0;

@@ -18,20 +18,13 @@ type EditableTurnpoint = {
   extra_json: Record<string, string>;
 };
 
-export type WaypointFileSourceRecord = TurnpointSourceRecord & {
-  event_name?: string;
-  event_kind?: string;
-  can_edit?: boolean;
-};
+export type WaypointFileSourceRecord = TurnpointSourceRecord;
 
 type FeedbackSetter = (message: string) => void;
 
 export interface WaypointFilesEditorProps {
   token: string;
   sources: WaypointFileSourceRecord[];
-  defaultCanEdit?: boolean;
-  showContext?: boolean;
-  showVisibility?: boolean;
   emptyMessage?: string;
   telemetrySmoothing?: MapTelemetrySmoothing;
   setMessage: FeedbackSetter;
@@ -183,16 +176,9 @@ function TurnpointSymbolSelect({ value, onChange }: { value: TurnpointSymbol; on
   );
 }
 
-export function waypointSourceCanEdit(source: WaypointFileSourceRecord, defaultCanEdit = false): boolean {
-  return source.can_edit ?? defaultCanEdit;
-}
-
 export default function WaypointFilesEditor({
   token,
   sources,
-  defaultCanEdit = false,
-  showContext = false,
-  showVisibility = true,
   emptyMessage = "No waypoint files uploaded yet.",
   telemetrySmoothing,
   setMessage,
@@ -206,17 +192,23 @@ export default function WaypointFilesEditor({
   const [turnpointEdit, setTurnpointEdit] = useState<EditableTurnpoint | null>(null);
   const [draftTurnpoint, setDraftTurnpoint] = useState<EditableTurnpoint | null>(null);
   const [turnpointSort, setTurnpointSort] = useState<TurnpointSortState>(null);
+  const [mergeSourceIds, setMergeSourceIds] = useState<Set<number>>(new Set());
+  const [mergeFilename, setMergeFilename] = useState("");
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [saveAsSource, setSaveAsSource] = useState<WaypointFileSourceRecord | null>(null);
+  const [saveAsFilename, setSaveAsFilename] = useState("");
+  const [saveAsFormat, setSaveAsFormat] = useState("gpx");
 
   useEffect(() => {
     if (selectedSourceId && !sources.some((source) => source.id === selectedSourceId)) {
       closeTurnpointSourceDetail();
     }
+    setMergeSourceIds((current) => new Set([...current].filter((id) => sources.some((source) => source.id === id))));
   }, [selectedSourceId, sources]);
 
   const selectedTurnpointSource = sources.find((source) => source.id === selectedSourceId) ?? null;
-  const selectedCanEdit = selectedTurnpointSource ? waypointSourceCanEdit(selectedTurnpointSource, defaultCanEdit) : false;
   const selectedSourceExtraColumns = Array.from(new Set(sourceTurnpoints.flatMap((turnpoint) => Object.keys(turnpoint.extra_json ?? {}))));
-  const turnpointTableColSpan = 5 + selectedSourceExtraColumns.length + (selectedCanEdit ? 1 : 0);
+  const turnpointTableColSpan = 6 + selectedSourceExtraColumns.length;
   const sortedSourceTurnpoints = useMemo(() => {
     if (!turnpointSort) return sourceTurnpoints;
     const direction = turnpointSort.direction === "asc" ? 1 : -1;
@@ -235,7 +227,7 @@ export default function WaypointFilesEditor({
     if (!token) return;
     setSourceTurnpointsLoading(true);
     try {
-      const loaded = await apiFetch<TurnpointRecord[]>(`/api/events/${source.event_id}/turnpoint-sources/${source.id}/turnpoints`, token);
+      const loaded = await apiFetch<TurnpointRecord[]>(`/api/turnpoint-library/${source.id}/turnpoints`, token);
       setSelectedSourceId(source.id);
       setSourceTurnpoints(loaded);
       setEditingTurnpointId(null);
@@ -255,7 +247,7 @@ export default function WaypointFilesEditor({
   async function saveTurnpointEdit() {
     if (!token || !selectedTurnpointSource || !turnpointEdit?.id) return;
     try {
-      const saved = await apiFetch<TurnpointRecord>(`/api/events/${selectedTurnpointSource.event_id}/turnpoints/${turnpointEdit.id}`, token, {
+      const saved = await apiFetch<TurnpointRecord>(`/api/turnpoint-library/${selectedTurnpointSource.id}/turnpoints/${turnpointEdit.id}`, token, {
         method: "PUT",
         body: JSON.stringify(editableToPayload(turnpointEdit)),
       });
@@ -270,7 +262,7 @@ export default function WaypointFilesEditor({
   async function saveDraftTurnpoint() {
     if (!token || !selectedTurnpointSource || !draftTurnpoint) return;
     try {
-      const saved = await apiFetch<TurnpointRecord>(`/api/events/${selectedTurnpointSource.event_id}/turnpoint-sources/${selectedTurnpointSource.id}/turnpoints`, token, {
+      const saved = await apiFetch<TurnpointRecord>(`/api/turnpoint-library/${selectedTurnpointSource.id}/turnpoints`, token, {
         method: "POST",
         body: JSON.stringify(editableToPayload(draftTurnpoint)),
       });
@@ -288,7 +280,7 @@ export default function WaypointFilesEditor({
     const confirmed = window.confirm(`Delete waypoint "${turnpoint.name}" from ${selectedTurnpointSource.filename}?`);
     if (!confirmed) return;
     try {
-      await apiFetch<void>(`/api/events/${selectedTurnpointSource.event_id}/turnpoints/${turnpoint.id}`, token, { method: "DELETE" });
+      await apiFetch<void>(`/api/turnpoint-library/${selectedTurnpointSource.id}/turnpoints/${turnpoint.id}`, token, { method: "DELETE" });
       setMessage(`Deleted waypoint ${turnpoint.name}.`);
       await reloadSelectedSource();
       await refreshSources();
@@ -300,7 +292,7 @@ export default function WaypointFilesEditor({
   async function downloadTurnpointSource(source: WaypointFileSourceRecord) {
     if (!token) return;
     try {
-      const { blob, filename } = await apiFetchBlob(`/api/events/${source.event_id}/turnpoint-sources/${source.id}/download`, token);
+      const { blob, filename } = await apiFetchBlob(`/api/turnpoint-library/${source.id}/download`, token);
       downloadBlob(blob, filename ?? source.filename);
       setMessage(`Started downloading ${source.filename}.`);
     } catch (caught) {
@@ -313,7 +305,7 @@ export default function WaypointFilesEditor({
     const nextName = window.prompt("Rename waypoint file", source.filename)?.trim();
     if (!nextName || nextName === source.filename) return;
     try {
-      const renamed = await apiFetch<TurnpointSourceRecord>(`/api/events/${source.event_id}/turnpoint-sources/${source.id}`, token, {
+      const renamed = await apiFetch<TurnpointSourceRecord>(`/api/turnpoint-library/${source.id}`, token, {
         method: "PATCH",
         body: JSON.stringify({ filename: nextName }),
       });
@@ -325,45 +317,53 @@ export default function WaypointFilesEditor({
     }
   }
 
-  async function saveTurnpointSourceAs(source: WaypointFileSourceRecord) {
-    if (!token) return;
+  function openSaveAs(source: WaypointFileSourceRecord) {
     const stem = source.filename.replace(/\.[^.]+$/, "");
     const suffix = source.filename.includes(".") ? source.filename.slice(source.filename.lastIndexOf(".")) : "";
-    const filename = window.prompt("Save waypoint file as", `${stem} v2${suffix}`)?.trim();
-    if (!filename) return;
+    setSaveAsSource(source);
+    setSaveAsFilename(`${stem} v2${suffix}`);
+    setSaveAsFormat(source.file_format);
+  }
+
+  async function saveTurnpointSourceAs() {
+    if (!token || !saveAsSource || !saveAsFilename.trim()) return;
     try {
-      const saved = await apiFetch<TurnpointSourceRecord>(`/api/events/${source.event_id}/turnpoint-sources/${source.id}/save-as`, token, {
+      const saved = await apiFetch<TurnpointSourceRecord>(`/api/turnpoint-library/${saveAsSource.id}/save-as`, token, {
         method: "POST",
-        body: JSON.stringify({ filename }),
+        body: JSON.stringify({ filename: saveAsFilename.trim(), file_format: saveAsFormat }),
       });
-      setMessage(`Saved ${source.filename} as ${saved.filename}.`);
+      setMessage(`Saved ${saveAsSource.filename} as ${saved.filename}.`);
+      setSaveAsSource(null);
       await refreshSources();
-      await loadSourceTurnpoints({ ...source, ...saved });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save that waypoint file as a new version.");
     }
   }
 
-  async function toggleTurnpointSource(source: WaypointFileSourceRecord, enabled: boolean) {
-    if (!token) return;
+  async function mergeTurnpointSources() {
+    const selected = sources.filter((source) => mergeSourceIds.has(source.id));
+    if (!token || selected.length < 2 || !mergeFilename.trim()) return;
     try {
-      await apiFetch<TurnpointSourceRecord>(`/api/events/${source.event_id}/turnpoint-sources/${source.id}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ enabled }),
+      const merged = await apiFetch<TurnpointSourceRecord>("/api/turnpoint-library/merge", token, {
+        method: "POST",
+        body: JSON.stringify({ source_ids: selected.map((source) => source.id), filename: mergeFilename.trim() }),
       });
-      setMessage(`${enabled ? "Enabled" : "Hidden"} ${source.filename} on the map.`);
+      setMessage(`Created merged GPX ${merged.filename}.`);
+      setMergeOpen(false);
+      setMergeFilename("");
+      setMergeSourceIds(new Set());
       await refreshSources();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not update that waypoint file.");
+      setError(caught instanceof Error ? caught.message : "Could not merge those waypoint files.");
     }
   }
 
   async function deleteTurnpointSource(source: WaypointFileSourceRecord) {
     if (!token) return;
-    const confirmed = window.confirm(`Delete ${source.filename}? This removes its imported waypoints from the database.`);
+    const confirmed = window.confirm(`Delete ${source.filename} from the Turnpoint Library? Event selections will be removed, but existing task routes and scores stay unchanged.`);
     if (!confirmed) return;
     try {
-      await apiFetch<void>(`/api/events/${source.event_id}/turnpoint-sources/${source.id}`, token, { method: "DELETE" });
+      await apiFetch<void>(`/api/turnpoint-library/${source.id}`, token, { method: "DELETE" });
       setMessage(`Deleted ${source.filename}.`);
       closeTurnpointSourceDetail();
       await refreshSources();
@@ -399,64 +399,69 @@ export default function WaypointFilesEditor({
 
   return (
     <div className="stack form-block">
+      <div className="button-row">
+        <button
+          type="button"
+          className="ghost-button"
+          disabled={mergeSourceIds.size < 2}
+          onClick={() => {
+            setMergeFilename("Merged turnpoints.gpx");
+            setMergeOpen(true);
+          }}
+        >
+          Merge selected
+        </button>
+        <span className="hint">{mergeSourceIds.size} selected</span>
+      </div>
       <div className="participant-table-wrap">
-        <table className="participant-table">
+        <table className="participant-table turnpoint-library-table">
           <thead>
             <tr>
+              <th>Selection</th>
               <th>File name</th>
-              {showContext ? <th>Context</th> : null}
               <th>Format</th>
               <th>Waypoints</th>
-              {showVisibility ? <th>Visible</th> : null}
-              <th>Uploaded</th>
               <th className="participant-table-actions">Actions</th>
             </tr>
           </thead>
           <tbody>
             {sources.length ? (
-              sources.map((source) => {
-                const canEdit = waypointSourceCanEdit(source, defaultCanEdit);
-                return (
-                  <tr key={`${source.event_id}-${source.id}`}>
+              sources.map((source) => (
+                  <tr key={source.id}>
+                    <td className="participant-table-check">
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${source.filename} for merge`}
+                        checked={mergeSourceIds.has(source.id)}
+                        onChange={(event) => setMergeSourceIds((current) => {
+                          const next = new Set(current);
+                          if (event.target.checked) next.add(source.id);
+                          else next.delete(source.id);
+                          return next;
+                        })}
+                      />
+                    </td>
                     <td className="turnpoint-file-name-cell">
                       <button type="button" className="link-button" onClick={() => void loadSourceTurnpoints(source)}>
                         <strong>{source.filename}</strong>
                       </button>
                     </td>
-                    {showContext ? <td>{source.event_name ?? `Event ${source.event_id}`}</td> : null}
                     <td>{source.file_format.toUpperCase()}</td>
                     <td>{source.turnpoint_count}</td>
-                    {showVisibility ? (
-                      <td>
-                        <label className="task-advanced-toggle">
-                          <input
-                            type="checkbox"
-                            checked={source.enabled}
-                            disabled={!canEdit}
-                            onChange={(event) => void toggleTurnpointSource(source, event.target.checked)}
-                          />
-                          <span>{source.enabled ? "Visible" : "Hidden"}</span>
-                        </label>
-                      </td>
-                    ) : null}
-                    <td>{new Date(source.uploaded_at).toLocaleString()}</td>
                     <td className="participant-table-actions">
-                      <button type="button" className="ghost-button" onClick={() => void loadSourceTurnpoints(source)}>{canEdit ? "Edit" : "View"}</button>
-                      {canEdit ? (
-                        <>
+                      <div className="compact-slot-actions">
+                          <button type="button" className="ghost-button" onClick={() => void loadSourceTurnpoints(source)}>Edit</button>
                           <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(source)}>Download</button>
                           <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(source)}>Rename</button>
-                          <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(source)}>Save as</button>
+                          <button type="button" className="ghost-button" onClick={() => openSaveAs(source)}>Save as</button>
                           <button type="button" className="ghost-button danger-button" onClick={() => void deleteTurnpointSource(source)}>Delete</button>
-                        </>
-                      ) : null}
+                      </div>
                     </td>
                   </tr>
-                );
-              })
+              ))
             ) : (
               <tr>
-                <td colSpan={5 + (showContext ? 1 : 0) + (showVisibility ? 1 : 0)} className="participant-table-empty">{emptyMessage}</td>
+                <td colSpan={5} className="participant-table-empty">{emptyMessage}</td>
               </tr>
             )}
           </tbody>
@@ -464,25 +469,15 @@ export default function WaypointFilesEditor({
       </div>
       {selectedTurnpointSource ? (
         <div className="turnpoint-file-detail">
-          <div className="results-sheet-header">
+          <div className="results-sheet-header turnpoint-detail-header">
             <div>
               <h3>{selectedTurnpointSource.filename}</h3>
               <p className="hint">
                 {sourceTurnpoints.length} waypoint{sourceTurnpoints.length === 1 ? "" : "s"} in this file.
-                {selectedCanEdit ? " Click the map to draft a new waypoint." : " Read-only view."}
+                {" Click the map to draft a new waypoint."}
               </p>
             </div>
-            <div className="button-row">
-              {selectedCanEdit ? (
-                <>
-                  <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(selectedTurnpointSource)}>Download</button>
-                  <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(selectedTurnpointSource)}>Rename</button>
-                  <button type="button" className="ghost-button" onClick={() => void saveTurnpointSourceAs(selectedTurnpointSource)}>Save as</button>
-                </>
-              ) : null}
-              <button type="button" className="ghost-button" onClick={() => void reloadSelectedSource()}>Refresh</button>
-              <button type="button" className="turnpoint-detail-close" onClick={closeTurnpointSourceDetail} aria-label="Close waypoint file detail">x</button>
-            </div>
+            <button type="button" className="turnpoint-detail-close" onClick={closeTurnpointSourceDetail} aria-label="Close waypoint file detail">x</button>
           </div>
           <div className="turnpoint-file-layout">
             <div className="turnpoint-editor-map">
@@ -491,9 +486,8 @@ export default function WaypointFilesEditor({
                 airspaces={[]}
                 taskPoints={[]}
                 track={null}
-                editable={selectedCanEdit}
+                editable
                 onSelectTurnpoint={(turnpoint) => {
-                  if (!selectedCanEdit) return;
                   const sourceTurnpoint = sourceTurnpoints.find((candidate) => candidate.id === turnpoint.id);
                   if (!sourceTurnpoint) return;
                   setDraftTurnpoint(null);
@@ -501,20 +495,19 @@ export default function WaypointFilesEditor({
                   setTurnpointEdit(turnpointToEditable(sourceTurnpoint));
                 }}
                 onMapClick={(position) => {
-                  if (!selectedCanEdit) return;
                   setEditingTurnpointId(null);
                   setTurnpointEdit(null);
                   setDraftTurnpoint(turnpointToEditable(null, position));
                 }}
                 fitKey={`${selectedTurnpointSource.id}-${sourceTurnpoints.length}`}
-                viewStateKey={`turnpoint-source-${selectedTurnpointSource.event_id}-${selectedTurnpointSource.id}`}
+                viewStateKey={`turnpoint-source-${selectedTurnpointSource.id}`}
                 fitMaxZoom={12}
                 telemetrySmoothing={telemetrySmoothing}
                 overlayConfig={{ click_to_add_turnpoint: true }}
               />
             </div>
             <div className="stack compact turnpoint-draft-panel">
-              {draftTurnpoint && selectedCanEdit ? (
+              {draftTurnpoint ? (
                 <>
                   <strong>New waypoint</strong>
                   <div className="turnpoint-edit-grid">
@@ -536,7 +529,7 @@ export default function WaypointFilesEditor({
                     <button type="button" className="ghost-button" onClick={() => setDraftTurnpoint(null)}>Cancel</button>
                   </div>
                 </>
-              ) : turnpointEdit && editingTurnpointId && selectedCanEdit ? (
+              ) : turnpointEdit && editingTurnpointId ? (
                 <>
                   <strong>Edit waypoint</strong>
                   <div className="turnpoint-edit-grid">
@@ -559,7 +552,7 @@ export default function WaypointFilesEditor({
                   </div>
                 </>
               ) : (
-                <p className="hint">{selectedCanEdit ? "Click a waypoint to edit it, or click open map space to place a new waypoint draft." : "Waypoint editing is available to the file owner."}</p>
+                <p className="hint">Click a waypoint to edit it, or click open map space to place a new waypoint draft.</p>
               )}
             </div>
           </div>
@@ -583,7 +576,7 @@ export default function WaypointFilesEditor({
                     </button>
                   </th>
                   {selectedSourceExtraColumns.map((key) => <th key={key}>{key}</th>)}
-                  {selectedCanEdit ? <th className="participant-table-actions">Actions</th> : null}
+                  <th className="participant-table-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -591,7 +584,7 @@ export default function WaypointFilesEditor({
                   <tr><td colSpan={turnpointTableColSpan} className="participant-table-empty">Loading waypoints...</td></tr>
                 ) : sortedSourceTurnpoints.length ? (
                   sortedSourceTurnpoints.map((turnpoint) => {
-                    const isEditing = selectedCanEdit && editingTurnpointId === turnpoint.id && turnpointEdit;
+                    const isEditing = editingTurnpointId === turnpoint.id && turnpointEdit;
                     return (
                       <tr key={turnpoint.id}>
                         {isEditing ? (
@@ -617,12 +610,10 @@ export default function WaypointFilesEditor({
                             <td>{turnpoint.elevation_m == null ? "" : Math.round(turnpoint.elevation_m)}</td>
                             <td className="turnpoint-symbol-cell"><TurnpointSymbolIcon symbol={normalizeEditableSymbol(turnpoint.symbol)} /> {turnpointSymbolLabel(turnpoint.symbol)}</td>
                             {selectedSourceExtraColumns.map((key) => <td key={key}>{String(turnpoint.extra_json?.[key] ?? "")}</td>)}
-                            {selectedCanEdit ? (
                               <td className="participant-table-actions">
                                 <button type="button" className="ghost-button" onClick={() => { setEditingTurnpointId(turnpoint.id); setTurnpointEdit(turnpointToEditable(turnpoint)); }}>Edit</button>
                                 <button type="button" className="ghost-button danger-button" onClick={() => void deleteSourceTurnpoint(turnpoint)}>Delete</button>
                               </td>
-                            ) : null}
                           </>
                         )}
                       </tr>
@@ -633,6 +624,45 @@ export default function WaypointFilesEditor({
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      ) : null}
+      {saveAsSource ? (
+        <div className="confirm-overlay" onClick={() => setSaveAsSource(null)}>
+          <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="turnpoint-save-as-title" onClick={(event) => event.stopPropagation()}>
+            <strong id="turnpoint-save-as-title">Save {saveAsSource.filename} as</strong>
+            <label className="stack compact">
+              <span>New filename</span>
+              <input autoFocus value={saveAsFilename} onChange={(event) => setSaveAsFilename(event.target.value)} />
+            </label>
+            <label className="stack compact">
+              <span>Format</span>
+              <select value={saveAsFormat} onChange={(event) => setSaveAsFormat(event.target.value)}>
+                <option value="gpx">GPX</option>
+                <option value="csv">CSV</option>
+                <option value="geojson">GeoJSON</option>
+              </select>
+            </label>
+            <div className="confirm-actions">
+              <button type="button" className="ghost-button" onClick={() => setSaveAsSource(null)}>Cancel</button>
+              <button type="button" className="primary-button" disabled={!saveAsFilename.trim()} onClick={() => void saveTurnpointSourceAs()}>Save copy</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {mergeOpen ? (
+        <div className="confirm-overlay" onClick={() => setMergeOpen(false)}>
+          <div className="confirm-dialog confirm-dialog-wide" role="dialog" aria-modal="true" aria-labelledby="turnpoint-merge-title" onClick={(event) => event.stopPropagation()}>
+            <strong id="turnpoint-merge-title">Merge {mergeSourceIds.size} turnpoint files</strong>
+            <p>{sources.filter((source) => mergeSourceIds.has(source.id)).map((source) => source.filename).join(", ")}</p>
+            <label className="stack compact">
+              <span>New GPX filename</span>
+              <input autoFocus value={mergeFilename} onChange={(event) => setMergeFilename(event.target.value)} />
+            </label>
+            <div className="confirm-actions">
+              <button type="button" className="ghost-button" onClick={() => setMergeOpen(false)}>Cancel</button>
+              <button type="button" className="primary-button" disabled={!mergeFilename.trim()} onClick={() => void mergeTurnpointSources()}>Create merged GPX</button>
+            </div>
           </div>
         </div>
       ) : null}

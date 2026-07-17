@@ -5,24 +5,59 @@ import assert from "node:assert/strict";
 
 const root = process.cwd();
 
-test("settings tab row keeps waypoint files before final airspace tab", () => {
+test("settings exposes the staff-only Turnpoint Library", () => {
   const source = readFileSync(join(root, "src/components/dashboard/SettingsSection.tsx"), "utf8");
-  assert.ok(source.indexOf('label: "Pilot Buddies"') < source.indexOf('label: "Waypoint Files"'));
-  assert.ok(source.indexOf('label: "Waypoint Files"') < source.indexOf('label: "Airspace"'));
-  assert.match(source, /<WaypointFilesSettings token=\{token\} \/>/);
+  assert.match(source, /WaypointFilesSettings/);
+  assert.match(source, /Turnpoint Library/);
+  assert.match(source, /canManagePlatform/);
+  assert.match(source, /turnpoint_library/);
 });
 
-test("waypoint files settings exposes an add waypoint file upload", () => {
-  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
-  assert.match(source, />Add waypoint file</);
-  assert.match(source, /accept="\.csv,\.geojson,\.json,\.gpx"/);
-  assert.match(source, /\/api\/auth\/challenge-settings\/turnpoints\/upload/);
+test("event turnpoint files select from the shared library", () => {
+  const eventsSource = readFileSync(join(root, "src/components/dashboard/EventsSection.tsx"), "utf8");
+  const catalogSource = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
+  assert.match(eventsSource, /\/api\/turnpoint-library/);
+  assert.match(eventsSource, /\/api\/events\/\$\{selectedEventId\}\/turnpoint-sources\/\$\{source\.id\}/);
+  assert.match(eventsSource, /type="checkbox"/);
+  assert.doesNotMatch(eventsSource, /turnpoint-sources\/upload/);
+  assert.match(catalogSource, /\/api\/turnpoint-library/);
+  assert.match(catalogSource, /\/api\/turnpoint-library\/upload/);
 });
 
-test("waypoint file rows expose View and Edit actions", () => {
+test("library table has the requested columns and file operations", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  assert.match(source, /<th>Selection<\/th>/);
+  assert.match(source, /<th>File name<\/th>/);
+  assert.match(source, /<th>Format<\/th>/);
+  assert.match(source, /<th>Waypoints<\/th>/);
   assert.match(source, /<th className="participant-table-actions">Actions<\/th>/);
-  assert.match(source, /\{canEdit \? "Edit" : "View"\}/);
+  assert.doesNotMatch(source, /<th>Context<\/th>/);
+  assert.doesNotMatch(source, /<th>Uploaded<\/th>/);
+  assert.doesNotMatch(source, /<th>Visible<\/th>/);
+  assert.match(source, /Merge selected/);
+  assert.match(source, /className="compact-slot-actions"/);
+});
+
+test("Save As defaults to the source format and supports conversion", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  assert.match(source, /setSaveAsFormat\(source\.file_format\)/);
+  assert.match(source, /<option value="gpx">GPX<\/option>/);
+  assert.match(source, /<option value="csv">CSV<\/option>/);
+  assert.match(source, /<option value="geojson">GeoJSON<\/option>/);
+  assert.match(source, /\/api\/turnpoint-library\/\$\{saveAsSource\.id\}\/save-as/);
+});
+
+test("open file detail keeps only the upper-right close control above the map", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  const detailStart = source.indexOf('<div className="turnpoint-file-detail">');
+  const mapStart = source.indexOf("<TaskMap", detailStart);
+  const detailHeader = source.slice(detailStart, mapStart);
+  assert.match(detailHeader, /className="results-sheet-header turnpoint-detail-header"/);
+  assert.match(detailHeader, /className="turnpoint-detail-close"/);
+  assert.doesNotMatch(detailHeader, />Download</);
+  assert.doesNotMatch(detailHeader, />Rename</);
+  assert.doesNotMatch(detailHeader, />Save as</);
+  assert.doesNotMatch(detailHeader, />Refresh</);
 });
 
 test("waypoint symbol picker keeps icon and text for LZ and Launch", () => {

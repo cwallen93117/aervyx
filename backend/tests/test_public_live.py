@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import AirspaceRegion, AirspaceSource, BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, SiteSettings, Task, TaskPoint, TrackPoint, User
 from app.routers.public import (
+    _select_public_event_map_task,
     get_public_site_settings,
     get_public_live_sources,
     get_public_task_results,
@@ -104,7 +105,7 @@ def test_public_events_are_sorted_by_competition_date() -> None:
     assert [event.name for event in payload] == ["Alpine Classic", "Zulu Classic", "Early Open"]
 
 
-def test_public_live_sources_lists_competitions_and_public_groups() -> None:
+def test_public_live_sources_lists_events_and_public_groups() -> None:
     session = _session()
     owner = User(username="owner@example.com", full_name="Owner", role="organizer")
     pilot = Pilot(first_name="Casey", last_name="Cloud", email="casey@example.com")
@@ -116,14 +117,13 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
         timezone="UTC",
         is_public_tracking=True,
     )
-    challenge = Event(
-        name="Weekend Challenge",
+    weekend_event = Event(
+        name="Weekend Fly-in",
         location="Ridge",
         starts_on=date(2026, 5, 10),
         ends_on=date(2026, 5, 10),
         timezone="UTC",
         is_public_tracking=True,
-        event_kind="challenge",
     )
     hidden_event = Event(
         name="Private Practice",
@@ -133,7 +133,7 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
         timezone="UTC",
         is_public_tracking=False,
     )
-    session.add_all([owner, pilot, live_event, challenge, hidden_event])
+    session.add_all([owner, pilot, live_event, weekend_event, hidden_event])
     session.flush()
     session.add_all(
         [
@@ -151,7 +151,7 @@ def test_public_live_sources_lists_competitions_and_public_groups() -> None:
 
     payload = get_public_live_sources(session)
 
-    assert [(event.name, event.event_kind) for event in payload.events] == [("Weekend Challenge", "challenge"), ("Open Distance Classic", "competition")]
+    assert [event.name for event in payload.events] == ["Weekend Fly-in", "Open Distance Classic"]
     competition = next(event for event in payload.events if event.name == "Open Distance Classic")
     assert [task.name for task in competition.tasks] == ["Published task", "Active task"]
     assert competition.map_task is not None
@@ -282,6 +282,40 @@ def test_public_live_map_task_falls_back_to_newest_published_task() -> None:
 
     assert payload.events[0].map_task is not None
     assert payload.events[0].map_task.name == "Newest published"
+
+
+@pytest.mark.parametrize(
+    ("tasks", "expected"),
+    [
+        ([Task(id=1, name="Today", status="published", task_date=date(2026, 5, 3))], "Today"),
+        (
+            [
+                Task(id=1, name="Later", status="published", task_date=date(2026, 5, 6)),
+                Task(id=2, name="Next", status="published", task_date=date(2026, 5, 4)),
+            ],
+            "Next",
+        ),
+        (
+            [
+                Task(id=1, name="Today", status="published", task_date=date(2026, 5, 3)),
+                Task(id=2, name="Active", status="active", task_date=date(2026, 5, 2)),
+            ],
+            "Active",
+        ),
+        (
+            [
+                Task(id=1, name="Older", status="published", task_date=date(2026, 5, 1)),
+                Task(id=2, name="Latest past", status="published", task_date=date(2026, 5, 2)),
+            ],
+            "Latest past",
+        ),
+        ([], None),
+    ],
+)
+def test_public_live_map_task_selection(tasks: list[Task], expected: str | None) -> None:
+    selected = _select_public_event_map_task(tasks, date(2026, 5, 3))
+
+    assert (selected.name if selected else None) == expected
 
 
 def test_public_live_map_task_is_empty_without_active_or_published_tasks() -> None:

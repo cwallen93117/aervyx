@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user
-from app.models import Event, IGCUpload, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, Turnpoint, TurnpointSource, User
+from app.models import Event, IGCUpload, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.schemas import TaskInput, TaskPointResponse, TaskResponse, default_task_point_direction, default_task_point_radius_m
 from app.services.audit import log_action
 from app.services.event_access import require_event_manager
@@ -50,37 +50,8 @@ def _normalize_task_point_radius(radius_m: float | None, point_type: str) -> flo
     return radius_m if radius_m is not None and radius_m > 0 else default_task_point_radius_m(point_type)
 
 
-def _enabled_turnpoint_source_ids(session: Session, event_id: int) -> set[int]:
-    return set(
-        session.scalars(
-            select(TurnpointSource.id).where(
-                TurnpointSource.event_id == event_id,
-                TurnpointSource.enabled.is_(True),
-            )
-        ).all()
-    )
-
-
 def _task_points_for_response(session: Session, task: Task) -> list[TaskPoint]:
-    points = session.scalars(select(TaskPoint).where(TaskPoint.task_id == task.id).order_by(TaskPoint.position)).all()
-    source_ids = set(session.scalars(select(TurnpointSource.id).where(TurnpointSource.event_id == task.event_id)).all())
-    active_source_ids = _enabled_turnpoint_source_ids(session, task.event_id)
-    if source_ids and not active_source_ids:
-        return [point for point in points if point.turnpoint_id is None]
-    if not active_source_ids:
-        return points
-
-    turnpoint_source_by_id = {
-        turnpoint_id: source_id
-        for turnpoint_id, source_id in session.execute(
-            select(Turnpoint.id, Turnpoint.source_id).where(Turnpoint.id.in_([point.turnpoint_id for point in points if point.turnpoint_id is not None]))
-        ).all()
-    }
-    return [
-        point
-        for point in points
-        if point.turnpoint_id is None or turnpoint_source_by_id.get(point.turnpoint_id) in active_source_ids
-    ]
+    return list(session.scalars(select(TaskPoint).where(TaskPoint.task_id == task.id).order_by(TaskPoint.position)).all())
 
 
 def _task_response(session: Session, task: Task) -> TaskResponse:

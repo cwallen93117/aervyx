@@ -1,5 +1,16 @@
 # Aervyx Mobile Changelog
 
+## 0.4.70+87 - 2026-07-17
+
+### Changed
+- Challenges is now Events and loads every event available to the signed-in
+  user through the standard Events API.
+- Event task selection supports multiple tasks. Admins and organizers can edit
+  a selected task or begin a numbered draft; pilots keep a read-only route view.
+
+### Removed
+- Mobile challenge creation and challenge-only API calls.
+
 ## 0.4.69+86 - 2026-06-27
 
 ### Changed

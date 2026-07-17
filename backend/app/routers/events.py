@@ -1,19 +1,16 @@
-import secrets
 from pathlib import Path
 from shutil import copy2
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
-from app.models import AirspaceRegion, AirspaceSource, BuddyGroup, BuddyGroupMember, Event, EventCollaborator, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, User
 from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
-from app.services.challenge_defaults import CHALLENGE_TEMPLATE_KIND, challenge_event_defaults, copy_challenge_default_assets
-from app.services.event_access import can_manage_event
-from app.services.pilot_identity import ensure_event_membership, participant_event_ids_for_user
+from app.services.pilot_identity import participant_event_ids_for_user
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 STAFF_ROLES = {"admin", "organizer"}
@@ -38,58 +35,6 @@ def _event_scoring_presets(event: Event) -> list[ScoringPresetEntry]:
 
 def _event_create_payload(event: Event) -> dict:
     return {field: getattr(event, field) for field in EventCreate.model_fields}
-
-
-def _public_slug(session: Session) -> str:
-    while True:
-        slug = secrets.token_urlsafe(8).replace("_", "-").lower()
-        if session.scalar(select(Event.id).where(Event.public_slug == slug)) is None:
-            return slug
-
-
-def _load_owned_buddy_group(session: Session, user: User, group_id: int | None) -> BuddyGroup | None:
-    if group_id is None:
-        return None
-    group = session.get(BuddyGroup, group_id)
-    if group is None or (user.role not in STAFF_ROLES and group.user_id != user.id):
-        raise HTTPException(status_code=404, detail="Buddy group not found")
-    return group
-
-
-def _challenge_asset_source_user(session: Session, user: User, event: Event, group: BuddyGroup | None) -> User:
-    if group is not None:
-        return session.get(User, group.user_id) or user
-    if event.owner_user_id is not None:
-        return session.get(User, event.owner_user_id) or user
-    return user
-
-
-def _seed_roster_from_buddy_group(session: Session, event: Event, group: BuddyGroup | None, user: User) -> int:
-    pilot_ids: set[int] = set()
-    owner_pilot_id = user.pilot_id if event.owner_user_id == user.id else session.scalar(select(User.pilot_id).where(User.id == event.owner_user_id))
-    if owner_pilot_id is not None:
-        pilot_ids.add(owner_pilot_id)
-    if group is not None:
-        pilot_ids.update(session.scalars(select(BuddyGroupMember.pilot_id).where(BuddyGroupMember.group_id == group.id)).all())
-    for pilot_id in sorted(pilot_ids):
-        ensure_event_membership(session, event.id, pilot_id)
-    return len(pilot_ids)
-
-
-def _ensure_challenge_task(session: Session, event: Event) -> None:
-    if session.scalar(select(Task.id).where(Task.event_id == event.id).limit(1)) is not None:
-        return
-    session.add(
-        Task(
-            event_id=event.id,
-            name=event.name,
-            task_date=event.starts_on,
-            task_type="open_distance",
-            status="draft",
-            start_gate_count=event.default_start_gate_count or 1,
-            start_gate_interval_seconds=event.default_start_gate_interval_seconds,
-        )
-    )
 
 
 def _normalized_duplicate_task_type(task_type: str | None) -> str:
@@ -120,8 +65,6 @@ def _copy_stored_file(stored_path: str, new_event_id: int, source_id: int) -> st
 
 
 def _event_visible_to_user(session: Session, event: Event, user: User, participant_event_ids: set[int] | None = None) -> bool:
-    if can_manage_event(session, user, event):
-        return True
     if user.role in STAFF_ROLES:
         return True
     visibility = event.visibility or "private"
@@ -137,7 +80,12 @@ def _event_visible_to_user(session: Session, event: Event, user: User, participa
 def _event_payload(session: Session, event: Event) -> EventResponse:
     pilot_count = session.scalar(select(func.count()).select_from(EventPilot).where(EventPilot.event_id == event.id)) or 0
     task_count = session.scalar(select(func.count()).select_from(Task).where(Task.event_id == event.id)) or 0
-    turnpoint_count = session.scalar(select(func.count()).select_from(Turnpoint).where(Turnpoint.event_id == event.id)) or 0
+    turnpoint_count = session.scalar(
+        select(func.count())
+        .select_from(Turnpoint)
+        .join(EventTurnpointSlot, EventTurnpointSlot.source_id == Turnpoint.source_id)
+        .where(EventTurnpointSlot.event_id == event.id)
+    ) or 0
     airspace_count = session.scalar(select(func.count()).select_from(AirspaceRegion).where(AirspaceRegion.event_id == event.id, AirspaceRegion.is_restricted_field.is_(False))) or 0
     restricted_field_count = session.scalar(select(func.count()).select_from(AirspaceRegion).where(AirspaceRegion.event_id == event.id, AirspaceRegion.is_restricted_field.is_(True))) or 0
     return EventResponse(
@@ -193,11 +141,6 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
         penalties_json=event.penalties_json or {},
         is_public_tracking=event.is_public_tracking,
         visibility=event.visibility or "private",
-        event_kind=event.event_kind or "competition",
-        owner_user_id=event.owner_user_id,
-        source_buddy_group_id=event.source_buddy_group_id,
-        public_slug=event.public_slug,
-        public_listed=event.public_listed if event.public_listed is not None else True,
         created_at=event.created_at,
         updated_at=event.updated_at,
         pilot_count=pilot_count,
@@ -212,17 +155,13 @@ def _event_payload(session: Session, event: Event) -> EventResponse:
 def list_events(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[EventResponse]:
     # Staff (admin/organizer) can see all events regardless of visibility
     if user.role in STAFF_ROLES:
-        events = session.scalars(select(Event).where(Event.event_kind != CHALLENGE_TEMPLATE_KIND).order_by(Event.updated_at.desc(), Event.name.asc())).all()
+        events = session.scalars(select(Event).order_by(Event.updated_at.desc(), Event.name.asc())).all()
         return [_event_payload(session, event) for event in events]
 
     participant_event_ids = participant_event_ids_for_user(session, user)
-    collaborator_event_ids = session.scalars(select(EventCollaborator.event_id).where(EventCollaborator.user_id == user.id)).all()
-    owner_or_collaborator_filters = [Event.owner_user_id == user.id]
-    if collaborator_event_ids:
-        owner_or_collaborator_filters.append(Event.id.in_(collaborator_event_ids))
     events = session.scalars(
         select(Event)
-        .where(Event.event_kind != CHALLENGE_TEMPLATE_KIND, or_(Event.visibility.in_(["public", "users", "participants"]), *owner_or_collaborator_filters))
+        .where(Event.visibility.in_(["public", "users", "participants"]))
         .order_by(Event.updated_at.desc(), Event.name.asc())
     ).all()
     visible_events = [event for event in events if _event_visible_to_user(session, event, user, participant_event_ids)]
@@ -239,41 +178,17 @@ def list_events(user: User = Depends(get_current_user), session: Session = Depen
 
 
 @router.post("", response_model=EventResponse)
-def create_event(payload: EventCreate, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> EventResponse:
-    event_kind = payload.event_kind or "competition"
-    if event_kind not in {"competition", "challenge"}:
-        raise HTTPException(status_code=400, detail="Invalid event kind")
-    if event_kind != "challenge" and user.role not in STAFF_ROLES:
-        raise HTTPException(status_code=403, detail="Event staff access required")
-
-    group = _load_owned_buddy_group(session, user, payload.source_buddy_group_id) if event_kind == "challenge" else None
-    data = payload.model_dump()
-    if event_kind == "challenge":
-        data.update(challenge_event_defaults(user))
-        data["owner_user_id"] = user.id
-        data["source_buddy_group_id"] = group.id if group else None
-        data["public_slug"] = payload.public_slug or _public_slug(session)
-    else:
-        data["owner_user_id"] = None
-        data["source_buddy_group_id"] = None
-        data["public_slug"] = None
-        data["public_listed"] = True
-    event = Event(**data)
+def create_event(payload: EventCreate, user: User = Depends(require_staff), session: Session = Depends(get_session)) -> EventResponse:
+    event = Event(**payload.model_dump())
     session.add(event)
     session.flush()
-    seeded_count = 0
-    if event_kind == "challenge":
-        session.add(EventCollaborator(event_id=event.id, user_id=user.id, role="owner"))
-        seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
-        copy_challenge_default_assets(session, _challenge_asset_source_user(session, user, event, group), event)
-        _ensure_challenge_task(session, event)
     log_action(
         session,
         actor_user_id=user.id,
         action="event.create",
         entity_type="event",
         entity_id=str(event.id),
-        details={**payload.model_dump(mode="json"), "seeded_count": seeded_count},
+        details=payload.model_dump(mode="json"),
     )
     session.commit()
     session.refresh(event)
@@ -291,48 +206,14 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
     session.add(duplicated_event)
     session.flush()
 
-    turnpoint_source_id_map: dict[int, int] = {}
-    for source in session.scalars(select(TurnpointSource).where(TurnpointSource.event_id == source_event.id).order_by(TurnpointSource.id)).all():
-        duplicated_source = TurnpointSource(
-            event_id=duplicated_event.id,
-            filename=source.filename,
-            content_type=source.content_type,
-            file_format=source.file_format,
-            sha256=source.sha256,
-            stored_path=_copy_stored_file(source.stored_path, duplicated_event.id, source.id),
-            schema_json=source.schema_json,
-            enabled=source.enabled,
-        )
-        session.add(duplicated_source)
-        session.flush()
-        turnpoint_source_id_map[source.id] = duplicated_source.id
-
     for slot in session.scalars(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == source_event.id).order_by(EventTurnpointSlot.slot_number)).all():
         session.add(
             EventTurnpointSlot(
                 event_id=duplicated_event.id,
                 slot_number=slot.slot_number,
-                source_id=turnpoint_source_id_map.get(slot.source_id) if slot.source_id else None,
+                source_id=slot.source_id,
             )
         )
-
-    turnpoint_id_map: dict[int, int] = {}
-    for turnpoint in session.scalars(select(Turnpoint).where(Turnpoint.event_id == source_event.id).order_by(Turnpoint.id)).all():
-        duplicated_turnpoint = Turnpoint(
-            event_id=duplicated_event.id,
-            source_id=turnpoint_source_id_map.get(turnpoint.source_id) if turnpoint.source_id else None,
-            code=turnpoint.code,
-            symbol=turnpoint.symbol,
-            name=turnpoint.name,
-            latitude=turnpoint.latitude,
-            longitude=turnpoint.longitude,
-            elevation_m=turnpoint.elevation_m,
-            extra_json=turnpoint.extra_json,
-            source_row_index=turnpoint.source_row_index,
-        )
-        session.add(duplicated_turnpoint)
-        session.flush()
-        turnpoint_id_map[turnpoint.id] = duplicated_turnpoint.id
 
     airspace_source_id_map: dict[int, int] = {}
     for source in session.scalars(select(AirspaceSource).where(AirspaceSource.event_id == source_event.id).order_by(AirspaceSource.id)).all():
@@ -401,7 +282,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
                 point_type=task_point.point_type,
                 direction=task_point.direction if task_point.direction in {"enter", "exit"} else default_task_point_direction(task_point.point_type),
                 radius_m=task_point.radius_m,
-                turnpoint_id=turnpoint_id_map.get(task_point.turnpoint_id) if task_point.turnpoint_id else None,
+                turnpoint_id=task_point.turnpoint_id,
                 name=task_point.name,
                 latitude=task_point.latitude,
                 longitude=task_point.longitude,
@@ -432,43 +313,20 @@ def get_event(event_id: int, user: User = Depends(get_current_user), session: Se
 
 
 @router.put("/{event_id}", response_model=EventResponse)
-def update_event(event_id: int, payload: EventCreate, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> EventResponse:
+def update_event(event_id: int, payload: EventCreate, user: User = Depends(require_staff), session: Session = Depends(get_session)) -> EventResponse:
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    if not can_manage_event(session, user, event):
-        raise HTTPException(status_code=403, detail="Event management access required")
-    event_kind = payload.event_kind or "competition"
-    if event_kind not in {"competition", "challenge"}:
-        raise HTTPException(status_code=400, detail="Invalid event kind")
-    if event_kind != "challenge" and user.role not in STAFF_ROLES:
-        raise HTTPException(status_code=403, detail="Event staff access required")
-
-    group = _load_owned_buddy_group(session, user, payload.source_buddy_group_id) if event_kind == "challenge" else None
     data = payload.model_dump()
-    if event_kind == "challenge":
-        data["owner_user_id"] = event.owner_user_id or user.id
-        data["source_buddy_group_id"] = group.id if group else None
-        data["public_slug"] = payload.public_slug or event.public_slug or _public_slug(session)
-    else:
-        data["owner_user_id"] = None
-        data["source_buddy_group_id"] = None
-        data["public_slug"] = None
-        data["public_listed"] = True
     for field, value in data.items():
         setattr(event, field, value)
-    seeded_count = 0
-    if event_kind == "challenge":
-        seeded_count = _seed_roster_from_buddy_group(session, event, group, user)
-        copy_challenge_default_assets(session, _challenge_asset_source_user(session, user, event, group), event, missing_only=True)
-        _ensure_challenge_task(session, event)
     log_action(
         session,
         actor_user_id=user.id,
         action="event.update",
         entity_type="event",
         entity_id=str(event.id),
-        details={**payload.model_dump(mode="json"), "seeded_count": seeded_count},
+        details=payload.model_dump(mode="json"),
     )
     session.commit()
     session.refresh(event)

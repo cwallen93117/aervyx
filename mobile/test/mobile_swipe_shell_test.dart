@@ -3,12 +3,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:aervyx_mobile/screens/mobile_swipe_shell.dart';
 
 void main() {
-  test('pilot swipe pages put challenges and logbook right of map', () {
+  test('pilot swipe pages put events and logbook right of map', () {
     expect(
       mobileSwipePages(isDriver: false),
       [
         MobileSwipePage.map,
-        MobileSwipePage.challenges,
+        MobileSwipePage.events,
         MobileSwipePage.logbook,
         MobileSwipePage.liveView,
         MobileSwipePage.settings,
@@ -21,7 +21,7 @@ void main() {
       mobileSwipePages(isDriver: true),
       [
         MobileSwipePage.map,
-        MobileSwipePage.challenges,
+        MobileSwipePage.events,
         MobileSwipePage.liveView,
         MobileSwipePage.settings,
       ],

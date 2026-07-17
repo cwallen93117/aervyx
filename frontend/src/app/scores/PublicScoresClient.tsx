@@ -897,7 +897,6 @@ export function PublicScoresClient() {
   const [publicAirspaceCategories, setPublicAirspaceCategories] = useState<AirspaceCategory[]>(() => DEFAULT_AIRSPACE_CATEGORIES);
   const [hasRequestedEventParam, setHasRequestedEventParam] = useState(false);
   const [requestedEventId, setRequestedEventId] = useState<number | null>(null);
-  const [requestedChallengeSlug, setRequestedChallengeSlug] = useState<string | null>(null);
   const [hasAppliedRequestedEvent, setHasAppliedRequestedEvent] = useState(false);
   const [showScoringParameters, setShowScoringParameters] = useState(false);
   const [activeScoringParameterHelpId, setActiveScoringParameterHelpId] = useState<ScoringHelpId | null>(null);
@@ -911,14 +910,6 @@ export function PublicScoresClient() {
   const selectedEvent = useMemo(
     () => events.find((event) => event.id === selectedEventId) ?? null,
     [events, selectedEventId],
-  );
-  const publicCompetitions = useMemo(
-    () => events.filter((event) => (event.event_kind ?? "competition") !== "challenge"),
-    [events],
-  );
-  const publicBuddyChallenges = useMemo(
-    () => events.filter((event) => (event.event_kind ?? "competition") === "challenge"),
-    [events],
   );
   const selectedTask = useMemo(
     () => tasks.find((task) => task.id === activeTaskId) ?? null,
@@ -1109,7 +1100,6 @@ export function PublicScoresClient() {
     const params = new URLSearchParams(window.location.search);
     setHasRequestedEventParam(params.has("event_id"));
     setRequestedEventId(readNumericSearchParam("event_id"));
-    setRequestedChallengeSlug(params.get("challenge")?.trim() || null);
   }, []);
 
   const loadResultTrack = useCallback(async (uploadId: number) => {
@@ -1169,21 +1159,11 @@ export function PublicScoresClient() {
     (async () => {
       try {
         const loadedEvents = await fetchJson<PublicEvent[]>(`${apiBase}/api/public/events`);
-        const directChallenge = requestedChallengeSlug
-          ? await fetchJson<PublicEvent>(`${apiBase}/api/public/challenges/${encodeURIComponent(requestedChallengeSlug)}`)
-          : null;
         if (cancelled) return;
-        const mergedEvents = directChallenge && !loadedEvents.some((event) => event.id === directChallenge.id)
-          ? [directChallenge, ...loadedEvents]
-          : loadedEvents;
-        setEvents(sortPublicEventsByDate(mergedEvents));
-        if (directChallenge) {
-          setSelectedEventId(directChallenge.id);
-          setHasAppliedRequestedEvent(true);
-        }
+        setEvents(sortPublicEventsByDate(loadedEvents));
       } catch {
         if (!cancelled) {
-          setError(requestedChallengeSlug ? "Unable to load that challenge." : "Unable to load public competitions.");
+          setError("Unable to load public events.");
         }
       } finally {
         if (!cancelled) {
@@ -1194,7 +1174,7 @@ export function PublicScoresClient() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, requestedChallengeSlug]);
+  }, [apiBase]);
 
   useEffect(() => {
     if (loadingEvents || hasAppliedRequestedEvent || !hasRequestedEventParam) {
@@ -1260,7 +1240,7 @@ export function PublicScoresClient() {
           setTasks([]);
           setPilotSummary([]);
           setTaskResultSummary([]);
-          setError("Unable to load scores for this competition.");
+          setError("Unable to load scores for this event.");
         }
       } finally {
         if (!cancelled) {
@@ -1383,7 +1363,7 @@ export function PublicScoresClient() {
             </button>
             <MeetStatsButton onClick={openMeetStats} loading={meetStatsLoading && meetStatsModalOpen} />
           </div>
-          <p>{selectedEvent?.name ?? "Competition"} {selectedEvent?.location ? `- ${selectedEvent.location}` : ""}</p>
+          <p>{selectedEvent?.name ?? "Event"} {selectedEvent?.location ? `- ${selectedEvent.location}` : ""}</p>
         </div>
       </div>
       {scoredTasks.length ? (
@@ -1693,27 +1673,16 @@ export function PublicScoresClient() {
         <div className="scores-header-controls">
           <div className="live-source-picker">
             <select
-              aria-label="Competition scores event"
+              aria-label="Scores event"
               value={selectedEventId ?? ""}
               onChange={(event) => setSelectedEventId(Number(event.target.value) || null)}
               disabled={loadingEvents || !events.length}
             >
-              <option value="">Competitions</option>
-              {publicCompetitions.length ? (
-                <optgroup label="Official competitions">
-                  {publicCompetitions.map((event) => (
-                    <option key={event.id} value={event.id}>{event.name}</option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {publicBuddyChallenges.length ? (
-                <optgroup label="Buddy challenges">
-                  {publicBuddyChallenges.map((event) => (
-                    <option key={event.id} value={event.id}>{event.name}</option>
-                  ))}
-                </optgroup>
-              ) : null}
-              {!events.length ? <option value="">No public competitions</option> : null}
+              <option value="">Events</option>
+              {events.map((event) => (
+                <option key={event.id} value={event.id}>{event.name}</option>
+              ))}
+              {!events.length ? <option value="">No public events</option> : null}
             </select>
           </div>
           <a href={watchLiveHref} className="public-header-link public-header-link-live">Live</a>
@@ -1754,7 +1723,7 @@ export function PublicScoresClient() {
           {loadingEvents || loadingEvent ? (
             <div className="scores-empty">Loading public scores...</div>
           ) : !selectedEvent ? (
-            <div className="scores-empty">{events.length ? "Select a competition." : "No public competitions are available yet."}</div>
+            <div className="scores-empty">{events.length ? "Select an event." : "No public events are available yet."}</div>
           ) : activeTaskId == null ? (
             renderOverall()
           ) : selectedTask ? (
@@ -1813,7 +1782,7 @@ export function PublicScoresClient() {
       ) : null}
       {meetStatsModalOpen ? (
         <MeetStatsModal
-          title={selectedEvent?.name ?? "Competition"}
+          title={selectedEvent?.name ?? "Event"}
           timezone={selectedEvent?.timezone}
           stats={meetStats}
           loading={meetStatsLoading}

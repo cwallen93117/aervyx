@@ -6,7 +6,7 @@ import { type MapAirspaceRegion, type MapLegMetric, type MapTelemetrySmoothing, 
 import { TaskBuilderMap } from "../TaskBuilderMap";
 import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import { sortTasksByDateAsc } from "./taskSorting";
-import { normalizeAirspaceCategories } from "../../lib/faaAirspace";
+import { DEFAULT_AIRSPACE_CATEGORIES } from "../../lib/faaAirspace";
 import type { AccountSettingsRecord, TaskDraftState, TaskPointRecord, TaskRecord } from "./types";
 
 const taskTypeOptions = [
@@ -128,8 +128,8 @@ export default function TasksSection(props: TasksSectionProps) {
         <p className="hint">Tasks need an event context before they can be built.</p>
       </SectionCard>
     ) : (
-      <SectionCard title="Tasks" description="No competition selected.">
-        <p className="hint">Choose an available competition from the Tasks header. If none are listed, no competitions are visible to this account yet.</p>
+      <SectionCard title="Tasks" description="No event selected.">
+        <p className="hint">Choose an available event from the Tasks header. If none are listed, no events are visible to this account yet.</p>
       </SectionCard>
     );
   }
@@ -439,7 +439,7 @@ export default function TasksSection(props: TasksSectionProps) {
                 }}
                 telemetrySmoothing={telemetrySmoothing}
                 overlayConfig={overlayConfig}
-                faaAirspaceCategories={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
+                faaAirspaceCategories={DEFAULT_AIRSPACE_CATEGORIES}
               />
             </div>
           </div>

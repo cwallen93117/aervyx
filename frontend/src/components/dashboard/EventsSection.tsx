@@ -2,23 +2,17 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
-import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
-import WaypointFilesEditor, { type WaypointFileSourceRecord, waypointSourceCanEdit } from "./WaypointFilesEditor";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
   AirspaceSourceRecord,
-  AccountSettingsRecord,
-  BuddyGroup,
   EventFormState,
   EventRecord,
   EventTab,
   MapAirspaceRegion,
   PilotRecord,
   ScoringPresetRecord,
-  TurnpointRecord,
   TurnpointSourceRecord,
-  TurnpointUploadResponse,
 } from "./types";
 
 const builtInFormulaOptions = [
@@ -283,52 +277,6 @@ const eventTabItems = [
   { id: "participants", label: "Participants" },
   { id: "scoring", label: "Scoring Parameters" },
 ] satisfies Array<{ id: EventTab; label: string }>;
-const challengeScoringFields = [
-  "scoring_formula",
-  "nominal_distance_km",
-  "nominal_time_hours",
-  "nominal_launch",
-  "minimum_distance_km",
-  "nominal_goal_percent",
-  "score_back_time_minutes",
-  "goal_ss_penalty",
-  "day_quality_override",
-  "time_points_if_not_in_goal",
-  "jump_the_gun_factor",
-  "jump_the_gun_max_seconds",
-  "default_start_gate_count",
-  "default_start_gate_interval_seconds",
-  "stopped_glide_bonus",
-  "use_1000_points_for_max_day_quality",
-  "normalize_1000_before_day_quality",
-  "use_distance_points",
-  "use_time_points",
-  "use_leading_points",
-  "use_arrival_position_points",
-  "use_arrival_time_points",
-  "use_departure_points",
-  "use_difficulty_for_distance_points",
-  "use_distance_squared_for_lc",
-  "use_semi_circle_control_zone_for_goal_line",
-  "use_proportional_leading_weight_if_nobody_in_goal",
-  "redistribute_removed_time_points_as_distance_points",
-  "use_best_score_for_ftv_validity",
-  "use_constant_leading_weight",
-  "use_pwca2019_for_lc",
-  "use_flat_decline_of_timepoints",
-  "scoring_altitude",
-  "final_glide_decelerator",
-  "no_final_glide_decelerator_reason",
-  "min_time_span_for_valid_task_minutes",
-  "leading_weight_factor",
-  "turnpoint_radius_tolerance",
-  "turnpoint_radius_minimum_absolute_tolerance_m",
-  "number_of_decimals_task_results",
-  "number_of_decimals_competition_results",
-  "visible_airspace_classes_json",
-  "show_restricted_fields",
-  "penalties_json",
-] as const;
 const airspaceCategoryOptions = [
   { value: "B", label: "Class B" },
   { value: "C", label: "Class C" },
@@ -354,61 +302,12 @@ const fallbackTimeZoneOptions = [
 ] as const;
 
 type PresetFeedback = { type: "success" | "error" | "pending"; text: string } | null;
-type TurnpointSymbol = "" | "grass_strip" | "paved_runway" | "dot" | "bar";
-type TurnpointSortKey = "name" | "symbol";
-type TurnpointSortState = { key: TurnpointSortKey; direction: "asc" | "desc" } | null;
-type EditableTurnpoint = {
-  id: number | null;
-  name: string;
-  code: string;
-  symbol: TurnpointSymbol;
-  latitude: string;
-  longitude: string;
-  elevation_m: string;
-  extra_json: Record<string, string>;
-};
-
-type WaypointFileResponse = {
-  source_id: number;
-  event_id: number;
-  event_name: string;
-  event_kind: string;
-  filename: string;
-  file_format: string;
-  sha256: string;
-  enabled: boolean;
-  uploaded_at: string;
-  turnpoint_count: number;
-  can_edit: boolean;
-};
-
-const turnpointSymbolOptions = [
-  { value: "", label: "Blank" },
-  { value: "grass_strip", label: "Grass Strip" },
-  { value: "paved_runway", label: "Paved Runway" },
-  { value: "dot", label: "Dot" },
-  { value: "bar", label: "Bar" },
-] satisfies Array<{ value: TurnpointSymbol; label: string }>;
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (configured?.startsWith("/")) return configured;
   if (typeof window !== "undefined") return configured || "/backend";
   return configured ?? "/backend";
-}
-
-async function apiFetchBlob(path: string, token: string): Promise<{ blob: Blob; filename: string | null }> {
-  const response = await fetch(`${resolveApiBase()}${path}`, {
-    cache: "no-store",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `Request failed (${response.status})`);
-  }
-  const disposition = response.headers.get("content-disposition");
-  const filenameMatch = disposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
-  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1] ?? filenameMatch[2] ?? "") : null;
-  return { blob: await response.blob(), filename };
 }
 
 async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
@@ -477,101 +376,6 @@ function scoringFormFromEvent(sourceEvent: EventRecord, currentForm: EventFormSt
   };
 }
 
-function challengeDefaultsToForm(settings: Record<string, unknown>): EventFormState {
-  const form = blankChallengeDefaultsForm();
-  for (const field of challengeScoringFields) {
-    if (settings[field] !== undefined) {
-      (form as Record<string, unknown>)[field] = settings[field];
-    }
-  }
-  return form;
-}
-
-function formToChallengeDefaults(form: EventFormState, existing: Record<string, unknown>): Record<string, unknown> {
-  const next = { ...existing };
-  for (const field of challengeScoringFields) {
-    next[field] = (form as unknown as Record<string, unknown>)[field];
-  }
-  return next;
-}
-
-function waypointFileResponseToSource(record: WaypointFileResponse): WaypointFileSourceRecord {
-  return {
-    id: record.source_id,
-    event_id: record.event_id,
-    event_name: record.event_name,
-    event_kind: record.event_kind,
-    filename: record.filename,
-    file_format: record.file_format,
-    sha256: record.sha256,
-    enabled: record.enabled,
-    uploaded_at: record.uploaded_at,
-    turnpoint_count: record.turnpoint_count,
-    can_edit: record.can_edit,
-  };
-}
-
-function blankChallengeDefaultsForm(): EventFormState {
-  return {
-    name: "Challenge Defaults",
-    location: "",
-    starts_on: new Date().toISOString().slice(0, 10),
-    ends_on: new Date().toISOString().slice(0, 10),
-    timezone: "UTC",
-    scoring_formula: "GAP2021",
-    nominal_distance_km: 60,
-    nominal_time_hours: 1.5,
-    nominal_launch: 0.95,
-    minimum_distance_km: 5,
-    nominal_goal_percent: 0.3,
-    score_back_time_minutes: 15,
-    goal_ss_penalty: 0,
-    day_quality_override: 0,
-    time_points_if_not_in_goal: 1,
-    jump_the_gun_factor: 0,
-    jump_the_gun_max_seconds: 0,
-    default_start_gate_count: 5,
-    default_start_gate_interval_seconds: 900,
-    stopped_glide_bonus: 0,
-    use_1000_points_for_max_day_quality: false,
-    normalize_1000_before_day_quality: false,
-    use_distance_points: true,
-    use_time_points: true,
-    use_leading_points: true,
-    use_arrival_position_points: false,
-    use_arrival_time_points: false,
-    use_departure_points: false,
-    use_difficulty_for_distance_points: true,
-    use_distance_squared_for_lc: false,
-    use_semi_circle_control_zone_for_goal_line: true,
-    use_proportional_leading_weight_if_nobody_in_goal: true,
-    redistribute_removed_time_points_as_distance_points: false,
-    use_best_score_for_ftv_validity: true,
-    use_constant_leading_weight: false,
-    use_pwca2019_for_lc: false,
-    use_flat_decline_of_timepoints: false,
-    scoring_altitude: "GPS",
-    final_glide_decelerator: "none",
-    no_final_glide_decelerator_reason: "",
-    min_time_span_for_valid_task_minutes: 60,
-    leading_weight_factor: 1,
-    turnpoint_radius_tolerance: 0.0005,
-    turnpoint_radius_minimum_absolute_tolerance_m: 5,
-    number_of_decimals_task_results: 2,
-    number_of_decimals_competition_results: 1,
-    visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"],
-    show_restricted_fields: true,
-    penalties_text: "{}",
-    is_public_tracking: false,
-    visibility: "private",
-    event_kind: "challenge",
-    owner_user_id: null,
-    source_buddy_group_id: null,
-    public_slug: null,
-    public_listed: false,
-  };
-}
-
 function airspaceSourceLabel(kind: AirspaceSourceRecord["kind"]): string {
   return kind === "restricted_field" ? "Restricted fields" : kind === "airspace" ? "Airspace" : "";
 }
@@ -613,75 +417,6 @@ function timeZoneOptions(localTimeZone: string, selectedTimeZone: string): strin
   return Array.from(new Set([localTimeZone, selectedTimeZone, ...allZones].filter(Boolean)));
 }
 
-function normalizeEditableSymbol(value: unknown): TurnpointSymbol {
-  return value === "grass_strip" || value === "paved_runway" || value === "dot" || value === "bar" ? value : "";
-}
-
-function turnpointSymbolLabel(symbol: unknown): string {
-  return turnpointSymbolOptions.find((option) => option.value === normalizeEditableSymbol(symbol))?.label ?? "";
-}
-
-function turnpointToEditable(turnpoint?: TurnpointRecord | null, fallback?: { latitude: number; longitude: number; elevationM?: number | null }): EditableTurnpoint {
-  return {
-    id: turnpoint?.id ?? null,
-    name: turnpoint?.name ?? "",
-    code: turnpoint?.code ?? "",
-    symbol: normalizeEditableSymbol(turnpoint?.symbol),
-    latitude: String(turnpoint?.latitude ?? fallback?.latitude ?? ""),
-    longitude: String(turnpoint?.longitude ?? fallback?.longitude ?? ""),
-    elevation_m: turnpoint?.elevation_m == null ? (fallback?.elevationM == null ? "" : String(Math.round(fallback.elevationM))) : String(turnpoint.elevation_m),
-    extra_json: Object.fromEntries(Object.entries(turnpoint?.extra_json ?? {}).map(([key, value]) => [key, String(value ?? "")])),
-  };
-}
-
-function editableToPayload(editable: EditableTurnpoint) {
-  const latitude = Number(editable.latitude);
-  const longitude = Number(editable.longitude);
-  const elevation = editable.elevation_m.trim() ? Number(editable.elevation_m) : null;
-  if (!editable.name.trim()) throw new Error("Waypoint name is required.");
-  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) throw new Error("Latitude must be between -90 and 90.");
-  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) throw new Error("Longitude must be between -180 and 180.");
-  if (elevation !== null && !Number.isFinite(elevation)) throw new Error("Altitude must be a number.");
-  return {
-    name: editable.name.trim(),
-    code: editable.code.trim() || null,
-    symbol: editable.symbol || null,
-    latitude,
-    longitude,
-    elevation_m: elevation,
-    extra_json: editable.extra_json,
-  };
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function TurnpointSymbolIcon({ symbol }: { symbol: TurnpointSymbol }) {
-  if (symbol === "grass_strip" || symbol === "paved_runway") {
-    return <span className={`turnpoint-symbol-icon ${symbol}`} aria-hidden="true">✈</span>;
-  }
-  if (symbol === "bar") {
-    return (
-      <svg className="turnpoint-symbol-icon bar" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-        <path fill="#7c3aed" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" d="M9 7h30L27 22v14h8v5H13v-5h8V22L9 7zm8 5l7 8 7-8H17z" />
-        <circle cx="34" cy="12" r="4" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-  if (symbol === "dot") {
-    return <span className="turnpoint-symbol-icon dot" aria-hidden="true" />;
-  }
-  return <span className="turnpoint-symbol-icon blank" aria-hidden="true" />;
-}
-
 export interface EventsSectionProps {
   events: EventRecord[];
   selectedEventId: number | null;
@@ -691,36 +426,25 @@ export interface EventsSectionProps {
   setEventTab: (tab: EventTab) => void;
   eventForm: EventFormState;
   setEventForm: (form: EventFormState) => void;
-  turnpoints: TurnpointRecord[];
   turnpointSources: TurnpointSourceRecord[];
-  airspaces: MapAirspaceRegion[];
   airspaceSources: AirspaceSourceRecord[];
   visibleAirspaces: MapAirspaceRegion[];
-  pilots: PilotRecord[];
-  settingsForm: AccountSettingsRecord;
-  setSettingsForm: (form: AccountSettingsRecord | ((current: AccountSettingsRecord) => AccountSettingsRecord)) => void;
-  saveChallengeSettings: (settings: Record<string, unknown>) => Promise<Record<string, unknown>>;
   canManagePlatform: boolean;
   canManageOfficialEvents: boolean;
-  canCreateChallenge: boolean;
   isAdmin: boolean;
   selectEvent: (event: EventRecord) => void;
-  createEventDraft: (kind: "competition" | "challenge") => void;
+  createEventDraft: () => void;
   duplicateSelectedEvent: () => void;
     deleteEvent: () => void;
     saveEvent: (event: FormEvent<HTMLFormElement>) => void;
     saveEventForm: (nextForm: EventFormState, successMessage?: string) => Promise<void>;
-    toggleTurnpointSource: (source: TurnpointSourceRecord, enabled: boolean) => void;
-    deleteTurnpointSource: (source: TurnpointSourceRecord) => void;
     uploadAirspaceFile: (files: FileList | File[]) => Promise<void> | void;
     deleteAirspaceSource: (source: AirspaceSourceRecord) => void;
     toggleAirspaceSource: (source: AirspaceSourceRecord, updates: { enabled?: boolean; kind?: AirspaceSourceRecord["kind"] }) => void;
-    uploadFile: (path: string, file: File) => Promise<unknown>;
   loadEvent: (activeToken: string, eventId: number) => Promise<void>;
   refreshPilotDirectory: (activeToken: string) => Promise<PilotRecord[]>;
   refreshEvents: (activeToken: string) => Promise<EventRecord[]>;
   token: string;
-  telemetrySmoothing?: MapTelemetrySmoothing;
   setMessage: (msg: string) => void;
   setError: (msg: string) => void;
   renderParticipantCards: () => ReactNode;
@@ -736,16 +460,11 @@ export default function EventsSection(props: EventsSectionProps) {
     setEventTab,
     eventForm,
     setEventForm,
-    turnpoints,
     turnpointSources,
     airspaceSources,
     visibleAirspaces,
-    settingsForm,
-    setSettingsForm,
-    saveChallengeSettings,
     canManagePlatform,
     canManageOfficialEvents,
-    canCreateChallenge,
     isAdmin,
     selectEvent,
     createEventDraft,
@@ -753,17 +472,13 @@ export default function EventsSection(props: EventsSectionProps) {
       deleteEvent,
       saveEvent,
       saveEventForm,
-      toggleTurnpointSource,
-      deleteTurnpointSource,
       uploadAirspaceFile,
       deleteAirspaceSource,
       toggleAirspaceSource,
-      uploadFile,
     loadEvent,
     refreshPilotDirectory,
     refreshEvents,
     token,
-    telemetrySmoothing,
     setMessage,
     setError,
     renderParticipantCards,
@@ -781,22 +496,9 @@ export default function EventsSection(props: EventsSectionProps) {
   ];
   const [scoringTemplateEventId, setScoringTemplateEventId] = useState("");
   const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
-  const [buddyGroups, setBuddyGroups] = useState<BuddyGroup[]>([]);
-  const [buddyGroupsFeedback, setBuddyGroupsFeedback] = useState("");
-  const [challengeDefaultsForm, setChallengeDefaultsForm] = useState<EventFormState>(() => challengeDefaultsToForm(settingsForm.challenge_settings_json ?? {}));
-  const [challengeTurnpointSources, setChallengeTurnpointSources] = useState<TurnpointSourceRecord[]>([]);
-  const [challengeAirspaceSources, setChallengeAirspaceSources] = useState<AirspaceSourceRecord[]>([]);
-  const [waypointFileSources, setWaypointFileSources] = useState<WaypointFileSourceRecord[]>([]);
-  const [challengeSettingsFeedback, setChallengeSettingsFeedback] = useState<PresetFeedback>(null);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
-  const [selectedTurnpointSourceId, setSelectedTurnpointSourceId] = useState<number | null>(null);
-  const [sourceTurnpoints, setSourceTurnpoints] = useState<TurnpointRecord[]>([]);
-  const [sourceTurnpointsLoading, setSourceTurnpointsLoading] = useState(false);
-  const [editingTurnpointId, setEditingTurnpointId] = useState<number | null>(null);
-  const [turnpointEdit, setTurnpointEdit] = useState<EditableTurnpoint | null>(null);
-  const [draftTurnpoint, setDraftTurnpoint] = useState<EditableTurnpoint | null>(null);
-  const [turnpointSort, setTurnpointSort] = useState<TurnpointSortState>(null);
+  const [librarySources, setLibrarySources] = useState<TurnpointSourceRecord[]>([]);
   const startsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const endsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const scoringTemplateOptions = events.filter((event) => event.id !== eventEditorId);
@@ -805,12 +507,8 @@ export default function EventsSection(props: EventsSectionProps) {
     const db = b.starts_on ? new Date(b.starts_on).getTime() : -Infinity;
     return db - da;
   });
-  const canCreateAnyEvent = canManageOfficialEvents || canCreateChallenge;
-  const isChallenge = eventForm.event_kind === "challenge";
-  const visibleEventTabs = isChallenge ? eventTabItems.filter((tab) => tab.id === "details") : eventTabItems;
   const localTimeZone = useMemo(() => browserTimeZone(), []);
   const timezoneOptions = useMemo(() => timeZoneOptions(localTimeZone, eventForm.timezone), [localTimeZone, eventForm.timezone]);
-  const challengeWaypointFileSources = waypointFileSources.filter((source) => waypointSourceCanEdit(source));
 
   const autoSaveOverlaySettings = (nextForm: EventFormState) => {
     setEventForm(nextForm);
@@ -827,82 +525,12 @@ export default function EventsSection(props: EventsSectionProps) {
   }, [eventForm.starts_on, eventForm.ends_on]);
 
   useEffect(() => {
-    setChallengeDefaultsForm(challengeDefaultsToForm(settingsForm.challenge_settings_json ?? {}));
-  }, [settingsForm.challenge_settings_json]);
+    if (!token || eventTab !== "turnpoints" || !canManagePlatform) return;
+    void apiFetch<TurnpointSourceRecord[]>("/api/turnpoint-library", token)
+      .then(setLibrarySources)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the Turnpoint Library."));
+  }, [canManagePlatform, eventTab, setError, token]);
 
-  useEffect(() => {
-    if (isChallenge && eventTab !== "details" && eventTab !== "challenge_settings") {
-      setEventTab("details");
-    }
-  }, [eventTab, isChallenge, setEventTab]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadChallengeDefaultSources() {
-      const templateEventId = settingsForm.challenge_settings_json?.template_event_id;
-      if (!token || typeof templateEventId !== "number") {
-        setChallengeTurnpointSources([]);
-        setChallengeAirspaceSources([]);
-        return;
-      }
-      try {
-        const [loadedTurnpoints, loadedAirspaces] = await Promise.all([
-          apiFetch<TurnpointSourceRecord[]>(`/api/events/${templateEventId}/turnpoint-sources`, token),
-          apiFetch<AirspaceSourceRecord[]>(`/api/events/${templateEventId}/airspace-sources`, token),
-        ]);
-        if (!cancelled) {
-          setChallengeTurnpointSources(loadedTurnpoints);
-          setChallengeAirspaceSources(loadedAirspaces);
-        }
-      } catch (caught) {
-        if (!cancelled) setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load challenge default files." });
-      }
-    }
-    void loadChallengeDefaultSources();
-    return () => {
-      cancelled = true;
-    };
-  }, [settingsForm.challenge_settings_json?.template_event_id, token]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadWaypointFiles() {
-      if (!token) {
-        setWaypointFileSources([]);
-        return;
-      }
-      try {
-        const loaded = await apiFetch<WaypointFileResponse[]>("/api/auth/waypoint-files", token);
-        if (!cancelled) setWaypointFileSources(loaded.map(waypointFileResponseToSource));
-      } catch (caught) {
-        if (!cancelled) setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not load waypoint files." });
-      }
-    }
-    void loadWaypointFiles();
-    return () => {
-      cancelled = true;
-    };
-  }, [settingsForm.challenge_settings_json, token]);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadBuddyGroups() {
-      if (!token) return;
-      try {
-        const groups = await apiFetch<BuddyGroup[]>("/api/buddies/groups", token);
-        if (!cancelled) {
-          setBuddyGroups(groups);
-          setBuddyGroupsFeedback("");
-        }
-      } catch (caught) {
-        if (!cancelled) setBuddyGroupsFeedback(caught instanceof Error ? `Buddy groups: ${caught.message}` : "Buddy groups could not be loaded.");
-      }
-    }
-    void loadBuddyGroups();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
 
   const commitScheduleDate = (field: "starts_on" | "ends_on", displayValue: string) => {
     const parsed = parseLongDate(displayValue);
@@ -968,190 +596,7 @@ export default function EventsSection(props: EventsSectionProps) {
     setScoringTemplateEventId("");
     setScoringTemplateFeedback(null);
     setActiveHelpId(null);
-    setSelectedTurnpointSourceId(null);
-    setSourceTurnpoints([]);
-    setEditingTurnpointId(null);
-    setTurnpointEdit(null);
-    setDraftTurnpoint(null);
   }, [eventEditorId]);
-
-  useEffect(() => {
-    if (selectedTurnpointSourceId && !turnpointSources.some((source) => source.id === selectedTurnpointSourceId)) {
-      setSelectedTurnpointSourceId(null);
-      setSourceTurnpoints([]);
-    }
-  }, [selectedTurnpointSourceId, turnpointSources]);
-
-  const selectedTurnpointSource = turnpointSources.find((source) => source.id === selectedTurnpointSourceId) ?? null;
-  const selectedSourceExtraColumns = Array.from(new Set(sourceTurnpoints.flatMap((turnpoint) => Object.keys(turnpoint.extra_json ?? {}))));
-  const turnpointTableColSpan = 5 + selectedSourceExtraColumns.length + (canManagePlatform ? 1 : 0);
-  const sortedSourceTurnpoints = useMemo(() => {
-    if (!turnpointSort) return sourceTurnpoints;
-    const direction = turnpointSort.direction === "asc" ? 1 : -1;
-    return [...sourceTurnpoints].sort((left, right) => {
-      const leftValue = turnpointSort.key === "name" ? left.name : turnpointSymbolLabel(left.symbol);
-      const rightValue = turnpointSort.key === "name" ? right.name : turnpointSymbolLabel(right.symbol);
-      return leftValue.localeCompare(rightValue, undefined, { sensitivity: "base" }) * direction;
-    });
-  }, [sourceTurnpoints, turnpointSort]);
-
-  async function loadSourceTurnpoints(sourceId: number) {
-    if (!token || !selectedEventId) return;
-    setSourceTurnpointsLoading(true);
-    try {
-      const loaded = await apiFetch<TurnpointRecord[]>(`/api/events/${selectedEventId}/turnpoint-sources/${sourceId}/turnpoints`, token);
-      setSelectedTurnpointSourceId(sourceId);
-      setSourceTurnpoints(loaded);
-      setEditingTurnpointId(null);
-      setTurnpointEdit(null);
-      setDraftTurnpoint(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load that turnpoint file.");
-    } finally {
-      setSourceTurnpointsLoading(false);
-    }
-  }
-
-  async function reloadSelectedSource() {
-    if (selectedTurnpointSourceId) {
-      await loadSourceTurnpoints(selectedTurnpointSourceId);
-    }
-  }
-
-  async function saveTurnpointEdit() {
-    if (!token || !selectedEventId || !turnpointEdit?.id) return;
-    try {
-      const saved = await apiFetch<TurnpointRecord>(`/api/events/${selectedEventId}/turnpoints/${turnpointEdit.id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(editableToPayload(turnpointEdit)),
-      });
-      setMessage(`Saved waypoint ${saved.name}.`);
-      await reloadSelectedSource();
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save that waypoint.");
-    }
-  }
-
-  async function saveDraftTurnpoint() {
-    if (!token || !selectedEventId || !selectedTurnpointSourceId || !draftTurnpoint) return;
-    try {
-      const saved = await apiFetch<TurnpointRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${selectedTurnpointSourceId}/turnpoints`, token, {
-        method: "POST",
-        body: JSON.stringify(editableToPayload(draftTurnpoint)),
-      });
-      setMessage(`Added waypoint ${saved.name}.`);
-      setDraftTurnpoint(null);
-      await reloadSelectedSource();
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not add that waypoint.");
-    }
-  }
-
-  async function deleteSourceTurnpoint(turnpoint: TurnpointRecord) {
-    if (!token || !selectedEventId) return;
-    const confirmed = window.confirm(`Delete waypoint "${turnpoint.name}" from ${selectedTurnpointSource?.filename ?? "this file"}?`);
-    if (!confirmed) return;
-    try {
-      await apiFetch<void>(`/api/events/${selectedEventId}/turnpoints/${turnpoint.id}`, token, { method: "DELETE" });
-      setMessage(`Deleted waypoint ${turnpoint.name}.`);
-      await reloadSelectedSource();
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not delete that waypoint.");
-    }
-  }
-
-  async function downloadTurnpointSource(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    try {
-      const { blob, filename } = await apiFetchBlob(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}/download`, token);
-      downloadBlob(blob, filename ?? source.filename);
-      setMessage(`Started downloading ${source.filename}.`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not download that turnpoint file.");
-    }
-  }
-
-  async function renameTurnpointSource(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    const nextName = window.prompt("Rename turnpoint file", source.filename)?.trim();
-    if (!nextName || nextName === source.filename) return;
-    try {
-      const renamed = await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ filename: nextName }),
-      });
-      setMessage(`Renamed ${source.filename} to ${renamed.filename}.`);
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-      if (selectedTurnpointSourceId === source.id) {
-        await loadSourceTurnpoints(source.id);
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not rename that turnpoint file.");
-    }
-  }
-
-  async function saveTurnpointSourceAs(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    const stem = source.filename.replace(/\.[^.]+$/, "");
-    const suffix = source.filename.includes(".") ? source.filename.slice(source.filename.lastIndexOf(".")) : "";
-    const suggested = `${stem} v2${suffix}`;
-    const filename = window.prompt("Save turnpoint file as", suggested)?.trim();
-    if (!filename) return;
-    try {
-      const saved = await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}/save-as`, token, {
-        method: "POST",
-        body: JSON.stringify({ filename }),
-      });
-      setMessage(`Saved ${source.filename} as ${saved.filename}.`);
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-      await loadSourceTurnpoints(saved.id);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save that turnpoint file as a new version.");
-    }
-  }
-
-  function updateEditableExtra(target: "edit" | "draft", key: string, value: string) {
-    const setter = target === "edit" ? setTurnpointEdit : setDraftTurnpoint;
-    setter((current) => current ? { ...current, extra_json: { ...current.extra_json, [key]: value } } : current);
-  }
-
-  function renderSymbolSelect(value: TurnpointSymbol, onChange: (next: TurnpointSymbol) => void) {
-    return (
-      <select value={value} onChange={(event) => onChange(normalizeEditableSymbol(event.target.value))}>
-        {turnpointSymbolOptions.map((option) => (
-          <option key={option.value || "blank"} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-    );
-  }
-
-  function toggleTurnpointSort(key: TurnpointSortKey) {
-    setTurnpointSort((current) => {
-      if (!current || current.key !== key) return { key, direction: "asc" };
-      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
-    });
-  }
-
-  function sortLabel(key: TurnpointSortKey) {
-    if (turnpointSort?.key !== key) return "Sort";
-    return turnpointSort.direction === "asc" ? "A-Z" : "Z-A";
-  }
-
-  function closeTurnpointSourceDetail() {
-    setSelectedTurnpointSourceId(null);
-    setSourceTurnpoints([]);
-    setEditingTurnpointId(null);
-    setTurnpointEdit(null);
-    setDraftTurnpoint(null);
-  }
 
   async function saveScoringPresets() {
     if (!token || !selectedEventId) return;
@@ -1176,28 +621,6 @@ export default function EventsSection(props: EventsSectionProps) {
         text: caught instanceof Error ? caught.message : "Could not save penalty presets.",
       });
     }
-  }
-
-  async function saveChallengeDefaults(nextSettings?: Record<string, unknown>) {
-    try {
-      setChallengeSettingsFeedback({ type: "pending", text: "Saving challenge settings..." });
-      const saved = await saveChallengeSettings(nextSettings ?? formToChallengeDefaults(challengeDefaultsForm, settingsForm.challenge_settings_json ?? {}));
-      setSettingsForm((current) => ({ ...current, challenge_settings_json: saved }));
-      setChallengeSettingsFeedback({ type: "success", text: "Saved challenge settings." });
-    } catch (caught) {
-      setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not save challenge settings." });
-    }
-  }
-
-  async function uploadChallengeDefaultFile(path: string, file: File) {
-    const response = await uploadFile(path, file) as { settings?: Record<string, unknown> };
-    const settings = response.settings ?? {};
-    setSettingsForm((current) => ({ ...current, challenge_settings_json: settings }));
-    setChallengeSettingsFeedback({ type: "success", text: `Uploaded ${file.name}.` });
-  }
-
-  function updateChallengeDefaults(patch: Partial<EventFormState>) {
-    setChallengeDefaultsForm((current) => ({ ...current, ...patch }));
   }
 
   async function loadScoringTemplate() {
@@ -1246,198 +669,24 @@ export default function EventsSection(props: EventsSectionProps) {
               ))}
             </select>
             </label>
-            {canCreateAnyEvent || canManagePlatform ? (
+            {canManageOfficialEvents ? (
               <div className="event-selector-actions">
-                {canManageOfficialEvents ? <button className="ghost-button" type="button" onClick={() => void createEventDraft("competition")}>Create Official Event</button> : null}
-                {canCreateChallenge ? <button className="ghost-button" type="button" onClick={() => void createEventDraft("challenge")}>Create Challenge</button> : null}
-                {canManagePlatform ? <button className="primary-button" type="button" onClick={() => void saveEventForm(eventForm, `${eventEditorId ? "Updated" : "Created"} ${eventForm.event_kind === "challenge" ? "challenge" : "event"} ${eventForm.name || "draft"}.`)}>{eventEditorId ? "Save" : "Create"}</button> : null}
-                {canManageOfficialEvents && eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
+                <button className="ghost-button" type="button" onClick={() => void createEventDraft()}>Create Event</button>
+                <button className="primary-button" type="button" onClick={() => void saveEventForm(eventForm, `${eventEditorId ? "Updated" : "Created"} event ${eventForm.name || "draft"}.`)}>{eventEditorId ? "Save" : "Create"}</button>
+                {eventEditorId ? <button type="button" className="ghost-button" onClick={() => void duplicateSelectedEvent()}>Duplicate event</button> : null}
                 {isAdmin && eventEditorId ? <button type="button" className="ghost-button danger-button" onClick={() => void deleteEvent()}>Delete event</button> : null}
-                <button type="button" className="ghost-button" onClick={() => setEventTab("challenge_settings")}>Challenge Settings</button>
               </div>
             ) : null}
           </div>
         </SectionCard>
       <div className="tab-row">
-        {visibleEventTabs.map((tab) => (
+        {eventTabItems.map((tab) => (
           <button key={tab.id} type="button" className={eventTab === tab.id ? "tab-button active" : "tab-button"} onClick={() => setEventTab(tab.id)}>
             {tab.label}
           </button>
         ))}
       </div>
       <div className="event-workspace-grid event-workspace-stack">
-        {eventTab === "challenge_settings" ? (
-          <SectionCard title="Challenge Settings">
-            <div className="stack form-block compact-event-form compact-clusters">
-              {challengeSettingsFeedback ? <div className={`status-chip ${challengeSettingsFeedback.type}`}>{challengeSettingsFeedback.text}</div> : null}
-              <div className="fieldset-grid two-up">
-                <fieldset className="fieldset-cluster">
-                  <legend>Default files</legend>
-                  <div className="cluster-stack">
-                    <label className="stack compact">
-                      <span>Waypoint file</span>
-                      <select
-                        value={Number(settingsForm.challenge_settings_json?.turnpoint_source_id ?? "") || ""}
-                        onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), turnpoint_source_id: Number(event.target.value) || null })}
-                      >
-                        <option value="">No default waypoint file</option>
-                        {challengeWaypointFileSources.map((source) => (
-                          <option key={`${source.event_id}-${source.id}`} value={source.id}>
-                            {source.event_name ? `${source.filename} - ${source.event_name}` : source.filename}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="file-input">
-                      Upload waypoint file
-                      <input
-                        type="file"
-                        accept=".csv,.geojson,.json,.gpx"
-                        onChange={async (event) => {
-                          const file = event.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            await uploadChallengeDefaultFile("/api/auth/challenge-settings/turnpoints/upload", file);
-                          } catch (caught) {
-                            setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Failed to upload ${file.name}.` });
-                          } finally {
-                            event.currentTarget.value = "";
-                          }
-                        }}
-                      />
-                    </label>
-                    <label className="stack compact">
-                      <span>Airspace file</span>
-                      <select
-                        value={Number(settingsForm.challenge_settings_json?.airspace_source_id ?? "") || ""}
-                        onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), airspace_source_id: Number(event.target.value) || null })}
-                      >
-                        <option value="">No default airspace file</option>
-                        {challengeAirspaceSources.filter((source) => source.kind !== "restricted_field").map((source) => (
-                          <option key={source.id} value={source.id}>{source.filename}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="file-input">
-                      Upload airspace
-                      <input
-                        type="file"
-                        accept=".txt,.openair,.air,.geojson,.json"
-                        onChange={async (event) => {
-                          const file = event.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            await uploadChallengeDefaultFile("/api/auth/challenge-settings/airspaces/upload?kind=airspace", file);
-                          } catch (caught) {
-                            setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Failed to upload ${file.name}.` });
-                          } finally {
-                            event.currentTarget.value = "";
-                          }
-                        }}
-                      />
-                    </label>
-                    <label className="stack compact">
-                      <span>Restricted-field file</span>
-                      <select
-                        value={Number(settingsForm.challenge_settings_json?.restricted_field_source_id ?? "") || ""}
-                        onChange={(event) => void saveChallengeDefaults({ ...(settingsForm.challenge_settings_json ?? {}), restricted_field_source_id: Number(event.target.value) || null })}
-                      >
-                        <option value="">No default restricted fields</option>
-                        {challengeAirspaceSources.filter((source) => source.kind === "restricted_field").map((source) => (
-                          <option key={source.id} value={source.id}>{source.filename}</option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="file-input">
-                      Upload restricted fields
-                      <input
-                        type="file"
-                        accept=".txt,.openair,.air,.geojson,.json"
-                        onChange={async (event) => {
-                          const file = event.target.files?.[0];
-                          if (!file) return;
-                          try {
-                            await uploadChallengeDefaultFile("/api/auth/challenge-settings/airspaces/upload?kind=restricted_field", file);
-                          } catch (caught) {
-                            setChallengeSettingsFeedback({ type: "error", text: caught instanceof Error ? caught.message : `Failed to upload ${file.name}.` });
-                          } finally {
-                            event.currentTarget.value = "";
-                          }
-                        }}
-                      />
-                    </label>
-                  </div>
-                </fieldset>
-                <fieldset className="fieldset-cluster">
-                  <legend>Default scoring</legend>
-                  <div className="cluster-stack">
-                    <label className="stack compact">
-                      <span>Scoring formula</span>
-                      <select value={challengeDefaultsForm.scoring_formula} onChange={(event) => updateChallengeDefaults({ scoring_formula: event.target.value })}>
-                        {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <div className="inline-grid">
-                      <label className="stack compact">
-                        <span>Minimum distance (km)</span>
-                        <input type="number" min={0} step="0.1" value={challengeDefaultsForm.minimum_distance_km} onChange={(event) => updateChallengeDefaults({ minimum_distance_km: Number(event.target.value) || 0 })} />
-                      </label>
-                      <label className="stack compact">
-                        <span>Nominal distance (km)</span>
-                        <input type="number" min={0} step="1" value={challengeDefaultsForm.nominal_distance_km} onChange={(event) => updateChallengeDefaults({ nominal_distance_km: Number(event.target.value) || 0 })} />
-                      </label>
-                    </div>
-                    <div className="inline-grid">
-                      <label className="stack compact">
-                        <span>Nominal time (hours)</span>
-                        <input type="number" min={0} step="0.1" value={challengeDefaultsForm.nominal_time_hours} onChange={(event) => updateChallengeDefaults({ nominal_time_hours: Number(event.target.value) || 0 })} />
-                      </label>
-                      <label className="stack compact">
-                        <span>Nominal launch</span>
-                        <input type="number" min={0} max={1} step="0.01" value={challengeDefaultsForm.nominal_launch} onChange={(event) => updateChallengeDefaults({ nominal_launch: Number(event.target.value) || 0 })} />
-                      </label>
-                    </div>
-                    <div className="inline-grid">
-                      <label className="stack compact">
-                        <span>Default start gates</span>
-                        <input type="number" min={1} step="1" value={challengeDefaultsForm.default_start_gate_count} onChange={(event) => updateChallengeDefaults({ default_start_gate_count: Math.max(1, Number(event.target.value) || 1) })} />
-                      </label>
-                      <label className="stack compact">
-                        <span>Gate interval (minutes)</span>
-                        <input type="number" min={0} step="1" value={Math.round(challengeDefaultsForm.default_start_gate_interval_seconds / 60)} onChange={(event) => updateChallengeDefaults({ default_start_gate_interval_seconds: Math.max(0, Number(event.target.value) || 0) * 60 })} />
-                      </label>
-                    </div>
-                    <div className="event-airspace-class-row">
-                      {airspaceCategoryOptions.map((option) => (
-                        <label key={option.value} className="task-advanced-toggle">
-                          <input
-                            type="checkbox"
-                            checked={challengeDefaultsForm.visible_airspace_classes_json.includes(option.value)}
-                            onChange={() => {
-                              const existing = new Set(challengeDefaultsForm.visible_airspace_classes_json);
-                              if (existing.has(option.value)) existing.delete(option.value);
-                              else existing.add(option.value);
-                              updateChallengeDefaults({ visible_airspace_classes_json: Array.from(existing) });
-                            }}
-                          />
-                          <span>{option.label}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <label className="task-advanced-toggle">
-                      <input type="checkbox" checked={challengeDefaultsForm.show_restricted_fields} onChange={(event) => updateChallengeDefaults({ show_restricted_fields: event.target.checked })} />
-                      <span>Show restricted fields</span>
-                    </label>
-                    <div className="button-row">
-                      <button type="button" className="primary-button" onClick={() => void saveChallengeDefaults()}>Save challenge settings</button>
-                      {selectedEvent ? <button type="button" className="ghost-button" onClick={() => setChallengeDefaultsForm(scoringFormFromEvent(selectedEvent, challengeDefaultsForm))}>Copy scoring from selected event</button> : null}
-                    </div>
-                  </div>
-                </fieldset>
-              </div>
-            </div>
-          </SectionCard>
-        ) : null}
         {eventTab === "details" ? (
         <SectionCard>
           <form className="stack form-block compact-event-form compact-clusters" onSubmit={saveEvent}>
@@ -1453,45 +702,6 @@ export default function EventsSection(props: EventsSectionProps) {
                     <span>Location</span>
                     <input placeholder="Enter location" value={eventForm.location} onChange={(event) => setEventForm({ ...eventForm, location: event.target.value })} />
                   </label>
-                  <label className="stack compact">
-                    <span>Competition type</span>
-                    <select
-                      value={eventForm.event_kind}
-                      onChange={(event) => {
-                        const nextKind = event.target.value as "competition" | "challenge";
-                        setEventForm({
-                          ...eventForm,
-                          event_kind: nextKind,
-                          source_buddy_group_id: nextKind === "challenge" ? eventForm.source_buddy_group_id : null,
-                          public_listed: nextKind === "challenge" ? eventForm.public_listed : true,
-                        });
-                      }}
-                    >
-                      <option value="competition" disabled={!canManageOfficialEvents}>Official event</option>
-                      <option value="challenge">Buddy challenge</option>
-                    </select>
-                  </label>
-                  {eventForm.event_kind === "challenge" ? (
-                    <>
-                      <label className="stack compact">
-                        <span>Buddy group</span>
-                        <select
-                          value={eventForm.source_buddy_group_id ?? ""}
-                          onChange={(event) => setEventForm({ ...eventForm, source_buddy_group_id: Number(event.target.value) || null })}
-                        >
-                          <option value="">No buddy group</option>
-                          {buddyGroups.map((group) => (
-                            <option key={group.id} value={group.id}>{group.name}</option>
-                          ))}
-                        </select>
-                      </label>
-                      {buddyGroupsFeedback ? <p className="muted">{buddyGroupsFeedback}</p> : null}
-                      <label className="task-advanced-toggle">
-                        <input type="checkbox" checked={eventForm.public_listed} onChange={(event) => setEventForm({ ...eventForm, public_listed: event.target.checked })} />
-                        <span>List under public buddy challenges</span>
-                      </label>
-                    </>
-                  ) : null}
                   <label className="task-advanced-toggle">
                     <input type="checkbox" checked={eventForm.is_public_tracking ?? false} onChange={(event) => setEventForm({ ...eventForm, is_public_tracking: event.target.checked })} />
                     <span>Public live tracking</span>
@@ -1966,54 +1176,58 @@ export default function EventsSection(props: EventsSectionProps) {
         <SectionCard title="Turnpoint files">
           {eventEditorId ? (
             <div className="stack form-block">
-              {canManagePlatform ? (
-                <div className="participant-intake-row">
-                  <div className="stack compact">
-                    <span>Upload turnpoint file</span>
-                    <p className="hint">CSV, GeoJSON, or GPX. Each upload is stored separately so you can mix multiple waypoint datasets on the same event.</p>
-                  </div>
-                  <label className="file-input">
-                    Upload turnpoints
-                    <input
-                      type="file"
-                      accept=".csv,.geojson,.json,.gpx"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0];
-                        if (!file || !selectedEventId) return;
-                        try {
-                          setError("");
-                          const response = await uploadFile(`/api/events/${selectedEventId}/turnpoints/upload`, file) as TurnpointUploadResponse;
-                          setMessage(`Stored ${response.imported_count} turnpoints from ${file.name}.`);
-                          await loadEvent(token, selectedEventId);
-                          await refreshEvents(token);
-                        } catch (caught) {
-                          setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                        } finally {
-                          event.currentTarget.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              ) : null}
-              <WaypointFilesEditor
-                token={token}
-                sources={turnpointSources}
-                defaultCanEdit={canManagePlatform}
-                telemetrySmoothing={telemetrySmoothing}
-                setMessage={setMessage}
-                setError={setError}
-                emptyMessage="No turnpoint files uploaded for this event yet."
-                onSourcesChanged={async () => {
-                  if (selectedEventId) {
-                    await loadEvent(token, selectedEventId);
-                    await refreshEvents(token);
-                  }
-                }}
-              />
+              <p className="hint">{canManagePlatform ? "Select the Turnpoint Library files this event uses." : "Turnpoint Library files selected for this event."}</p>
+              <div className="participant-table-wrap">
+                <table className="participant-table">
+                  <thead>
+                    <tr>
+                      {canManagePlatform ? <th>Use</th> : null}
+                      <th>File name</th>
+                      <th>Format</th>
+                      <th>Waypoints</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(canManagePlatform ? librarySources : turnpointSources).length ? (
+                      (canManagePlatform ? librarySources : turnpointSources).map((source) => {
+                        const selected = turnpointSources.some((item) => item.id === source.id);
+                        return (
+                          <tr key={source.id}>
+                            {canManagePlatform ? (
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Use ${source.filename} for this event`}
+                                  checked={selected}
+                                  onChange={async (event) => {
+                                    if (!selectedEventId) return;
+                                    try {
+                                      await apiFetch<void>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, { method: event.target.checked ? "POST" : "DELETE" });
+                                      await loadEvent(token, selectedEventId);
+                                      await refreshEvents(token);
+                                      setMessage(`${event.target.checked ? "Selected" : "Removed"} ${source.filename}.`);
+                                    } catch (caught) {
+                                      setError(caught instanceof Error ? caught.message : "Could not update the event turnpoint files.");
+                                    }
+                                  }}
+                                />
+                              </td>
+                            ) : null}
+                            <td><strong>{source.filename}</strong></td>
+                            <td>{source.file_format.toUpperCase()}</td>
+                            <td>{source.turnpoint_count}</td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr><td colSpan={canManagePlatform ? 4 : 3} className="participant-table-empty">{canManagePlatform ? "No files in the Turnpoint Library yet." : "No turnpoint files selected for this event."}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
-            <p className="hint">Create or select an event before uploading turnpoint files.</p>
+            <p className="hint">Create or select an event before choosing Turnpoint Library files.</p>
           )}
         </SectionCard>
         ) : null}

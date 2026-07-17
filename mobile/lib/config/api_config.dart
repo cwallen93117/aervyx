@@ -78,10 +78,8 @@ class ApiConfig {
   // IGC upload — task upload (also syncs to logbook automatically)
   static String taskUploadPath(int taskId) => '/api/tasks/$taskId/uploads';
 
-  // Pilot-created ad hoc challenges.
-  static const String challengesPath = '/api/challenges';
-  static String challengePath(int eventId) => '/api/challenges/$eventId';
-  static String challengeTasksPath(int eventId) => '/api/events/$eventId/tasks';
+  static const String eventsPath = '/api/events';
+  static String eventTasksPath(int eventId) => '/api/events/$eventId/tasks';
   static String taskPath(int taskId) => '/api/tasks/$taskId';
   static String eventTurnpointSourcesPath(int eventId) =>
       '/api/events/$eventId/turnpoint-sources';

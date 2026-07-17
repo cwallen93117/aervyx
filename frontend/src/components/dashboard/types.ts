@@ -2,7 +2,7 @@ import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } f
 import type { ScorePenaltyCalculation } from "../../lib/scorePenalties";
 
 export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "live_backtest" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
-export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring" | "challenge_settings";
+export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
 export type User = { id: number; username: string; full_name: string; role: "admin" | "organizer" | "pilot"; profile_type: "pilot" | "driver"; profile_type_updated_at: string; pilot_id: number | null };
 export type AircraftIconType = "hang_glider" | "paraglider" | "sailplane";
 export type AccountSettingsRecord = {
@@ -25,7 +25,6 @@ export type AccountSettingsRecord = {
   pilot_id: number | null;
   has_password?: boolean;
   access_token?: string | null;
-  challenge_settings_json: Record<string, unknown>;
 };
 export type AdminUserRecord = {
   id: number;
@@ -243,11 +242,6 @@ export type EventRecord = {
   penalties_json: Record<string, unknown>;
   is_public_tracking: boolean;
   visibility: "public" | "users" | "participants" | "private";
-  event_kind: "competition" | "challenge";
-  owner_user_id: number | null;
-  source_buddy_group_id: number | null;
-  public_slug: string | null;
-  public_listed: boolean;
   updated_at: string;
   pilot_count: number;
   task_count: number;
@@ -256,8 +250,8 @@ export type EventRecord = {
   restricted_field_count: number;
 };
 export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null };
-export type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null; symbol: string | null; extra_json: Record<string, unknown>; source_row_index: number | null };
-export type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
+export type TurnpointRecord = MapTurnpoint & { event_id: number | null; source_id: number | null; elevation_m: number | null; symbol: string | null; extra_json: Record<string, unknown>; source_row_index: number | null };
+export type TurnpointSourceRecord = { id: number; filename: string; file_format: string; sha256: string; turnpoint_count: number };
 export type TaskPointDirection = "enter" | "exit";
 export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null; direction: TaskPointDirection };
 export type TaskRecord = {
@@ -423,11 +417,6 @@ export function blankEventForm() {
     penalties_text: "{}",
     is_public_tracking: false,
     visibility: "private" as "public" | "users" | "participants" | "private",
-    event_kind: "competition" as "competition" | "challenge",
-    owner_user_id: null as number | null,
-    source_buddy_group_id: null as number | null,
-    public_slug: null as string | null,
-    public_listed: true,
   };
 }
 

@@ -15,7 +15,7 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
-def test_task_response_filters_stale_turnpoints_when_sources_are_disabled() -> None:
+def test_task_response_preserves_historical_points_when_sources_are_disabled() -> None:
     session = _session()
     event = Event(
         name="Test Event",
@@ -108,11 +108,11 @@ def test_task_response_filters_stale_turnpoints_when_sources_are_disabled() -> N
 
     response = _task_response(session, task)
 
-    assert [point.name for point in response.points] == ["East Ridge", "Manual Goal"]
+    assert [point.name for point in response.points] == ["West Ridge", "East Ridge", "Manual Goal"]
     assert response.task_type == "race_to_goal_with_gates"
     assert response.is_practice is False
     assert response.start_gate_count == 1
-    assert [point.direction for point in response.points] == ["enter", "enter"]
+    assert [point.direction for point in response.points] == ["enter", "enter", "enter"]
     assert not hasattr(response, "nominal_distance_km")
     assert not hasattr(response, "minimum_distance_km")
 

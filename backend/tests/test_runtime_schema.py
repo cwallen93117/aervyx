@@ -2,10 +2,92 @@ import os
 
 os.environ.setdefault("APP_SECRET_KEY", "runtime-schema-test-secret-key")
 
+from datetime import date
+
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.db import Base
 from app.db.schema import ensure_runtime_schema
+from app.models import Event, EventPilot, EventTurnpointSlot, Pilot, ScoreResult, SiteSettings, Task, Turnpoint, TurnpointSource, User
+
+
+def test_runtime_schema_backfills_enabled_event_sources_once_and_preserves_library_on_event_delete() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    with engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        event = Event(name="Legacy files", location="Ridge", starts_on=date(2026, 1, 1), ends_on=date(2026, 1, 2), timezone="UTC")
+        session.add_all([SiteSettings(id=1), event])
+        session.flush()
+        enabled = TurnpointSource(event_id=event.id, filename="enabled.gpx", file_format="gpx", sha256="a" * 64, stored_path="/tmp/enabled.gpx", enabled=True)
+        disabled = TurnpointSource(event_id=event.id, filename="disabled.gpx", file_format="gpx", sha256="b" * 64, stored_path="/tmp/disabled.gpx", enabled=False)
+        session.add_all([enabled, disabled])
+        session.flush()
+        session.add(Turnpoint(event_id=event.id, source_id=enabled.id, name="Kept", latitude=1, longitude=2))
+        session.commit()
+        event_id, enabled_id, disabled_id = event.id, enabled.id, disabled.id
+
+    ensure_runtime_schema(engine)
+    ensure_runtime_schema(engine)
+
+    with Session(engine) as session:
+        slots = session.query(EventTurnpointSlot).all()
+        assert [(slot.event_id, slot.slot_number, slot.source_id) for slot in slots] == [(event_id, enabled_id, enabled_id)]
+        assert session.query(EventTurnpointSlot).filter(EventTurnpointSlot.source_id == disabled_id).count() == 0
+        session.delete(session.get(Event, event_id))
+        session.commit()
+        assert session.get(TurnpointSource, enabled_id) is not None
+        assert session.get(TurnpointSource, enabled_id).event_id is None
+        point = session.query(Turnpoint).filter(Turnpoint.source_id == enabled_id).one()
+        assert point.event_id is None
+
+
+def test_runtime_schema_converts_events_and_removes_legacy_challenge_storage() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        owner = User(username="owner@example.com", full_name="Owner", role="admin", password_hash="hash")
+        pilot = Pilot(first_name="Pilot", last_name="One", email="pilot@example.com")
+        ordinary = Event(name="Ordinary", location="Ridge", starts_on=date(2026, 1, 1), ends_on=date(2026, 1, 2), timezone="UTC")
+        converted = Event(name="Converted", location="Ridge", starts_on=date(2026, 2, 1), ends_on=date(2026, 2, 2), timezone="UTC", visibility="public")
+        hidden = Event(name="Legacy defaults", location="", starts_on=date(2026, 2, 1), ends_on=date(2026, 2, 1), timezone="UTC")
+        session.add_all([SiteSettings(id=1), owner, pilot, ordinary, converted, hidden])
+        session.flush()
+        task = Task(event_id=converted.id, name="Preserved task")
+        session.add_all([task, EventPilot(event_id=converted.id, pilot_id=pilot.id)])
+        session.flush()
+        session.add(ScoreResult(task_id=task.id, pilot_id=pilot.id, score_points=725.5))
+        session.commit()
+        converted_id, hidden_id = converted.id, hidden.id
+
+    with engine.begin() as connection:
+        connection.execute(text("ALTER TABLE users ADD COLUMN challenge_settings_json JSON"))
+        connection.execute(text("ALTER TABLE events ADD COLUMN event_kind VARCHAR(20) NOT NULL DEFAULT 'competition'"))
+        connection.execute(text("ALTER TABLE events ADD COLUMN owner_user_id INTEGER"))
+        connection.execute(text("ALTER TABLE events ADD COLUMN source_buddy_group_id INTEGER"))
+        connection.execute(text("ALTER TABLE events ADD COLUMN public_slug VARCHAR(80)"))
+        connection.execute(text("ALTER TABLE events ADD COLUMN public_listed BOOLEAN NOT NULL DEFAULT TRUE"))
+        connection.execute(text("CREATE TABLE event_collaborators (id INTEGER PRIMARY KEY, event_id INTEGER, user_id INTEGER, role VARCHAR(20))"))
+        connection.execute(text("UPDATE events SET event_kind = 'challenge', public_listed = FALSE WHERE id = :id"), {"id": converted_id})
+        connection.execute(text("UPDATE events SET event_kind = 'challenge_defaults', public_listed = FALSE WHERE id = :id"), {"id": hidden_id})
+
+    ensure_runtime_schema(engine)
+
+    inspector = inspect(engine)
+    assert "event_collaborators" not in inspector.get_table_names()
+    assert not {"event_kind", "owner_user_id", "source_buddy_group_id", "public_slug", "public_listed"} & {
+        column["name"] for column in inspector.get_columns("events")
+    }
+    assert "challenge_settings_json" not in {column["name"] for column in inspector.get_columns("users")}
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT visibility FROM events WHERE id = :id"), {"id": converted_id}).scalar_one() == "participants"
+        assert connection.execute(text("SELECT count(*) FROM tasks WHERE event_id = :id"), {"id": converted_id}).scalar_one() == 1
+        assert connection.execute(text("SELECT count(*) FROM event_pilots WHERE event_id = :id"), {"id": converted_id}).scalar_one() == 1
+        assert connection.execute(text("SELECT score_points FROM score_results WHERE task_id IN (SELECT id FROM tasks WHERE event_id = :id)"), {"id": converted_id}).scalar_one() == 725.5
+        assert connection.execute(text("SELECT count(*) FROM events WHERE id = :id"), {"id": hidden_id}).scalar_one() == 0
 
 
 def test_runtime_schema_adds_mqtt_site_settings_columns_to_legacy_table() -> None:
