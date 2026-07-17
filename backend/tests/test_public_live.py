@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import AirspaceRegion, AirspaceSource, BuddyGroup, BuddyGroupMember, Event, EventPilot, IGCUpload, LivePosition, Pilot, ScorePenalty, ScoreResult, SiteSettings, Task, TaskPoint, TrackPoint, User
 from app.routers.public import (
+    _select_public_event_map_task,
     get_public_site_settings,
     get_public_live_sources,
     get_public_task_results,
@@ -281,6 +282,40 @@ def test_public_live_map_task_falls_back_to_newest_published_task() -> None:
 
     assert payload.events[0].map_task is not None
     assert payload.events[0].map_task.name == "Newest published"
+
+
+@pytest.mark.parametrize(
+    ("tasks", "expected"),
+    [
+        ([Task(id=1, name="Today", status="published", task_date=date(2026, 5, 3))], "Today"),
+        (
+            [
+                Task(id=1, name="Later", status="published", task_date=date(2026, 5, 6)),
+                Task(id=2, name="Next", status="published", task_date=date(2026, 5, 4)),
+            ],
+            "Next",
+        ),
+        (
+            [
+                Task(id=1, name="Today", status="published", task_date=date(2026, 5, 3)),
+                Task(id=2, name="Active", status="active", task_date=date(2026, 5, 2)),
+            ],
+            "Active",
+        ),
+        (
+            [
+                Task(id=1, name="Older", status="published", task_date=date(2026, 5, 1)),
+                Task(id=2, name="Latest past", status="published", task_date=date(2026, 5, 2)),
+            ],
+            "Latest past",
+        ),
+        ([], None),
+    ],
+)
+def test_public_live_map_task_selection(tasks: list[Task], expected: str | None) -> None:
+    selected = _select_public_event_map_task(tasks, date(2026, 5, 3))
+
+    assert (selected.name if selected else None) == expected
 
 
 def test_public_live_map_task_is_empty_without_active_or_published_tasks() -> None:

@@ -38,6 +38,7 @@ from app.schemas import AirspaceRegionResponse, EventResponse, MeetStatsResponse
 from app.services.replay_tracks import DEFAULT_REPLAY_MAX_POINTS, simplify_replay_points
 from app.services.scoring import MEET_STATS_SCOPE_PUBLIC, build_cached_meet_stats_payload, build_result_payload
 from app.services.tracking import (
+    _current_local_date,
     get_live_positions,
     get_live_positions_for_pilots,
     get_live_positions_for_subjects,
@@ -516,7 +517,7 @@ def get_public_live_sources(session: Session = Depends(get_session)) -> PublicLi
             )
             .order_by(Task.task_date.asc(), Task.id.asc())
         ).all()
-        map_task = _select_public_event_map_task(tasks)
+        map_task = _select_public_event_map_task(tasks, _current_local_date(event.timezone))
         event_summaries.append(
             PublicEventSummary(
                 id=event.id,
@@ -560,19 +561,22 @@ def _public_task_summary(task: Task) -> PublicTaskSummary:
     )
 
 
-def _select_public_event_map_task(tasks: list[Task]) -> Task | None:
+def _select_public_event_map_task(tasks: list[Task], today: date) -> Task | None:
     if not tasks:
         return None
 
-    return max(
-        tasks,
-        key=lambda task: (
-            task.status == "active",
-            task.task_date is not None,
-            task.task_date or date.min,
-            task.id,
-        ),
-    )
+    def priority(task: Task) -> tuple[int, int, int]:
+        if task.status == "active":
+            return (0, -(task.task_date or date.min).toordinal(), -task.id)
+        if task.task_date == today:
+            return (1, 0, -task.id)
+        if task.task_date is not None and task.task_date > today:
+            return (2, (task.task_date - today).days, task.id)
+        if task.task_date is not None:
+            return (3, (today - task.task_date).days, -task.id)
+        return (4, 0, -task.id)
+
+    return min(tasks, key=priority)
 
 
 def _get_public_task(task_id: int, session: Session) -> Task:
