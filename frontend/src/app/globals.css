@@ -1701,8 +1701,12 @@ button[type="submit"]:hover,
 }
 
 .turnpoint-library-table .participant-table-actions {
-  width: 440px;
-  min-width: 440px;
+  width: 460px;
+  min-width: 460px;
+}
+
+.turnpoint-library-table .compact-slot-actions {
+  flex-wrap: nowrap;
 }
 
 .admin-users-search-row {
