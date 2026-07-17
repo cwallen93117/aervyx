@@ -271,7 +271,7 @@ class TurnpointSource(Base):
     __tablename__ = "turnpoint_sources"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True)
     filename: Mapped[str] = mapped_column(String(255))
     content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     file_format: Mapped[str] = mapped_column(String(20))
@@ -284,12 +284,15 @@ class TurnpointSource(Base):
 
 class EventTurnpointSlot(Base):
     __tablename__ = "event_turnpoint_slots"
-    __table_args__ = (UniqueConstraint("event_id", "slot_number", name="uq_event_turnpoint_slot"),)
+    __table_args__ = (
+        UniqueConstraint("event_id", "slot_number", name="uq_event_turnpoint_slot"),
+        UniqueConstraint("event_id", "source_id", name="uq_event_turnpoint_source"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
     slot_number: Mapped[int] = mapped_column(Integer)
-    source_id: Mapped[int | None] = mapped_column(ForeignKey("turnpoint_sources.id", ondelete="SET NULL"), nullable=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("turnpoint_sources.id", ondelete="CASCADE"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
@@ -297,7 +300,7 @@ class Turnpoint(Base):
     __tablename__ = "turnpoints"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("events.id", ondelete="SET NULL"), nullable=True, index=True)
     source_id: Mapped[int | None] = mapped_column(ForeignKey("turnpoint_sources.id", ondelete="SET NULL"), nullable=True)
     code: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
     symbol: Mapped[str | None] = mapped_column(String(40), nullable=True)

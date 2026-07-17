@@ -2,16 +2,27 @@ from datetime import date
 from pathlib import Path
 
 import pytest
+import app.routers.turnpoints as turnpoint_router
 from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.core.config import get_settings
-from app.models import Event, Turnpoint, TurnpointSource, User
-from app.routers.auth import list_waypoint_files
-from app.routers.turnpoints import create_source_turnpoint, save_turnpoint_source_as, update_turnpoint, update_turnpoint_source
-from app.schemas import TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
+from app.models import Event, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.routers.turnpoints import (
+    create_library_turnpoint,
+    delete_library_source,
+    deselect_event_turnpoint_source,
+    list_source_turnpoints,
+    list_turnpoint_sources,
+    merge_library_sources,
+    save_library_source_as,
+    select_event_turnpoint_source,
+    update_library_source,
+    update_library_turnpoint,
+)
+from app.schemas import TurnpointSourceMerge, TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
 from app.services.turnpoints import normalize_symbol, parse_csv_turnpoints, parse_csv_turnpoints_with_schema, parse_geojson_turnpoints, parse_gpx_turnpoints, serialize_csv_turnpoints
 
 
@@ -88,128 +99,235 @@ def test_parse_gpx_ignores_url_symbol_codes() -> None:
     assert records[0].code is None
 
 
-def test_update_turnpoint_rewrites_source_file(tmp_path: Path) -> None:
-    session = _session()
-    event = Event(name="Waypoint Edit", location="Hills", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
-    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
-    stored_path = tmp_path / "turnpoints.csv"
-    stored_path.write_text("name,lat,lon,symbol,notes\nOld,36,-118,,old note\n", encoding="utf-8")
-    session.add_all([event, admin])
-    session.flush()
-    source = TurnpointSource(event_id=event.id, filename="turnpoints.csv", file_format="csv", sha256="old", stored_path=str(stored_path), schema_json={"columns": ["name", "code", "lat", "lon", "symbol", "notes"], "field_map": {"name": "name", "code": "code", "latitude": "lat", "longitude": "lon", "symbol": "symbol"}})
+def _library_source(session: Session, tmp_path: Path, filename: str, points: list[dict]) -> TurnpointSource:
+    stored_path = tmp_path / filename
+    stored_path.parent.mkdir(parents=True, exist_ok=True)
+    stored_path.write_text("name,latitude,longitude\n", encoding="utf-8")
+    source = TurnpointSource(
+        event_id=None,
+        filename=filename,
+        file_format=Path(filename).suffix.lstrip(".") or "csv",
+        sha256=f"hash-{filename}",
+        stored_path=str(stored_path),
+        schema_json={},
+        enabled=True,
+    )
     session.add(source)
     session.flush()
-    point = Turnpoint(event_id=event.id, source_id=source.id, name="Old", latitude=36, longitude=-118, source_row_index=0, extra_json={"notes": "old note"})
-    session.add(point)
+    for index, values in enumerate(points):
+        session.add(Turnpoint(event_id=None, source_id=source.id, source_row_index=index, **values))
     session.commit()
+    return source
+
+
+def test_update_library_turnpoint_rewrites_source_file(tmp_path: Path) -> None:
+    session = _session()
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    session.add(admin)
+    session.commit()
+    source = _library_source(session, tmp_path, "turnpoints.csv", [{"name": "Old", "latitude": 36, "longitude": -118, "extra_json": {"notes": "old note"}}])
+    point = session.query(Turnpoint).filter(Turnpoint.source_id == source.id).one()
 
     payload = TurnpointWrite(name="New", code="N", symbol="bar", latitude=36.5, longitude=-118.5, elevation_m=1200, extra_json={"notes": "saved"})
-    updated = update_turnpoint(event.id, point.id, payload, admin, session)
+    updated = update_library_turnpoint(source.id, point.id, payload, admin, session)
 
     assert updated.symbol == "bar"
-    assert "New,N,36.5,-118.5,bar,saved" in stored_path.read_text(encoding="utf-8")
-    assert session.get(TurnpointSource, source.id).sha256 != "old"
+    assert "New" in Path(source.stored_path).read_text(encoding="utf-8")
+    assert session.get(TurnpointSource, source.id).sha256 != f"hash-{source.filename}"
 
 
-def test_create_turnpoint_rejects_cross_event_source(tmp_path: Path) -> None:
+def test_create_library_turnpoint_has_no_owning_event(tmp_path: Path) -> None:
     session = _session()
-    event = Event(name="One", location="A", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
-    other = Event(name="Two", location="B", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
     admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
-    path = tmp_path / "turnpoints.csv"
-    path.write_text("name,latitude,longitude\n", encoding="utf-8")
-    session.add_all([event, other, admin])
-    session.flush()
-    source = TurnpointSource(event_id=event.id, filename="turnpoints.csv", file_format="csv", sha256="old", stored_path=str(path), schema_json={})
-    session.add(source)
+    session.add(admin)
     session.commit()
+    source = _library_source(session, tmp_path, "turnpoints.csv", [])
 
-    with pytest.raises(HTTPException) as exc:
-        create_source_turnpoint(other.id, source.id, TurnpointWrite(name="Nope", latitude=1, longitude=1), admin, session)
+    created = create_library_turnpoint(source.id, TurnpointWrite(name="New", latitude=1, longitude=2), admin, session)
 
-    assert exc.value.status_code == 404
+    assert created.event_id is None
+    assert session.get(Turnpoint, created.id).event_id is None
 
 
-def test_rename_turnpoint_source_changes_download_filename_metadata(tmp_path: Path) -> None:
+def test_rename_library_source_corrects_extension(tmp_path: Path) -> None:
     session = _session()
-    event = Event(name="Rename", location="Hills", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
     admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
-    path = tmp_path / "old.csv"
-    path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
-    session.add_all([event, admin])
-    session.flush()
-    source = TurnpointSource(event_id=event.id, filename="old.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
-    session.add(source)
+    session.add(admin)
     session.commit()
+    source = _library_source(session, tmp_path, "old.csv", [{"name": "A", "latitude": 1, "longitude": 2}])
 
-    updated = update_turnpoint_source(event.id, source.id, TurnpointSourceUpdate(filename="new-name"), admin, session)
+    updated = update_library_source(source.id, TurnpointSourceUpdate(filename="new-name.gpx"), admin, session)
 
     assert updated.filename == "new-name.csv"
     assert session.get(TurnpointSource, source.id).filename == "new-name.csv"
 
 
-def test_save_turnpoint_source_as_clones_file_and_waypoints(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("source_format", ["csv", "gpx", "geojson"])
+@pytest.mark.parametrize("output_format", ["csv", "gpx", "geojson"])
+def test_save_as_converts_every_supported_format_and_preserves_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    source_format: str,
+    output_format: str,
+) -> None:
     monkeypatch.setenv("UPLOAD_ROOT", str(tmp_path))
     get_settings.cache_clear()
     session = _session()
-    event = Event(name="Save As", location="Hills", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 3), timezone="UTC")
     admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
-    original_path = tmp_path / "original.csv"
-    original_path.write_text("name,latitude,longitude,symbol\nA,1,2,bar\n", encoding="utf-8")
-    session.add_all([event, admin])
-    session.flush()
-    source = TurnpointSource(
-        event_id=event.id,
-        filename="original.csv",
-        file_format="csv",
-        sha256="old",
-        stored_path=str(original_path),
-        schema_json={"columns": ["name", "latitude", "longitude", "symbol"], "field_map": {"name": "name", "latitude": "latitude", "longitude": "longitude", "symbol": "symbol"}},
-        enabled=True,
-    )
-    session.add(source)
-    session.flush()
-    session.add(Turnpoint(event_id=event.id, source_id=source.id, name="A", latitude=1, longitude=2, symbol="bar", source_row_index=0))
+    session.add(admin)
     session.commit()
+    source = _library_source(
+        session,
+        tmp_path,
+        f"original.{source_format}",
+        [{"name": "A", "code": "A1", "latitude": 1, "longitude": 2, "elevation_m": 3, "symbol": "bar", "extra_json": {"notes": "kept"}}],
+    )
+    original_bytes = Path(source.stored_path).read_bytes()
 
-    saved = save_turnpoint_source_as(event.id, source.id, TurnpointSourceSaveAs(filename="copy"), admin, session)
+    saved = save_library_source_as(source.id, TurnpointSourceSaveAs(filename="copy.wrong", file_format=output_format), admin, session)
     cloned = session.get(TurnpointSource, saved.id)
     cloned_points = session.query(Turnpoint).filter(Turnpoint.source_id == saved.id).all()
 
-    assert saved.filename == "copy.csv"
+    assert saved.filename == f"copy.{output_format}"
     assert cloned is not None
+    assert cloned.event_id is None
     assert Path(cloned.stored_path).exists()
-    assert "A,1,2,bar" in Path(cloned.stored_path).read_text(encoding="utf-8")
     assert len(cloned_points) == 1
     assert cloned_points[0].symbol == "bar"
+    assert cloned_points[0].extra_json == {"notes": "kept"}
+    assert Path(source.stored_path).read_bytes() == original_bytes
+    assert session.query(EventTurnpointSlot).filter(EventTurnpointSlot.source_id == saved.id).count() == 0
     get_settings.cache_clear()
 
 
-def test_waypoint_file_list_uses_event_visibility_and_staff_editing(tmp_path: Path) -> None:
+def test_save_as_defaults_to_current_format(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UPLOAD_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    session = _session()
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    session.add(admin)
+    session.commit()
+    source = _library_source(session, tmp_path, "original.geojson", [{"name": "A", "latitude": 1, "longitude": 2}])
+
+    saved = save_library_source_as(source.id, TurnpointSourceSaveAs(filename="copy.csv"), admin, session)
+
+    assert saved.file_format == "geojson"
+    assert saved.filename == "copy.geojson"
+    get_settings.cache_clear()
+
+
+def test_merge_is_ordered_and_collapses_only_exact_duplicates(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("UPLOAD_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    session = _session()
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    session.add(admin)
+    session.commit()
+    first = _library_source(session, tmp_path / "first", "first.csv", [
+        {"name": " Alpha ", "code": "A", "latitude": 1.0000004, "longitude": 2.0000004, "extra_json": {"winner": "first"}},
+        {"name": "Bravo", "code": "B", "latitude": 3, "longitude": 4},
+    ])
+    second = _library_source(session, tmp_path / "second", "second.geojson", [
+        {"name": "alpha", "code": " a ", "latitude": 1.00000049, "longitude": 2.00000049, "extra_json": {"winner": "second"}},
+        {"name": "Charlie", "code": "C", "latitude": 5, "longitude": 6},
+    ])
+
+    merged = merge_library_sources(TurnpointSourceMerge(source_ids=[second.id, first.id], filename="combined.csv"), admin, session)
+    points = session.query(Turnpoint).filter(Turnpoint.source_id == merged.id).order_by(Turnpoint.source_row_index).all()
+
+    assert merged.filename == "combined.gpx"
+    assert merged.file_format == "gpx"
+    assert [point.name for point in points] == ["alpha", "Charlie", "Bravo"]
+    assert points[0].extra_json == {"winner": "second"}
+    assert session.query(Turnpoint).filter(Turnpoint.source_id.in_([first.id, second.id])).count() == 4
+    get_settings.cache_clear()
+
+
+def test_merge_requires_two_distinct_sources(tmp_path: Path) -> None:
+    session = _session()
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    session.add(admin)
+    session.commit()
+    source = _library_source(session, tmp_path, "one.csv", [{"name": "A", "latitude": 1, "longitude": 2}])
+
+    with pytest.raises(HTTPException) as exc:
+        merge_library_sources(TurnpointSourceMerge(source_ids=[source.id, source.id], filename="bad"), admin, session)
+
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize("operation", ["save-as", "merge"])
+def test_new_library_file_operations_are_atomic_on_audit_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+) -> None:
+    monkeypatch.setenv("UPLOAD_ROOT", str(tmp_path))
+    get_settings.cache_clear()
+    session = _session()
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    session.add(admin)
+    session.commit()
+    first = _library_source(session, tmp_path / "originals", "first.csv", [{"name": "A", "latitude": 1, "longitude": 2}])
+    second = _library_source(session, tmp_path / "originals", "second.csv", [{"name": "B", "latitude": 3, "longitude": 4}])
+    original_source_count = session.query(TurnpointSource).count()
+    original_point_count = session.query(Turnpoint).count()
+
+    def fail_audit(*args, **kwargs):
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr(turnpoint_router, "log_action", fail_audit)
+    with pytest.raises(RuntimeError, match="audit unavailable"):
+        if operation == "save-as":
+            save_library_source_as(first.id, TurnpointSourceSaveAs(filename="copy", file_format="gpx"), admin, session)
+        else:
+            merge_library_sources(TurnpointSourceMerge(source_ids=[first.id, second.id], filename="merged"), admin, session)
+
+    assert session.query(TurnpointSource).count() == original_source_count
+    assert session.query(Turnpoint).count() == original_point_count
+    assert not (tmp_path / "turnpoints").exists() or not any((tmp_path / "turnpoints").iterdir())
+    get_settings.cache_clear()
+
+
+def test_events_share_library_sources_and_pilots_read_selected_files(tmp_path: Path) -> None:
     session = _session()
     pilot = User(username="pilot@example.com", full_name="Pilot", role="pilot", password_hash="hash")
     admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
-    public_event = Event(name="Public Event", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="public")
-    private_event = Event(name="Private Event", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="private")
-    session.add_all([pilot, admin, public_event, private_event])
+    first_event = Event(name="First", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="public")
+    second_event = Event(name="Second", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="public")
+    session.add_all([pilot, admin, first_event, second_event])
+    session.commit()
+    source = _library_source(session, tmp_path, "shared.csv", [{"name": "A", "latitude": 1, "longitude": 2}])
+
+    select_event_turnpoint_source(first_event.id, source.id, admin, session)
+    select_event_turnpoint_source(second_event.id, source.id, admin, session)
+
+    assert [item.id for item in list_turnpoint_sources(first_event.id, pilot, session)] == [source.id]
+    assert [item.id for item in list_turnpoint_sources(second_event.id, pilot, session)] == [source.id]
+    assert [item.name for item in list_source_turnpoints(first_event.id, source.id, pilot, session)] == ["A"]
+    deselect_event_turnpoint_source(first_event.id, source.id, admin, session)
+    assert list_turnpoint_sources(first_event.id, pilot, session) == []
+    assert [item.id for item in list_turnpoint_sources(second_event.id, pilot, session)] == [source.id]
+
+
+def test_library_delete_preserves_task_point_snapshot(tmp_path: Path) -> None:
+    session = _session()
+    admin = User(username="admin", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(name="History", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC")
+    session.add_all([admin, event])
     session.flush()
-    sources: dict[str, TurnpointSource] = {}
-    for event, filename in ((public_event, "public.csv"), (private_event, "private.csv")):
-        path = tmp_path / filename
-        path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
-        source = TurnpointSource(event_id=event.id, filename=filename, file_format="csv", sha256=filename, stored_path=str(path), enabled=True)
-        session.add(source)
-        sources[filename] = source
+    task = Task(event_id=event.id, name="Task 1")
+    session.add(task)
+    session.commit()
+    source = _library_source(session, tmp_path, "history.csv", [{"name": "Snapshot", "latitude": 1, "longitude": 2}])
+    point = session.query(Turnpoint).filter(Turnpoint.source_id == source.id).one()
+    task_point = TaskPoint(task_id=task.id, position=1, point_type="turnpoint", turnpoint_id=point.id, name="Snapshot", latitude=1, longitude=2)
+    session.add(task_point)
     session.commit()
 
-    pilot_files = {item.filename: item for item in list_waypoint_files(user=pilot, session=session)}
-    admin_files = {item.filename: item for item in list_waypoint_files(user=admin, session=session)}
-    assert set(pilot_files) == {"public.csv"}
-    assert pilot_files["public.csv"].can_edit is False
-    assert set(admin_files) == {"public.csv", "private.csv"}
-    assert all(item.can_edit for item in admin_files.values())
+    delete_library_source(source.id, admin, session)
 
-    with pytest.raises(HTTPException) as exc:
-        update_turnpoint_source(public_event.id, sources["public.csv"].id, TurnpointSourceUpdate(filename="pilot"), pilot, session)
-    assert exc.value.status_code == 403
-    assert update_turnpoint_source(public_event.id, sources["public.csv"].id, TurnpointSourceUpdate(filename="admin"), admin, session).filename == "admin.csv"
+    preserved = session.get(TaskPoint, task_point.id)
+    assert preserved is not None
+    assert preserved.turnpoint_id is None
+    assert (preserved.name, preserved.latitude, preserved.longitude) == ("Snapshot", 1, 2)

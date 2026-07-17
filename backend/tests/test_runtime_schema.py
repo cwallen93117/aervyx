@@ -10,7 +10,39 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 from app.db.schema import ensure_runtime_schema
-from app.models import Event, EventPilot, Pilot, ScoreResult, SiteSettings, Task, User
+from app.models import Event, EventPilot, EventTurnpointSlot, Pilot, ScoreResult, SiteSettings, Task, Turnpoint, TurnpointSource, User
+
+
+def test_runtime_schema_backfills_enabled_event_sources_once_and_preserves_library_on_event_delete() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    with engine.connect() as connection:
+        connection.execute(text("PRAGMA foreign_keys=ON"))
+    Base.metadata.create_all(engine)
+    with Session(engine) as session:
+        event = Event(name="Legacy files", location="Ridge", starts_on=date(2026, 1, 1), ends_on=date(2026, 1, 2), timezone="UTC")
+        session.add_all([SiteSettings(id=1), event])
+        session.flush()
+        enabled = TurnpointSource(event_id=event.id, filename="enabled.gpx", file_format="gpx", sha256="a" * 64, stored_path="/tmp/enabled.gpx", enabled=True)
+        disabled = TurnpointSource(event_id=event.id, filename="disabled.gpx", file_format="gpx", sha256="b" * 64, stored_path="/tmp/disabled.gpx", enabled=False)
+        session.add_all([enabled, disabled])
+        session.flush()
+        session.add(Turnpoint(event_id=event.id, source_id=enabled.id, name="Kept", latitude=1, longitude=2))
+        session.commit()
+        event_id, enabled_id, disabled_id = event.id, enabled.id, disabled.id
+
+    ensure_runtime_schema(engine)
+    ensure_runtime_schema(engine)
+
+    with Session(engine) as session:
+        slots = session.query(EventTurnpointSlot).all()
+        assert [(slot.event_id, slot.slot_number, slot.source_id) for slot in slots] == [(event_id, enabled_id, enabled_id)]
+        assert session.query(EventTurnpointSlot).filter(EventTurnpointSlot.source_id == disabled_id).count() == 0
+        session.delete(session.get(Event, event_id))
+        session.commit()
+        assert session.get(TurnpointSource, enabled_id) is not None
+        assert session.get(TurnpointSource, enabled_id).event_id is None
+        point = session.query(Turnpoint).filter(Turnpoint.source_id == enabled_id).one()
+        assert point.event_id is None
 
 
 def test_runtime_schema_converts_events_and_removes_legacy_challenge_storage() -> None:

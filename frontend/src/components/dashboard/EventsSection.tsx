@@ -2,8 +2,6 @@
 
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
-import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
-import WaypointFilesSettings from "./WaypointFilesSettings";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
@@ -14,9 +12,7 @@ import type {
   MapAirspaceRegion,
   PilotRecord,
   ScoringPresetRecord,
-  TurnpointRecord,
   TurnpointSourceRecord,
-  TurnpointUploadResponse,
 } from "./types";
 
 const builtInFormulaOptions = [
@@ -306,47 +302,12 @@ const fallbackTimeZoneOptions = [
 ] as const;
 
 type PresetFeedback = { type: "success" | "error" | "pending"; text: string } | null;
-type TurnpointSymbol = "" | "grass_strip" | "paved_runway" | "dot" | "bar";
-type TurnpointSortKey = "name" | "symbol";
-type TurnpointSortState = { key: TurnpointSortKey; direction: "asc" | "desc" } | null;
-type EditableTurnpoint = {
-  id: number | null;
-  name: string;
-  code: string;
-  symbol: TurnpointSymbol;
-  latitude: string;
-  longitude: string;
-  elevation_m: string;
-  extra_json: Record<string, string>;
-};
-
-const turnpointSymbolOptions = [
-  { value: "", label: "Blank" },
-  { value: "grass_strip", label: "Grass Strip" },
-  { value: "paved_runway", label: "Paved Runway" },
-  { value: "dot", label: "Dot" },
-  { value: "bar", label: "Bar" },
-] satisfies Array<{ value: TurnpointSymbol; label: string }>;
 
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (configured?.startsWith("/")) return configured;
   if (typeof window !== "undefined") return configured || "/backend";
   return configured ?? "/backend";
-}
-
-async function apiFetchBlob(path: string, token: string): Promise<{ blob: Blob; filename: string | null }> {
-  const response = await fetch(`${resolveApiBase()}${path}`, {
-    cache: "no-store",
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-  });
-  if (!response.ok) {
-    throw new Error((await response.text()) || `Request failed (${response.status})`);
-  }
-  const disposition = response.headers.get("content-disposition");
-  const filenameMatch = disposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
-  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1] ?? filenameMatch[2] ?? "") : null;
-  return { blob: await response.blob(), filename };
 }
 
 async function apiFetch<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
@@ -456,75 +417,6 @@ function timeZoneOptions(localTimeZone: string, selectedTimeZone: string): strin
   return Array.from(new Set([localTimeZone, selectedTimeZone, ...allZones].filter(Boolean)));
 }
 
-function normalizeEditableSymbol(value: unknown): TurnpointSymbol {
-  return value === "grass_strip" || value === "paved_runway" || value === "dot" || value === "bar" ? value : "";
-}
-
-function turnpointSymbolLabel(symbol: unknown): string {
-  return turnpointSymbolOptions.find((option) => option.value === normalizeEditableSymbol(symbol))?.label ?? "";
-}
-
-function turnpointToEditable(turnpoint?: TurnpointRecord | null, fallback?: { latitude: number; longitude: number; elevationM?: number | null }): EditableTurnpoint {
-  return {
-    id: turnpoint?.id ?? null,
-    name: turnpoint?.name ?? "",
-    code: turnpoint?.code ?? "",
-    symbol: normalizeEditableSymbol(turnpoint?.symbol),
-    latitude: String(turnpoint?.latitude ?? fallback?.latitude ?? ""),
-    longitude: String(turnpoint?.longitude ?? fallback?.longitude ?? ""),
-    elevation_m: turnpoint?.elevation_m == null ? (fallback?.elevationM == null ? "" : String(Math.round(fallback.elevationM))) : String(turnpoint.elevation_m),
-    extra_json: Object.fromEntries(Object.entries(turnpoint?.extra_json ?? {}).map(([key, value]) => [key, String(value ?? "")])),
-  };
-}
-
-function editableToPayload(editable: EditableTurnpoint) {
-  const latitude = Number(editable.latitude);
-  const longitude = Number(editable.longitude);
-  const elevation = editable.elevation_m.trim() ? Number(editable.elevation_m) : null;
-  if (!editable.name.trim()) throw new Error("Waypoint name is required.");
-  if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90) throw new Error("Latitude must be between -90 and 90.");
-  if (!Number.isFinite(longitude) || longitude < -180 || longitude > 180) throw new Error("Longitude must be between -180 and 180.");
-  if (elevation !== null && !Number.isFinite(elevation)) throw new Error("Altitude must be a number.");
-  return {
-    name: editable.name.trim(),
-    code: editable.code.trim() || null,
-    symbol: editable.symbol || null,
-    latitude,
-    longitude,
-    elevation_m: elevation,
-    extra_json: editable.extra_json,
-  };
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function TurnpointSymbolIcon({ symbol }: { symbol: TurnpointSymbol }) {
-  if (symbol === "grass_strip" || symbol === "paved_runway") {
-    return <span className={`turnpoint-symbol-icon ${symbol}`} aria-hidden="true">✈</span>;
-  }
-  if (symbol === "bar") {
-    return (
-      <svg className="turnpoint-symbol-icon bar" viewBox="0 0 48 48" aria-hidden="true" focusable="false">
-        <path fill="#7c3aed" stroke="#ffffff" strokeWidth="2" strokeLinejoin="round" d="M9 7h30L27 22v14h8v5H13v-5h8V22L9 7zm8 5l7 8 7-8H17z" />
-        <circle cx="34" cy="12" r="4" fill="#ef4444" stroke="#ffffff" strokeWidth="1.5" />
-      </svg>
-    );
-  }
-  if (symbol === "dot") {
-    return <span className="turnpoint-symbol-icon dot" aria-hidden="true" />;
-  }
-  return <span className="turnpoint-symbol-icon blank" aria-hidden="true" />;
-}
-
 export interface EventsSectionProps {
   events: EventRecord[];
   selectedEventId: number | null;
@@ -534,7 +426,6 @@ export interface EventsSectionProps {
   setEventTab: (tab: EventTab) => void;
   eventForm: EventFormState;
   setEventForm: (form: EventFormState) => void;
-  turnpoints: TurnpointRecord[];
   turnpointSources: TurnpointSourceRecord[];
   airspaceSources: AirspaceSourceRecord[];
   visibleAirspaces: MapAirspaceRegion[];
@@ -547,17 +438,13 @@ export interface EventsSectionProps {
     deleteEvent: () => void;
     saveEvent: (event: FormEvent<HTMLFormElement>) => void;
     saveEventForm: (nextForm: EventFormState, successMessage?: string) => Promise<void>;
-    toggleTurnpointSource: (source: TurnpointSourceRecord, enabled: boolean) => void;
-    deleteTurnpointSource: (source: TurnpointSourceRecord) => void;
     uploadAirspaceFile: (files: FileList | File[]) => Promise<void> | void;
     deleteAirspaceSource: (source: AirspaceSourceRecord) => void;
     toggleAirspaceSource: (source: AirspaceSourceRecord, updates: { enabled?: boolean; kind?: AirspaceSourceRecord["kind"] }) => void;
-  uploadFile: (path: string, file: File) => Promise<unknown>;
   loadEvent: (activeToken: string, eventId: number) => Promise<void>;
   refreshPilotDirectory: (activeToken: string) => Promise<PilotRecord[]>;
   refreshEvents: (activeToken: string) => Promise<EventRecord[]>;
   token: string;
-  telemetrySmoothing?: MapTelemetrySmoothing;
   setMessage: (msg: string) => void;
   setError: (msg: string) => void;
   renderParticipantCards: () => ReactNode;
@@ -573,7 +460,6 @@ export default function EventsSection(props: EventsSectionProps) {
     setEventTab,
     eventForm,
     setEventForm,
-    turnpoints,
     turnpointSources,
     airspaceSources,
     visibleAirspaces,
@@ -586,17 +472,13 @@ export default function EventsSection(props: EventsSectionProps) {
       deleteEvent,
       saveEvent,
       saveEventForm,
-      toggleTurnpointSource,
-      deleteTurnpointSource,
       uploadAirspaceFile,
       deleteAirspaceSource,
       toggleAirspaceSource,
-    uploadFile,
     loadEvent,
     refreshPilotDirectory,
     refreshEvents,
     token,
-    telemetrySmoothing,
     setMessage,
     setError,
     renderParticipantCards,
@@ -616,14 +498,7 @@ export default function EventsSection(props: EventsSectionProps) {
   const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
-  const [selectedTurnpointSourceId, setSelectedTurnpointSourceId] = useState<number | null>(null);
-  const [sourceTurnpoints, setSourceTurnpoints] = useState<TurnpointRecord[]>([]);
-  const [sourceTurnpointsLoading, setSourceTurnpointsLoading] = useState(false);
-  const [editingTurnpointId, setEditingTurnpointId] = useState<number | null>(null);
-  const [turnpointEdit, setTurnpointEdit] = useState<EditableTurnpoint | null>(null);
-  const [draftTurnpoint, setDraftTurnpoint] = useState<EditableTurnpoint | null>(null);
-  const [turnpointSort, setTurnpointSort] = useState<TurnpointSortState>(null);
-  const [waypointCatalogVersion, setWaypointCatalogVersion] = useState(0);
+  const [librarySources, setLibrarySources] = useState<TurnpointSourceRecord[]>([]);
   const startsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const endsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const scoringTemplateOptions = events.filter((event) => event.id !== eventEditorId);
@@ -648,6 +523,13 @@ export default function EventsSection(props: EventsSectionProps) {
     setStartsOnDisplay(formatLongDate(eventForm.starts_on));
     setEndsOnDisplay(formatLongDate(eventForm.ends_on));
   }, [eventForm.starts_on, eventForm.ends_on]);
+
+  useEffect(() => {
+    if (!token || eventTab !== "turnpoints" || !canManagePlatform) return;
+    void apiFetch<TurnpointSourceRecord[]>("/api/turnpoint-library", token)
+      .then(setLibrarySources)
+      .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the Turnpoint Library."));
+  }, [canManagePlatform, eventTab, setError, token]);
 
 
   const commitScheduleDate = (field: "starts_on" | "ends_on", displayValue: string) => {
@@ -714,190 +596,7 @@ export default function EventsSection(props: EventsSectionProps) {
     setScoringTemplateEventId("");
     setScoringTemplateFeedback(null);
     setActiveHelpId(null);
-    setSelectedTurnpointSourceId(null);
-    setSourceTurnpoints([]);
-    setEditingTurnpointId(null);
-    setTurnpointEdit(null);
-    setDraftTurnpoint(null);
   }, [eventEditorId]);
-
-  useEffect(() => {
-    if (selectedTurnpointSourceId && !turnpointSources.some((source) => source.id === selectedTurnpointSourceId)) {
-      setSelectedTurnpointSourceId(null);
-      setSourceTurnpoints([]);
-    }
-  }, [selectedTurnpointSourceId, turnpointSources]);
-
-  const selectedTurnpointSource = turnpointSources.find((source) => source.id === selectedTurnpointSourceId) ?? null;
-  const selectedSourceExtraColumns = Array.from(new Set(sourceTurnpoints.flatMap((turnpoint) => Object.keys(turnpoint.extra_json ?? {}))));
-  const turnpointTableColSpan = 5 + selectedSourceExtraColumns.length + (canManagePlatform ? 1 : 0);
-  const sortedSourceTurnpoints = useMemo(() => {
-    if (!turnpointSort) return sourceTurnpoints;
-    const direction = turnpointSort.direction === "asc" ? 1 : -1;
-    return [...sourceTurnpoints].sort((left, right) => {
-      const leftValue = turnpointSort.key === "name" ? left.name : turnpointSymbolLabel(left.symbol);
-      const rightValue = turnpointSort.key === "name" ? right.name : turnpointSymbolLabel(right.symbol);
-      return leftValue.localeCompare(rightValue, undefined, { sensitivity: "base" }) * direction;
-    });
-  }, [sourceTurnpoints, turnpointSort]);
-
-  async function loadSourceTurnpoints(sourceId: number) {
-    if (!token || !selectedEventId) return;
-    setSourceTurnpointsLoading(true);
-    try {
-      const loaded = await apiFetch<TurnpointRecord[]>(`/api/events/${selectedEventId}/turnpoint-sources/${sourceId}/turnpoints`, token);
-      setSelectedTurnpointSourceId(sourceId);
-      setSourceTurnpoints(loaded);
-      setEditingTurnpointId(null);
-      setTurnpointEdit(null);
-      setDraftTurnpoint(null);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not load that turnpoint file.");
-    } finally {
-      setSourceTurnpointsLoading(false);
-    }
-  }
-
-  async function reloadSelectedSource() {
-    if (selectedTurnpointSourceId) {
-      await loadSourceTurnpoints(selectedTurnpointSourceId);
-    }
-  }
-
-  async function saveTurnpointEdit() {
-    if (!token || !selectedEventId || !turnpointEdit?.id) return;
-    try {
-      const saved = await apiFetch<TurnpointRecord>(`/api/events/${selectedEventId}/turnpoints/${turnpointEdit.id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(editableToPayload(turnpointEdit)),
-      });
-      setMessage(`Saved waypoint ${saved.name}.`);
-      await reloadSelectedSource();
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save that waypoint.");
-    }
-  }
-
-  async function saveDraftTurnpoint() {
-    if (!token || !selectedEventId || !selectedTurnpointSourceId || !draftTurnpoint) return;
-    try {
-      const saved = await apiFetch<TurnpointRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${selectedTurnpointSourceId}/turnpoints`, token, {
-        method: "POST",
-        body: JSON.stringify(editableToPayload(draftTurnpoint)),
-      });
-      setMessage(`Added waypoint ${saved.name}.`);
-      setDraftTurnpoint(null);
-      await reloadSelectedSource();
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not add that waypoint.");
-    }
-  }
-
-  async function deleteSourceTurnpoint(turnpoint: TurnpointRecord) {
-    if (!token || !selectedEventId) return;
-    const confirmed = window.confirm(`Delete waypoint "${turnpoint.name}" from ${selectedTurnpointSource?.filename ?? "this file"}?`);
-    if (!confirmed) return;
-    try {
-      await apiFetch<void>(`/api/events/${selectedEventId}/turnpoints/${turnpoint.id}`, token, { method: "DELETE" });
-      setMessage(`Deleted waypoint ${turnpoint.name}.`);
-      await reloadSelectedSource();
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not delete that waypoint.");
-    }
-  }
-
-  async function downloadTurnpointSource(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    try {
-      const { blob, filename } = await apiFetchBlob(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}/download`, token);
-      downloadBlob(blob, filename ?? source.filename);
-      setMessage(`Started downloading ${source.filename}.`);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not download that turnpoint file.");
-    }
-  }
-
-  async function renameTurnpointSource(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    const nextName = window.prompt("Rename turnpoint file", source.filename)?.trim();
-    if (!nextName || nextName === source.filename) return;
-    try {
-      const renamed = await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ filename: nextName }),
-      });
-      setMessage(`Renamed ${source.filename} to ${renamed.filename}.`);
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-      if (selectedTurnpointSourceId === source.id) {
-        await loadSourceTurnpoints(source.id);
-      }
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not rename that turnpoint file.");
-    }
-  }
-
-  async function saveTurnpointSourceAs(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    const stem = source.filename.replace(/\.[^.]+$/, "");
-    const suffix = source.filename.includes(".") ? source.filename.slice(source.filename.lastIndexOf(".")) : "";
-    const suggested = `${stem} v2${suffix}`;
-    const filename = window.prompt("Save turnpoint file as", suggested)?.trim();
-    if (!filename) return;
-    try {
-      const saved = await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}/save-as`, token, {
-        method: "POST",
-        body: JSON.stringify({ filename }),
-      });
-      setMessage(`Saved ${source.filename} as ${saved.filename}.`);
-      await loadEvent(token, selectedEventId);
-      await refreshEvents(token);
-      await loadSourceTurnpoints(saved.id);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not save that turnpoint file as a new version.");
-    }
-  }
-
-  function updateEditableExtra(target: "edit" | "draft", key: string, value: string) {
-    const setter = target === "edit" ? setTurnpointEdit : setDraftTurnpoint;
-    setter((current) => current ? { ...current, extra_json: { ...current.extra_json, [key]: value } } : current);
-  }
-
-  function renderSymbolSelect(value: TurnpointSymbol, onChange: (next: TurnpointSymbol) => void) {
-    return (
-      <select value={value} onChange={(event) => onChange(normalizeEditableSymbol(event.target.value))}>
-        {turnpointSymbolOptions.map((option) => (
-          <option key={option.value || "blank"} value={option.value}>{option.label}</option>
-        ))}
-      </select>
-    );
-  }
-
-  function toggleTurnpointSort(key: TurnpointSortKey) {
-    setTurnpointSort((current) => {
-      if (!current || current.key !== key) return { key, direction: "asc" };
-      return { key, direction: current.direction === "asc" ? "desc" : "asc" };
-    });
-  }
-
-  function sortLabel(key: TurnpointSortKey) {
-    if (turnpointSort?.key !== key) return "Sort";
-    return turnpointSort.direction === "asc" ? "A-Z" : "Z-A";
-  }
-
-  function closeTurnpointSourceDetail() {
-    setSelectedTurnpointSourceId(null);
-    setSourceTurnpoints([]);
-    setEditingTurnpointId(null);
-    setTurnpointEdit(null);
-    setDraftTurnpoint(null);
-  }
 
   async function saveScoringPresets() {
     if (!token || !selectedEventId) return;
@@ -1477,51 +1176,58 @@ export default function EventsSection(props: EventsSectionProps) {
         <SectionCard title="Turnpoint files">
           {eventEditorId ? (
             <div className="stack form-block">
-              {canManagePlatform ? (
-                <div className="participant-intake-row">
-                  <div className="stack compact">
-                    <span>Upload turnpoint file</span>
-                    <p className="hint">CSV, GeoJSON, or GPX. Each upload is stored separately so you can mix multiple waypoint datasets on the same event.</p>
-                  </div>
-                  <label className="file-input">
-                    Upload turnpoints
-                    <input
-                      type="file"
-                      accept=".csv,.geojson,.json,.gpx"
-                      onChange={async (event) => {
-                        const file = event.target.files?.[0];
-                        if (!file || !selectedEventId) return;
-                        try {
-                          setError("");
-                          const response = await uploadFile(`/api/events/${selectedEventId}/turnpoints/upload`, file) as TurnpointUploadResponse;
-                          setMessage(`Stored ${response.imported_count} turnpoints from ${file.name}.`);
-                          await loadEvent(token, selectedEventId);
-                          await refreshEvents(token);
-                          setWaypointCatalogVersion((current) => current + 1);
-                        } catch (caught) {
-                          setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
-                        } finally {
-                          event.currentTarget.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              ) : null}
-              <WaypointFilesSettings
-                key={waypointCatalogVersion}
-                token={token}
-                telemetrySmoothing={telemetrySmoothing}
-                onSourcesChanged={async () => {
-                  if (selectedEventId) {
-                    await loadEvent(token, selectedEventId);
-                    await refreshEvents(token);
-                  }
-                }}
-              />
+              <p className="hint">{canManagePlatform ? "Select the Turnpoint Library files this event uses." : "Turnpoint Library files selected for this event."}</p>
+              <div className="participant-table-wrap">
+                <table className="participant-table">
+                  <thead>
+                    <tr>
+                      {canManagePlatform ? <th>Use</th> : null}
+                      <th>File name</th>
+                      <th>Format</th>
+                      <th>Waypoints</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(canManagePlatform ? librarySources : turnpointSources).length ? (
+                      (canManagePlatform ? librarySources : turnpointSources).map((source) => {
+                        const selected = turnpointSources.some((item) => item.id === source.id);
+                        return (
+                          <tr key={source.id}>
+                            {canManagePlatform ? (
+                              <td>
+                                <input
+                                  type="checkbox"
+                                  aria-label={`Use ${source.filename} for this event`}
+                                  checked={selected}
+                                  onChange={async (event) => {
+                                    if (!selectedEventId) return;
+                                    try {
+                                      await apiFetch<void>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, { method: event.target.checked ? "POST" : "DELETE" });
+                                      await loadEvent(token, selectedEventId);
+                                      await refreshEvents(token);
+                                      setMessage(`${event.target.checked ? "Selected" : "Removed"} ${source.filename}.`);
+                                    } catch (caught) {
+                                      setError(caught instanceof Error ? caught.message : "Could not update the event turnpoint files.");
+                                    }
+                                  }}
+                                />
+                              </td>
+                            ) : null}
+                            <td><strong>{source.filename}</strong></td>
+                            <td>{source.file_format.toUpperCase()}</td>
+                            <td>{source.turnpoint_count}</td>
+                          </tr>
+                        );
+                      })
+                    ) : (
+                      <tr><td colSpan={canManagePlatform ? 4 : 3} className="participant-table-empty">{canManagePlatform ? "No files in the Turnpoint Library yet." : "No turnpoint files selected for this event."}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ) : (
-            <p className="hint">Create or select an event before uploading turnpoint files.</p>
+            <p className="hint">Create or select an event before choosing Turnpoint Library files.</p>
           )}
         </SectionCard>
         ) : null}

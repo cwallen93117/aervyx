@@ -38,7 +38,6 @@ from app.schemas import (
     UserEmailCreate,
     UserEmailResponse,
     UserSummary,
-    WaypointFileResponse,
 )
 from app.services.pilot_identity import (
     add_user_email_alias,
@@ -48,7 +47,6 @@ from app.services.pilot_identity import (
     repair_user_email_alias_identity,
     repair_user_email_identity,
 )
-from app.services.waypoint_access import waypoint_file_records_for_user
 from app.services.mesh_ids import normalize_mesh_device_id
 
 logger = logging.getLogger(__name__)
@@ -722,11 +720,6 @@ def update_preferences(
     session.commit()
     session.refresh(user)
     return UserSummary.model_validate(user)
-
-
-@router.get("/waypoint-files", response_model=list[WaypointFileResponse])
-def list_waypoint_files(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[WaypointFileResponse]:
-    return [WaypointFileResponse(**record) for record in waypoint_file_records_for_user(session, user)]
 
 
 @router.post("/change-password")

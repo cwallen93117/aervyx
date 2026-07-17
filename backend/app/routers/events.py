@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.deps import get_current_user, require_admin, require_staff
-from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, User
 from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
 from app.services.pilot_identity import participant_event_ids_for_user
@@ -80,7 +80,12 @@ def _event_visible_to_user(session: Session, event: Event, user: User, participa
 def _event_payload(session: Session, event: Event) -> EventResponse:
     pilot_count = session.scalar(select(func.count()).select_from(EventPilot).where(EventPilot.event_id == event.id)) or 0
     task_count = session.scalar(select(func.count()).select_from(Task).where(Task.event_id == event.id)) or 0
-    turnpoint_count = session.scalar(select(func.count()).select_from(Turnpoint).where(Turnpoint.event_id == event.id)) or 0
+    turnpoint_count = session.scalar(
+        select(func.count())
+        .select_from(Turnpoint)
+        .join(EventTurnpointSlot, EventTurnpointSlot.source_id == Turnpoint.source_id)
+        .where(EventTurnpointSlot.event_id == event.id)
+    ) or 0
     airspace_count = session.scalar(select(func.count()).select_from(AirspaceRegion).where(AirspaceRegion.event_id == event.id, AirspaceRegion.is_restricted_field.is_(False))) or 0
     restricted_field_count = session.scalar(select(func.count()).select_from(AirspaceRegion).where(AirspaceRegion.event_id == event.id, AirspaceRegion.is_restricted_field.is_(True))) or 0
     return EventResponse(
@@ -201,48 +206,14 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
     session.add(duplicated_event)
     session.flush()
 
-    turnpoint_source_id_map: dict[int, int] = {}
-    for source in session.scalars(select(TurnpointSource).where(TurnpointSource.event_id == source_event.id).order_by(TurnpointSource.id)).all():
-        duplicated_source = TurnpointSource(
-            event_id=duplicated_event.id,
-            filename=source.filename,
-            content_type=source.content_type,
-            file_format=source.file_format,
-            sha256=source.sha256,
-            stored_path=_copy_stored_file(source.stored_path, duplicated_event.id, source.id),
-            schema_json=source.schema_json,
-            enabled=source.enabled,
-        )
-        session.add(duplicated_source)
-        session.flush()
-        turnpoint_source_id_map[source.id] = duplicated_source.id
-
     for slot in session.scalars(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == source_event.id).order_by(EventTurnpointSlot.slot_number)).all():
         session.add(
             EventTurnpointSlot(
                 event_id=duplicated_event.id,
                 slot_number=slot.slot_number,
-                source_id=turnpoint_source_id_map.get(slot.source_id) if slot.source_id else None,
+                source_id=slot.source_id,
             )
         )
-
-    turnpoint_id_map: dict[int, int] = {}
-    for turnpoint in session.scalars(select(Turnpoint).where(Turnpoint.event_id == source_event.id).order_by(Turnpoint.id)).all():
-        duplicated_turnpoint = Turnpoint(
-            event_id=duplicated_event.id,
-            source_id=turnpoint_source_id_map.get(turnpoint.source_id) if turnpoint.source_id else None,
-            code=turnpoint.code,
-            symbol=turnpoint.symbol,
-            name=turnpoint.name,
-            latitude=turnpoint.latitude,
-            longitude=turnpoint.longitude,
-            elevation_m=turnpoint.elevation_m,
-            extra_json=turnpoint.extra_json,
-            source_row_index=turnpoint.source_row_index,
-        )
-        session.add(duplicated_turnpoint)
-        session.flush()
-        turnpoint_id_map[turnpoint.id] = duplicated_turnpoint.id
 
     airspace_source_id_map: dict[int, int] = {}
     for source in session.scalars(select(AirspaceSource).where(AirspaceSource.event_id == source_event.id).order_by(AirspaceSource.id)).all():
@@ -311,7 +282,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
                 point_type=task_point.point_type,
                 direction=task_point.direction if task_point.direction in {"enter", "exit"} else default_task_point_direction(task_point.point_type),
                 radius_m=task_point.radius_m,
-                turnpoint_id=turnpoint_id_map.get(task_point.turnpoint_id) if task_point.turnpoint_id else None,
+                turnpoint_id=task_point.turnpoint_id,
                 name=task_point.name,
                 latitude=task_point.latitude,
                 longitude=task_point.longitude,

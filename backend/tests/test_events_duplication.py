@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
-from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, Turnpoint, TurnpointSource, User
+from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, IGCUpload, Pilot, ScoreResult, Task, TaskPoint, Turnpoint, TurnpointSource, User
 from app.routers.events import _event_payload, duplicate_event, get_event, list_events
 
 
@@ -161,6 +161,7 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
     )
     session.add(turnpoint_source)
     session.flush()
+    session.add(EventTurnpointSlot(event_id=event.id, slot_number=turnpoint_source.id, source_id=turnpoint_source.id))
 
     turnpoint = Turnpoint(
         event_id=event.id,
@@ -269,14 +270,10 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
     assert duplicated_event.default_start_gate_count == 4
     assert duplicated_event.default_start_gate_interval_seconds == 600
 
-    duplicated_turnpoint_source = session.scalar(select(TurnpointSource).where(TurnpointSource.event_id == duplicated.id))
-    assert duplicated_turnpoint_source is not None
-    assert duplicated_turnpoint_source.stored_path != str(source_file)
-    assert Path(duplicated_turnpoint_source.stored_path).exists()
-
-    duplicated_turnpoint = session.scalar(select(Turnpoint).where(Turnpoint.event_id == duplicated.id))
-    assert duplicated_turnpoint is not None
-    assert duplicated_turnpoint.name == "Myles Airport"
+    duplicated_slot = session.scalar(select(EventTurnpointSlot).where(EventTurnpointSlot.event_id == duplicated.id))
+    assert duplicated_slot is not None
+    assert duplicated_slot.source_id == turnpoint_source.id
+    assert session.scalar(select(TurnpointSource).where(TurnpointSource.event_id == duplicated.id)) is None
 
     duplicated_task = session.scalar(select(Task).where(Task.event_id == duplicated.id))
     assert duplicated_task is not None
@@ -290,7 +287,7 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
 
     duplicated_task_point = session.scalar(select(TaskPoint).where(TaskPoint.task_id == duplicated_task.id))
     assert duplicated_task_point is not None
-    assert duplicated_task_point.turnpoint_id == duplicated_turnpoint.id
+    assert duplicated_task_point.turnpoint_id == turnpoint.id
     assert duplicated_task_point.direction == "exit"
 
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == duplicated.id, EventPilot.pilot_id == pilot.id)) is not None

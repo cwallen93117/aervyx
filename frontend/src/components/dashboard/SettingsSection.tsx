@@ -5,6 +5,7 @@ import BuddyGroupsManager from "./BuddyGroupsManager";
 import EmailsManager from "./EmailsManager";
 import MeshDevicesManager from "./MeshDevicesManager";
 import PilotClaimSection from "./PilotClaimSection";
+import WaypointFilesSettings from "./WaypointFilesSettings";
 import { PasswordInput } from "../PasswordInput";
 import {
   CATEGORY_COLORS,
@@ -33,9 +34,10 @@ export interface SettingsSectionProps {
   pilotId: number | null;
   onPilotClaimed: () => void;
   onMeshDevicesChanged?: () => void | Promise<void>;
+  canManagePlatform: boolean;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
+type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "turnpoint_library";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
@@ -123,6 +125,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
     pilotId,
     onPilotClaimed,
     onMeshDevicesChanged,
+    canManagePlatform,
   } = props;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
@@ -130,7 +133,7 @@ export default function SettingsSection(props: SettingsSectionProps) {
   return (
     <div className="section-stack">
       <div className="tab-row">
-        {TABS.map((tab) => (
+        {[...TABS, ...(canManagePlatform ? [{ key: "turnpoint_library" as SettingsTab, label: "Turnpoint Library" }] : [])].map((tab) => (
           <button
             key={tab.key}
             className={`tab-button${activeTab === tab.key ? " active" : ""}`}
@@ -328,6 +331,12 @@ export default function SettingsSection(props: SettingsSectionProps) {
           <BuddyGroupsManager token={token} />
         </div>
       )}
+
+      {activeTab === "turnpoint_library" && canManagePlatform ? (
+        <div className="settings-tab-panel">
+          <WaypointFilesSettings token={token} />
+        </div>
+      ) : null}
 
     </div>
   );

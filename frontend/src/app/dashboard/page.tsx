@@ -2344,26 +2344,6 @@ export default function HomePage() {
     return apiFetch<T>(path, token, { method: "POST", body: formData });
   }
 
-  async function toggleTurnpointSource(source: TurnpointSourceRecord, enabled: boolean) {
-    if (!token || !selectedEventId) return;
-    await apiFetch<TurnpointSourceRecord>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, {
-      method: "PATCH",
-      body: JSON.stringify({ enabled }),
-    });
-    setMessage(`${enabled ? "Enabled" : "Hidden"} ${source.filename} on the event map.`);
-    await loadEvent(token, selectedEventId, selectedEvent);
-  }
-
-  async function deleteTurnpointSource(source: TurnpointSourceRecord) {
-    if (!token || !selectedEventId) return;
-    const confirmed = window.confirm(`Delete ${source.filename}? This removes its imported waypoints from the database.`);
-    if (!confirmed) return;
-    await apiFetch<void>(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}`, token, { method: "DELETE" });
-    setMessage(`Deleted ${source.filename}.`);
-    await loadEvent(token, selectedEventId, selectedEvent);
-    await refreshEvents(token);
-  }
-
   async function uploadAirspaceFile(files: FileList | File[]) {
     if (!selectedEventId) return;
     const uploadQueue = Array.from(files);
@@ -2937,7 +2917,6 @@ export default function HomePage() {
               setEventTab={setEventTab}
               eventForm={eventForm}
               setEventForm={setEventForm}
-              turnpoints={turnpoints}
               turnpointSources={turnpointSources}
               airspaceSources={airspaceSources}
               visibleAirspaces={visibleAirspaces}
@@ -2950,17 +2929,13 @@ export default function HomePage() {
               deleteEvent={deleteEvent}
                 saveEvent={saveEvent}
                 saveEventForm={persistEventForm}
-                toggleTurnpointSource={toggleTurnpointSource}
-                deleteTurnpointSource={deleteTurnpointSource}
                 uploadAirspaceFile={uploadAirspaceFile}
                 deleteAirspaceSource={deleteAirspaceSource}
                 toggleAirspaceSource={updateAirspaceSource}
-                uploadFile={uploadFile}
               loadEvent={(t, id) => loadEvent(t, id)}
               refreshPilotDirectory={(t) => refreshPilotDirectory(t)}
               refreshEvents={refreshEvents}
               token={token}
-              telemetrySmoothing={siteSettings}
               setMessage={setMessage}
               setError={setError}
               renderParticipantCards={renderParticipantCardsNode}
@@ -3092,7 +3067,6 @@ export default function HomePage() {
                 distance: settingsForm.distance_unit,
                 vario: settingsForm.vario_unit,
               }}
-              telemetrySmoothing={siteSettings}
               loadTask={loadTask}
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
               faaAirspaceCategories={DEFAULT_AIRSPACE_CATEGORIES}
@@ -3188,6 +3162,7 @@ export default function HomePage() {
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
+              canManagePlatform={canManagePlatform}
             />
           );
         case "admin":
@@ -3234,6 +3209,7 @@ export default function HomePage() {
               pilotId={settingsForm.pilot_id ?? null}
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
+              canManagePlatform={canManagePlatform}
             />
           );
       }

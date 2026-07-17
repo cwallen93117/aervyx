@@ -36,6 +36,85 @@ def _remove_challenge_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users DROP COLUMN challenge_settings_json"))
 
 
+def _ensure_turnpoint_library_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    if "events" not in tables or "turnpoint_sources" not in tables:
+        return
+    dialect_name = engine.dialect.name
+    source_columns = {column["name"] for column in inspector.get_columns("turnpoint_sources")}
+    source_event_fk = next(
+        (fk for fk in inspector.get_foreign_keys("turnpoint_sources") if fk.get("constrained_columns") == ["event_id"]),
+        None,
+    )
+    turnpoint_event_fk = next(
+        (fk for fk in inspector.get_foreign_keys("turnpoints") if fk.get("constrained_columns") == ["event_id"]),
+        None,
+    ) if "turnpoints" in tables else None
+    slot_source_fk = next(
+        (fk for fk in inspector.get_foreign_keys("event_turnpoint_slots") if fk.get("constrained_columns") == ["source_id"]),
+        None,
+    ) if "event_turnpoint_slots" in tables else None
+    with engine.begin() as connection:
+        if "event_turnpoint_slots" not in tables:
+            connection.execute(
+                text(
+                    """
+                    CREATE TABLE event_turnpoint_slots (
+                      id INTEGER PRIMARY KEY,
+                      event_id INTEGER NOT NULL,
+                      slot_number INTEGER NOT NULL,
+                      source_id INTEGER NOT NULL,
+                      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                      FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
+                      FOREIGN KEY(source_id) REFERENCES turnpoint_sources(id) ON DELETE CASCADE,
+                      CONSTRAINT uq_event_turnpoint_slot UNIQUE (event_id, slot_number),
+                      CONSTRAINT uq_event_turnpoint_source UNIQUE (event_id, source_id)
+                    )
+                    """
+                )
+            )
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_event_turnpoint_source_idx ON event_turnpoint_slots (event_id, source_id)"))
+        insert_prefix = "INSERT OR IGNORE" if dialect_name == "sqlite" else "INSERT"
+        insert_suffix = "" if dialect_name == "sqlite" else " ON CONFLICT DO NOTHING"
+        enabled_filter = " AND COALESCE(enabled, TRUE) = TRUE" if "enabled" in source_columns else ""
+        connection.execute(text(
+            f"{insert_prefix} INTO event_turnpoint_slots (event_id, slot_number, source_id) "
+            "SELECT event_id, id, id FROM turnpoint_sources WHERE event_id IS NOT NULL"
+            f"{enabled_filter}{insert_suffix}"
+        ))
+        connection.execute(text("DELETE FROM event_turnpoint_slots WHERE source_id IS NULL"))
+        if dialect_name == "postgresql":
+            connection.execute(text("ALTER TABLE turnpoint_sources ALTER COLUMN event_id DROP NOT NULL"))
+            if "turnpoints" in tables:
+                connection.execute(text("ALTER TABLE turnpoints ALTER COLUMN event_id DROP NOT NULL"))
+            connection.execute(text("ALTER TABLE event_turnpoint_slots ALTER COLUMN source_id SET NOT NULL"))
+            preparer = connection.dialect.identifier_preparer
+            for table_name, fk in (("turnpoint_sources", source_event_fk), ("turnpoints", turnpoint_event_fk)):
+                if not fk or str((fk.get("options") or {}).get("ondelete", "")).upper() == "SET NULL":
+                    continue
+                constraint_name = fk.get("name") or f"{table_name}_event_id_fkey"
+                quoted_table = preparer.quote(table_name)
+                quoted_constraint = preparer.quote(constraint_name)
+                connection.execute(text(f"ALTER TABLE {quoted_table} DROP CONSTRAINT {quoted_constraint}"))
+                connection.execute(
+                    text(
+                        f"ALTER TABLE {quoted_table} ADD CONSTRAINT {quoted_constraint} "
+                        "FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE SET NULL"
+                    )
+                )
+            if slot_source_fk and str((slot_source_fk.get("options") or {}).get("ondelete", "")).upper() != "CASCADE":
+                constraint_name = slot_source_fk.get("name") or "event_turnpoint_slots_source_id_fkey"
+                quoted_constraint = preparer.quote(constraint_name)
+                connection.execute(text(f"ALTER TABLE event_turnpoint_slots DROP CONSTRAINT {quoted_constraint}"))
+                connection.execute(
+                    text(
+                        f"ALTER TABLE event_turnpoint_slots ADD CONSTRAINT {quoted_constraint} "
+                        "FOREIGN KEY (source_id) REFERENCES turnpoint_sources(id) ON DELETE CASCADE"
+                    )
+                )
+
+
 def ensure_runtime_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -511,6 +590,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_event_meet_stats_cache_event_scope ON event_meet_stats_cache (event_id, scope)"))
 
+    _ensure_turnpoint_library_schema(engine)
     _remove_challenge_schema(engine)
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())

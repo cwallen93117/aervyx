@@ -250,8 +250,8 @@ export type EventRecord = {
   restricted_field_count: number;
 };
 export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null };
-export type TurnpointRecord = MapTurnpoint & { event_id: number; source_id: number | null; elevation_m: number | null; symbol: string | null; extra_json: Record<string, unknown>; source_row_index: number | null };
-export type TurnpointSourceRecord = { id: number; event_id: number; filename: string; file_format: string; sha256: string; enabled: boolean; uploaded_at: string; turnpoint_count: number };
+export type TurnpointRecord = MapTurnpoint & { event_id: number | null; source_id: number | null; elevation_m: number | null; symbol: string | null; extra_json: Record<string, unknown>; source_row_index: number | null };
+export type TurnpointSourceRecord = { id: number; filename: string; file_format: string; sha256: string; turnpoint_count: number };
 export type TaskPointDirection = "enter" | "exit";
 export type TaskPointRecord = MapTaskPoint & { id?: number; turnpoint_id: number | null; direction: TaskPointDirection };
 export type TaskRecord = {
