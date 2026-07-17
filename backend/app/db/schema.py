@@ -6,6 +6,36 @@ from sqlalchemy.engine import Engine
 from app.services.map_overlay_config import DEFAULT_MAP_OVERLAY_CONFIG
 
 
+LEGACY_EVENT_COLUMNS = ("event_kind", "owner_user_id", "source_buddy_group_id", "public_slug", "public_listed")
+
+
+def _remove_challenge_schema(engine: Engine) -> None:
+    inspector = inspect(engine)
+    tables = set(inspector.get_table_names())
+    event_columns = {column["name"] for column in inspector.get_columns("events")} if "events" in tables else set()
+    user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in tables else set()
+
+    with engine.begin() as connection:
+        if "event_kind" in event_columns:
+            if {"visibility", "public_listed"}.issubset(event_columns):
+                connection.execute(
+                    text(
+                        "UPDATE events SET visibility = 'participants' "
+                        "WHERE event_kind = 'challenge' AND visibility = 'public' AND public_listed = FALSE"
+                    )
+                )
+            connection.execute(text("DELETE FROM events WHERE event_kind = 'challenge_defaults'"))
+
+        connection.execute(text("DROP TABLE IF EXISTS event_collaborators"))
+        for index_name in ("ix_events_event_kind", "ix_events_owner_user_id", "ix_events_public_slug"):
+            connection.execute(text(f"DROP INDEX IF EXISTS {index_name}"))
+        for column_name in LEGACY_EVENT_COLUMNS:
+            if column_name in event_columns:
+                connection.execute(text(f"ALTER TABLE events DROP COLUMN {column_name}"))
+        if "challenge_settings_json" in user_columns:
+            connection.execute(text("ALTER TABLE users DROP COLUMN challenge_settings_json"))
+
+
 def ensure_runtime_schema(engine: Engine) -> None:
     inspector = inspect(engine)
     table_names = set(inspector.get_table_names())
@@ -481,6 +511,9 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_event_meet_stats_cache_event_scope ON event_meet_stats_cache (event_id, scope)"))
 
+    _remove_challenge_schema(engine)
+    inspector = inspect(engine)
+    table_names = set(inspector.get_table_names())
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
@@ -541,11 +574,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
         "updated_at": "ALTER TABLE events ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
         "is_public_tracking": "ALTER TABLE events ADD COLUMN is_public_tracking BOOLEAN DEFAULT FALSE",
         "visibility": "ALTER TABLE events ADD COLUMN visibility VARCHAR(20) NOT NULL DEFAULT 'private'",
-        "event_kind": "ALTER TABLE events ADD COLUMN event_kind VARCHAR(20) NOT NULL DEFAULT 'competition'",
-        "owner_user_id": "ALTER TABLE events ADD COLUMN owner_user_id INTEGER",
-        "source_buddy_group_id": "ALTER TABLE events ADD COLUMN source_buddy_group_id INTEGER",
-        "public_slug": "ALTER TABLE events ADD COLUMN public_slug VARCHAR(80)",
-        "public_listed": "ALTER TABLE events ADD COLUMN public_listed BOOLEAN NOT NULL DEFAULT TRUE",
     }
     task_statements = {
         "task_type": "ALTER TABLE tasks ADD COLUMN task_type VARCHAR(40) DEFAULT 'race_to_goal_with_gates'",
@@ -597,8 +625,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
             connection.execute(text("ALTER TABLE users ADD COLUMN vario_unit VARCHAR(10) DEFAULT 'fpm'"))
         if "users" in table_names and "aircraft_icon" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN aircraft_icon VARCHAR(20) DEFAULT 'hang_glider'"))
-        if "users" in table_names and "challenge_settings_json" not in user_columns:
-            connection.execute(text("ALTER TABLE users ADD COLUMN challenge_settings_json JSON"))
         if "users" in table_names and "mesh_device_id" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN mesh_device_id VARCHAR(80)"))
             existing_user_indexes = {idx["name"] for idx in inspector.get_indexes("users")}
@@ -627,17 +653,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
         if "events" in table_names:
             connection.execute(text("UPDATE events SET default_start_gate_count = 5 WHERE default_start_gate_count IS NULL"))
             connection.execute(text("UPDATE events SET default_start_gate_interval_seconds = 900 WHERE default_start_gate_interval_seconds IS NULL"))
-            connection.execute(text("UPDATE events SET event_kind = 'competition' WHERE event_kind IS NULL"))
-            connection.execute(text("UPDATE events SET public_listed = TRUE WHERE public_listed IS NULL"))
-            refreshed_inspector = inspect(engine)
-            refreshed_event_columns = {column["name"] for column in refreshed_inspector.get_columns("events")}
-            existing_event_indexes = {idx["name"] for idx in refreshed_inspector.get_indexes("events")}
-            if "event_kind" in refreshed_event_columns and "ix_events_event_kind" not in existing_event_indexes:
-                connection.execute(text("CREATE INDEX ix_events_event_kind ON events (event_kind)"))
-            if "owner_user_id" in refreshed_event_columns and "ix_events_owner_user_id" not in existing_event_indexes:
-                connection.execute(text("CREATE INDEX ix_events_owner_user_id ON events (owner_user_id)"))
-            if "public_slug" in refreshed_event_columns and "ix_events_public_slug" not in existing_event_indexes:
-                connection.execute(text("CREATE UNIQUE INDEX ix_events_public_slug ON events (public_slug)"))
         if "tasks" in table_names:
             refreshed_task_columns = {column["name"] for column in inspect(engine).get_columns("tasks")}
             if "task_type" in refreshed_task_columns:
@@ -800,27 +815,6 @@ def ensure_runtime_schema(engine: Engine) -> None:
             )
             connection.execute(text("CREATE INDEX ix_buddy_group_members_group_id ON buddy_group_members (group_id)"))
             connection.execute(text("CREATE INDEX ix_buddy_group_members_pilot_id ON buddy_group_members (pilot_id)"))
-
-        if "event_collaborators" not in table_names:
-            connection.execute(
-                text(
-                    """
-                    CREATE TABLE event_collaborators (
-                      id INTEGER PRIMARY KEY,
-                      event_id INTEGER NOT NULL,
-                      user_id INTEGER NOT NULL,
-                      role VARCHAR(20) NOT NULL DEFAULT 'editor',
-                      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                      FOREIGN KEY(event_id) REFERENCES events(id) ON DELETE CASCADE,
-                      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                      UNIQUE(event_id, user_id)
-                    )
-                    """
-                )
-            )
-            connection.execute(text("CREATE INDEX ix_event_collaborators_event_id ON event_collaborators (event_id)"))
-            connection.execute(text("CREATE INDEX ix_event_collaborators_user_id ON event_collaborators (user_id)"))
-            connection.execute(text("CREATE INDEX ix_event_collaborators_event_user ON event_collaborators (event_id, user_id)"))
 
         if "user_emails" not in table_names:
             connection.execute(

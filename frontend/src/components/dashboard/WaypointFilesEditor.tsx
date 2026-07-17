@@ -20,7 +20,6 @@ type EditableTurnpoint = {
 
 export type WaypointFileSourceRecord = TurnpointSourceRecord & {
   event_name?: string;
-  event_kind?: string;
   can_edit?: boolean;
 };
 

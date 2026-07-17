@@ -1,10 +1,7 @@
 import logging
-import hashlib
-
 from datetime import UTC, datetime
-from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from slowapi import Limiter
@@ -16,7 +13,7 @@ from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin, resolve_user_from_token_subject, token_subject_for_user
-from app.models import AirspaceRegion, AirspaceSource, Event, LivePosition, MeshDevice, Pilot, TrackingSession, Turnpoint, TurnpointSource, User, UserEmail
+from app.models import LivePosition, MeshDevice, Pilot, TrackingSession, User, UserEmail
 from app.schemas import (
     AdminUserCredentialsUpdate,
     AdminUserResponse,
@@ -25,8 +22,6 @@ from app.schemas import (
     AccountSettingsUpdate,
     AccountSettingsUpdateResponse,
     AccountPreferencesUpdate,
-    ChallengeSettingsResponse,
-    ChallengeSettingsUpdate,
     GoogleAuthRequest,
     LoginRequest,
     MeshDeviceCreate,
@@ -45,8 +40,6 @@ from app.schemas import (
     UserSummary,
     WaypointFileResponse,
 )
-from app.services.airspace import parse_airspace_upload
-from app.services.challenge_defaults import ensure_challenge_defaults_event
 from app.services.pilot_identity import (
     add_user_email_alias,
     find_canonical_pilot,
@@ -55,8 +48,7 @@ from app.services.pilot_identity import (
     repair_user_email_alias_identity,
     repair_user_email_identity,
 )
-from app.services.turnpoints import parse_turnpoint_upload
-from app.services.waypoint_access import can_edit_waypoints, waypoint_file_records_for_user
+from app.services.waypoint_access import waypoint_file_records_for_user
 from app.services.mesh_ids import normalize_mesh_device_id
 
 logger = logging.getLogger(__name__)
@@ -134,21 +126,8 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         civl_id=pilot.civl_id if pilot else None,
         pilot_id=user.pilot_id,
         has_password=bool(user.password_hash),
-        challenge_settings_json=user.challenge_settings_json or {},
         access_token=access_token,
     )
-
-
-def _validate_challenge_waypoint_source(session: Session, user: User, settings: dict) -> None:
-    source_id = settings.get("turnpoint_source_id")
-    if source_id is None:
-        return
-    if not isinstance(source_id, int):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid waypoint file selection")
-    source = session.get(TurnpointSource, source_id)
-    event = session.get(Event, source.event_id) if source is not None else None
-    if source is None or not can_edit_waypoints(session, user, event):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Waypoint file access required")
 
 
 def _normalize_mesh_device_id(value: str | None) -> str | None:
@@ -675,9 +654,6 @@ def update_settings(
     user.distance_unit = distance_unit
     user.vario_unit = vario_unit
     user.aircraft_icon = aircraft_icon
-    if payload.challenge_settings_json is not None:
-        _validate_challenge_waypoint_source(session, user, payload.challenge_settings_json)
-        user.challenge_settings_json = payload.challenge_settings_json
 
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     if pilot is not None:
@@ -741,9 +717,6 @@ def update_preferences(
         if vario_unit not in VALID_VARIO_UNITS:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Vario unit must be fpm or m/s")
         user.vario_unit = vario_unit
-    if payload.challenge_settings_json is not None:
-        _validate_challenge_waypoint_source(session, user, payload.challenge_settings_json)
-        user.challenge_settings_json = payload.challenge_settings_json
 
     session.add(user)
     session.commit()
@@ -751,144 +724,9 @@ def update_preferences(
     return UserSummary.model_validate(user)
 
 
-@router.get("/challenge-settings", response_model=ChallengeSettingsResponse)
-def get_challenge_settings(user: User = Depends(get_current_user)) -> ChallengeSettingsResponse:
-    return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
-
-
-@router.patch("/challenge-settings", response_model=ChallengeSettingsResponse)
-def update_challenge_settings(
-    payload: ChallengeSettingsUpdate,
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-) -> ChallengeSettingsResponse:
-    _validate_challenge_waypoint_source(session, user, payload.settings)
-    user.challenge_settings_json = payload.settings
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
-
-
 @router.get("/waypoint-files", response_model=list[WaypointFileResponse])
 def list_waypoint_files(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[WaypointFileResponse]:
     return [WaypointFileResponse(**record) for record in waypoint_file_records_for_user(session, user)]
-
-
-@router.post("/challenge-settings/turnpoints/upload", response_model=ChallengeSettingsResponse)
-async def upload_challenge_settings_turnpoints(
-    file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-) -> ChallengeSettingsResponse:
-    content = await file.read()
-    try:
-        parsed = parse_turnpoint_upload(file.filename or "turnpoints.csv", content)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    event = ensure_challenge_defaults_event(session, user)
-    sha256 = hashlib.sha256(content).hexdigest()
-    upload_dir = Path(get_app_settings().upload_root) / "turnpoints" / "challenge-defaults" / str(user.id) / sha256
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    stored_path = upload_dir / (file.filename or f"turnpoints.{parsed.file_format}")
-    if not stored_path.exists():
-        stored_path.write_bytes(content)
-    source = TurnpointSource(
-        event_id=event.id,
-        filename=file.filename or stored_path.name,
-        content_type=file.content_type,
-        file_format=parsed.file_format,
-        sha256=sha256,
-        stored_path=str(stored_path),
-        schema_json=parsed.schema_json,
-        enabled=True,
-    )
-    session.add(source)
-    session.flush()
-    for index, record in enumerate(parsed.records):
-        session.add(
-            Turnpoint(
-                event_id=event.id,
-                source_id=source.id,
-                code=record.code,
-                symbol=record.symbol,
-                name=record.name,
-                latitude=record.latitude,
-                longitude=record.longitude,
-                elevation_m=record.elevation_m,
-                extra_json=record.extra_json,
-                source_row_index=record.source_row_index if record.source_row_index is not None else index,
-            )
-        )
-    settings = dict(user.challenge_settings_json or {})
-    settings["template_event_id"] = event.id
-    settings["turnpoint_source_id"] = source.id
-    user.challenge_settings_json = settings
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
-
-
-@router.post("/challenge-settings/airspaces/upload", response_model=ChallengeSettingsResponse)
-async def upload_challenge_settings_airspace(
-    kind: str = Query("airspace"),
-    file: UploadFile = File(...),
-    user: User = Depends(get_current_user),
-    session: Session = Depends(get_session),
-) -> ChallengeSettingsResponse:
-    stored_kind = "restricted_field" if kind == "restricted_field" else "airspace"
-    content = await file.read()
-    try:
-        file_format, records = parse_airspace_upload(file.filename or "airspace.txt", content, kind=stored_kind)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    event = ensure_challenge_defaults_event(session, user)
-    sha256 = hashlib.sha256(content).hexdigest()
-    upload_dir = Path(get_app_settings().upload_root) / "airspace" / "challenge-defaults" / str(user.id) / sha256
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    stored_path = upload_dir / (file.filename or f"airspace.{file_format}")
-    if not stored_path.exists():
-        stored_path.write_bytes(content)
-    source = AirspaceSource(
-        event_id=event.id,
-        kind=stored_kind,
-        filename=file.filename or stored_path.name,
-        content_type=file.content_type,
-        file_format=file_format,
-        sha256=sha256,
-        stored_path=str(stored_path),
-        enabled=True,
-    )
-    session.add(source)
-    session.flush()
-    for record in records:
-        session.add(
-            AirspaceRegion(
-                event_id=event.id,
-                source_id=source.id,
-                name=record.name,
-                class_code=record.class_code,
-                type_code=record.type_code,
-                display_category=record.display_category,
-                lower_limit_label=record.lower_limit_label,
-                upper_limit_label=record.upper_limit_label,
-                lower_limit_m=record.lower_limit_m,
-                upper_limit_m=record.upper_limit_m,
-                geometry_json=record.geometry_json,
-                label_latitude=record.label_latitude,
-                label_longitude=record.label_longitude,
-                is_restricted_field=record.is_restricted_field,
-            )
-        )
-    settings = dict(user.challenge_settings_json or {})
-    settings["template_event_id"] = event.id
-    settings["restricted_field_source_id" if stored_kind == "restricted_field" else "airspace_source_id"] = source.id
-    user.challenge_settings_json = settings
-    session.add(user)
-    session.commit()
-    session.refresh(user)
-    return ChallengeSettingsResponse(settings=user.challenge_settings_json or {})
 
 
 @router.post("/change-password")

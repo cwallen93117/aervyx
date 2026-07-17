@@ -52,7 +52,6 @@ class UserSummary(BaseModel):
     distance_unit: str = "km"
     vario_unit: str = "fpm"
     pilot_id: int | None
-    challenge_settings_json: dict | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -87,7 +86,6 @@ class AccountSettingsResponse(BaseModel):
     civl_id: str | None = None
     pilot_id: int | None = None
     has_password: bool = False
-    challenge_settings_json: dict = Field(default_factory=dict)
 
 
 class AccountSettingsUpdateResponse(AccountSettingsResponse):
@@ -110,7 +108,6 @@ class AccountSettingsUpdate(BaseModel):
     nation: str | None = None
     competition_number: str | None = None
     civl_id: str | None = None
-    challenge_settings_json: dict | None = None
 
 
 class AccountPreferencesUpdate(BaseModel):
@@ -120,15 +117,6 @@ class AccountPreferencesUpdate(BaseModel):
     speed_unit: str | None = None
     distance_unit: str | None = None
     vario_unit: str | None = None
-    challenge_settings_json: dict | None = None
-
-
-class ChallengeSettingsResponse(BaseModel):
-    settings: dict = Field(default_factory=dict)
-
-
-class ChallengeSettingsUpdate(BaseModel):
-    settings: dict = Field(default_factory=dict)
 
 
 class PasswordChangeRequest(BaseModel):
@@ -424,11 +412,6 @@ class EventCreate(BaseModel):
     penalties_json: dict = Field(default_factory=dict)
     is_public_tracking: bool = False
     visibility: str = "private"
-    event_kind: str = "competition"
-    owner_user_id: int | None = None
-    source_buddy_group_id: int | None = None
-    public_slug: str | None = None
-    public_listed: bool = True
 
 
 class EventResponse(EventCreate):
@@ -440,37 +423,6 @@ class EventResponse(EventCreate):
     turnpoint_count: int = 0
     airspace_count: int = 0
     restricted_field_count: int = 0
-
-
-class ChallengeCreate(BaseModel):
-    name: str
-    challenge_type: str = Field(default="open_distance", pattern="^(open_distance|race_to_goal_with_gates)$")
-    starts_on: date
-    ends_on: date
-    timezone: str = "UTC"
-    location: str = ""
-    source_buddy_group_id: int | None = None
-    visibility: str = "public"
-    public_listed: bool = False
-    is_public_tracking: bool = False
-
-
-class ChallengeUpdate(BaseModel):
-    name: str | None = None
-    starts_on: date | None = None
-    ends_on: date | None = None
-    timezone: str | None = None
-    location: str | None = None
-    source_buddy_group_id: int | None = None
-    visibility: str | None = None
-    public_listed: bool | None = None
-    is_public_tracking: bool | None = None
-
-
-class ChallengeResponse(EventResponse):
-    challenge_type: str = "open_distance"
-    public_url: str | None = None
-    can_edit: bool = False
 
 
 class PilotUpsert(BaseModel):
@@ -555,7 +507,6 @@ class WaypointFileResponse(BaseModel):
     source_id: int
     event_id: int
     event_name: str
-    event_kind: str
     filename: str
     file_format: str
     sha256: str

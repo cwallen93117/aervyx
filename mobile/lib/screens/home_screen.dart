@@ -15,7 +15,7 @@ import '../utils/app_shutdown.dart';
 import '../utils/unit_converter.dart';
 import '../widgets/aervyx_logo.dart';
 import '../widgets/live_tracking_map_helpers.dart';
-import 'challenges_screen.dart';
+import 'events_screen.dart';
 import 'flights_screen.dart';
 import 'live_view_screen.dart';
 import 'meshtastic_settings_screen.dart';
@@ -141,12 +141,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.emoji_events_outlined),
-            tooltip: 'Challenges',
+            icon: const Icon(Icons.event_outlined),
+            tooltip: 'Events',
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => ChallengesScreen(
+                builder: (_) => EventsScreen(
                   api: context.read<ApiService>(),
+                  canManageEvents: auth.user?.role == 'admin' ||
+                      auth.user?.role == 'organizer',
                 ),
               ),
             ),

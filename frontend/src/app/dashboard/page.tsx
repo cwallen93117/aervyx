@@ -389,7 +389,7 @@ const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after t
 type SidebarItem = { id: SidebarSection; label: string; description?: string };
 
 const adminSidebarItems = [
-  { id: "events", label: "Events / Challenges" },
+  { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -403,7 +403,7 @@ const adminSidebarItems = [
   { id: "live_backtest", label: "Live Backtest" },
 ] satisfies SidebarItem[];
 const organizerSidebarItems = [
-  { id: "events", label: "Events / Challenges" },
+  { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -412,7 +412,7 @@ const organizerSidebarItems = [
   { id: "settings", label: "Settings" },
 ] satisfies SidebarItem[];
 const pilotSidebarItems = [
-  { id: "events", label: "Events / Challenges" },
+  { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -515,7 +515,6 @@ function blankSettingsForm(): AccountSettingsRecord {
     civl_id: "",
     pilot_id: null,
     has_password: false,
-    challenge_settings_json: {},
   };
 }
 
@@ -763,11 +762,6 @@ function eventToForm(event: EventRecord | null | undefined): EventFormState {
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
         is_public_tracking: event.is_public_tracking ?? false,
         visibility: event.visibility ?? "private",
-        event_kind: event.event_kind ?? "competition",
-        owner_user_id: event.owner_user_id ?? null,
-        source_buddy_group_id: event.source_buddy_group_id ?? null,
-        public_slug: event.public_slug ?? null,
-        public_listed: event.public_listed ?? true,
       }
     : blankEventForm();
 }
@@ -1148,10 +1142,7 @@ export default function HomePage() {
   const taskMetricsById = useMemo(() => new Map(tasks.map((task) => [task.id, computeTaskOptimization(task.points)])), [tasks]);
   const isAdmin = user?.role === "admin";
   const canManagePlatform = user?.role === "admin" || user?.role === "organizer";
-  const canManageCurrentEvent = Boolean(
-    canManagePlatform ||
-    (user && selectedEvent?.event_kind === "challenge" && selectedEvent.owner_user_id === user.id),
-  );
+  const canManageCurrentEvent = canManagePlatform;
 
   function showTaskFeedback(feedback: { type: "success" | "error"; text: string }) {
     setTaskFeedback(feedback);
@@ -1744,11 +1735,7 @@ export default function HomePage() {
         apiFetch<TaskRecord[]>(`/api/events/${eventId}/tasks`, activeToken),
       ]);
       const viewer = activeUser ?? user;
-      const viewerCanManageLoadedEvent = Boolean(
-        viewer?.role === "admin" ||
-        viewer?.role === "organizer" ||
-        (viewer && activeEvent?.event_kind === "challenge" && activeEvent.owner_user_id === viewer.id),
-      );
+      const viewerCanManageLoadedEvent = viewer?.role === "admin" || viewer?.role === "organizer";
       const visibleTasks = sortTasksByDateAsc(viewer?.role === "pilot" && !viewerCanManageLoadedEvent ? loadedTasks.filter((task) => task.status === "published") : loadedTasks);
       setPilots(loadedPilots);
       setTurnpoints(loadedTurnpoints);
@@ -1868,7 +1855,6 @@ export default function HomePage() {
           nation: settingsForm.nation || null,
           competition_number: settingsForm.competition_number || null,
           civl_id: settingsForm.civl_id || null,
-          challenge_settings_json: settingsForm.challenge_settings_json,
         }),
       });
       setSettingsForm({
@@ -1891,7 +1877,6 @@ export default function HomePage() {
         pilot_id: payload.pilot_id ?? null,
         has_password: payload.has_password,
         access_token: payload.access_token,
-        challenge_settings_json: payload.challenge_settings_json ?? {},
       });
       if (payload.access_token) {
         window.localStorage.setItem(TOKEN_KEY, payload.access_token);
@@ -1906,16 +1891,6 @@ export default function HomePage() {
         profile: { type: "error", text: caught instanceof Error ? caught.message : "Could not save account settings." },
       }));
     }
-  }
-
-  async function saveChallengeSettings(settings: Record<string, unknown>) {
-    if (!token) return settings;
-    const payload = await apiFetch<{ settings: Record<string, unknown> }>("/api/auth/challenge-settings", token, {
-      method: "PATCH",
-      body: JSON.stringify({ settings }),
-    });
-    setSettingsForm((current) => ({ ...current, challenge_settings_json: payload.settings ?? {} }));
-    return payload.settings ?? {};
   }
 
   async function savePasswordSettings(event: FormEvent<HTMLFormElement>) {
@@ -2226,11 +2201,6 @@ export default function HomePage() {
       penalties_json: penaltiesJson,
       is_public_tracking: nextForm.is_public_tracking,
       visibility: nextForm.visibility,
-      event_kind: nextForm.event_kind,
-      owner_user_id: nextForm.owner_user_id,
-      source_buddy_group_id: nextForm.event_kind === "challenge" ? nextForm.source_buddy_group_id : null,
-      public_slug: nextForm.public_slug,
-      public_listed: nextForm.event_kind === "challenge" ? nextForm.public_listed : true,
     };
     const savedEvent = await apiFetch<EventRecord>(eventEditorId ? `/api/events/${eventEditorId}` : "/api/events", token, { method: eventEditorId ? "PUT" : "POST", body: JSON.stringify(payload) });
     const loadedEvents = await refreshEvents(token);
@@ -2250,17 +2220,15 @@ export default function HomePage() {
     await persistEventForm(eventForm);
   }
 
-  async function createEventDraft(kind: "competition" | "challenge") {
+  async function createEventDraft() {
     if (!token) return;
-    const isChallenge = kind === "challenge";
-    const template = { ...blankEventForm(), event_kind: kind };
+    const template = blankEventForm();
     const savedEvent = await apiFetch<EventRecord>("/api/events", token, {
       method: "POST",
       body: JSON.stringify({
         ...template,
-        name: isChallenge ? "New challenge" : nextDraftEventName(events),
+        name: nextDraftEventName(events),
         penalties_json: {},
-        public_listed: isChallenge,
       }),
     });
     const loadedEvents = await refreshEvents(token);
@@ -2269,7 +2237,7 @@ export default function HomePage() {
     setEventEditorId(nextEvent.id);
     setEventForm(eventToForm(nextEvent));
     window.localStorage.setItem(LAST_EVENT_KEY, String(nextEvent.id));
-    setMessage(`Created ${isChallenge ? "challenge" : "event"} ${nextEvent.name}.`);
+    setMessage(`Created event ${nextEvent.name}.`);
     await loadEvent(token, nextEvent.id, nextEvent);
   }
 
@@ -2971,16 +2939,10 @@ export default function HomePage() {
               setEventForm={setEventForm}
               turnpoints={turnpoints}
               turnpointSources={turnpointSources}
-              airspaces={airspaces}
               airspaceSources={airspaceSources}
               visibleAirspaces={visibleAirspaces}
-              pilots={pilots}
-              settingsForm={settingsForm}
-              setSettingsForm={setSettingsForm}
-              saveChallengeSettings={saveChallengeSettings}
               canManagePlatform={canManageCurrentEvent}
               canManageOfficialEvents={canManagePlatform}
-              canCreateChallenge={Boolean(user)}
               isAdmin={isAdmin ?? false}
               selectEvent={selectEvent}
               createEventDraft={createEventDraft}
@@ -3133,7 +3095,7 @@ export default function HomePage() {
               telemetrySmoothing={siteSettings}
               loadTask={loadTask}
               overlayConfig={mapOverlayConfig.config?.dashboard_live}
-              faaAirspaceCategories={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
+              faaAirspaceCategories={DEFAULT_AIRSPACE_CATEGORIES}
             />
           );
         case "live_backtest":
@@ -3298,7 +3260,7 @@ export default function HomePage() {
               <div className="hero-title-row">
                 <h1>{sidebarItems.find((item) => item.id === activeSection)?.label}</h1>
                 {user.role === "pilot" && activeSection === "tasks" ? (
-                  <label className="hero-event-select" aria-label="Current competition">
+                  <label className="hero-event-select" aria-label="Current event">
                     <select
                       value={selectedEventId ?? ""}
                       onChange={(event) => {

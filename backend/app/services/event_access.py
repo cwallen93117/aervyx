@@ -9,11 +9,7 @@ STAFF_ROLES = {"admin", "organizer"}
 
 
 def can_manage_event(session: Session, user: User, event: Event | None) -> bool:
-    if event is None:
-        return False
-    if (event.event_kind or "competition") != "challenge":
-        return user.role in STAFF_ROLES
-    return event.owner_user_id == user.id
+    return event is not None and user.role in STAFF_ROLES
 
 
 def require_event_manager(session: Session, user: User, event: Event | None) -> Event:

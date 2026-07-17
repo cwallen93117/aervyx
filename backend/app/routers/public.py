@@ -97,7 +97,6 @@ class PublicTaskSummary(BaseModel):
 class PublicEventSummary(BaseModel):
     id: int
     name: str
-    event_kind: str
     location: str
     starts_on: str
     ends_on: str
@@ -167,27 +166,10 @@ class PublicTaskInfoResponse(BaseModel):
 def list_public_events(session: Session = Depends(get_session)) -> list[EventResponse]:
     events = session.scalars(
         select(Event)
-        .where(
-            Event.visibility == "public",
-            (Event.event_kind != "challenge") | (Event.public_listed.is_(True)),
-        )
+        .where(Event.visibility == "public")
         .order_by(Event.starts_on.desc(), Event.ends_on.desc(), Event.name.asc())
     ).all()
     return [_event_payload(session, event) for event in events]
-
-
-@router.get("/challenges/{slug}", response_model=EventResponse)
-def get_public_challenge_by_slug(slug: str, session: Session = Depends(get_session)) -> EventResponse:
-    event = session.scalar(
-        select(Event).where(
-            Event.event_kind == "challenge",
-            Event.public_slug == slug,
-            Event.visibility == "public",
-        )
-    )
-    if event is None:
-        raise HTTPException(status_code=404, detail="Challenge not found")
-    return _event_payload(session, event)
 
 
 @router.get("/events/{event_id}/tasks", response_model=list[TaskResponse])
@@ -539,7 +521,6 @@ def get_public_live_sources(session: Session = Depends(get_session)) -> PublicLi
             PublicEventSummary(
                 id=event.id,
                 name=event.name,
-                event_kind=event.event_kind or "competition",
                 location=event.location,
                 starts_on=event.starts_on.isoformat(),
                 ends_on=event.ends_on.isoformat(),

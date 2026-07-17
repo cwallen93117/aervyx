@@ -5,18 +5,17 @@ import assert from "node:assert/strict";
 
 const root = process.cwd();
 
-test("settings tab row keeps waypoint files before final airspace tab", () => {
+test("settings tab row keeps ordinary event waypoint files", () => {
   const source = readFileSync(join(root, "src/components/dashboard/SettingsSection.tsx"), "utf8");
   assert.ok(source.indexOf('label: "Pilot Buddies"') < source.indexOf('label: "Waypoint Files"'));
-  assert.ok(source.indexOf('label: "Waypoint Files"') < source.indexOf('label: "Airspace"'));
   assert.match(source, /<WaypointFilesSettings token=\{token\} \/>/);
 });
 
-test("waypoint files settings exposes an add waypoint file upload", () => {
+test("waypoint files settings has no personal upload path", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
-  assert.match(source, />Add waypoint file</);
-  assert.match(source, /accept="\.csv,\.geojson,\.json,\.gpx"/);
-  assert.match(source, /\/api\/auth\/challenge-settings\/turnpoints\/upload/);
+  assert.doesNotMatch(source, />Add waypoint file</);
+  assert.doesNotMatch(source, /challenge-settings/);
+  assert.match(source, /\/api\/auth\/waypoint-files/);
 });
 
 test("waypoint file rows expose View and Edit actions", () => {

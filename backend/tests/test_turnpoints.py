@@ -8,10 +8,10 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.db import Base
 from app.core.config import get_settings
-from app.models import Event, EventPilot, Pilot, Turnpoint, TurnpointSource, User
-from app.routers.auth import list_waypoint_files, update_challenge_settings
-from app.routers.turnpoints import create_source_turnpoint, list_source_turnpoints, save_turnpoint_source_as, update_turnpoint, update_turnpoint_source
-from app.schemas import ChallengeSettingsUpdate, TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
+from app.models import Event, Turnpoint, TurnpointSource, User
+from app.routers.auth import list_waypoint_files
+from app.routers.turnpoints import create_source_turnpoint, save_turnpoint_source_as, update_turnpoint, update_turnpoint_source
+from app.schemas import TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
 from app.services.turnpoints import normalize_symbol, parse_csv_turnpoints, parse_csv_turnpoints_with_schema, parse_geojson_turnpoints, parse_gpx_turnpoints, serialize_csv_turnpoints
 
 
@@ -185,132 +185,31 @@ def test_save_turnpoint_source_as_clones_file_and_waypoints(tmp_path: Path, monk
     get_settings.cache_clear()
 
 
-def test_waypoint_file_list_includes_owned_and_manageable_sources(tmp_path: Path) -> None:
+def test_waypoint_file_list_uses_event_visibility_and_staff_editing(tmp_path: Path) -> None:
     session = _session()
-    owner_pilot = Pilot(first_name="Owner", last_name="Pilot", email="owner@example.com")
-    member_pilot = Pilot(first_name="Member", last_name="Pilot", email="member@example.com")
-    session.add_all([owner_pilot, member_pilot])
-    session.flush()
-    owner = User(username="owner@example.com", full_name="Owner", role="pilot", pilot_id=owner_pilot.id, password_hash="hash")
-    member = User(username="member@example.com", full_name="Member", role="pilot", pilot_id=member_pilot.id, password_hash="hash")
+    pilot = User(username="pilot@example.com", full_name="Pilot", role="pilot", password_hash="hash")
     admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
-    session.add_all([owner, member, admin])
+    public_event = Event(name="Public Event", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="public")
+    private_event = Event(name="Private Event", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="private")
+    session.add_all([pilot, admin, public_event, private_event])
     session.flush()
-    defaults = Event(name="Challenge Defaults", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="challenge_defaults", owner_user_id=owner.id, visibility="private")
-    challenge = Event(name="Owner Challenge", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="challenge", owner_user_id=owner.id, visibility="participants")
-    official = Event(name="Official Meet", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="competition", visibility="private")
-    session.add_all([defaults, challenge, official])
-    session.flush()
-    session.add(EventPilot(event_id=challenge.id, pilot_id=member_pilot.id))
-    for event, filename in ((defaults, "defaults.csv"), (challenge, "challenge.csv"), (official, "official.csv")):
+    sources: dict[str, TurnpointSource] = {}
+    for event, filename in ((public_event, "public.csv"), (private_event, "private.csv")):
         path = tmp_path / filename
         path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
         source = TurnpointSource(event_id=event.id, filename=filename, file_format="csv", sha256=filename, stored_path=str(path), enabled=True)
         session.add(source)
-        session.flush()
-        session.add(Turnpoint(event_id=event.id, source_id=source.id, name=filename, latitude=1, longitude=2, source_row_index=0))
+        sources[filename] = source
     session.commit()
 
-    owner_files = {item.filename: item for item in list_waypoint_files(user=owner, session=session)}
-    member_files = {item.filename: item for item in list_waypoint_files(user=member, session=session)}
+    pilot_files = {item.filename: item for item in list_waypoint_files(user=pilot, session=session)}
     admin_files = {item.filename: item for item in list_waypoint_files(user=admin, session=session)}
-
-    assert owner_files["defaults.csv"].can_edit is True
-    assert owner_files["challenge.csv"].can_edit is True
-    assert "official.csv" not in owner_files
-    assert member_files["challenge.csv"].can_edit is False
-    assert "defaults.csv" not in member_files
-    assert admin_files["official.csv"].can_edit is True
-    assert admin_files["challenge.csv"].can_edit is False
-
-
-def test_non_owner_can_view_but_not_edit_public_challenge_waypoints(tmp_path: Path) -> None:
-    session = _session()
-    owner = User(username="owner@example.com", full_name="Owner", role="pilot", password_hash="hash")
-    other = User(username="other@example.com", full_name="Other", role="pilot", password_hash="hash")
-    session.add_all([owner, other])
-    session.flush()
-    event = Event(name="Public Challenge", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="challenge", owner_user_id=owner.id, visibility="public")
-    session.add(event)
-    session.flush()
-    path = tmp_path / "public.csv"
-    path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
-    source = TurnpointSource(event_id=event.id, filename="public.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
-    session.add(source)
-    session.flush()
-    point = Turnpoint(event_id=event.id, source_id=source.id, name="A", latitude=1, longitude=2, source_row_index=0)
-    session.add(point)
-    session.commit()
-
-    assert "public.csv" in {item.filename for item in list_waypoint_files(user=other, session=session)}
-    with pytest.raises(HTTPException) as exc:
-        update_turnpoint(event.id, point.id, TurnpointWrite(name="B", latitude=1, longitude=2), other, session)
-    assert exc.value.status_code == 403
-
-    updated = update_turnpoint(event.id, point.id, TurnpointWrite(name="Launch", symbol="launch", latitude=1, longitude=2), owner, session)
-    assert updated.symbol == "launch"
-
-
-def test_official_waypoint_writes_still_require_staff(tmp_path: Path) -> None:
-    session = _session()
-    pilot = User(username="pilot@example.com", full_name="Pilot", role="pilot", password_hash="hash")
-    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
-    event = Event(name="Official", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="competition", visibility="public")
-    session.add_all([pilot, admin, event])
-    session.flush()
-    path = tmp_path / "official.csv"
-    path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
-    source = TurnpointSource(event_id=event.id, filename="official.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
-    session.add(source)
-    session.commit()
+    assert set(pilot_files) == {"public.csv"}
+    assert pilot_files["public.csv"].can_edit is False
+    assert set(admin_files) == {"public.csv", "private.csv"}
+    assert all(item.can_edit for item in admin_files.values())
 
     with pytest.raises(HTTPException) as exc:
-        update_turnpoint_source(event.id, source.id, TurnpointSourceUpdate(filename="pilot"), pilot, session)
+        update_turnpoint_source(public_event.id, sources["public.csv"].id, TurnpointSourceUpdate(filename="pilot"), pilot, session)
     assert exc.value.status_code == 403
-
-    assert update_turnpoint_source(event.id, source.id, TurnpointSourceUpdate(filename="admin"), admin, session).filename == "admin.csv"
-
-
-def test_challenge_settings_rejects_inaccessible_waypoint_source(tmp_path: Path) -> None:
-    session = _session()
-    owner = User(username="owner@example.com", full_name="Owner", role="pilot", password_hash="hash")
-    other = User(username="other@example.com", full_name="Other", role="pilot", password_hash="hash")
-    session.add_all([owner, other])
-    session.flush()
-    defaults = Event(name="Challenge Defaults", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="challenge_defaults", owner_user_id=owner.id, visibility="private")
-    session.add(defaults)
-    session.flush()
-    path = tmp_path / "defaults.csv"
-    path.write_text("name,latitude,longitude\nA,1,2\n", encoding="utf-8")
-    source = TurnpointSource(event_id=defaults.id, filename="defaults.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
-    session.add(source)
-    session.commit()
-
-    with pytest.raises(HTTPException) as exc:
-        update_challenge_settings(ChallengeSettingsUpdate(settings={"turnpoint_source_id": source.id}), user=other, session=session)
-    assert exc.value.status_code == 403
-
-    saved = update_challenge_settings(ChallengeSettingsUpdate(settings={"turnpoint_source_id": source.id}), user=owner, session=session)
-    assert saved.settings["turnpoint_source_id"] == source.id
-
-
-def test_owner_can_open_challenge_default_waypoint_file(tmp_path: Path) -> None:
-    session = _session()
-    owner = User(username="owner@example.com", full_name="Owner", role="pilot", password_hash="hash")
-    session.add(owner)
-    session.flush()
-    defaults = Event(name="Challenge Defaults", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", event_kind="challenge_defaults", owner_user_id=owner.id, visibility="private")
-    session.add(defaults)
-    session.flush()
-    path = tmp_path / "defaults.csv"
-    path.write_text("name,latitude,longitude,symbol\nLZ,1,2,lz\n", encoding="utf-8")
-    source = TurnpointSource(event_id=defaults.id, filename="defaults.csv", file_format="csv", sha256="old", stored_path=str(path), enabled=True)
-    session.add(source)
-    session.flush()
-    session.add(Turnpoint(event_id=defaults.id, source_id=source.id, name="LZ", latitude=1, longitude=2, symbol="lz", source_row_index=0))
-    session.commit()
-
-    turnpoints = list_source_turnpoints(defaults.id, source.id, user=owner, session=session)
-
-    assert len(turnpoints) == 1
-    assert turnpoints[0].symbol == "lz"
+    assert update_turnpoint_source(public_event.id, sources["public.csv"].id, TurnpointSourceUpdate(filename="admin"), admin, session).filename == "admin.csv"

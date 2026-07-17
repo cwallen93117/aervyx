@@ -408,13 +408,13 @@ export default function LiveTrackingBacktestSection({ token, units, telemetrySmo
         <div className="stack form-block">
           <div className="participant-intake-row">
             <label className="stack compact">
-              <span>Competition</span>
+              <span>Event</span>
               <select
                 value={selectedEventId ?? ""}
                 disabled={loadingSources || !events.length}
                 onChange={(event) => handleEventChange(Number(event.target.value))}
               >
-                {!events.length ? <option value="">No competitions</option> : null}
+                {!events.length ? <option value="">No events</option> : null}
                 {events.map((event) => (
                   <option key={event.id} value={event.id}>
                     {event.name}{event.location ? ` - ${event.location}` : ""}

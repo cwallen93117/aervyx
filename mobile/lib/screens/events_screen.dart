@@ -7,34 +7,25 @@ import '../services/api_service.dart';
 import '../widgets/live_map_style.dart';
 import '../widgets/map_scale_bar.dart';
 
-class ChallengeSummary {
+class EventSummary {
   final int id;
   final String name;
   final String startsOn;
   final String endsOn;
-  final int pilotCount;
-  final String challengeType;
-  final bool canEdit;
 
-  ChallengeSummary({
+  const EventSummary({
     required this.id,
     required this.name,
     required this.startsOn,
     required this.endsOn,
-    required this.pilotCount,
-    required this.challengeType,
-    required this.canEdit,
   });
 
-  factory ChallengeSummary.fromJson(Map<String, dynamic> json) {
-    return ChallengeSummary(
+  factory EventSummary.fromJson(Map<String, dynamic> json) {
+    return EventSummary(
       id: json['id'] as int,
-      name: json['name'] as String? ?? 'Challenge',
+      name: json['name'] as String? ?? 'Event',
       startsOn: json['starts_on'] as String? ?? '',
       endsOn: json['ends_on'] as String? ?? '',
-      pilotCount: json['pilot_count'] as int? ?? 0,
-      challengeType: json['challenge_type'] as String? ?? 'open_distance',
-      canEdit: json['can_edit'] as bool? ?? false,
     );
   }
 }
@@ -59,21 +50,21 @@ class TurnpointSourceSummary {
   }
 }
 
-class ChallengeWaypoint {
+class EventWaypoint {
   final int id;
   final String name;
   final double latitude;
   final double longitude;
 
-  const ChallengeWaypoint({
+  const EventWaypoint({
     required this.id,
     required this.name,
     required this.latitude,
     required this.longitude,
   });
 
-  factory ChallengeWaypoint.fromJson(Map<String, dynamic> json) {
-    return ChallengeWaypoint(
+  factory EventWaypoint.fromJson(Map<String, dynamic> json) {
+    return EventWaypoint(
       id: json['id'] as int,
       name: json['name'] as String? ?? 'Waypoint',
       latitude: (json['latitude'] as num).toDouble(),
@@ -82,7 +73,7 @@ class ChallengeWaypoint {
   }
 }
 
-class ChallengeTask {
+class EventTask {
   final int? id;
   final String name;
   final String taskDate;
@@ -90,9 +81,9 @@ class ChallengeTask {
   final String status;
   final int startGateCount;
   final int? startGateIntervalSeconds;
-  final List<ChallengeTaskPoint> points;
+  final List<EventTaskPoint> points;
 
-  const ChallengeTask({
+  const EventTask({
     this.id,
     required this.name,
     required this.taskDate,
@@ -103,31 +94,30 @@ class ChallengeTask {
     this.points = const [],
   });
 
-  factory ChallengeTask.fromJson(Map<String, dynamic> json) {
-    return ChallengeTask(
+  factory EventTask.fromJson(Map<String, dynamic> json) {
+    return EventTask(
       id: json['id'] as int?,
       name: json['name'] as String? ?? 'Task',
       taskDate: json['task_date'] as String? ?? '',
-      taskType: json['task_type'] as String? ?? 'open_distance',
+      taskType: json['task_type'] as String? ?? 'race_to_goal_with_gates',
       status: json['status'] as String? ?? 'draft',
       startGateCount: json['start_gate_count'] as int? ?? 1,
       startGateIntervalSeconds: json['start_gate_interval_seconds'] as int?,
       points: (json['points'] as List<dynamic>? ?? const [])
-          .map((item) =>
-              ChallengeTaskPoint.fromJson(item as Map<String, dynamic>))
+          .map((item) => EventTaskPoint.fromJson(item as Map<String, dynamic>))
           .toList(),
     );
   }
 
-  ChallengeTask copyWith({
+  EventTask copyWith({
     String? name,
     String? taskDate,
     String? taskType,
     int? startGateCount,
     int? startGateIntervalSeconds,
-    List<ChallengeTaskPoint>? points,
+    List<EventTaskPoint>? points,
   }) {
-    return ChallengeTask(
+    return EventTask(
       id: id,
       name: name ?? this.name,
       taskDate: taskDate ?? this.taskDate,
@@ -160,7 +150,7 @@ class ChallengeTask {
       };
 }
 
-class ChallengeTaskPoint {
+class EventTaskPoint {
   final int turnpointId;
   final String name;
   final double latitude;
@@ -169,7 +159,7 @@ class ChallengeTaskPoint {
   final String direction;
   final double radiusMeters;
 
-  const ChallengeTaskPoint({
+  const EventTaskPoint({
     required this.turnpointId,
     required this.name,
     required this.latitude,
@@ -179,12 +169,12 @@ class ChallengeTaskPoint {
     required this.radiusMeters,
   });
 
-  factory ChallengeTaskPoint.fromWaypoint(
-    ChallengeWaypoint waypoint,
+  factory EventTaskPoint.fromWaypoint(
+    EventWaypoint waypoint,
     int index,
   ) {
     final type = index == 0 ? 'start' : 'turnpoint';
-    return ChallengeTaskPoint(
+    return EventTaskPoint(
       turnpointId: waypoint.id,
       name: waypoint.name,
       latitude: waypoint.latitude,
@@ -195,9 +185,9 @@ class ChallengeTaskPoint {
     );
   }
 
-  factory ChallengeTaskPoint.fromJson(Map<String, dynamic> json) {
+  factory EventTaskPoint.fromJson(Map<String, dynamic> json) {
     final type = json['point_type'] as String? ?? 'turnpoint';
-    return ChallengeTaskPoint(
+    return EventTaskPoint(
       turnpointId: json['turnpoint_id'] as int? ?? 0,
       name: json['name'] as String? ?? 'Waypoint',
       latitude: (json['latitude'] as num).toDouble(),
@@ -210,13 +200,13 @@ class ChallengeTaskPoint {
     );
   }
 
-  ChallengeTaskPoint copyWith({
+  EventTaskPoint copyWith({
     String? pointType,
     String? direction,
     double? radiusMeters,
   }) {
     final nextType = pointType ?? this.pointType;
-    return ChallengeTaskPoint(
+    return EventTaskPoint(
       turnpointId: turnpointId,
       name: name,
       latitude: latitude,
@@ -261,235 +251,106 @@ double defaultRadiusForPointType(String type) {
   }
 }
 
-class ChallengesScreen extends StatefulWidget {
+class EventsScreen extends StatefulWidget {
   final ApiService api;
+  final bool canManageEvents;
 
-  const ChallengesScreen({super.key, required this.api});
+  const EventsScreen({
+    super.key,
+    required this.api,
+    this.canManageEvents = false,
+  });
 
   @override
-  State<ChallengesScreen> createState() => _ChallengesScreenState();
+  State<EventsScreen> createState() => _EventsScreenState();
 }
 
-class _ChallengesScreenState extends State<ChallengesScreen> {
-  final _nameController = TextEditingController(text: 'New XC Challenge');
-  final _locationController = TextEditingController();
-  DateTime _startsOn = DateTime.now();
-  DateTime _endsOn = DateTime.now();
-  String _challengeType = 'open_distance';
-  bool _publicTracking = false;
+class _EventsScreenState extends State<EventsScreen> {
   bool _loading = true;
-  bool _saving = false;
   String? _error;
-  List<ChallengeSummary> _challenges = [];
+  List<EventSummary> _events = [];
 
   @override
   void initState() {
     super.initState();
-    _loadChallenges();
+    _loadEvents();
   }
 
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _locationController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _loadChallenges() async {
+  Future<void> _loadEvents() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final rows = await widget.api.getList(ApiConfig.challengesPath);
+      final rows = await widget.api.getList(ApiConfig.eventsPath);
+      if (!mounted) return;
       setState(() {
-        _challenges = rows
+        _events = rows
             .whereType<Map<String, dynamic>>()
-            .map(ChallengeSummary.fromJson)
+            .map(EventSummary.fromJson)
             .toList();
       });
     } catch (error) {
-      setState(() => _error = 'Could not load challenges.');
+      if (mounted) setState(() => _error = 'Could not load events.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
-  }
-
-  Future<void> _pickDate({required bool start}) async {
-    final initial = start ? _startsOn : _endsOn;
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime.now().subtract(const Duration(days: 1)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (picked == null) return;
-    setState(() {
-      if (start) {
-        _startsOn = picked;
-        if (_endsOn.isBefore(_startsOn)) _endsOn = picked;
-      } else {
-        _endsOn = picked;
-      }
-    });
-  }
-
-  Future<void> _createChallenge() async {
-    final name = _nameController.text.trim();
-    if (name.isEmpty) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      final created = await widget.api.post(ApiConfig.challengesPath, body: {
-        'name': name,
-        'challenge_type': _challengeType,
-        'starts_on': _dateString(_startsOn),
-        'ends_on': _dateString(_endsOn),
-        'location': _locationController.text.trim(),
-        'visibility': 'public',
-        'public_listed': false,
-        'is_public_tracking': _publicTracking,
-      });
-      _nameController.text = _challengeType == 'open_distance'
-          ? 'New XC Challenge'
-          : 'New R2G Challenge';
-      _locationController.clear();
-      await _loadChallenges();
-      if (!mounted) return;
-      await Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ChallengeTaskBuilderScreen(
-          api: widget.api,
-          challenge: ChallengeSummary.fromJson(created),
-        ),
-      ));
-      await _loadChallenges();
-    } catch (error) {
-      setState(() => _error = 'Could not create challenge.');
-    } finally {
-      if (mounted) setState(() => _saving = false);
-    }
-  }
-
-  String _dateString(DateTime value) {
-    final local = DateTime(value.year, value.month, value.day);
-    return local.toIso8601String().substring(0, 10);
-  }
-
-  Widget _createChallengeCard(ThemeData theme) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text('Create challenge', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Name'),
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'open_distance', label: Text('XC')),
-                ButtonSegment(
-                    value: 'race_to_goal_with_gates', label: Text('R2G')),
-              ],
-              selected: {_challengeType},
-              onSelectionChanged: (value) {
-                setState(() => _challengeType = value.first);
-              },
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _locationController,
-              decoration: const InputDecoration(labelText: 'Location'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _pickDate(start: true),
-                    child: Text('Starts ${_dateString(_startsOn)}'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _pickDate(start: false),
-                    child: Text('Ends ${_dateString(_endsOn)}'),
-                  ),
-                ),
-              ],
-            ),
-            SwitchListTile(
-              contentPadding: EdgeInsets.zero,
-              value: _publicTracking,
-              onChanged: (value) => setState(() => _publicTracking = value),
-              title: const Text('Public live tracking'),
-            ),
-            FilledButton.icon(
-              onPressed: _saving ? null : _createChallenge,
-              icon: const Icon(Icons.add),
-              label: Text(_saving ? 'Creating...' : 'Create and build task'),
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 8),
-              Text(_error!, style: TextStyle(color: theme.colorScheme.error)),
-            ],
-          ],
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Challenges')),
+      appBar: AppBar(title: const Text('Events')),
       body: RefreshIndicator(
-        onRefresh: _loadChallenges,
+        onRefresh: _loadEvents,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            Text('My challenges', style: theme.textTheme.titleMedium),
+            Text('Events', style: theme.textTheme.titleMedium),
             const SizedBox(height: 8),
             if (_loading)
               const Center(
-                  child: Padding(
-                padding: EdgeInsets.all(24),
-                child: CircularProgressIndicator(),
-              ))
-            else if (_challenges.isEmpty)
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else if (_error != null)
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: theme.colorScheme.error),
+                ),
+              )
+            else if (_events.isEmpty)
               const Padding(
                 padding: EdgeInsets.all(24),
-                child: Text('No challenges yet.'),
+                child: Text('No events are available.'),
               )
             else
-              ..._challenges.map((challenge) => Card(
-                    child: ListTile(
-                      leading: const Icon(Icons.emoji_events_outlined),
-                      title: Text(challenge.name),
-                      subtitle:
-                          Text('${challenge.startsOn} - ${challenge.endsOn}'),
-                      trailing: Text('${challenge.pilotCount} pilots'),
-                      onTap: () async {
-                        await Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => ChallengeTaskBuilderScreen(
+              ..._events.map(
+                (event) => Card(
+                  child: ListTile(
+                    leading: const Icon(Icons.event_outlined),
+                    title: Text(event.name),
+                    subtitle: Text('${event.startsOn} - ${event.endsOn}'),
+                    onTap: () async {
+                      await Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => EventTaskBuilderScreen(
                             api: widget.api,
-                            challenge: challenge,
+                            event: event,
+                            canEdit: widget.canManageEvents,
                           ),
-                        ));
-                        await _loadChallenges();
-                      },
-                    ),
-                  )),
-            const SizedBox(height: 16),
-            _createChallengeCard(theme),
+                        ),
+                      );
+                      await _loadEvents();
+                    },
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -497,33 +358,34 @@ class _ChallengesScreenState extends State<ChallengesScreen> {
   }
 }
 
-class ChallengeTaskBuilderScreen extends StatefulWidget {
+class EventTaskBuilderScreen extends StatefulWidget {
   final ApiService api;
-  final ChallengeSummary challenge;
+  final EventSummary event;
+  final bool canEdit;
 
-  const ChallengeTaskBuilderScreen({
+  const EventTaskBuilderScreen({
     super.key,
     required this.api,
-    required this.challenge,
+    required this.event,
+    required this.canEdit,
   });
 
   @override
-  State<ChallengeTaskBuilderScreen> createState() =>
-      _ChallengeTaskBuilderScreenState();
+  State<EventTaskBuilderScreen> createState() => _EventTaskBuilderScreenState();
 }
 
-class _ChallengeTaskBuilderScreenState
-    extends State<ChallengeTaskBuilderScreen> {
+class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
   final MapController _mapController = MapController();
   LiveMapStyle _mapStyle = LiveMapStyle.map;
   bool _loading = true;
   bool _saving = false;
   String? _error;
-  ChallengeTask? _task;
+  EventTask? _task;
+  List<EventTask> _tasks = [];
   List<TurnpointSourceSummary> _sources = [];
   int? _sourceId;
-  List<ChallengeWaypoint> _waypoints = [];
-  bool get _canEdit => widget.challenge.canEdit;
+  List<EventWaypoint> _waypoints = [];
+  bool get _canEdit => widget.canEdit;
 
   @override
   void initState() {
@@ -538,13 +400,13 @@ class _ChallengeTaskBuilderScreenState
     });
     try {
       final responses = await Future.wait([
-        widget.api.getList(ApiConfig.challengeTasksPath(widget.challenge.id)),
+        widget.api.getList(ApiConfig.eventTasksPath(widget.event.id)),
         widget.api
-            .getList(ApiConfig.eventTurnpointSourcesPath(widget.challenge.id)),
+            .getList(ApiConfig.eventTurnpointSourcesPath(widget.event.id)),
       ]);
       final tasks = responses[0]
           .whereType<Map<String, dynamic>>()
-          .map(ChallengeTask.fromJson)
+          .map(EventTask.fromJson)
           .toList();
       final sources = responses[1]
           .whereType<Map<String, dynamic>>()
@@ -552,32 +414,53 @@ class _ChallengeTaskBuilderScreenState
           .toList();
       final task = tasks.isNotEmpty
           ? tasks.first
-          : ChallengeTask(
-              name: widget.challenge.name,
-              taskDate: widget.challenge.startsOn,
-              taskType: widget.challenge.challengeType,
-              startGateCount: 1,
-            );
+          : (_canEdit ? _newDraft(tasks.length) : null);
       setState(() {
+        _tasks = tasks;
         _task = task;
         _sources = sources;
         _sourceId = sources.isNotEmpty ? sources.first.id : null;
       });
       if (_sourceId != null) await _loadWaypoints(_sourceId!);
     } catch (error) {
-      setState(() => _error = 'Could not load challenge task.');
+      setState(() => _error = 'Could not load event tasks.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
+  EventTask _newDraft(int taskCount) => EventTask(
+        name: 'Task ${taskCount + 1}',
+        taskDate: widget.event.startsOn,
+        taskType: 'race_to_goal_with_gates',
+        status: 'draft',
+        startGateCount: 1,
+      );
+
+  void _selectTask(int taskId) {
+    for (final task in _tasks) {
+      if (task.id == taskId) {
+        setState(() => _task = task);
+        return;
+      }
+    }
+  }
+
+  void _createDraft() {
+    if (!_canEdit) return;
+    setState(() {
+      _task = _newDraft(_tasks.length);
+      _error = null;
+    });
+  }
+
   Future<void> _loadWaypoints(int sourceId) async {
     final rows = await widget.api.getList(
-      ApiConfig.eventTurnpointSourcePointsPath(widget.challenge.id, sourceId),
+      ApiConfig.eventTurnpointSourcePointsPath(widget.event.id, sourceId),
     );
     final waypoints = rows
         .whereType<Map<String, dynamic>>()
-        .map(ChallengeWaypoint.fromJson)
+        .map(EventWaypoint.fromJson)
         .toList();
     setState(() {
       _sourceId = sourceId;
@@ -585,7 +468,7 @@ class _ChallengeTaskBuilderScreenState
     });
   }
 
-  void _addWaypoint(ChallengeWaypoint waypoint) {
+  void _addWaypoint(EventWaypoint waypoint) {
     if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
@@ -593,12 +476,12 @@ class _ChallengeTaskBuilderScreenState
     setState(() {
       _task = task.copyWith(points: [
         ...task.points,
-        ChallengeTaskPoint.fromWaypoint(waypoint, task.points.length),
+        EventTaskPoint.fromWaypoint(waypoint, task.points.length),
       ]);
     });
   }
 
-  void _updatePoint(int index, ChallengeTaskPoint point) {
+  void _updatePoint(int index, EventTaskPoint point) {
     if (!_canEdit) return;
     final task = _task;
     if (task == null) return;
@@ -647,11 +530,21 @@ class _ChallengeTaskBuilderScreenState
       final payload = task.toPayload();
       final saved = task.id == null
           ? await widget.api.post(
-              ApiConfig.challengeTasksPath(widget.challenge.id),
+              ApiConfig.eventTasksPath(widget.event.id),
               body: payload,
             )
           : await widget.api.put(ApiConfig.taskPath(task.id!), body: payload);
-      setState(() => _task = ChallengeTask.fromJson(saved));
+      final savedTask = EventTask.fromJson(saved);
+      setState(() {
+        _task = savedTask;
+        final index =
+            _tasks.indexWhere((existing) => existing.id == savedTask.id);
+        if (index >= 0) {
+          _tasks = [..._tasks]..[index] = savedTask;
+        } else {
+          _tasks = [..._tasks, savedTask];
+        }
+      });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Task saved')),
@@ -686,7 +579,7 @@ class _ChallengeTaskBuilderScreenState
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.challenge.name),
+        title: Text(widget.event.name),
         actions: _canEdit
             ? [
                 IconButton(
@@ -705,9 +598,43 @@ class _ChallengeTaskBuilderScreenState
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<int>(
+                              key: ValueKey(task?.id ?? 'draft'),
+                              initialValue: task?.id,
+                              decoration:
+                                  const InputDecoration(labelText: 'Task'),
+                              hint: Text(task?.id == null
+                                  ? task?.name ?? 'No tasks'
+                                  : 'Select task'),
+                              items: _tasks
+                                  .where((item) => item.id != null)
+                                  .map((item) => DropdownMenuItem(
+                                        value: item.id,
+                                        child: Text(item.name),
+                                      ))
+                                  .toList(),
+                              onChanged: (value) {
+                                if (value != null) _selectTask(value);
+                              },
+                            ),
+                          ),
+                          if (_canEdit) ...[
+                            const SizedBox(width: 8),
+                            OutlinedButton.icon(
+                              onPressed: _saving ? null : _createDraft,
+                              icon: const Icon(Icons.add),
+                              label: const Text('New task'),
+                            ),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 8),
                       if (_sources.isEmpty)
                         Text(
-                          'No waypoint file is attached to this challenge yet.',
+                          'No waypoint file is attached to this event yet.',
                           style: TextStyle(color: theme.colorScheme.error),
                         )
                       else
@@ -870,10 +797,10 @@ class _NumberedTaskMarker extends StatelessWidget {
 }
 
 class _TaskPointEditor extends StatelessWidget {
-  final List<ChallengeTaskPoint> points;
+  final List<EventTaskPoint> points;
   final bool saving;
   final bool editable;
-  final void Function(int index, ChallengeTaskPoint point) onChanged;
+  final void Function(int index, EventTaskPoint point) onChanged;
   final void Function(int index, int delta) onMove;
   final void Function(int index) onRemove;
   final VoidCallback onSave;

@@ -13,6 +13,19 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.07.17]
+
+### Changed
+- **Mobile v0.4.70+87** replaces Challenges with Events, adds event and task
+  selection, lets staff create task drafts, and keeps pilot task routes read-only.
+- The product now uses one event flow across the dashboard, public scores, live
+  tracking, APIs, and mobile app. Existing staging challenges are migrated to
+  ordinary events without losing their tasks, participants, results, or tracks.
+
+### Removed
+- Challenge creation, settings, defaults, public challenge URLs, personal
+  waypoint uploads, and per-user FAA category preferences.
+
 ## [2026.06.27]
 
 ### Added

@@ -53,6 +53,13 @@ def test_event_payload_includes_public_live_tracking_flag() -> None:
     payload = _event_payload(session, event)
 
     assert payload.is_public_tracking is True
+    assert not {
+        "event_kind",
+        "owner_user_id",
+        "source_buddy_group_id",
+        "public_slug",
+        "public_listed",
+    } & payload.model_dump().keys()
 
 
 def test_list_events_filters_pilot_visible_competitions() -> None:

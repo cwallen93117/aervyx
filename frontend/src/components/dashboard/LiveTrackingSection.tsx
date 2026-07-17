@@ -680,7 +680,7 @@ export default function LiveTrackingSection({
                 ? "Waiting for buddy group pilots..."
                 : trackingSource?.type === "all_users"
                   ? "Waiting for pilots..."
-                  : "Waiting for competition pilots..."}
+                  : "Waiting for event pilots..."}
           </div>
         )}
       </div>
@@ -727,7 +727,7 @@ export default function LiveTrackingSection({
                 <option value="">Select a source</option>
                 <option value="all_users">All users</option>
                 {tasks.length > 0 ? (
-                  <optgroup label="Competition tasks">
+                  <optgroup label="Event tasks">
                     {tasks.map((task) => (
                       <option key={`task:${task.id}`} value={`task:${task.id}`}>
                         {task.name} - {task.status}

@@ -36,7 +36,7 @@ export interface SettingsSectionProps {
   onMeshDevicesChanged?: () => void | Promise<void>;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "waypoint_files" | "airspace";
+type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "waypoint_files";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
@@ -47,22 +47,7 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: "pilot_record", label: "Pilot Record" },
   { key: "buddies", label: "Pilot Buddies" },
   { key: "waypoint_files", label: "Waypoint Files" },
-  { key: "airspace", label: "Airspace" },
 ];
-
-function updateAirspaceCategories(
-  settingsForm: AccountSettingsRecord,
-  setSettingsForm: SettingsSectionProps["setSettingsForm"],
-  categories: AirspaceCategory[],
-) {
-  setSettingsForm({
-    ...settingsForm,
-    challenge_settings_json: {
-      ...(settingsForm.challenge_settings_json ?? {}),
-      airspace_categories_json: categories,
-    },
-  });
-}
 
 export function AirspaceCategoryControls({
   selected,
@@ -352,20 +337,6 @@ export default function SettingsSection(props: SettingsSectionProps) {
         </div>
       )}
 
-      {activeTab === "airspace" && (
-        <div className="settings-tab-panel">
-          <form className="stack form-block" onSubmit={saveAccountSettings}>
-            <AirspaceCategoryControls
-              selected={normalizeAirspaceCategories(settingsForm.challenge_settings_json?.airspace_categories_json)}
-              onChange={(categories) => updateAirspaceCategories(settingsForm, setSettingsForm, categories)}
-            />
-            <div className="button-row">
-              <button type="submit">Save airspace settings</button>
-            </div>
-            {settingsFeedback.profile ? <div className={`status-chip ${settingsFeedback.profile.type}`}>{settingsFeedback.profile.text}</div> : null}
-          </form>
-        </div>
-      )}
     </div>
   );
 }
