@@ -5,7 +5,6 @@ import BuddyGroupsManager from "./BuddyGroupsManager";
 import EmailsManager from "./EmailsManager";
 import MeshDevicesManager from "./MeshDevicesManager";
 import PilotClaimSection from "./PilotClaimSection";
-import WaypointFilesSettings from "./WaypointFilesSettings";
 import { PasswordInput } from "../PasswordInput";
 import {
   CATEGORY_COLORS,
@@ -36,7 +35,7 @@ export interface SettingsSectionProps {
   onMeshDevicesChanged?: () => void | Promise<void>;
 }
 
-type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "waypoint_files";
+type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies";
 
 const TABS: { key: SettingsTab; label: string }[] = [
   { key: "profile", label: "Profile" },
@@ -46,7 +45,6 @@ const TABS: { key: SettingsTab; label: string }[] = [
   { key: "meshtastic", label: "Meshtastic" },
   { key: "pilot_record", label: "Pilot Record" },
   { key: "buddies", label: "Pilot Buddies" },
-  { key: "waypoint_files", label: "Waypoint Files" },
 ];
 
 export function AirspaceCategoryControls({
@@ -328,12 +326,6 @@ export default function SettingsSection(props: SettingsSectionProps) {
       {activeTab === "buddies" && (
         <div className="settings-tab-panel">
           <BuddyGroupsManager token={token} />
-        </div>
-      )}
-
-      {activeTab === "waypoint_files" && (
-        <div className="settings-tab-panel">
-          <WaypointFilesSettings token={token} />
         </div>
       )}
 

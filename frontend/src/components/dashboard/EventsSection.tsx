@@ -3,7 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
-import WaypointFilesEditor from "./WaypointFilesEditor";
+import WaypointFilesSettings from "./WaypointFilesSettings";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import type {
   AirspaceCategoryOption,
@@ -623,6 +623,7 @@ export default function EventsSection(props: EventsSectionProps) {
   const [turnpointEdit, setTurnpointEdit] = useState<EditableTurnpoint | null>(null);
   const [draftTurnpoint, setDraftTurnpoint] = useState<EditableTurnpoint | null>(null);
   const [turnpointSort, setTurnpointSort] = useState<TurnpointSortState>(null);
+  const [waypointCatalogVersion, setWaypointCatalogVersion] = useState(0);
   const startsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const endsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const scoringTemplateOptions = events.filter((event) => event.id !== eventEditorId);
@@ -1496,6 +1497,7 @@ export default function EventsSection(props: EventsSectionProps) {
                           setMessage(`Stored ${response.imported_count} turnpoints from ${file.name}.`);
                           await loadEvent(token, selectedEventId);
                           await refreshEvents(token);
+                          setWaypointCatalogVersion((current) => current + 1);
                         } catch (caught) {
                           setError(caught instanceof Error ? caught.message : `Failed to import ${file.name}.`);
                         } finally {
@@ -1506,14 +1508,10 @@ export default function EventsSection(props: EventsSectionProps) {
                   </label>
                 </div>
               ) : null}
-              <WaypointFilesEditor
+              <WaypointFilesSettings
+                key={waypointCatalogVersion}
                 token={token}
-                sources={turnpointSources}
-                defaultCanEdit={canManagePlatform}
                 telemetrySmoothing={telemetrySmoothing}
-                setMessage={setMessage}
-                setError={setError}
-                emptyMessage="No turnpoint files uploaded for this event yet."
                 onSourcesChanged={async () => {
                   if (selectedEventId) {
                     await loadEvent(token, selectedEventId);

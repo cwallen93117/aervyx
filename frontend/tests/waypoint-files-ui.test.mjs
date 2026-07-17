@@ -5,17 +5,19 @@ import assert from "node:assert/strict";
 
 const root = process.cwd();
 
-test("settings tab row keeps ordinary event waypoint files", () => {
+test("settings no longer exposes waypoint files", () => {
   const source = readFileSync(join(root, "src/components/dashboard/SettingsSection.tsx"), "utf8");
-  assert.ok(source.indexOf('label: "Pilot Buddies"') < source.indexOf('label: "Waypoint Files"'));
-  assert.match(source, /<WaypointFilesSettings token=\{token\} \/>/);
+  assert.doesNotMatch(source, /WaypointFilesSettings/);
+  assert.doesNotMatch(source, /Waypoint Files/);
+  assert.doesNotMatch(source, /waypoint_files/);
 });
 
-test("waypoint files settings has no personal upload path", () => {
-  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
-  assert.doesNotMatch(source, />Add waypoint file</);
-  assert.doesNotMatch(source, /challenge-settings/);
-  assert.match(source, /\/api\/auth\/waypoint-files/);
+test("event turnpoint files use the shared waypoint catalog", () => {
+  const eventsSource = readFileSync(join(root, "src/components/dashboard/EventsSection.tsx"), "utf8");
+  const catalogSource = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
+  assert.match(eventsSource, /<WaypointFilesSettings/);
+  assert.match(catalogSource, /\/api\/auth\/waypoint-files/);
+  assert.match(catalogSource, /showContext/);
 });
 
 test("waypoint file rows expose View and Edit actions", () => {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { MapTelemetrySmoothing } from "../TaskMap";
 import WaypointFilesEditor, { type WaypointFileSourceRecord } from "./WaypointFilesEditor";
 
 type WaypointFileResponse = {
@@ -52,7 +53,15 @@ function toEditorSource(record: WaypointFileResponse): WaypointFileSourceRecord 
   };
 }
 
-export default function WaypointFilesSettings({ token }: { token: string }) {
+export default function WaypointFilesSettings({
+  token,
+  telemetrySmoothing,
+  onSourcesChanged,
+}: {
+  token: string;
+  telemetrySmoothing?: MapTelemetrySmoothing;
+  onSourcesChanged?: () => Promise<void> | void;
+}) {
   const [sources, setSources] = useState<WaypointFileSourceRecord[]>([]);
   const [feedback, setFeedback] = useState<{ type: "success" | "error" | "pending"; text: string } | null>(null);
 
@@ -79,10 +88,14 @@ export default function WaypointFilesSettings({ token }: { token: string }) {
         sources={sources}
         showContext
         defaultCanEdit={false}
+        telemetrySmoothing={telemetrySmoothing}
         setMessage={(text) => setFeedback({ type: "success", text })}
         setError={(text) => setFeedback({ type: "error", text })}
         emptyMessage="No waypoint files are available yet."
-        onSourcesChanged={loadSources}
+        onSourcesChanged={async () => {
+          await loadSources();
+          await onSourcesChanged?.();
+        }}
       />
     </div>
   );
