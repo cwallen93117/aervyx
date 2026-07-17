@@ -26,7 +26,7 @@ test("event turnpoint files select from the shared library", () => {
 
 test("library table has the requested columns and file operations", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
-  assert.match(source, /<th aria-label="Select files to merge" \/>/);
+  assert.match(source, /<th>Selection<\/th>/);
   assert.match(source, /<th>File name<\/th>/);
   assert.match(source, /<th>Format<\/th>/);
   assert.match(source, /<th>Waypoints<\/th>/);

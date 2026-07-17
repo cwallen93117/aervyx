@@ -414,10 +414,10 @@ export default function WaypointFilesEditor({
         <span className="hint">{mergeSourceIds.size} selected</span>
       </div>
       <div className="participant-table-wrap">
-        <table className="participant-table">
+        <table className="participant-table turnpoint-library-table">
           <thead>
             <tr>
-              <th aria-label="Select files to merge" />
+              <th>Selection</th>
               <th>File name</th>
               <th>Format</th>
               <th>Waypoints</th>

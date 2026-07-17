@@ -1700,6 +1700,11 @@ button[type="submit"]:hover,
   justify-content: flex-end;
 }
 
+.turnpoint-library-table .participant-table-actions {
+  width: 440px;
+  min-width: 440px;
+}
+
 .admin-users-search-row {
   display: flex;
   align-items: center;
