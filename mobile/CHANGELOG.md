@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.71+88 - 2026-07-18
+
+### Changed
+- Organizers can create and edit complete event settings from mobile, including
+  dates, visibility, start-gate defaults, scoring formulas and parameters,
+  penalty presets, and airspace display options.
+- Event dates use native date pickers with date-range validation, and event
+  settings are available from the event list and task builder.
+
 ## 0.4.70+87 - 2026-07-17
 
 ### Changed
