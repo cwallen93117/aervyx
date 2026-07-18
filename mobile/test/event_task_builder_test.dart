@@ -5,6 +5,10 @@ import 'package:aervyx_mobile/screens/events_screen.dart';
 import 'package:aervyx_mobile/services/api_service.dart';
 
 class FakeEventApi extends ApiService {
+  Map<String, dynamic>? lastPostBody;
+  Map<String, dynamic>? lastPutBody;
+  Map<String, dynamic>? lastPatchBody;
+
   @override
   Future<List<dynamic>> getList(String path,
       {Map<String, String>? query}) async {
@@ -35,7 +39,29 @@ class FakeEventApi extends ApiService {
         {'id': 43, 'name': 'GOAL', 'latitude': 39.2, 'longitude': -105.1},
       ];
     }
+    if (path == ApiConfig.eventScoringPresetsPath(7)) return [];
     return [];
+  }
+
+  @override
+  Future<Map<String, dynamic>> post(String path,
+      {Map<String, dynamic>? body}) async {
+    lastPostBody = body;
+    return {'id': 99, ...?body};
+  }
+
+  @override
+  Future<Map<String, dynamic>> put(String path,
+      {Map<String, dynamic>? body}) async {
+    lastPutBody = body;
+    return {'id': 7, ...?body};
+  }
+
+  @override
+  Future<Map<String, dynamic>> patch(String path,
+      {Map<String, dynamic>? body}) async {
+    lastPatchBody = body;
+    return {};
   }
 
   Map<String, dynamic> _task(int id, String name, String pointName) => {
@@ -59,7 +85,7 @@ class FakeEventApi extends ApiService {
       };
 }
 
-const event = EventSummary(
+final event = EventSummary(
   id: 7,
   name: 'Spring Event',
   startsOn: '2026-06-26',
@@ -67,6 +93,66 @@ const event = EventSummary(
 );
 
 void main() {
+  test('event payload covers every web-editable event field', () {
+    final payload = EventSummary.draft(DateTime(2026, 7, 18)).toPayload();
+
+    expect(payload.keys.toSet(), {
+      'name',
+      'location',
+      'starts_on',
+      'ends_on',
+      'timezone',
+      'scoring_formula',
+      'nominal_distance_km',
+      'nominal_time_hours',
+      'nominal_launch',
+      'minimum_distance_km',
+      'nominal_goal_percent',
+      'score_back_time_minutes',
+      'goal_ss_penalty',
+      'day_quality_override',
+      'time_points_if_not_in_goal',
+      'jump_the_gun_factor',
+      'jump_the_gun_max_seconds',
+      'default_start_gate_count',
+      'default_start_gate_interval_seconds',
+      'stopped_glide_bonus',
+      'use_1000_points_for_max_day_quality',
+      'normalize_1000_before_day_quality',
+      'use_distance_points',
+      'use_time_points',
+      'use_leading_points',
+      'use_arrival_position_points',
+      'use_arrival_time_points',
+      'use_departure_points',
+      'use_difficulty_for_distance_points',
+      'use_distance_squared_for_lc',
+      'use_semi_circle_control_zone_for_goal_line',
+      'use_proportional_leading_weight_if_nobody_in_goal',
+      'redistribute_removed_time_points_as_distance_points',
+      'use_best_score_for_ftv_validity',
+      'use_constant_leading_weight',
+      'use_pwca2019_for_lc',
+      'use_flat_decline_of_timepoints',
+      'scoring_altitude',
+      'final_glide_decelerator',
+      'no_final_glide_decelerator_reason',
+      'min_time_span_for_valid_task_minutes',
+      'leading_weight_factor',
+      'turnpoint_radius_tolerance',
+      'turnpoint_radius_minimum_absolute_tolerance_m',
+      'number_of_decimals_task_results',
+      'number_of_decimals_competition_results',
+      'visible_airspace_classes_json',
+      'show_restricted_fields',
+      'penalties_json',
+      'is_public_tracking',
+      'visibility',
+    });
+    expect(payload['starts_on'], '2026-07-18');
+    expect(payload['ends_on'], '2026-07-24');
+  });
+
   test('event task payload uses selected waypoint ids and draft defaults', () {
     const waypoint = EventWaypoint(
       id: 42,
@@ -106,6 +192,87 @@ void main() {
     expect(find.text('Events'), findsNWidgets(2));
     expect(find.text('Spring Event'), findsOneWidget);
     expect(find.textContaining('Create'), findsNothing);
+  });
+
+  testWidgets('staff can create an event with native date controls',
+      (tester) async {
+    final api = FakeEventApi();
+    await tester.pumpWidget(MaterialApp(
+      home: EventsScreen(api: api, canManageEvents: true),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('new-event-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('New event'), findsOneWidget);
+    expect(find.byKey(const Key('event-starts_on')), findsOneWidget);
+    expect(find.byKey(const Key('event-ends_on')), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('event-starts_on')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CalendarDatePicker), findsOneWidget);
+    await tester
+        .tap(find.textContaining(RegExp('cancel', caseSensitive: false)));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const Key('event-name')),
+      'Mobile Event',
+    );
+    await tester.tap(find.byTooltip('Create event'));
+    await tester.pumpAndSettle();
+
+    expect(api.lastPostBody?['name'], 'Mobile Event');
+    expect(api.lastPostBody?.keys.toSet(), defaultEventSettings().keys.toSet());
+    expect(api.lastPatchBody, {'presets': <dynamic>[]});
+  });
+
+  testWidgets('staff can edit existing event settings', (tester) async {
+    final api = FakeEventApi();
+    await tester.pumpWidget(MaterialApp(
+      home: EventsScreen(api: api, canManageEvents: true),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('edit-event-7')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('event-location')),
+      'Morningside',
+    );
+    await tester.tap(find.byTooltip('Save event'));
+    await tester.pumpAndSettle();
+
+    expect(api.lastPutBody?['location'], 'Morningside');
+    expect(api.lastPutBody?['starts_on'], '2026-06-26');
+  });
+
+  testWidgets('mobile formula selection applies the web scoring preset',
+      (tester) async {
+    final api = FakeEventApi();
+    await tester.pumpWidget(MaterialApp(
+      home: EventEditorScreen(api: api, event: event),
+    ));
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('Formula and points'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Formula and points'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('event-scoring_formula-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('GAP2025').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Save event'));
+    await tester.pumpAndSettle();
+
+    expect(api.lastPutBody?['scoring_formula'], 'GAP2025');
+    expect(api.lastPutBody?['nominal_distance_km'], 50.0);
+    expect(api.lastPutBody?['nominal_goal_percent'], 0.3);
+    expect(api.lastPutBody?['use_leading_points'], isTrue);
   });
 
   testWidgets('task selector switches between every event task',

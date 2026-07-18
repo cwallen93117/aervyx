@@ -79,6 +79,9 @@ class ApiConfig {
   static String taskUploadPath(int taskId) => '/api/tasks/$taskId/uploads';
 
   static const String eventsPath = '/api/events';
+  static String eventPath(int eventId) => '/api/events/$eventId';
+  static String eventScoringPresetsPath(int eventId) =>
+      '/api/events/$eventId/scoring-presets';
   static String eventTasksPath(int eventId) => '/api/events/$eventId/tasks';
   static String taskPath(int taskId) => '/api/tasks/$taskId';
   static String eventTurnpointSourcesPath(int eventId) =>

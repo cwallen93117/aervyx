@@ -13,6 +13,15 @@ asks for a different release path.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.07.18]
+
+### Changed
+- **Mobile v0.4.71+88** lets organizers create and edit complete event
+  settings from the Events screen, including dates, visibility, scoring,
+  penalty presets, and airspace display options.
+- Event dates now use native mobile date pickers with validation, and event
+  settings remain available from both the event list and task builder.
+
 ## [2026.07.17]
 
 ### Changed

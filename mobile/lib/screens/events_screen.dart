@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:intl/intl.dart';
 import 'package:latlong2/latlong.dart';
 
 import '../config/api_config.dart';
@@ -7,26 +8,228 @@ import '../services/api_service.dart';
 import '../widgets/live_map_style.dart';
 import '../widgets/map_scale_bar.dart';
 
+String _dateValue(DateTime date) => DateFormat('yyyy-MM-dd').format(date);
+
+Map<String, dynamic> defaultEventSettings([DateTime? today]) {
+  final start = DateUtils.dateOnly(today ?? DateTime.now());
+  return {
+    'name': '',
+    'location': '',
+    'starts_on': _dateValue(start),
+    'ends_on': _dateValue(start.add(const Duration(days: 6))),
+    'timezone': 'UTC',
+    'scoring_formula': 'GAP2021',
+    'nominal_distance_km': 60.0,
+    'nominal_time_hours': 1.5,
+    'nominal_launch': 0.95,
+    'minimum_distance_km': 5.0,
+    'nominal_goal_percent': 0.3,
+    'score_back_time_minutes': 15,
+    'goal_ss_penalty': 0.0,
+    'day_quality_override': 0.0,
+    'time_points_if_not_in_goal': 1.0,
+    'jump_the_gun_factor': 0.0,
+    'jump_the_gun_max_seconds': 0,
+    'default_start_gate_count': 5,
+    'default_start_gate_interval_seconds': 900,
+    'stopped_glide_bonus': 0.0,
+    'use_1000_points_for_max_day_quality': false,
+    'normalize_1000_before_day_quality': false,
+    'use_distance_points': true,
+    'use_time_points': true,
+    'use_leading_points': true,
+    'use_arrival_position_points': false,
+    'use_arrival_time_points': false,
+    'use_departure_points': false,
+    'use_difficulty_for_distance_points': true,
+    'use_distance_squared_for_lc': false,
+    'use_semi_circle_control_zone_for_goal_line': true,
+    'use_proportional_leading_weight_if_nobody_in_goal': true,
+    'redistribute_removed_time_points_as_distance_points': false,
+    'use_best_score_for_ftv_validity': true,
+    'use_constant_leading_weight': false,
+    'use_pwca2019_for_lc': false,
+    'use_flat_decline_of_timepoints': false,
+    'scoring_altitude': 'GPS',
+    'final_glide_decelerator': 'none',
+    'no_final_glide_decelerator_reason': '',
+    'min_time_span_for_valid_task_minutes': 60,
+    'leading_weight_factor': 1.0,
+    'turnpoint_radius_tolerance': 0.0005,
+    'turnpoint_radius_minimum_absolute_tolerance_m': 5.0,
+    'number_of_decimals_task_results': 2,
+    'number_of_decimals_competition_results': 1,
+    'visible_airspace_classes_json': <String>[
+      'B',
+      'C',
+      'D',
+      'P',
+      'Q',
+      'R',
+      'TFR',
+      'OTHER'
+    ],
+    'show_restricted_fields': true,
+    'penalties_json': <String, dynamic>{},
+    'is_public_tracking': false,
+    'visibility': 'private',
+  };
+}
+
+Map<String, dynamic> _formulaPreset(String formula) {
+  final preset = <String, dynamic>{
+    'nominal_goal_percent': 0.2,
+    'nominal_distance_km': 60.0,
+    'nominal_time_hours': 1.5,
+    'nominal_launch': 0.95,
+    'minimum_distance_km': 5.0,
+    'score_back_time_minutes': 15,
+    'goal_ss_penalty': 1.0,
+    'stopped_glide_bonus': 0.0,
+    'jump_the_gun_factor': 0.0,
+    'jump_the_gun_max_seconds': 0,
+    'time_points_if_not_in_goal': 0.0,
+    'leading_weight_factor': 1.0,
+    'turnpoint_radius_tolerance': 0.005,
+    'turnpoint_radius_minimum_absolute_tolerance_m': 5.0,
+    'number_of_decimals_task_results': 1,
+    'number_of_decimals_competition_results': 0,
+    'scoring_altitude': 'GPS',
+    'final_glide_decelerator': 'none',
+    'use_distance_points': true,
+    'use_time_points': true,
+    'use_leading_points': false,
+    'use_arrival_position_points': false,
+    'use_arrival_time_points': false,
+    'use_departure_points': false,
+    'use_1000_points_for_max_day_quality': false,
+    'normalize_1000_before_day_quality': false,
+    'use_difficulty_for_distance_points': true,
+    'use_distance_squared_for_lc': false,
+    'use_semi_circle_control_zone_for_goal_line': false,
+    'use_proportional_leading_weight_if_nobody_in_goal': false,
+    'redistribute_removed_time_points_as_distance_points': false,
+    'use_best_score_for_ftv_validity': false,
+    'use_constant_leading_weight': false,
+    'use_pwca2019_for_lc': false,
+    'use_flat_decline_of_timepoints': false,
+    'day_quality_override': 0.0,
+    'min_time_span_for_valid_task_minutes': 0,
+  };
+  switch (formula) {
+    case 'GAP2025':
+      preset.addAll({
+        'nominal_goal_percent': 0.3,
+        'nominal_distance_km': 50.0,
+        'nominal_launch': 0.96,
+        'goal_ss_penalty': 0.0,
+        'time_points_if_not_in_goal': 0.8,
+        'use_leading_points': true,
+        'use_arrival_position_points': true,
+        'use_flat_decline_of_timepoints': true,
+        'redistribute_removed_time_points_as_distance_points': true,
+        'use_distance_squared_for_lc': true,
+        'use_semi_circle_control_zone_for_goal_line': true,
+        'use_best_score_for_ftv_validity': true,
+        'stopped_glide_bonus': 5.0,
+        'jump_the_gun_factor': 2.0,
+        'jump_the_gun_max_seconds': 300,
+        'min_time_span_for_valid_task_minutes': 45,
+        'number_of_decimals_competition_results': 1,
+      });
+    case 'GAP2021':
+    case 'GAP2020':
+      preset.addAll({
+        'use_flat_decline_of_timepoints': true,
+        'redistribute_removed_time_points_as_distance_points': true,
+        'use_distance_squared_for_lc': true,
+        'use_semi_circle_control_zone_for_goal_line': true,
+        'time_points_if_not_in_goal': 0.8,
+        'stopped_glide_bonus': 5.0,
+        'jump_the_gun_factor': 2.0,
+        'jump_the_gun_max_seconds': 300,
+        'min_time_span_for_valid_task_minutes': 45,
+      });
+    case 'GAP2018':
+      preset.addAll({
+        'use_distance_squared_for_lc': true,
+        'use_semi_circle_control_zone_for_goal_line': true,
+        'stopped_glide_bonus': 4.0,
+        'jump_the_gun_factor': 2.0,
+        'jump_the_gun_max_seconds': 300,
+        'min_time_span_for_valid_task_minutes': 45,
+      });
+    case 'GAP2016':
+      preset.addAll({
+        'use_arrival_position_points': true,
+        'stopped_glide_bonus': 4.0,
+        'jump_the_gun_factor': 2.0,
+        'jump_the_gun_max_seconds': 300,
+        'min_time_span_for_valid_task_minutes': 45,
+      });
+    case 'GAP2008':
+      preset.addAll({
+        'use_arrival_position_points': true,
+        'use_departure_points': true,
+      });
+    case 'OzGAP2005':
+      preset.addAll({
+        'use_arrival_time_points': true,
+        'use_departure_points': true,
+      });
+    case 'PWC2016':
+      preset.addAll({
+        'use_leading_points': true,
+        'use_distance_squared_for_lc': true,
+        'score_back_time_minutes': 5,
+      });
+  }
+  return preset;
+}
+
 class EventSummary {
   final int id;
-  final String name;
-  final String startsOn;
-  final String endsOn;
+  final Map<String, dynamic> settings;
 
-  const EventSummary({
+  EventSummary({
     required this.id,
-    required this.name,
-    required this.startsOn,
-    required this.endsOn,
-  });
+    required String name,
+    required String startsOn,
+    required String endsOn,
+    String location = '',
+    Map<String, dynamic> settings = const {},
+  }) : settings = Map.unmodifiable({
+          ...defaultEventSettings(),
+          ...settings,
+          'name': name,
+          'location': location,
+          'starts_on': startsOn,
+          'ends_on': endsOn,
+        });
+
+  EventSummary._(this.id, Map<String, dynamic> settings)
+      : settings = Map.unmodifiable(settings);
+
+  String get name => settings['name'] as String? ?? 'Event';
+  String get location => settings['location'] as String? ?? '';
+  String get startsOn => settings['starts_on'] as String? ?? '';
+  String get endsOn => settings['ends_on'] as String? ?? '';
+
+  factory EventSummary.draft([DateTime? today]) =>
+      EventSummary._(0, defaultEventSettings(today));
 
   factory EventSummary.fromJson(Map<String, dynamic> json) {
-    return EventSummary(
-      id: json['id'] as int,
-      name: json['name'] as String? ?? 'Event',
-      startsOn: json['starts_on'] as String? ?? '',
-      endsOn: json['ends_on'] as String? ?? '',
+    return EventSummary._(
+      json['id'] as int,
+      {...defaultEventSettings(), ...json}..remove('id'),
     );
+  }
+
+  Map<String, dynamic> toPayload() {
+    final defaults = defaultEventSettings();
+    return {
+      for (final key in defaults.keys) key: settings[key] ?? defaults[key]
+    };
   }
 }
 
@@ -297,11 +500,28 @@ class _EventsScreenState extends State<EventsScreen> {
     }
   }
 
+  Future<void> _editEvent(EventSummary event) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => EventEditorScreen(api: widget.api, event: event),
+      ),
+    );
+    await _loadEvents();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Events')),
+      floatingActionButton: widget.canManageEvents
+          ? FloatingActionButton.extended(
+              key: const Key('new-event-button'),
+              onPressed: () => _editEvent(EventSummary.draft()),
+              icon: const Icon(Icons.add),
+              label: const Text('New event'),
+            )
+          : null,
       body: RefreshIndicator(
         onRefresh: _loadEvents,
         child: ListView(
@@ -335,7 +555,18 @@ class _EventsScreenState extends State<EventsScreen> {
                   child: ListTile(
                     leading: const Icon(Icons.event_outlined),
                     title: Text(event.name),
-                    subtitle: Text('${event.startsOn} - ${event.endsOn}'),
+                    subtitle: Text([
+                      if (event.location.isNotEmpty) event.location,
+                      '${event.startsOn} - ${event.endsOn}',
+                    ].join('\n')),
+                    trailing: widget.canManageEvents
+                        ? IconButton(
+                            key: Key('edit-event-${event.id}'),
+                            onPressed: () => _editEvent(event),
+                            icon: const Icon(Icons.edit_outlined),
+                            tooltip: 'Edit event settings',
+                          )
+                        : null,
                     onTap: () async {
                       await Navigator.of(context).push(
                         MaterialPageRoute(
@@ -351,6 +582,733 @@ class _EventsScreenState extends State<EventsScreen> {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class EventEditorScreen extends StatefulWidget {
+  final ApiService api;
+  final EventSummary event;
+
+  const EventEditorScreen({
+    super.key,
+    required this.api,
+    required this.event,
+  });
+
+  @override
+  State<EventEditorScreen> createState() => _EventEditorScreenState();
+}
+
+class _EventEditorScreenState extends State<EventEditorScreen> {
+  static const _formulaOptions = <String>[
+    'GAP2025',
+    'GAP2021',
+    'GAP2020',
+    'GAP2018',
+    'GAP2016',
+    'GAP2008',
+    'OzGAP2005',
+    'PWC2016',
+  ];
+  static const _airspaceClasses = <String>[
+    'B',
+    'C',
+    'D',
+    'P',
+    'Q',
+    'R',
+    'TFR',
+    'OTHER',
+  ];
+
+  final _formKey = GlobalKey<FormState>();
+  late final Map<String, dynamic> _settings;
+  final List<Map<String, dynamic>> _presets = [];
+  int? _savedEventId;
+  int _formRevision = 0;
+  bool _saving = false;
+
+  bool get _isNew => (_savedEventId ?? widget.event.id) == 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _settings = Map<String, dynamic>.from(widget.event.toPayload());
+    if (!_isNew) _loadPresets();
+  }
+
+  String _text(String key) => _settings[key]?.toString() ?? '';
+  bool _bool(String key) => _settings[key] as bool? ?? false;
+
+  Future<void> _loadPresets() async {
+    try {
+      final rows = await widget.api.getList(
+        ApiConfig.eventScoringPresetsPath(widget.event.id),
+      );
+      if (!mounted) return;
+      setState(() {
+        _presets
+          ..clear()
+          ..addAll(rows
+              .whereType<Map<String, dynamic>>()
+              .map((row) => Map<String, dynamic>.from(row)));
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not load penalty presets.')),
+      );
+    }
+  }
+
+  void _addPreset() {
+    setState(() {
+      _presets.add({
+        'id': 'preset-${DateTime.now().microsecondsSinceEpoch}',
+        'label': '',
+        'penalty_type': 'percentage',
+        'value': 0.0,
+        'reason': '',
+      });
+    });
+  }
+
+  Future<void> _pickDate(String key) async {
+    final initial = DateTime.tryParse(_text(key)) ?? DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: key == 'starts_on' ? 'SELECT START DATE' : 'SELECT END DATE',
+    );
+    if (picked != null) setState(() => _settings[key] = _dateValue(picked));
+  }
+
+  Future<void> _save() async {
+    if (!_formKey.currentState!.validate()) return;
+    final startsOn = DateTime.parse(_text('starts_on'));
+    final endsOn = DateTime.parse(_text('ends_on'));
+    if (endsOn.isBefore(startsOn)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('End date must be on or after start date.')),
+      );
+      return;
+    }
+    setState(() => _saving = true);
+    try {
+      final eventId = _savedEventId ?? widget.event.id;
+      final saved = eventId == 0
+          ? await widget.api.post(ApiConfig.eventsPath, body: _settings)
+          : await widget.api.put(
+              ApiConfig.eventPath(eventId),
+              body: _settings,
+            );
+      final savedEventId = saved['id'] as int;
+      _savedEventId = savedEventId;
+      await widget.api.patch(
+        ApiConfig.eventScoringPresetsPath(savedEventId),
+        body: {
+          'presets': _presets
+              .where((preset) =>
+                  (preset['label'] as String? ?? '').trim().isNotEmpty)
+              .map((preset) {
+            final label = (preset['label'] as String).trim();
+            return {...preset, 'label': label, 'reason': label};
+          }).toList(),
+        },
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop(EventSummary.fromJson(saved));
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Could not ${_isNew ? 'create' : 'save'} event.')),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _textField(
+    String key,
+    String label, {
+    String? hint,
+    bool required = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        key: Key('event-$key'),
+        initialValue: _text(key),
+        decoration: InputDecoration(labelText: label, hintText: hint),
+        textCapitalization: TextCapitalization.sentences,
+        onChanged: (value) => _settings[key] = value,
+        validator: required
+            ? (value) =>
+                value == null || value.trim().isEmpty ? 'Enter $label.' : null
+            : null,
+      ),
+    );
+  }
+
+  Widget _numberField(
+    String key,
+    String label, {
+    bool integer = false,
+    double? minimum,
+    double? maximum,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        key: Key('event-$key-$_formRevision'),
+        initialValue: _text(key),
+        decoration: InputDecoration(labelText: label),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        onChanged: (value) {
+          final parsed = num.tryParse(value);
+          if (parsed != null) {
+            _settings[key] = integer ? parsed.toInt() : parsed;
+          }
+        },
+        validator: (value) {
+          final parsed = num.tryParse(value ?? '');
+          if (parsed == null) return 'Enter a number.';
+          if (minimum != null && parsed < minimum) {
+            return 'Minimum is $minimum.';
+          }
+          if (maximum != null && parsed > maximum) {
+            return 'Maximum is $maximum.';
+          }
+          return null;
+        },
+      ),
+    );
+  }
+
+  Widget _switch(String key, String label) => SwitchListTile.adaptive(
+        contentPadding: EdgeInsets.zero,
+        title: Text(label),
+        value: _bool(key),
+        onChanged: (value) => setState(() => _settings[key] = value),
+      );
+
+  Widget _dropdown(
+    String key,
+    String label,
+    List<DropdownMenuItem<String>> items, {
+    void Function(String value)? onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        key: Key('event-$key-$_formRevision'),
+        isExpanded: true,
+        initialValue: _text(key),
+        decoration: InputDecoration(labelText: label),
+        items: items,
+        onChanged: (value) {
+          if (value != null) {
+            setState(() {
+              _settings[key] = value;
+              onChanged?.call(value);
+            });
+          }
+        },
+      ),
+    );
+  }
+
+  Widget _dateField(String key, String label) {
+    final date = DateTime.tryParse(_text(key));
+    return ListTile(
+      key: Key('event-$key'),
+      contentPadding: EdgeInsets.zero,
+      leading: const Icon(Icons.calendar_month_outlined),
+      title: Text(label),
+      subtitle: Text(
+          date == null ? 'Choose a date' : DateFormat.yMMMMd().format(date)),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: () => _pickDate(key),
+    );
+  }
+
+  Widget _section(
+    String title,
+    String subtitle,
+    List<Widget> children, {
+    bool expanded = false,
+  }) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: ExpansionTile(
+        initiallyExpanded: expanded,
+        maintainState: true,
+        title: Text(title),
+        subtitle: Text(subtitle),
+        childrenPadding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+        children: children,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentFormula = _text('scoring_formula');
+    final formulaOptions = [
+      ..._formulaOptions,
+      if (!_formulaOptions.contains(currentFormula)) currentFormula,
+    ];
+    final selectedAirspaceClasses =
+        (_settings['visible_airspace_classes_json'] as List<dynamic>? ??
+                const [])
+            .map((value) => value.toString())
+            .toSet();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(_isNew ? 'New event' : 'Event settings'),
+        actions: [
+          IconButton(
+            onPressed: _saving ? null : _save,
+            icon: const Icon(Icons.save_outlined),
+            tooltip: _isNew ? 'Create event' : 'Save event',
+          ),
+        ],
+      ),
+      body: Form(
+        key: _formKey,
+        child: ListView(
+          key: const Key('event-settings-form'),
+          padding: const EdgeInsets.fromLTRB(12, 12, 12, 96),
+          children: [
+            _section(
+              'Event details',
+              'Name, location, and who can view it',
+              [
+                _textField('name', 'Event name', required: true),
+                _textField('location', 'Location'),
+                _dropdown(
+                  'visibility',
+                  'Publicly viewable',
+                  const [
+                    DropdownMenuItem(value: 'public', child: Text('Public')),
+                    DropdownMenuItem(
+                      value: 'users',
+                      child: Text('All Aervyx users'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'participants',
+                      child: Text('Event participants'),
+                    ),
+                    DropdownMenuItem(
+                        value: 'private', child: Text('Not viewable')),
+                  ],
+                ),
+                _switch('is_public_tracking', 'Public live tracking'),
+              ],
+              expanded: true,
+            ),
+            _section(
+              'Schedule',
+              '${_text('starts_on')} to ${_text('ends_on')}',
+              [
+                _dateField('starts_on', 'Starts on'),
+                _dateField('ends_on', 'Ends on'),
+                const SizedBox(height: 8),
+                _textField(
+                  'timezone',
+                  'Timezone',
+                  hint: 'America/New_York',
+                  required: true,
+                ),
+                _numberField(
+                  'default_start_gate_count',
+                  'Default start gates',
+                  integer: true,
+                  minimum: 1,
+                ),
+                _numberField(
+                  'default_start_gate_interval_seconds',
+                  'Default gate interval (seconds)',
+                  integer: true,
+                  minimum: 0,
+                ),
+              ],
+              expanded: true,
+            ),
+            _section(
+              'Formula and points',
+              'Scoring formula, weights, and penalties',
+              [
+                _dropdown(
+                  'scoring_formula',
+                  'Scoring formula',
+                  formulaOptions
+                      .map((value) => DropdownMenuItem(
+                            value: value,
+                            child: Text(_formulaOptions.contains(value)
+                                ? value
+                                : 'Custom: $value'),
+                          ))
+                      .toList(),
+                  onChanged: (value) {
+                    if (_formulaOptions.contains(value)) {
+                      _settings.addAll(_formulaPreset(value));
+                      _formRevision++;
+                    }
+                  },
+                ),
+                _numberField(
+                  'nominal_goal_percent',
+                  'Nominal goal fraction',
+                  minimum: 0,
+                  maximum: 1,
+                ),
+                _numberField(
+                  'score_back_time_minutes',
+                  'Score-back time (minutes)',
+                  integer: true,
+                  minimum: 0,
+                ),
+                _numberField(
+                  'goal_ss_penalty',
+                  'Goal SS penalty',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'stopped_glide_bonus',
+                  'Stopped glide bonus',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'jump_the_gun_factor',
+                  'Jump-the-gun factor',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'jump_the_gun_max_seconds',
+                  'Jump-the-gun maximum (seconds)',
+                  integer: true,
+                  minimum: 0,
+                ),
+                _switch('use_distance_points', 'Distance points'),
+                _switch('use_time_points', 'Time points'),
+                _switch('use_leading_points', 'Leading points'),
+                _switch(
+                    'use_arrival_position_points', 'Arrival position points'),
+                _switch('use_arrival_time_points', 'Arrival time points'),
+                _switch('use_departure_points', 'Departure points'),
+              ],
+            ),
+            _section(
+              'Penalty presets',
+              _presets.isEmpty
+                  ? 'No presets configured'
+                  : '${_presets.length} configured',
+              [
+                ..._presets.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final preset = entry.value;
+                  return Card.outlined(
+                    key: ValueKey(preset['id']),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 12, 4, 12),
+                      child: Column(
+                        children: [
+                          TextFormField(
+                            initialValue: preset['label'] as String? ?? '',
+                            decoration:
+                                const InputDecoration(labelText: 'Preset name'),
+                            onChanged: (value) => preset['label'] = value,
+                          ),
+                          const SizedBox(height: 12),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: DropdownButtonFormField<String>(
+                                  initialValue:
+                                      preset['penalty_type'] as String? ??
+                                          'percentage',
+                                  decoration:
+                                      const InputDecoration(labelText: 'Type'),
+                                  items: const [
+                                    DropdownMenuItem(
+                                      value: 'percentage',
+                                      child: Text('% penalty'),
+                                    ),
+                                    DropdownMenuItem(
+                                      value: 'fixed',
+                                      child: Text('Fixed points'),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    if (value != null) {
+                                      preset['penalty_type'] = value;
+                                    }
+                                  },
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: TextFormField(
+                                  initialValue: preset['value'].toString(),
+                                  decoration: const InputDecoration(
+                                      labelText: 'Amount'),
+                                  keyboardType:
+                                      const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                                  onChanged: (value) {
+                                    final parsed = double.tryParse(value);
+                                    if (parsed != null) {
+                                      preset['value'] = parsed;
+                                    }
+                                  },
+                                  validator: (value) {
+                                    final parsed = double.tryParse(value ?? '');
+                                    return parsed == null || parsed < 0
+                                        ? 'Use 0 or more.'
+                                        : null;
+                                  },
+                                ),
+                              ),
+                              IconButton(
+                                onPressed: () => setState(
+                                  () => _presets.removeAt(index),
+                                ),
+                                icon: const Icon(Icons.delete_outline),
+                                tooltip: 'Remove preset',
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: OutlinedButton.icon(
+                    onPressed: _addPreset,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add preset'),
+                  ),
+                ),
+              ],
+            ),
+            _section(
+              'Nominal values',
+              'Expected distance, duration, launch, and minimum distance',
+              [
+                _numberField(
+                  'nominal_distance_km',
+                  'Nominal distance (km)',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'nominal_time_hours',
+                  'Nominal time (hours)',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'nominal_launch',
+                  'Nominal launch fraction',
+                  minimum: 0,
+                  maximum: 1,
+                ),
+                _numberField(
+                  'minimum_distance_km',
+                  'Minimum distance (km)',
+                  minimum: 0,
+                ),
+              ],
+            ),
+            _section(
+              'Advanced scoring',
+              'Validation, precision, and GAP options',
+              [
+                _numberField(
+                  'day_quality_override',
+                  'Day quality override',
+                  minimum: 0,
+                  maximum: 1,
+                ),
+                _numberField(
+                  'time_points_if_not_in_goal',
+                  'Time points if not in goal',
+                  minimum: 0,
+                  maximum: 1,
+                ),
+                _numberField(
+                  'min_time_span_for_valid_task_minutes',
+                  'Minimum valid task span (minutes)',
+                  integer: true,
+                  minimum: 0,
+                ),
+                _numberField(
+                  'leading_weight_factor',
+                  'Leading weight factor',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'turnpoint_radius_tolerance',
+                  'Turnpoint radius tolerance',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'turnpoint_radius_minimum_absolute_tolerance_m',
+                  'Turnpoint minimum absolute tolerance (m)',
+                  minimum: 0,
+                ),
+                _numberField(
+                  'number_of_decimals_task_results',
+                  'Task result decimals',
+                  integer: true,
+                  minimum: 0,
+                  maximum: 6,
+                ),
+                _numberField(
+                  'number_of_decimals_competition_results',
+                  'Competition result decimals',
+                  integer: true,
+                  minimum: 0,
+                  maximum: 6,
+                ),
+                _dropdown(
+                  'scoring_altitude',
+                  'Scoring altitude',
+                  const [
+                    DropdownMenuItem(value: 'GPS', child: Text('GPS altitude')),
+                    DropdownMenuItem(value: 'QNH', child: Text('QNH altitude')),
+                    DropdownMenuItem(
+                      value: 'pressure',
+                      child: Text('Pressure altitude'),
+                    ),
+                  ],
+                ),
+                _dropdown(
+                  'final_glide_decelerator',
+                  'Final glide decelerator',
+                  const [
+                    DropdownMenuItem(value: 'none', child: Text('None')),
+                    DropdownMenuItem(
+                      value: 'default',
+                      child: Text('Default decelerator'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'stopped_task',
+                      child: Text('Stopped-task decelerator'),
+                    ),
+                  ],
+                ),
+                _textField(
+                  'no_final_glide_decelerator_reason',
+                  'No final glide decelerator reason',
+                  hint: 'Optional override note',
+                ),
+                _switch(
+                  'use_1000_points_for_max_day_quality',
+                  'Use 1000 points for max day quality',
+                ),
+                _switch(
+                  'normalize_1000_before_day_quality',
+                  'Normalize 1000 before day quality',
+                ),
+                _switch(
+                  'use_difficulty_for_distance_points',
+                  'Use difficulty for distance points',
+                ),
+                _switch(
+                  'use_distance_squared_for_lc',
+                  'Use distance squared for LC',
+                ),
+                _switch(
+                  'use_semi_circle_control_zone_for_goal_line',
+                  'Use semi-circle goal line control zone',
+                ),
+                _switch(
+                  'use_proportional_leading_weight_if_nobody_in_goal',
+                  'Use proportional leading weight if nobody is in goal',
+                ),
+                _switch(
+                  'redistribute_removed_time_points_as_distance_points',
+                  'Redistribute removed time points as distance points',
+                ),
+                _switch(
+                  'use_best_score_for_ftv_validity',
+                  'Use best score for FTV validity',
+                ),
+                _switch('use_constant_leading_weight',
+                    'Use constant leading weight'),
+                _switch('use_pwca2019_for_lc', 'Use PWCA 2019 for LC'),
+                _switch(
+                  'use_flat_decline_of_timepoints',
+                  'Use flat decline of time points',
+                ),
+              ],
+            ),
+            _section(
+              'Airspace display',
+              'Visible classes and restricted fields',
+              [
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Visible airspace classes',
+                    style: Theme.of(context).textTheme.labelLarge,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  children: _airspaceClasses.map((value) {
+                    return FilterChip(
+                      label: Text(value),
+                      selected: selectedAirspaceClasses.contains(value),
+                      onSelected: (selected) {
+                        setState(() {
+                          if (selected) {
+                            selectedAirspaceClasses.add(value);
+                          } else {
+                            selectedAirspaceClasses.remove(value);
+                          }
+                          _settings['visible_airspace_classes_json'] =
+                              _airspaceClasses
+                                  .where(selectedAirspaceClasses.contains)
+                                  .toList();
+                        });
+                      },
+                    );
+                  }).toList(),
+                ),
+                _switch('show_restricted_fields', 'Show restricted fields'),
+              ],
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              key: const Key('save-event-button'),
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save_outlined),
+              label: Text(_saving
+                  ? 'Saving...'
+                  : _isNew
+                      ? 'Create event'
+                      : 'Save event'),
+            ),
           ],
         ),
       ),
@@ -376,6 +1334,7 @@ class EventTaskBuilderScreen extends StatefulWidget {
 
 class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
   final MapController _mapController = MapController();
+  late EventSummary _event;
   LiveMapStyle _mapStyle = LiveMapStyle.map;
   bool _loading = true;
   bool _saving = false;
@@ -390,6 +1349,7 @@ class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
   @override
   void initState() {
     super.initState();
+    _event = widget.event;
     _load();
   }
 
@@ -400,9 +1360,8 @@ class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
     });
     try {
       final responses = await Future.wait([
-        widget.api.getList(ApiConfig.eventTasksPath(widget.event.id)),
-        widget.api
-            .getList(ApiConfig.eventTurnpointSourcesPath(widget.event.id)),
+        widget.api.getList(ApiConfig.eventTasksPath(_event.id)),
+        widget.api.getList(ApiConfig.eventTurnpointSourcesPath(_event.id)),
       ]);
       final tasks = responses[0]
           .whereType<Map<String, dynamic>>()
@@ -431,7 +1390,7 @@ class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
 
   EventTask _newDraft(int taskCount) => EventTask(
         name: 'Task ${taskCount + 1}',
-        taskDate: widget.event.startsOn,
+        taskDate: _event.startsOn,
         taskType: 'race_to_goal_with_gates',
         status: 'draft',
         startGateCount: 1,
@@ -456,7 +1415,7 @@ class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
 
   Future<void> _loadWaypoints(int sourceId) async {
     final rows = await widget.api.getList(
-      ApiConfig.eventTurnpointSourcePointsPath(widget.event.id, sourceId),
+      ApiConfig.eventTurnpointSourcePointsPath(_event.id, sourceId),
     );
     final waypoints = rows
         .whereType<Map<String, dynamic>>()
@@ -530,7 +1489,7 @@ class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
       final payload = task.toPayload();
       final saved = task.id == null
           ? await widget.api.post(
-              ApiConfig.eventTasksPath(widget.event.id),
+              ApiConfig.eventTasksPath(_event.id),
               body: payload,
             )
           : await widget.api.put(ApiConfig.taskPath(task.id!), body: payload);
@@ -579,9 +1538,29 @@ class _EventTaskBuilderScreenState extends State<EventTaskBuilderScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(widget.event.name),
+        title: Text(_event.name),
         actions: _canEdit
             ? [
+                IconButton(
+                  onPressed: _saving
+                      ? null
+                      : () async {
+                          final saved =
+                              await Navigator.of(context).push<EventSummary>(
+                            MaterialPageRoute(
+                              builder: (_) => EventEditorScreen(
+                                api: widget.api,
+                                event: _event,
+                              ),
+                            ),
+                          );
+                          if (saved != null && mounted) {
+                            setState(() => _event = saved);
+                          }
+                        },
+                  icon: const Icon(Icons.settings_outlined),
+                  tooltip: 'Event settings',
+                ),
                 IconButton(
                   onPressed: _saving ? null : _saveTask,
                   icon: const Icon(Icons.save_outlined),
