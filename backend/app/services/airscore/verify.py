@@ -471,6 +471,21 @@ def validate_task(flight: dict, task: dict, formula: dict) -> dict:
         is_start = wpt.get("type") == "start"
         latest_at = None if is_start and task.get("type") == "elapsed" else float(task.get("sfinish", 0.0) or 0.0) or None
         if is_start:
+            # AirScore stops accepting restarts once the next required waypoint is made.
+            first_start_hit = _find_waypoint_hit(
+                waypoints,
+                wmade,
+                coords,
+                cursor=cursor,
+                latest_at=latest_at,
+                display_previous_outside=wpt.get("how") == "entry",
+            )
+            next_required = next((index for index in range(wmade + 1, len(waypoints)) if _required(waypoints[index])), None)
+            if first_start_hit is not None and next_required is not None:
+                next_cursor = first_start_hit[2] if first_start_hit[2] is not None else first_start_hit[0] + 1
+                next_hit = _find_waypoint_hit(waypoints, next_required, coords, cursor=next_cursor, latest_at=latest_at)
+                if next_hit is not None:
+                    latest_at = min(latest_at, next_hit[1]) if latest_at is not None else next_hit[1]
             hit = _find_waypoint_hit(
                 waypoints,
                 wmade,

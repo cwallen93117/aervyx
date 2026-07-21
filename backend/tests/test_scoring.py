@@ -320,6 +320,32 @@ def test_hc_2025_elapsed_restart_chooses_later_start_crossing() -> None:
     assert result["started_at"] == track_points[2].recorded_at
 
 
+def test_elapsed_restart_stops_after_next_waypoint_is_made() -> None:
+    task = _task()
+    task.task_type = "elapsed_time"
+    task_points = [
+        _task_point(1, 1, "start", 0.0, 0.0, 1000),
+        _task_point(2, 2, "turnpoint", 0.0, 0.02, 1000),
+        _task_point(3, 3, "turnpoint", 0.0, -0.02, 1000),
+        _task_point(4, 4, "goal", 0.0, -0.04, 1000),
+    ]
+    track_points = [
+        _track_point_at(1, datetime(2026, 7, 19, 12, 0, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(2, datetime(2026, 7, 19, 12, 1, tzinfo=UTC), 0.0, 0.01),
+        _track_point_at(3, datetime(2026, 7, 19, 12, 2, tzinfo=UTC), 0.0, 0.02),
+        _track_point_at(4, datetime(2026, 7, 19, 12, 3, tzinfo=UTC), 0.0, 0.0),
+        _track_point_at(5, datetime(2026, 7, 19, 12, 4, tzinfo=UTC), 0.0, -0.01),
+        _track_point_at(6, datetime(2026, 7, 19, 12, 5, tzinfo=UTC), 0.0, -0.02),
+        _track_point_at(7, datetime(2026, 7, 19, 12, 6, tzinfo=UTC), 0.0, -0.04),
+    ]
+
+    result = evaluate_task(task, task_points, track_points, event_timezone="UTC")
+
+    assert result["status"] == "goal"
+    assert result["started_at"] == track_points[0].recorded_at
+    assert all(hit["hit"] for hit in result["details"]["hits"])
+
+
 def test_enter_points_use_first_inside_fix_after_entry() -> None:
     task_points = [
         _task_point(1, 1, "start", 0.0, -0.04, 1000),
