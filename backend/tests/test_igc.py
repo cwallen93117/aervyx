@@ -1,3 +1,12 @@
+import asyncio
+import io
+from types import SimpleNamespace
+
+import pytest
+from fastapi import HTTPException
+from starlette.datastructures import UploadFile
+
+from app.routers.logbook import upload_logbook_flight
 from app.services.igc import parse_igc
 
 
@@ -35,3 +44,13 @@ def test_parse_igc_deduplicates_identical_fixes() -> None:
     )
     parsed = parse_igc(content)
     assert parsed.metadata["fix_count"] == 2
+
+
+def test_logbook_upload_rejects_non_igc_file_as_bad_request() -> None:
+    file = UploadFile(file=io.BytesIO(b"21.07.26 19:48:33 starting up\n"), filename="flytec.igc")
+
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(upload_logbook_flight(file=file, site_name=None, notes=None, flight_date=None, user=SimpleNamespace(pilot_id=1), session=None))
+
+    assert caught.value.status_code == 400
+    assert caught.value.detail == "No valid B records found in IGC upload."
