@@ -227,15 +227,18 @@ async def upload_logbook_flight(
         parsed_flight_date = date.fromisoformat(flight_date) if flight_date else None
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Flight date must use YYYY-MM-DD format.") from exc
-    flight = await create_app_upload_flight(
-        session,
-        user=user,
-        filename=file.filename or "flight.igc",
-        content=content,
-        site_name=site_name,
-        notes=notes,
-        flight_date_override=parsed_flight_date,
-    )
+    try:
+        flight = await create_app_upload_flight(
+            session,
+            user=user,
+            filename=file.filename or "flight.igc",
+            content=content,
+            site_name=site_name,
+            notes=notes,
+            flight_date_override=parsed_flight_date,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     session.commit()
     session.refresh(flight)
     return _detail_payload(session, flight)
@@ -296,12 +299,15 @@ async def attach_logbook_flight_file(
     if flight.igc_upload_id is not None:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Task-upload-backed flights already use their existing IGC file.")
     content = await file.read()
-    flight = await attach_igc_to_existing_flight(
-        session,
-        flight=flight,
-        filename=file.filename or "flight.igc",
-        content=content,
-    )
+    try:
+        flight = await attach_igc_to_existing_flight(
+            session,
+            flight=flight,
+            filename=file.filename or "flight.igc",
+            content=content,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     session.commit()
     session.refresh(flight)
     return _detail_payload(session, flight)
