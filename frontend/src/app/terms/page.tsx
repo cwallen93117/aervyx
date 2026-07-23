@@ -7,7 +7,7 @@ export default function TermsPage() {
     <main className="legal-page">
       <a href="/" className="legal-back">&larr; Back to Aervyx</a>
       <h1>Terms of Service</h1>
-      <p className="legal-effective">Effective date: April 6, 2026</p>
+      <p className="legal-effective">Effective date: July 23, 2026</p>
 
       <p>
         These terms govern your use of the Aervyx platform (&quot;the Service&quot;). By creating an account or using
@@ -85,8 +85,8 @@ export default function TermsPage() {
 
       <h2>8. Source Code</h2>
       <p>
-        These terms govern your use of the hosted Service at aervyx.net. Any future public source release will include
-        separate licensing terms that govern use of the source code.
+        These terms govern your use of the hosted Service at aervyx.net. Aervyx source code is licensed separately
+        under the GNU Affero General Public License, Version 3, as stated in the repository&apos;s LICENSE file.
       </p>
 
       <h2>9. Availability and Changes</h2>
@@ -118,8 +118,9 @@ export default function TermsPage() {
 
       <h2>12. Governing Law</h2>
       <p>
-        These terms are governed by the laws of the United States. Any disputes will be resolved in courts located in
-        California.
+        These terms are governed by the laws of the Commonwealth of Pennsylvania, without regard to conflict-of-law
+        principles. Any dispute arising from these terms or the Service will be subject to the exclusive jurisdiction
+        and venue of the state and federal courts located in Pennsylvania.
       </p>
 
       <h2>13. Changes to These Terms</h2>
@@ -130,7 +131,7 @@ export default function TermsPage() {
 
       <h2>14. Contact</h2>
       <p>
-        For questions about these terms, contact us at <a href="mailto:legal@aervyx.net">legal@aervyx.net</a>.
+        For questions about these terms, contact us at <a href="mailto:aervyxnet@gmail.com">aervyxnet@gmail.com</a>.
       </p>
     </main>
   );
