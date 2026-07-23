@@ -26,3 +26,9 @@ test("unfinished marketing features are labeled under development", () => {
     );
   }
 });
+
+test("marketing identifies the public AGPLv3 release", () => {
+  assert.match(source, /GNU Affero General Public License v3\.0/);
+  assert.match(source, /AGPLv3 Open Source/);
+  assert.doesNotMatch(source, /license pending|source release (?:pending|in preparation)/i);
+});

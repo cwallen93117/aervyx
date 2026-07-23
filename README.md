@@ -115,6 +115,4 @@ Third-party adaptations are listed in
 
 ## License
 
-A project license has not been selected yet. Add a `LICENSE` file before making
-this repository public; without one, the repository is not open source even if
-its code is publicly visible.
+Licensed under the [GNU Affero General Public License v3.0](LICENSE).
