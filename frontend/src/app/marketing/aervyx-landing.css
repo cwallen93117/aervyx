@@ -74,7 +74,7 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 /* TICKER */
 .ticker{background:rgba(0,229,255,.04);border-top:1px solid rgba(0,229,255,.09);border-bottom:1px solid rgba(0,229,255,.09);padding:.78rem 0;overflow:hidden;white-space:nowrap}
 .ticker-inner{display:inline-flex;gap:2.5rem;animation:ticker 46s linear infinite;font-family:'JetBrains Mono',monospace;font-size:.72rem;font-weight:500;color:rgba(0,229,255,.52);letter-spacing:.05em;text-transform:uppercase}
-.ticker-inner span{padding:0 1.2rem;border-right:1px solid rgba(0,229,255,.11)}
+.ticker-inner>span{padding:0 1.2rem;border-right:1px solid rgba(0,229,255,.11)}
 @keyframes ticker{from{transform:translateX(0)}to{transform:translateX(-50%)}}
 
 /* SECTIONS */
@@ -155,7 +155,7 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 .cap h3{font-family:'Exo 2',sans-serif;font-size:.98rem;font-weight:800;color:var(--white);margin-bottom:.48rem;letter-spacing:-.01em}
 .cap p{font-size:.83rem;color:var(--muted);line-height:1.65}
 .cap-badge{display:inline-block;margin-top:.75rem;font-family:'JetBrains Mono',monospace;font-size:.61rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;padding:.17rem .52rem;border-radius:4px}
-.cb-live{background:rgba(0,230,118,.1);color:var(--green)}.cb-auto{background:rgba(0,229,255,.09);color:var(--cyan)}.cb-smart{background:rgba(255,107,53,.1);color:var(--orange)}.cb-core{background:rgba(167,139,250,.1);color:var(--purple)}.cb-soon{background:rgba(255,255,255,.05);color:var(--dim)}.cb-safety{background:rgba(255,59,48,.1);color:#ff3b30}
+.cb-live{background:rgba(0,230,118,.1);color:var(--green)}.cb-auto{background:rgba(0,229,255,.09);color:var(--cyan)}.cb-core{background:rgba(167,139,250,.1);color:var(--purple)}
 
 /* LOGBOOK */
 .logbook-wrap{display:grid;grid-template-columns:1fr 1fr;gap:2.2rem;align-items:start}
@@ -263,7 +263,7 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 .as-card h4{font-family:'Exo 2',sans-serif;font-size:.9rem;font-weight:800;color:var(--white);margin-bottom:.35rem;letter-spacing:-.01em;display:flex;align-items:center;gap:.6rem;flex-wrap:wrap}
 .as-card p{font-size:.8rem;color:var(--muted);line-height:1.65}
 .as-card code{font-family:'JetBrains Mono',monospace;font-size:.75rem;background:rgba(0,229,255,.08);padding:.1rem .3rem;border-radius:3px;color:var(--cyan)}
-.coming-soon{display:inline-block;background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.3);color:var(--orange);font-family:'JetBrains Mono',monospace;font-size:.58rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:.12rem .44rem;border-radius:4px;vertical-align:middle}
+.under-development{display:inline-flex;align-items:center;background:rgba(255,107,53,.15);border:1px solid rgba(255,107,53,.3);color:var(--orange);font-family:'JetBrains Mono',monospace;font-size:.58rem;font-style:normal;font-weight:700;letter-spacing:.05em;line-height:1.2;text-transform:uppercase;padding:.12rem .44rem;border-radius:4px;vertical-align:middle;white-space:nowrap}
 
 /* SOARING FORECAST */
 .forecast-wrap{display:grid;grid-template-columns:1fr;gap:2rem;align-items:start}
