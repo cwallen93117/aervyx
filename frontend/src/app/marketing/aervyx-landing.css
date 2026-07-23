@@ -338,14 +338,23 @@ nav{position:fixed;top:34px;left:0;right:0;z-index:200;display:flex;align-items:
 .su-ck{color:var(--cyan);font-weight:700}
 .su-form{display:flex;flex-direction:column;gap:.78rem}
 .sf-lbl{display:block;font-family:'Exo 2',sans-serif;font-size:.7rem;font-weight:700;color:var(--muted);margin-bottom:.28rem;letter-spacing:.04em;text-transform:uppercase}
-.sf-in,.sf-sel{width:100%;padding:.76rem .92rem;border-radius:var(--r);background:rgba(255,255,255,.04);border:1px solid var(--border-hi);color:var(--text);font-family:'Barlow',sans-serif;font-size:.88rem;outline:none;transition:border-color .18s,background .18s;appearance:none;-webkit-appearance:none}
+.sf-in,.sf-sel,.contact-page .sf-in,.contact-page .sf-sel{width:100%;padding:.76rem .92rem;border-radius:var(--r);background:rgba(255,255,255,.04);border:1px solid var(--border-hi);color:var(--text);font-family:'Barlow',sans-serif;font-size:.88rem;outline:none;transition:border-color .18s,background .18s;appearance:none;-webkit-appearance:none}
 .sf-in::placeholder{color:var(--dim)}
-.sf-in:focus,.sf-sel:focus{border-color:rgba(0,229,255,.44);background:rgba(255,255,255,.06)}
+.sf-in:focus,.sf-sel:focus,.contact-page .sf-in:focus,.contact-page .sf-sel:focus{border-color:rgba(0,229,255,.44);background:rgba(255,255,255,.06)}
 .sf-sel option{background:var(--surface);color:var(--text)}
 .sf-2c{display:grid;grid-template-columns:1fr 1fr;gap:.72rem}
-.sf-submit{padding:.86rem;border-radius:var(--r);border:none;background:var(--cyan);color:var(--void);font-family:'Barlow',sans-serif;font-size:.93rem;font-weight:700;cursor:pointer;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 26px rgba(0,229,255,.26);margin-top:.18rem}
-.sf-submit:hover{background:#1aecff;transform:translateY(-2px);box-shadow:0 0 44px rgba(0,229,255,.44)}
+.sf-submit,.contact-page .sf-submit{padding:.86rem;border-radius:var(--r);border:none;background:var(--cyan);color:var(--void);font-family:'Barlow',sans-serif;font-size:.93rem;font-weight:700;cursor:pointer;transition:background .18s,transform .14s,box-shadow .18s;box-shadow:0 0 26px rgba(0,229,255,.26);margin-top:.18rem}
+.sf-submit:hover,.contact-page .sf-submit:hover{background:#1aecff;transform:translateY(-2px);box-shadow:0 0 44px rgba(0,229,255,.44)}
 .sf-note{font-size:.71rem;color:var(--dim);text-align:center;margin-top:.18rem}
+
+/* CONTACT */
+.contact-page{min-height:100vh;padding:4rem 1.25rem;background:radial-gradient(ellipse 80% 55% at 50% -10%,rgba(0,229,255,.08),transparent 65%),linear-gradient(rgba(0,229,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.025) 1px,transparent 1px),var(--void);background-size:auto,72px 72px,72px 72px;display:flex;align-items:flex-start;justify-content:center}
+.contact-card{width:min(100%,720px);padding:2.6rem;background:rgba(17,24,39,.94);border:1px solid var(--border-hi);border-radius:var(--r-xl);box-shadow:0 32px 80px rgba(0,0,0,.5)}
+.contact-back{display:inline-block;margin-bottom:2.25rem;color:var(--white);font-family:'Exo 2',sans-serif;font-size:1.05rem;font-weight:900;text-decoration:none}.contact-back span{color:var(--cyan)}
+.contact-card h1{font-family:'Exo 2',sans-serif;font-size:clamp(2.2rem,6vw,3.4rem);font-weight:900;line-height:1.05;letter-spacing:-.025em;color:var(--white);margin-bottom:.8rem}
+.contact-lede{color:var(--muted);font-size:.98rem;margin-bottom:2rem}
+.contact-message{min-height:180px;resize:vertical}
+.contact-status{border:1px solid;border-radius:var(--r);padding:.75rem .9rem;margin-bottom:1rem}.contact-status.success{background:rgba(0,230,118,.08);border-color:rgba(0,230,118,.24);color:var(--green)}.contact-status.error{background:rgba(255,59,48,.08);border-color:rgba(255,59,48,.24);color:#ff6b6b}
 
 /* FOOTER */
 footer{border-top:1px solid var(--border);padding:3rem 2rem}
@@ -416,6 +425,7 @@ footer{border-top:1px solid var(--border);padding:3rem 2rem}
   .wf-desc{max-width:100%;font-size:.71rem}
 }
 @media(max-width:560px){
+  .contact-page{padding:1rem}.contact-card{padding:1.5rem}.contact-back{margin-bottom:1.5rem}
   nav{justify-content:flex-start;padding:0 .75rem;gap:.75rem}
   .beta-banner{font-size:.75rem;padding:6px 12px}
   .beta-chip{font-size:.6rem;padding:1px 6px;margin-right:4px}

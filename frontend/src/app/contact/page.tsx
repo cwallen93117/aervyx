@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import nodemailer from "nodemailer";
+import "../marketing/aervyx-landing.css";
 
 export const metadata: Metadata = { title: "Contact — Aervyx" };
 
@@ -71,33 +72,36 @@ export default async function ContactPage({ searchParams }: ContactPageProps) {
   }[status.error ?? ""];
 
   return (
-    <main className="legal-page">
-      <a href="/" className="legal-back">&larr; Back to Aervyx</a>
-      <h1>Contact Aervyx</h1>
-      <p className="legal-effective">Questions, feedback, and support requests are welcome.</p>
+    <main className="contact-page">
+      <section className="contact-card">
+        <a href="/" className="contact-back">&larr; Aervyx<span>.net</span></a>
+        <div className="eyebrow">Contact</div>
+        <h1>How can we help?</h1>
+        <p className="contact-lede">Questions, feedback, and support requests are welcome.</p>
 
-      {status.sent === "1" ? <p className="contact-status success" role="status">Your message was sent. We&apos;ll be in touch.</p> : null}
-      {errorMessage ? <p className="contact-status error" role="alert">{errorMessage}</p> : null}
+        {status.sent === "1" ? <p className="contact-status success" role="status">Your message was sent. We&apos;ll be in touch.</p> : null}
+        {errorMessage ? <p className="contact-status error" role="alert">{errorMessage}</p> : null}
 
-      <form action={sendContact} className="contact-form">
-        <label>
-          Name
-          <input name="name" autoComplete="name" maxLength={120} required />
-        </label>
-        <label>
-          Email
-          <input name="email" type="email" autoComplete="email" maxLength={254} required />
-        </label>
-        <label>
-          Subject
-          <input name="subject" maxLength={160} required />
-        </label>
-        <label>
-          Message
-          <textarea name="message" rows={8} maxLength={5000} required />
-        </label>
-        <button type="submit">Send message</button>
-      </form>
+        <form action={sendContact} className="su-form">
+          <label>
+            <span className="sf-lbl">Name</span>
+            <input className="sf-in" name="name" autoComplete="name" maxLength={120} required />
+          </label>
+          <label>
+            <span className="sf-lbl">Email</span>
+            <input className="sf-in" name="email" type="email" autoComplete="email" maxLength={254} required />
+          </label>
+          <label>
+            <span className="sf-lbl">Subject</span>
+            <input className="sf-in" name="subject" maxLength={160} required />
+          </label>
+          <label>
+            <span className="sf-lbl">Message</span>
+            <textarea className="sf-in contact-message" name="message" rows={8} maxLength={5000} required />
+          </label>
+          <button className="sf-submit" type="submit">Send message</button>
+        </form>
+      </section>
     </main>
   );
 }

@@ -11,5 +11,7 @@ test("contact form sends only to the Aervyx inbox", () => {
   assert.match(page, /const CONTACT_EMAIL = "aervyxnet@gmail\.com"/);
   assert.match(page, /to: CONTACT_EMAIL/);
   assert.match(page, /process\.env\.GMAIL_APP_PASSWORD/);
+  assert.match(page, /import "\.\.\/marketing\/aervyx-landing\.css"/);
+  assert.match(page, /className="contact-page"/);
   assert.match(marketing, /href="\/contact">Contact</);
 });
