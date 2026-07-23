@@ -1,4 +1,0 @@
-module_config:
-  telemetry:
-    deviceTelemetryEnabled: true
-    deviceUpdateInterval: 1800

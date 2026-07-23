@@ -110,8 +110,7 @@ Ensure-EnvFile -Path (Join-Path $RepoRoot "frontend\.env.local") -Template (Join
 $wslScriptDir = Join-Path $RepoRoot "scripts\wsl"
 New-Item -ItemType Directory -Path $wslScriptDir -Force | Out-Null
 
-$statusPath = Join-Path $RepoRoot "docs\windows-wsl-setup-status.txt"
-New-Item -ItemType Directory -Path (Split-Path $statusPath -Parent) -Force | Out-Null
+$statusPath = Join-Path $env:TEMP "aervyx-wsl-setup-status.txt"
 
 $message = @(
     "Aervyx local WSL2 setup has been staged.",

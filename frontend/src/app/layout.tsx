@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 
 export const metadata = {
   title: "Aervyx",
-  description: "Open-source competition platform for hang gliding and paragliding",
+  description: "Competition, scoring, and live-tracking platform for hang gliding and paragliding",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

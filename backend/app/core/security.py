@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from jose import JWTError, jwt
+import jwt
 from passlib.context import CryptContext
 
 from app.core.config import get_settings
@@ -35,7 +35,7 @@ def decode_access_token(token: str) -> str | None:
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.app_secret_key, algorithms=[ALGORITHM])
-    except JWTError:
+    except jwt.InvalidTokenError:
         return None
     # Accept both old tokens (no type) and new access tokens
     token_type = payload.get("type")
@@ -48,7 +48,7 @@ def decode_refresh_token(token: str) -> str | None:
     settings = get_settings()
     try:
         payload = jwt.decode(token, settings.app_secret_key, algorithms=[ALGORITHM])
-    except JWTError:
+    except jwt.InvalidTokenError:
         return None
     if payload.get("type") != "refresh":
         return None

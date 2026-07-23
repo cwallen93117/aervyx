@@ -854,16 +854,3 @@ def test_json_position_matches_legacy_bare_hex_mesh_registration(monkeypatch) ->
     assert position.pilot_id == pilot_id
     assert status is not None
     assert status.last_packet_type == "POSITION_APP"
-
-
-def test_prune_old_mqtt_positions_delegates_to_all_live_position_retention(monkeypatch) -> None:
-    calls: list[int | None] = []
-
-    def fake_prune_old_live_positions(retention_days: int | None = None) -> int:
-        calls.append(retention_days)
-        return 7
-
-    monkeypatch.setattr(mqtt_subscriber, "prune_old_live_positions", fake_prune_old_live_positions)
-
-    assert mqtt_subscriber.prune_old_mqtt_positions(retention_days=2) == 7
-    assert calls == [2]

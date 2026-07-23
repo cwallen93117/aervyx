@@ -21,8 +21,8 @@ def _session() -> Session:
 def test_admin_debug_status_lists_registered_mesh_device_without_recent_position() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
-    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    owner = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None)
     session.add_all([admin, pilot, owner])
     session.flush()
     owner.pilot_id = pilot.id
@@ -42,7 +42,7 @@ def test_admin_debug_status_lists_registered_mesh_device_without_recent_position
     devices = payload["registered_mesh_devices"]
     assert len(devices) == 1
     assert devices[0]["owner_user_id"] == owner.id
-    assert devices[0]["owner_name"] == "Charles Allen"
+    assert devices[0]["owner_name"] == "Alex Pilot"
     assert devices[0]["owner_pilot_id"] == pilot.id
     assert devices[0]["device_id"] == "!abc123"
     assert devices[0]["label"] == "Charles tracker"
@@ -57,7 +57,7 @@ def test_admin_debug_status_lists_registered_mesh_device_without_recent_position
 def test_delete_admin_live_data_clears_positions_and_sessions_only() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
     session.add_all([admin, pilot])
     session.flush()
     session.add_all(
@@ -82,8 +82,8 @@ def test_admin_debug_status_populates_connected_mesh_latest_position() -> None:
     session = _session()
     seen_at = datetime.now(UTC) - timedelta(seconds=10)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
-    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    owner = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None)
     session.add_all([admin, pilot, owner])
     session.flush()
     owner.pilot_id = pilot.id
@@ -138,8 +138,8 @@ def test_admin_debug_status_infers_registered_device_pilot_from_latest_position(
     session = _session()
     now = datetime.now(UTC)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
-    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    owner = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None)
     session.add_all([admin, pilot, owner])
     session.flush()
     session.add_all(
@@ -175,8 +175,8 @@ def test_admin_debug_status_omits_mqtt_only_activity_from_phone_sessions() -> No
     session = _session()
     now = datetime.now(UTC)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
-    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    owner = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None)
     session.add_all([admin, pilot, owner])
     session.flush()
     owner.pilot_id = pilot.id
@@ -267,8 +267,8 @@ def test_admin_debug_status_keeps_phone_session_separate_from_newer_mqtt_positio
     session = _session()
     now = datetime.now(UTC)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
-    owner = User(username="charles@example.com", full_name="Charles Allen", role="pilot", pilot_id=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    owner = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None)
     session.add_all([admin, pilot, owner])
     session.flush()
     owner.pilot_id = pilot.id
@@ -343,7 +343,7 @@ def test_admin_debug_status_uses_phone_battery_seen_at() -> None:
     now = datetime.now(UTC)
     battery_seen_at = now - timedelta(seconds=45)
     admin = User(username="admin@example.com", full_name="Admin", role="admin")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
     session.add_all([admin, pilot])
     session.flush()
     session.add(

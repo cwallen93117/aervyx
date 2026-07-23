@@ -10,8 +10,8 @@ export default function PrivacyPage() {
       <p className="legal-effective">Effective date: April 2, 2026</p>
 
       <p>
-        Aervyx (&quot;we&quot;, &quot;us&quot;, or &quot;the platform&quot;) is an open-source competition management platform
-        for hang gliding and paragliding. This policy explains what data we collect, why, and how we protect it.
+        Aervyx (&quot;we&quot;, &quot;us&quot;, or &quot;the platform&quot;) is a competition management platform for hang
+        gliding and paragliding. This policy explains what data we collect, why, and how we protect it.
       </p>
 
       <h2>1. Information We Collect</h2>

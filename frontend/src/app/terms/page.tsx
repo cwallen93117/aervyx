@@ -10,8 +10,8 @@ export default function TermsPage() {
       <p className="legal-effective">Effective date: April 6, 2026</p>
 
       <p>
-        These terms govern your use of the Aervyx platform (&quot;the Service&quot;), operated as an open-source
-        project. By creating an account or using the Service, you agree to these terms.
+        These terms govern your use of the Aervyx platform (&quot;the Service&quot;). By creating an account or using
+        the Service, you agree to these terms.
       </p>
 
       <h2>1. The Service</h2>
@@ -83,11 +83,10 @@ export default function TermsPage() {
         licensing and regulations in your jurisdiction. Aervyx does not manufacture, sell, or certify radio hardware.
       </p>
 
-      <h2>8. Open Source</h2>
+      <h2>8. Source Code</h2>
       <p>
-        The Aervyx source code is available under an open-source license. These terms govern your use of the hosted
-        Service at aervyx.net, not the source code itself. If you self-host Aervyx, these terms do not apply to your
-        instance.
+        These terms govern your use of the hosted Service at aervyx.net. Any future public source release will include
+        separate licensing terms that govern use of the source code.
       </p>
 
       <h2>9. Availability and Changes</h2>

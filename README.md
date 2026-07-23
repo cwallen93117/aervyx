@@ -1,109 +1,120 @@
 # Aervyx
 
-Aervyx is an open-source hang gliding and paragliding competition platform. It combines event setup, turnpoint and airspace management, task building, IGC ingestion, GAP-style scoring, results, and a public-facing marketing site in one stack.
+Aervyx is a self-hosted competition, scoring, and live-tracking platform for
+hang gliding and paragliding. It gives organizers one place to run an event and
+gives pilots, drivers, and spectators the tools they need before, during, and
+after a task.
 
-## What The Codebase Does
+The hosted service is available at [aervyx.net](https://aervyx.net).
 
-- Public marketing landing page at `/`
-- Themed auth entry at `/login`
-- Protected competition workspace at `/dashboard`
-- Admin workflows for events, participants, turnpoints, airspace, tasks, scoring parameters, uploads, and manual scoring runs
-- Pilot and public-safe results views with task definitions and task maps
+## What Aervyx Does
 
-## Stack
+- Manages events, pilots, flying sites, turnpoints, airspace, tasks, start
+  gates, and scoring parameters.
+- Imports and validates IGC tracks, calculates GAP-style scores, and publishes
+  task and meet results.
+- Receives live positions from the Aervyx mobile app and Meshtastic radios over
+  MQTT, then displays them on organizer and public maps.
+- Provides task maps, flight replay, pilot logbooks, flight statistics, and IGC
+  downloads.
+- Supports driver pickup workflows, route guidance, weather layers, soaring
+  forecasts, and FAA airspace data.
+- Includes a Flutter companion app for pilots and drivers, plus a desktop
+  Meshtastic provisioning utility.
 
-- Backend: FastAPI
-- Database: PostgreSQL / PostGIS
-- Frontend: Next.js App Router
-- Mapping: MapLibre GL
-- Deployment: Docker Compose
+## Project Status
 
-## Key Directories
+Aervyx is under active development. The web platform, API, scoring workflow,
+public results, logbook, and live-tracking surfaces are implemented. Mobile and
+Meshtastic support is substantial, but changes involving radio hardware still
+need field validation on real devices.
 
-- `backend/` API, scoring logic, models, routers, tests
-- `frontend/` Next.js landing page, login, dashboard, signup endpoint
-- `docs/` architecture, deployment, and product notes
+## Technology
 
-## Auth And Routing
+- **API:** Python 3.12, FastAPI, SQLAlchemy
+- **Data:** PostgreSQL 16 with PostGIS
+- **Web:** Next.js 15, React 19, MapLibre GL, deck.gl
+- **Mobile:** Flutter
+- **Tracking:** GPS, server-sent events, Meshtastic, MQTT
+- **Routing:** Valhalla
+- **Local deployment:** Docker Compose
 
-- `/` is public
-- `/login` is public
-- `/dashboard` is protected
-- Unauthenticated requests to protected routes are redirected to `/login`
-- After successful login, users are redirected into `/dashboard`
+## Repository Layout
 
-## Open-Source Alignment
+- `backend/` — API routers, database models, scoring and tracking services, and
+  tests
+- `frontend/` — public website, live views, results, and organizer dashboard
+- `mobile/` — Android/iOS companion app
+- `tools/meshtastic_provisioner/` — desktop radio provisioning utility
+- `audit/` — score-comparison and FAI audit tools
+- `deploy/` — container and server deployment support
+- `docs/` — architecture, integrations, and operating notes
 
-The platform is intentionally aligned with established free-flight tooling instead of reinventing the domain from scratch.
+## Run Locally
 
-- AirScore for scoring workflow and competition concepts
-- IGCWebview2 as a visualization reference
-- `igc_lib` and `igc-xc-score` as parser/scoring references
-- MapLibre GL for the map UI
+Docker and Docker Compose are required.
 
-See [docs/oss-reuse-evaluation.md](docs/oss-reuse-evaluation.md) for the current reuse notes.
+```sh
+cp .env.example .env
+cp backend/.env.example backend/.env
+cp frontend/.env.local.example frontend/.env.local
+docker compose up --build
+```
 
-## Local Development
+Then open:
 
-1. Copy `.env.example` to `.env`
-2. Copy `backend/.env.example` to `backend/.env`
-3. Copy `frontend/.env.local.example` to `frontend/.env.local`
-4. Start the stack with Docker Compose if you want to run locally
+- Web app: <http://localhost:3000>
+- API health check: <http://localhost:8000/health>
+- API documentation: <http://localhost:8000/docs>
 
-## Frontend Review Workflow
+The first Valhalla startup downloads and builds routing data, so it can take
+longer than later starts. Change `VALHALLA_TILE_URL` in `.env` if the default
+Alps dataset is not appropriate for your region.
 
-Frontend work in this repo can use a dedicated Claude advisory lane:
+## Configuration and Secrets
 
-- workflow note: `docs/frontend-gui-review-workflow.md`
-- Windows helper: `scripts/windows/claude-frontend-review.ps1`
+The tracked `.env.example` files contain development defaults and placeholders.
+Copy them to ignored local files before starting the stack.
 
-The intended pattern is:
+Never commit:
 
-- Claude is consulted on frontend asks
-- Claude sets the direction for GUI-heavy frontend changes
-- Codex remains the implementation owner
-- Codex makes the final call only when a hard repo constraint forces an adjustment
+- `.env`, `.env.production`, or service-specific environment files
+- exported Meshtastic device profiles
+- MQTT, OAuth, Cloudflare, or FAA credentials
+- device private keys, channel keys, precise private locations, or production
+  database exports
 
-## Windows Local Development With WSL2
+Production refuses to start with the default `APP_SECRET_KEY`. Generate unique
+application and integration keys, use strong database and MQTT credentials, and
+set production CORS origins and allowed hosts explicitly.
 
-The preferred Windows setup is:
+## Verification
 
-- WSL2 with Ubuntu 24.04
-- Docker Desktop using the WSL 2 backend
-- The app repo copied into the Linux filesystem under `~/projects/aervyx`
+```sh
+# Backend
+cd backend
+python -m pytest
 
-Bootstrap helpers:
+# Frontend
+cd frontend
+npm ci
+npm test
+npm run build
 
-- Windows side: `.\scripts\bootstrap.ps1 -WindowsWsl`
-- Post-reboot / post-Ubuntu-init: `.\scripts\windows\finish-local-wsl.ps1`
-- Linux side script: `scripts/wsl/bootstrap-aervyx.sh`
+# Mobile
+cd mobile
+flutter pub get
+flutter analyze
+flutter test
+```
 
-After setup completes, local URLs are:
+See [mobile/README.md](mobile/README.md) for mobile setup and
+[docs/architecture.md](docs/architecture.md) for the system architecture.
+Third-party adaptations are listed in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-- Frontend: `http://localhost:3000/login`
-- Backend health: `http://localhost:8000/health`
+## License
 
-## Current Runtime Shape
-
-- Landing page is branded as Aervyx
-- Login uses the same visual theme as the landing page
-- Dashboard bootstraps against the backend API and no longer contains its own fallback login page
-
-## Live Deployment
-
-The app now has a live Cloudflare-backed deployment on:
-
-- `https://aervyx.net`
-- `https://api.aervyx.net`
-
-The current live deployment handoff is:
-
-- `docs/live-deployment-handoff.md`
-
-Historical/draft deployment docs still exist for reference:
-
-- `docs/deployment-cloudflare-tunnel.md`
-- `docs/deployment-staging-proxmox.md`
-- `deploy/cloudflared/config.example.yml`
-
-Do not assume those older draft docs exactly match the current live server without cross-checking the live handoff doc first.
+A project license has not been selected yet. Add a `LICENSE` file before making
+this repository public; without one, the repository is not open source even if
+its code is publicly visible.

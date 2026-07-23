@@ -51,7 +51,6 @@ from app.services.mqtt_config import LOCAL_MOSQUITTO, clear_legacy_public_mqtt_v
 from app.services.tracking import (
     mesh_purpose_to_profile_type,
     plausible_live_altitude_or_none,
-    prune_old_live_positions,
     resolve_active_task_id,
     resolve_active_task_id_for_user,
     resolve_mesh_device_assignment,
@@ -760,11 +759,6 @@ def _read_mqtt_config_from_db() -> tuple[str | None, int, str, str | None, str |
         )
     finally:
         session.close()
-
-
-def prune_old_mqtt_positions(retention_days: int | None = None) -> int:
-    """Backward-compatible wrapper for the global live-position retention rule."""
-    return prune_old_live_positions(retention_days=retention_days)
 
 
 def request_mqtt_reconnect() -> None:

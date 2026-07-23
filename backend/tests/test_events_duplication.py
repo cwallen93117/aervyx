@@ -85,9 +85,9 @@ def test_list_events_filters_pilot_visible_competitions() -> None:
 
 def test_list_events_includes_email_matched_participant_without_linked_pilot() -> None:
     session = _session()
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
     other_pilot = Pilot(first_name="Other", last_name="Pilot", email="other@example.com")
-    user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    user = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None, password_hash="hash")
     participant_event = Event(name="HC 2025 - myles", location="Myles", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC", visibility="participants")
     other_participant_event = Event(name="Other Participant Comp", location="Roster", starts_on=date(2026, 5, 10), ends_on=date(2026, 5, 12), timezone="UTC", visibility="participants")
     private_event = Event(name="Private Comp", location="Hidden", starts_on=date(2026, 5, 13), ends_on=date(2026, 5, 15), timezone="UTC", visibility="private")
@@ -109,8 +109,8 @@ def test_list_events_includes_email_matched_participant_without_linked_pilot() -
 
 def test_get_event_uses_same_email_participant_visibility() -> None:
     session = _session()
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
-    user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    user = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None, password_hash="hash")
     unrelated = User(username="unrelated@example.com", full_name="Unrelated Pilot", role="pilot", pilot_id=None, password_hash="hash")
     participant_event = Event(name="HC 2025 - myles", location="Myles", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC", visibility="participants")
     private_event = Event(name="Private Comp", location="Hidden", starts_on=date(2026, 5, 13), ends_on=date(2026, 5, 15), timezone="UTC", visibility="private")
