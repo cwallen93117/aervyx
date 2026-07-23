@@ -244,7 +244,7 @@ test("phone outage with mesh points produces solid phone and dashed mesh-fill se
   ]));
   assert.equal(JSON.stringify(segments.map((segment) => segment.line_style)), JSON.stringify(["solid", "dashed", "solid"]));
 
-  const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Charles Allen"]]));
+  const track = buildTrackCollection(new Map([["pilot:1", positions]]), new Map([["pilot:1", "Alex Pilot"]]));
   assert.equal(JSON.stringify(track.features.map((feature) => feature.properties.line_style)), JSON.stringify(["solid", "dashed", "solid"]));
 });
 
@@ -269,7 +269,7 @@ test("phone-only sparse backfill remains one solid track", () => {
   assert.equal(segments[0].display_source, "cellular");
   assert.equal(segments[0].line_style, "solid");
   assert.equal(JSON.stringify(segments[0].positions.map((item) => item.id)), JSON.stringify(["app-a", "app-b"]));
-  const track = buildTrackCollection(new Map([["pilot:1", [appA, appB]]]), new Map([["pilot:1", "Charles Allen"]]), ["pilot:1"]);
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, appB]]]), new Map([["pilot:1", "Alex Pilot"]]), ["pilot:1"]);
   assert.equal(track.features.length, 1);
   assert.equal(latestDisplayPositionsBySubject(new Map([["pilot:1", [appA, appB]]])).get("pilot:1").id, "app-b");
 });
@@ -299,7 +299,7 @@ test("mixed phone outage without mesh creates a visual gap instead of a connecto
     device_id: "!tracker",
   });
 
-  const track = buildTrackCollection(new Map([["pilot:1", [appA, appB, meshLater]]]), new Map([["pilot:1", "Charles Allen"]]), ["pilot:1"]);
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, appB, meshLater]]]), new Map([["pilot:1", "Alex Pilot"]]), ["pilot:1"]);
   assert.equal(track.features.length, 1);
   assert.equal(track.features[0].properties.line_style, "dashed");
   assert.equal(JSON.stringify(track.features[0].geometry.coordinates), JSON.stringify([
@@ -331,7 +331,7 @@ test("recent phone reception holds newer mesh briefly before using it", () => {
   const eligibleNow = Date.parse("2026-05-28T20:00:02.600Z");
   assert.equal(JSON.stringify(displayPositionsForLiveTrack([appA, meshNewer], { nowMs: heldNow }).map((item) => item.id)), JSON.stringify(["app-a"]));
   assert.equal(JSON.stringify(displayPositionsForLiveTrack([appA, meshNewer], { nowMs: eligibleNow }).map((item) => item.id)), JSON.stringify(["app-a", "mesh-newer"]));
-  const track = buildTrackCollection(new Map([["pilot:1", [appA, meshNewer]]]), new Map([["pilot:1", "Charles Allen"]]), ["pilot:1"], { nowMs: eligibleNow });
+  const track = buildTrackCollection(new Map([["pilot:1", [appA, meshNewer]]]), new Map([["pilot:1", "Alex Pilot"]]), ["pilot:1"], { nowMs: eligibleNow });
   assert.equal(track.features[0].properties.line_style, "dashed");
 });
 
@@ -419,7 +419,7 @@ test("delayed buffered phone points replace mesh fill when history is rebuilt", 
     received_at: index < 2 || index > 6 ? `2026-05-28T20:00:0${index}Z` : "2026-05-28T20:01:00Z",
   }));
 
-  const track = buildTrackCollection(new Map([["pilot:1", [...cellular, meshGap]]]), new Map([["pilot:1", "Charles Allen"]]));
+  const track = buildTrackCollection(new Map([["pilot:1", [...cellular, meshGap]]]), new Map([["pilot:1", "Alex Pilot"]]));
   assert.equal(track.features.length, 1);
   assert.equal(track.features[0].properties.line_style, "solid");
   assert.equal(track.features[0].geometry.coordinates.length, 9);
@@ -447,7 +447,7 @@ test("mesh-only pilot track remains continuous with mesh sequence ordering", () 
     mesh_seq_number: 12,
   });
 
-  const track = buildTrackCollection(new Map([["pilot:1", [meshB, meshA]]]), new Map([["pilot:1", "Charles Allen"]]));
+  const track = buildTrackCollection(new Map([["pilot:1", [meshB, meshA]]]), new Map([["pilot:1", "Alex Pilot"]]));
   assert.equal(track.features.length, 1);
   assert.equal(track.features[0].properties.line_style, "dashed");
   assert.equal(JSON.stringify(track.features[0].properties.timestamps), JSON.stringify(["2026-05-28T20:00:00Z", "2026-05-28T20:00:30Z"]));

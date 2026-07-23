@@ -2303,10 +2303,6 @@ button[type="submit"]:hover,
   border-bottom: none;
 }
 
-.task-point-list-legacy {
-  display: none;
-}
-
 .task-point-row-order {
   width: 44px;
   color: var(--muted);

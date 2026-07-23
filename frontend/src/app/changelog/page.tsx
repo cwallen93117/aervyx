@@ -461,7 +461,7 @@ export default async function ChangelogPage() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              Open Source
+              Source
             </a>
           </span>
         </footer>

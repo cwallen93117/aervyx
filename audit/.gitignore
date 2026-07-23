@@ -1,6 +1,5 @@
 .env
 output/
-!output/fai/fai_audit_report.html
 __pycache__/
 *.pyc
 fai/data/

@@ -245,19 +245,19 @@ def test_create_pilot_with_email_creates_email_login_user() -> None:
 def test_update_portal_only_pilot_to_email_renames_login() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email=None)
     session.add_all([admin, pilot])
     session.flush()
-    portal_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=pilot.id, password_hash="hash")
+    portal_user = User(username="alex-pilot", full_name="Alex Pilot", role="pilot", pilot_id=pilot.id, password_hash="hash")
     session.add(portal_user)
     session.commit()
 
     response = update_pilot(
         pilot.id,
         PilotUpsert(
-            first_name="Charles",
-            last_name="Allen",
-            email="C.Allen@BTCS.com",
+            first_name="Alex",
+            last_name="Pilot",
+                email="Alex@Example.com",
             nation=None,
             competition_number=None,
             civl_id=None,
@@ -268,9 +268,9 @@ def test_update_portal_only_pilot_to_email_renames_login() -> None:
 
     session.refresh(portal_user)
     assert response.id == pilot.id
-    assert response.email == "c.allen@btcs.com"
-    assert response.portal_username == "c.allen@btcs.com"
-    assert portal_user.username == "c.allen@btcs.com"
+    assert response.email == "alex@example.com"
+    assert response.portal_username == "alex@example.com"
+    assert portal_user.username == "alex@example.com"
     assert portal_user.pilot_id == pilot.id
     assert portal_user.is_active is True
 
@@ -278,9 +278,9 @@ def test_update_portal_only_pilot_to_email_renames_login() -> None:
 def test_assign_existing_pilot_links_matching_email_user() -> None:
     session = _session()
     admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
-    generated_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
-    email_user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=None, password_hash="hash")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    generated_user = User(username="alex-pilot", full_name="Alex Pilot", role="pilot", pilot_id=None, password_hash="hash")
+    email_user = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=None, password_hash="hash")
     event = Event(name="HC 2025 - myles", location="Myles", starts_on=date(2026, 5, 7), ends_on=date(2026, 5, 9), timezone="UTC")
     session.add_all([admin, pilot, generated_user, email_user, event])
     session.flush()
@@ -291,7 +291,7 @@ def test_assign_existing_pilot_links_matching_email_user() -> None:
 
     session.refresh(email_user)
     session.refresh(generated_user)
-    assert response.portal_username == "c.allen@btcs.com"
+    assert response.portal_username == "alex@example.com"
     assert email_user.pilot_id == pilot.id
     assert generated_user.pilot_id is None
     assert generated_user.is_active is False
@@ -362,8 +362,8 @@ def test_assign_existing_pilot_uses_canonical_directory_id_for_already_assigned_
 
 def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> None:
     session = _session()
-    email_pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
-    roster_pilot = Pilot(first_name="Charles", last_name="Allen", email="c.allen@btcs.com")
+    email_pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
+    roster_pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
     event = Event(
         name="HC 2025 - myles",
         location="Myles",
@@ -376,8 +376,8 @@ def test_startup_repair_moves_duplicate_event_membership_to_email_identity() -> 
     session.flush()
     email_pilot_id = email_pilot.id
     roster_pilot_id = roster_pilot.id
-    email_user = User(username="c.allen@btcs.com", full_name="Charles Allen", role="pilot", pilot_id=email_pilot.id, password_hash="hash")
-    generated_user = User(username="charles-allen-pilot", full_name="Charles Allen", role="pilot", pilot_id=roster_pilot.id, password_hash="hash")
+    email_user = User(username="alex@example.com", full_name="Alex Pilot", role="pilot", pilot_id=email_pilot.id, password_hash="hash")
+    generated_user = User(username="alex-pilot", full_name="Alex Pilot", role="pilot", pilot_id=roster_pilot.id, password_hash="hash")
     session.add_all([email_user, generated_user, EventPilot(event_id=event.id, pilot_id=roster_pilot.id)])
     session.commit()
 

@@ -7,8 +7,8 @@ and releases are dated (calendar-versioned `YYYY.MM.DD`) because Aervyx ships
 continuously from `main` rather than tagging semver milestones.
 
 Each dated section covers the work shipped to `main` (production, `aervyx.net`)
-on that day. `staging` is kept in sync with `main` unless Charles explicitly
-asks for a different release path.
+on that day. `staging` is kept in sync with `main` unless a different release
+path is requested.
 
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
@@ -461,8 +461,8 @@ asks for a different release path.
 
 ## History
 
-For detailed release history see the [git log](https://github.com/cwallen93117/scoring-software-codex/commits/main)
-and the [Pull Requests](https://github.com/cwallen93117/scoring-software-codex/pulls?q=is%3Apr+is%3Amerged+base%3Amain) list.
+For detailed release history see the [git log](https://github.com/cwallen93117/aervyx/commits/main)
+and the [Pull Requests](https://github.com/cwallen93117/aervyx/pulls?q=is%3Apr+is%3Amerged+base%3Amain) list.
 
 ## Keeping This File Current
 

@@ -36,7 +36,6 @@ from app.services.scoring import (
     build_result_penalty_payload,
     build_task_scoring_audit,
     invalidate_task_meet_stats_cache,
-    repair_fl2026_task1_settings,
     rescore_task,
 )
 from app.services.task_uploads import select_upload_for_scoring, store_task_upload
@@ -327,16 +326,6 @@ def scoring_audit(task_id: int, admin: User = Depends(require_staff), session: S
     if session.get(Task, task_id) is None:
         raise HTTPException(status_code=404, detail="Task not found")
     return build_task_scoring_audit(session, task_id)
-
-
-@router.post("/api/tasks/{task_id}/repair-fl2026-task1")
-def repair_fl2026_task1(task_id: int, admin: User = Depends(require_staff), session: Session = Depends(get_session)) -> dict:
-    if session.get(Task, task_id) is None:
-        raise HTTPException(status_code=404, detail="Task not found")
-    payload = repair_fl2026_task1_settings(session, task_id)
-    log_action(session, actor_user_id=admin.id, action="task.repair_fl2026_task1", entity_type="task", entity_id=str(task_id), details={"status": payload.get("status")})
-    session.commit()
-    return payload
 
 
 @router.delete("/api/tasks/{task_id}/results")

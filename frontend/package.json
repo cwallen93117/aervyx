@@ -14,7 +14,7 @@
     "@deck.gl/mapbox": "^9.2.11",
     "@openmeteo/weather-map-layer": "^0.0.16",
     "maplibre-gl": "^5.9.0",
-    "next": "15.3.1",
+    "next": "15.5.21",
     "react": "19.1.0",
     "react-dom": "19.1.0"
   },
@@ -23,5 +23,9 @@
     "@types/react": "19.1.2",
     "@types/react-dom": "19.1.2",
     "typescript": "5.8.3"
+  },
+  "overrides": {
+    "postcss": "8.5.22",
+    "sharp": "0.35.3"
   }
 }

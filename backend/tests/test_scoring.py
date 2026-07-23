@@ -6,14 +6,11 @@ from app.models import Event, Task, TaskPoint, TrackPoint
 from app.services.airscore import task as airscore_task_module
 from app.services.airscore.gap import select_coeff
 from app.services.scoring import (
-    _apply_fl2026_task1_settings,
     _as_utc_aware,
-    _build_fl2026_task1_official_comparison,
     _build_airscore_pilot_result,
     _build_formula,
     _compute_leading_coeff,
     _compute_optimized_task_distance,
-    _is_fl2026_task1,
     _minimum_distance_evaluation,
     _prepare_waypoints_for_distance,
     _resolve_task_time_utc,
@@ -734,78 +731,6 @@ def test_est_alias_scores_florida_gates_as_eastern_time() -> None:
     assert result["details"]["scoring_timezone"] == "America/New_York"
     assert result["started_at"] == datetime(2026, 4, 23, 18, 20, tzinfo=UTC)
     assert result["details"]["start_timing"]["start_gate_index"] == 2
-
-
-def test_fl_2026_known_bad_staging_settings_are_repaired_before_score() -> None:
-    task = _task()
-    task.name = "Task 1 - Open"
-    task.task_date = date(2026, 4, 23)
-    task.start_open_time = "14:00"
-    task.start_gate_count = 4
-    task.start_gate_interval_seconds = 20 * 60
-    event = Event(
-        id=11,
-        name="FL 2026 Comp",
-        location="Florida",
-        starts_on=date(2026, 4, 23),
-        ends_on=date(2026, 4, 26),
-        timezone="EST",
-        scoring_formula="GAP2020",
-        nominal_goal_percent=0.25,
-        goal_ss_penalty=1.0,
-        use_leading_points=False,
-        default_start_gate_count=5,
-        default_start_gate_interval_seconds=15 * 60,
-        penalties_json={},
-    )
-    task_points = _fl_2026_task_points()
-
-    assert _is_fl2026_task1(task, event, task_points)
-    changed = _apply_fl2026_task1_settings(task, event, task_points)
-
-    assert changed
-    assert event.timezone == "EST"
-    assert _resolve_timezone_name(event.timezone) == "America/New_York"
-    assert event.scoring_formula == "GAP2025"
-    assert event.nominal_goal_percent == 0.3
-    assert event.goal_ss_penalty == 0
-    assert event.use_leading_points is True
-    assert event.use_distance_squared_for_lc is False
-    assert event.default_start_gate_count == 5
-    assert event.default_start_gate_interval_seconds == 15 * 60
-    assert task.task_start_time == "14:00:00"
-    assert task.start_gate_count == 4
-    assert task.start_gate_interval_seconds == 20 * 60
-    assert task_points[1].direction == "exit"
-    assert task_points[-1].point_type == "goal"
-
-
-def test_fl_2026_official_comparison_reports_category_diffs() -> None:
-    comparison = _build_fl2026_task1_official_comparison(
-        [
-            {
-                "pilot_name": "Jonny Durand",
-                "competition_number": "666",
-                "status_override": None,
-                "stored_result": {
-                    "status": "goal",
-                    "distance_flown_km": 123.8,
-                    "started_at": "2026-04-23T18:20:00+00:00",
-                    "ess_at": "2026-04-23T20:34:17+00:00",
-                    "goal_at": "2026-04-23T20:34:17+00:00",
-                    "elapsed_seconds": 8057,
-                    "score_points": 999.7,
-                    "awarded_points": {"distance": 481.7, "leading": 90.7, "speed": 362.6, "arrival": 64.8},
-                },
-            }
-        ],
-        "America/New_York",
-    )
-    jonny = comparison["rows"][0]
-
-    assert jonny["actual"]["ss"] == "14:20:00"
-    assert "distance_points" in jonny["differences"]
-    assert comparison["summary"]["missing_in_aervyx"] > 0
 
 
 def test_task_clock_resolution_treats_naive_track_timestamps_as_utc() -> None:

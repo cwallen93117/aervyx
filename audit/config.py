@@ -12,12 +12,7 @@ API_BASE_URL: str = os.getenv("AERVYX_API_URL", "https://api.aervyx.net")
 API_USERNAME: str = os.getenv("AERVYX_USERNAME", "")
 API_PASSWORD: str = os.getenv("AERVYX_PASSWORD", "")
 
-HIGHLAND_ROOT = Path(
-    os.getenv(
-        "HIGHLAND_ROOT",
-        r"C:\Users\Charles\Documents\3. Flying\Hang Gliding\$ Highland Challenge Files",
-    )
-)
+HIGHLAND_ROOT = Path(os.getenv("HIGHLAND_ROOT", Path(__file__).parent / "data"))
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 OUTPUT_DIR.mkdir(exist_ok=True)

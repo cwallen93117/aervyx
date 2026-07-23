@@ -22,7 +22,7 @@ def _session() -> Session:
 def test_match_pilot_for_upload_requires_filename_confirmation_for_header_name() -> None:
     session = _session()
     event = Event(name="Header Match", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com", competition_number="12")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com", competition_number="12")
     session.add_all([event, pilot])
     session.flush()
     session.add(EventPilot(event_id=event.id, pilot_id=pilot.id))
@@ -32,13 +32,13 @@ def test_match_pilot_for_upload_requires_filename_confirmation_for_header_name()
         session,
         event.id,
         "random-track.igc",
-        {"pilot_name": "Charles Allen"},
+        {"pilot_name": "Alex Pilot"},
     )
     candidate = _match_pilot_candidate_for_upload(
         session,
         event.id,
         "random-track.igc",
-        {"pilot_name": "Charles Allen"},
+        {"pilot_name": "Alex Pilot"},
     )
 
     assert matched is None
@@ -146,7 +146,7 @@ def _bulk_upload_fixture(session: Session) -> tuple[User, Task, list[Pilot]]:
     session.add(task)
     session.flush()
     pilots = [
-        Pilot(first_name="Charles", last_name="Allen", email="charles@example.com", competition_number="12"),
+        Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com", competition_number="12"),
         Pilot(first_name="Cory", last_name="Barnwell", email="cory@example.com", competition_number="27"),
     ]
     for pilot in pilots:
@@ -212,7 +212,7 @@ def test_single_upload_auto_selects_only_when_no_upload_is_selected(monkeypatch,
 
     first = asyncio.run(uploads_router.upload_igc(
         task.id,
-        _upload_file("first.igc", _igc_content("Charles Allen", 1)),
+        _upload_file("first.igc", _igc_content("Alex Pilot", 1)),
         pilot.id,
         "manual",
         admin,
@@ -220,7 +220,7 @@ def test_single_upload_auto_selects_only_when_no_upload_is_selected(monkeypatch,
     ))
     second = asyncio.run(uploads_router.upload_igc(
         task.id,
-        _upload_file("second.igc", _igc_content("Charles Allen", 2)),
+        _upload_file("second.igc", _igc_content("Alex Pilot", 2)),
         pilot.id,
         "manual",
         admin,
@@ -300,7 +300,7 @@ def test_delete_upload_keeps_linked_logbook_flight_replayable(tmp_path) -> None:
     admin, task, pilots = _bulk_upload_fixture(session)
     pilot = pilots[0]
     stored_path = tmp_path / "task-upload.igc"
-    stored_path.write_bytes(_igc_content("Charles Allen", 1))
+    stored_path.write_bytes(_igc_content("Alex Pilot", 1))
     upload = IGCUpload(
         event_id=task.event_id,
         task_id=task.id,

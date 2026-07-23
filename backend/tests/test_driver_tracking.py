@@ -280,12 +280,12 @@ def test_pilot_active_task_uses_newest_published_event_task() -> None:
         visible_airspace_classes_json=["R", "TFR"],
         show_restricted_fields=False,
     )
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="cwalle@example.com")
     session.add_all([event, pilot])
     session.flush()
     user = User(
         username="cwalle@example.com",
-        full_name="Charles Allen",
+        full_name="Alex Pilot",
         role="pilot",
         profile_type="pilot",
         pilot_id=pilot.id,
@@ -340,7 +340,7 @@ def test_pilot_active_task_prefers_unpublished_same_day_task_during_comp() -> No
         ends_on=date(2026, 6, 3),
         timezone="UTC",
     )
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="cwalle@example.com")
     session.add_all([event, pilot])
     session.flush()
     yesterday = Task(
@@ -376,7 +376,7 @@ def test_pilot_active_task_falls_back_to_prior_task_before_comp_ends() -> None:
         ends_on=date(2026, 6, 3),
         timezone="UTC",
     )
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="cwalle@example.com")
     session.add_all([event, pilot])
     session.flush()
     prior_task = Task(
@@ -406,7 +406,7 @@ def test_pilot_active_task_does_not_fall_back_after_comp_end_date() -> None:
         ends_on=date(2026, 6, 2),
         timezone="UTC",
     )
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="cwalle@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="cwalle@example.com")
     session.add_all([event, pilot])
     session.flush()
     prior_task = Task(
@@ -720,13 +720,13 @@ def test_driver_wifi_mesh_ingest_uses_owner_user_subject_and_car_profile() -> No
         ends_on=date(2026, 5, 3),
         timezone="UTC",
     )
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
     session.add_all([event, pilot])
     session.flush()
     task = Task(event_id=event.id, name="Active task", status="active", task_date=date(2026, 5, 2))
     user = User(
-        username="charles@example.com",
-        full_name="Charles Allen",
+        username="alex@example.com",
+        full_name="Alex Pilot",
         role="pilot",
         profile_type="pilot",
         pilot_id=pilot.id,

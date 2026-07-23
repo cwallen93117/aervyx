@@ -65,7 +65,7 @@ same branch or immediately after.
    ```
 
    Or paste the section body into the web UI at
-   <https://github.com/cwallen93117/scoring-software-codex/releases/new>.
+   <https://github.com/cwallen93117/aervyx/releases/new>.
 
 6. **Update the same release** (rather than making a new one) if more
    work lands on `main` on the same calendar day.

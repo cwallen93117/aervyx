@@ -572,7 +572,7 @@ def test_scoring_operations_include_automatic_penalty_summary() -> None:
         ends_on=date(2026, 4, 24),
         timezone="America/New_York",
     )
-    pilot = Pilot(first_name="Charles", last_name="Allen")
+    pilot = Pilot(first_name="Alex", last_name="Pilot")
     session.add_all([admin, event, pilot])
     session.flush()
     task = Task(event_id=event.id, name="Practice Day", status="published")
@@ -695,7 +695,7 @@ def test_pilot_summary_includes_absent_and_dnf_task_statuses() -> None:
     assert summaries_by_name["Ben Grounded"].task_statuses == {task.id: "did_not_fly"}
 
 
-def _igc_content(pilot_name: str = "Charles Allen") -> bytes:
+def _igc_content(pilot_name: str = "Alex Pilot") -> bytes:
     return (
         "AXXX\n"
         "HFDTE010126\n"
@@ -707,7 +707,7 @@ def _igc_content(pilot_name: str = "Charles Allen") -> bytes:
 
 def _scoring_logbook_fixture(session: Session, tmp_path) -> tuple[User, Pilot, Task, PilotFlight]:
     admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com")
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com")
     event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 1, 1), ends_on=date(2026, 1, 7), timezone="UTC")
     session.add_all([admin, pilot, event])
     session.flush()
@@ -727,7 +727,7 @@ def _scoring_logbook_fixture(session: Session, tmp_path) -> tuple[User, Pilot, T
         filename="Charles_Allen.igc",
         sha256="sha",
         stored_path=str(stored_path),
-        metadata_json={"pilot_name": "Charles Allen"},
+        metadata_json={"pilot_name": "Alex Pilot"},
     )
     session.add(flight)
     session.flush()

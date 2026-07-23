@@ -1,28 +1,21 @@
 # Agent Instructions
 
-## Automatic Staging Push
+## Delivery
 
-Charles expects completed changes in this repository to ship from `staging` without an extra reminder.
+- Verify completed changes with the smallest relevant tests and builds.
+- Commit only intentional files and push routine work to `origin/staging`.
+- Do not promote or modify `main` unless the user explicitly requests a
+  production release.
+- Preserve unrelated worktree changes.
 
-- After making code or documentation changes, run the appropriate verification for the change.
-- Commit the changes you made and push them to `origin/staging` before reporting the task as done, unless Charles explicitly asks to keep the work local or target a different branch.
-- Stage only the files and hunks you intentionally changed. Do not include unrelated pre-existing dirty worktree changes.
-- If a push, build, test, or deploy trigger fails, debug it and report the blocker clearly instead of leaving the change only local.
-- Do not update or promote `main` as part of routine work. Treat `main` as production and change it only when Charles explicitly asks.
+## Security
 
-## Android App Release Rule
+- Never commit environment files, credentials, device exports, private keys,
+  production data, or workstation-specific paths.
+- Use the tracked example files for configuration documentation.
 
-For any Android/mobile app change, the change is not done until all release artifacts and metadata are updated:
+## Mobile Releases
 
-- Bump `mobile/pubspec.yaml` version/build.
-- Add user-facing entries to both root `CHANGELOG.md` and `mobile/CHANGELOG.md`.
-- Build the release APK.
-- Confirm the mobile API/endpoints/configuration are correct for the release.
-- Upload the APK and release notes to the website app download endpoint.
-- Verify the website/app download page shows the new APK and notes.
-
-## Repository Notes
-
-- Production deploys from the `main` branch.
-- `staging` is the only routine target for completed work.
-- `main` should be kept behind or separate from staging work until Charles explicitly asks to promote staging to production.
+For Android/mobile app changes, bump the app version and build number, update
+both changelogs, build the release APK, publish the APK and release notes, and
+verify the public download before reporting completion.

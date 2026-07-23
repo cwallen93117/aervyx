@@ -17,7 +17,7 @@ def _session() -> Session:
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
 
 
-def _igc_content(pilot_name: str = "Charles Allen") -> bytes:
+def _igc_content(pilot_name: str = "Alex Pilot") -> bytes:
     return (
         "AXXX\n"
         "HFDTE010126\n"
@@ -28,8 +28,8 @@ def _igc_content(pilot_name: str = "Charles Allen") -> bytes:
 
 
 def _user_with_task(session: Session, *, task_date: date = date(2026, 1, 1)) -> tuple[User, Task]:
-    pilot = Pilot(first_name="Charles", last_name="Allen", email="charles@example.com", competition_number="12")
-    user = User(username="charles", full_name="Charles Allen", role="pilot", profile_type="pilot", pilot_id=None)
+    pilot = Pilot(first_name="Alex", last_name="Pilot", email="alex@example.com", competition_number="12")
+    user = User(username="alex", full_name="Alex Pilot", role="pilot", profile_type="pilot", pilot_id=None)
     event = Event(name="HC 2026", location="Myles", starts_on=date(2026, 1, 1), ends_on=date(2026, 1, 7), timezone="UTC")
     session.add_all([pilot, user, event])
     session.flush()
