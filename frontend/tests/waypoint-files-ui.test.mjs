@@ -41,6 +41,7 @@ test("Tasks exposes selected event waypoint and airspace downloads", () => {
   assert.match(source, /<legend>Downloads<\/legend>/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/turnpoint-sources\/\$\{source\.id\}\/download\?format=/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/airspace-sources\/\$\{source\.id\}\/download/);
+  assert.ok(source.indexOf("{downloadsPanel}") < source.indexOf('<div className="task-toolbar">'));
 });
 
 test("library table has the requested columns and file operations", () => {
