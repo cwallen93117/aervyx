@@ -40,7 +40,7 @@ test("Tasks exposes selected event waypoint and airspace downloads", () => {
   assert.match(source, /airspaceSources: AirspaceSourceRecord\[\]/);
   assert.match(source, /const \[downloadsOpen, setDownloadsOpen\] = useState\(false\)/);
   assert.match(source, /aria-expanded=\{downloadsOpen\}/);
-  assert.match(source, /hidden=\{!downloadsOpen\}/);
+  assert.match(source, /\{downloadsOpen \? \(/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/turnpoint-sources\/\$\{source\.id\}\/download\?format=/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/airspace-sources\/\$\{source\.id\}\/download/);
   assert.ok(source.indexOf("{downloadsPanel}") < source.indexOf('<div className="task-toolbar">'));
