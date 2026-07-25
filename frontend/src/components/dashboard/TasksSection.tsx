@@ -228,36 +228,38 @@ export default function TasksSection(props: TasksSectionProps) {
           <span>{downloadsOpen ? "Hide" : "Show"}</span>
         </button>
       </legend>
-      <div className="task-download-list" hidden={!downloadsOpen}>
-        {turnpointSources.map((source) => {
-          const format = downloadFormats[source.id] ?? "gpx";
-          return (
-            <div key={`waypoints-${source.id}`} className="task-download-row">
+      {downloadsOpen ? (
+        <div className="task-download-list">
+          {turnpointSources.map((source) => {
+            const format = downloadFormats[source.id] ?? "gpx";
+            return (
+              <div key={`waypoints-${source.id}`} className="task-download-row">
+                <div>
+                  <strong>{source.filename}</strong>
+                  <span>Waypoint file</span>
+                </div>
+                <select
+                  value={format}
+                  aria-label={`Download format for ${source.filename}`}
+                  onChange={(event) => setDownloadFormats((current) => ({ ...current, [source.id]: event.target.value }))}
+                >
+                  {waypointDownloadFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                <button type="button" className="ghost-button" onClick={() => void downloadWaypointSource(source)}>Download</button>
+              </div>
+            );
+          })}
+          {enabledAirspaceSources.map((source) => (
+            <div key={`airspace-${source.id}`} className="task-download-row">
               <div>
                 <strong>{source.filename}</strong>
-                <span>Waypoint file</span>
+                <span>{source.kind === "restricted_field" ? "Restricted fields" : "Airspace file"}</span>
               </div>
-              <select
-                value={format}
-                aria-label={`Download format for ${source.filename}`}
-                onChange={(event) => setDownloadFormats((current) => ({ ...current, [source.id]: event.target.value }))}
-              >
-                {waypointDownloadFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </select>
-              <button type="button" className="ghost-button" onClick={() => void downloadWaypointSource(source)}>Download</button>
+              <button type="button" className="ghost-button" onClick={() => void downloadAirspaceSource(source)}>Download</button>
             </div>
-          );
-        })}
-        {enabledAirspaceSources.map((source) => (
-          <div key={`airspace-${source.id}`} className="task-download-row">
-            <div>
-              <strong>{source.filename}</strong>
-              <span>{source.kind === "restricted_field" ? "Restricted fields" : "Airspace file"}</span>
-            </div>
-            <button type="button" className="ghost-button" onClick={() => void downloadAirspaceSource(source)}>Download</button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
       {downloadsOpen && downloadFeedback ? <div className={`status-chip ${downloadFeedback.type}`}>{downloadFeedback.text}</div> : null}
     </fieldset>
   ) : null;
