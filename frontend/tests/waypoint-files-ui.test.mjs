@@ -39,6 +39,7 @@ test("Tasks exposes selected event waypoint and airspace downloads", () => {
   assert.match(source, /turnpointSources: TurnpointSourceRecord\[\]/);
   assert.match(source, /airspaceSources: AirspaceSourceRecord\[\]/);
   assert.match(source, /const \[downloadsOpen, setDownloadsOpen\] = useState\(false\)/);
+  assert.match(source, /const downloadsPanel = !canManagePlatform && hasDownloads \? \(/);
   assert.match(source, /aria-expanded=\{downloadsOpen\}/);
   assert.match(source, /\{downloadsOpen \? \(/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/turnpoint-sources\/\$\{source\.id\}\/download\?format=/);

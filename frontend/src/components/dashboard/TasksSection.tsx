@@ -215,7 +215,7 @@ export default function TasksSection(props: TasksSectionProps) {
     }
   }
 
-  const downloadsPanel = hasDownloads ? (
+  const downloadsPanel = !canManagePlatform && hasDownloads ? (
     <fieldset className="fieldset-cluster task-downloads-panel">
       <legend>
         <button
