@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type PointerEvent } from "react";
-import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
+import { TaskMap, type MapTelemetrySmoothing, type MapUnitPreferences } from "../TaskMap";
 import type { TurnpointRecord, TurnpointSourceRecord } from "./types";
 
 type TurnpointSymbol = "" | "grass_strip" | "paved_runway" | "dot" | "bar" | "lz" | "launch";
@@ -27,6 +27,7 @@ export interface WaypointFilesEditorProps {
   sources: WaypointFileSourceRecord[];
   emptyMessage?: string;
   telemetrySmoothing?: MapTelemetrySmoothing;
+  units?: MapUnitPreferences;
   setMessage: FeedbackSetter;
   setError: FeedbackSetter;
   onSourcesChanged?: () => Promise<void> | void;
@@ -193,6 +194,7 @@ export default function WaypointFilesEditor({
   sources,
   emptyMessage = "No waypoint files uploaded yet.",
   telemetrySmoothing,
+  units,
   setMessage,
   setError,
   onSourcesChanged,
@@ -624,7 +626,8 @@ export default function WaypointFilesEditor({
                 viewStateKey={`turnpoint-source-${selectedTurnpointSource.id}`}
                 fitMaxZoom={12}
                 telemetrySmoothing={telemetrySmoothing}
-                overlayConfig={{ click_to_add_turnpoint: true }}
+                units={units}
+                overlayConfig={{ click_to_add_turnpoint: true, measurement_tool: true }}
                 taskEditorOverlay={fullscreenWaypointEditor}
               />
             </div>

@@ -109,6 +109,8 @@ export type MapScoredTrackPoint = {
 };
 export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedDistanceKm: number; midpoint: [number, number] };
 export type MapClickPosition = { latitude: number; longitude: number; elevationM: number | null };
+type MeasurementPoint = { longitude: number; latitude: number };
+type MeasurementLegLabel = { position: [number, number, number]; label: string };
 export type TaskEditorOverlayRenderProps = {
   collapsed: boolean;
   contentId: string;
@@ -2078,6 +2080,8 @@ export const TaskMap = React.memo(function TaskMap({
   const [displayedHighlightedTrackSnapshot, setDisplayedHighlightedTrackSnapshot] = useState<HighlightedTrackSnapshot | null>(null);
   const [gpsFollowing, setGpsFollowing] = useState(false);
   const [showFaaAirspace, setShowFaaAirspace] = useState(false);
+  const [measurementEnabled, setMeasurementEnabled] = useState(false);
+  const [measurementPoints, setMeasurementPoints] = useState<MeasurementPoint[]>([]);
   const [faaAirspaceData, setFaaAirspaceData] = useState<GeoJSON.FeatureCollection>(() => emptyFeatureCollection());
   const [mapReadyNonce, setMapReadyNonce] = useState(0);
   const [scaleBar, setScaleBar] = useState<{ label: string; width: number } | null>(null);
@@ -2090,6 +2094,9 @@ export const TaskMap = React.memo(function TaskMap({
   const gpsLastCameraCenterRef = useRef<[number, number] | null>(null);
   const gpsHasLocationRef = useRef(false);
   const gpsHighAccuracyReceivedRef = useRef(false);
+  const measurementAvailableRef = useRef(false);
+  const measurementEnabledRef = useRef(false);
+  const measurementPointsRef = useRef<MeasurementPoint[]>([]);
 
   // Overlay config: filter data layers based on admin toggle matrix
   const effectiveTurnpoints = oc?.turnpoints === false ? [] : turnpoints;
@@ -2115,6 +2122,7 @@ export const TaskMap = React.memo(function TaskMap({
   const effectiveAirspaces = oc?.airspaces === false ? [] : filterHighEventAirspaces(airspaces ?? [], showHighAirspace);
   const effectiveAirspaceLabels = oc?.airspace_labels === false ? [] : effectiveAirspaces;
   const faaAirspaceEnabled = showFaaAirspace && oc?.faa_airspace !== false && effectiveFaaAirspaceCategories.length > 0;
+  const measurementAvailable = oc?.measurement_tool === true;
   const handleAirspaceToggle = useCallback((event: React.MouseEvent<HTMLLabelElement>) => {
     event.preventDefault();
     if (airspaceToggleAvailable) {
@@ -2450,6 +2458,31 @@ export const TaskMap = React.memo(function TaskMap({
     })),
   }), [effectiveLegMetrics, units.distance]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskCylinderPoints.map(buildCircle) }), [effectiveTaskCylinderPoints]);
+  const measurementPath = useMemo(
+    () => measurementEnabled ? measurementPoints.map((point) => [point.longitude, point.latitude, 0] as [number, number, number]) : [],
+    [measurementEnabled, measurementPoints],
+  );
+  const measurementLegLabels = useMemo<MeasurementLegLabel[]>(() => {
+    if (!measurementEnabled) return [];
+    const labels: MeasurementLegLabel[] = [];
+    for (let index = 1; index < measurementPoints.length; index += 1) {
+      const previous = measurementPoints[index - 1];
+      const current = measurementPoints[index];
+      labels.push({
+        position: [(previous.longitude + current.longitude) / 2, (previous.latitude + current.latitude) / 2, 0],
+        label: formatDistanceLabel(haversineKm([previous.longitude, previous.latitude], [current.longitude, current.latitude]), units.distance),
+      });
+    }
+    return labels;
+  }, [measurementEnabled, measurementPoints, units.distance]);
+  const measurementTotalDistanceKm = useMemo(
+    () => measurementPoints.reduce((total, point, index) => {
+      if (index === 0) return total;
+      const previous = measurementPoints[index - 1];
+      return total + haversineKm([previous.longitude, previous.latitude], [point.longitude, point.latitude]);
+    }, 0),
+    [measurementPoints],
+  );
   const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(effectiveTaskRoutePoints, effectiveOptimizedRoute), [effectiveOptimizedRoute, effectiveTaskRoutePoints]);
   const resolvedFitTarget = useMemo(
     () => resolveFitTarget(effectiveTaskRoutePoints, effectiveOptimizedRoute, effectiveTurnpoints, effectiveTrack, fitTurnpoints, effectiveLivePositions),
@@ -3052,6 +3085,72 @@ export const TaskMap = React.memo(function TaskMap({
         }),
       );
     }
+    if (measurementPath.length) {
+      if (measurementPath.length > 1) {
+        layers.push(
+          new PathLayer({
+            id: "measurement-route",
+            data: [{ path: measurementPath }],
+            coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+            positionFormat: "XYZ",
+            getPath: (item: { path: [number, number, number][] }) => item.path,
+            getColor: [17, 24, 39, 230],
+            getWidth: 3,
+            widthUnits: "pixels",
+            widthMinPixels: 3,
+            pickable: false,
+            jointRounded: true,
+            capRounded: true,
+            parameters: { depthTest: false },
+          }),
+        );
+      }
+      layers.push(
+        new ScatterplotLayer({
+          id: "measurement-points",
+          data: measurementPath,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          getPosition: (point: [number, number, number]) => point,
+          getRadius: 5,
+          radiusUnits: "pixels",
+          radiusMinPixels: 5,
+          radiusMaxPixels: 5,
+          getFillColor: [255, 255, 255, 255],
+          getLineColor: [17, 24, 39, 255],
+          stroked: true,
+          lineWidthUnits: "pixels",
+          lineWidthMinPixels: 2,
+          pickable: false,
+          parameters: { depthTest: false },
+        }),
+      );
+    }
+    if (measurementLegLabels.length) {
+      layers.push(
+        new TextLayer({
+          id: "measurement-leg-labels",
+          data: measurementLegLabels,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: MeasurementLegLabel) => item.position,
+          getText: (item: MeasurementLegLabel) => item.label,
+          getColor: [17, 24, 39, 255],
+          getSize: 13,
+          sizeUnits: "pixels",
+          sizeMinPixels: 13,
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "center",
+          fontFamily: "Segoe UI, Arial, sans-serif",
+          fontWeight: 700,
+          background: true,
+          getBackgroundColor: [255, 255, 255, 230],
+          backgroundPadding: [5, 3],
+          backgroundBorderRadius: 4,
+          pickable: false,
+          parameters: { depthTest: false },
+        }),
+      );
+    }
     const labelData = mode === "live" ? livePilotLabelData : replayPilotLabelData;
     const liveMarkerData = mode === "live" ? livePilotMarkerData : [];
     if (liveMarkerData.length) {
@@ -3217,7 +3316,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, isPerspective3D, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, isPerspective3D, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, measurementLegLabels, measurementPath, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -3243,6 +3342,25 @@ export const TaskMap = React.memo(function TaskMap({
   useEffect(() => {
     clickToAddTurnpointEnabledRef.current = oc?.click_to_add_turnpoint !== false;
   }, [oc?.click_to_add_turnpoint]);
+
+  useEffect(() => {
+    measurementEnabledRef.current = measurementEnabled;
+    const map = mapRef.current;
+    if (map) {
+      map.getCanvas().style.cursor = measurementEnabled ? "crosshair" : "";
+    }
+  }, [measurementEnabled]);
+
+  useEffect(() => {
+    measurementAvailableRef.current = measurementAvailable;
+    if (!measurementAvailable) {
+      setMeasurementEnabled(false);
+    }
+  }, [measurementAvailable]);
+
+  useEffect(() => {
+    measurementPointsRef.current = measurementPoints;
+  }, [measurementPoints]);
 
   useEffect(() => {
     faaAirspaceCategoriesRef.current = effectiveFaaAirspaceCategories;
@@ -3456,6 +3574,10 @@ export const TaskMap = React.memo(function TaskMap({
       map.on("rotatestart", markManualInteraction);
       map.on("pitchstart", markManualInteraction);
       map.on("click", (event) => {
+        if (measurementEnabledRef.current && measurementAvailableRef.current) {
+          setMeasurementPoints([...measurementPointsRef.current, { longitude: event.lngLat.lng, latitude: event.lngLat.lat }]);
+          return;
+        }
         if (!editableRef.current || (!onSelectTurnpointRef.current && !onMapClickRef.current) || !clickToAddTurnpointEnabledRef.current) {
           return;
         }
@@ -4332,6 +4454,34 @@ export const TaskMap = React.memo(function TaskMap({
           {isPerspective3D ? "3D" : "2D"}
         </button>
         ) : null}
+        {measurementAvailable ? (
+          <>
+            <button
+              type="button"
+              className={`map-control-button map-control-mode-button${measurementEnabled ? " map-control-measure-active" : ""}`}
+              aria-label={measurementEnabled ? "Turn measurement off" : "Measure distance"}
+              title={measurementEnabled ? "Turn measurement off" : "Measure distance"}
+              aria-pressed={measurementEnabled}
+              onClick={() => setMeasurementEnabled((current) => !current)}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 17 17 4l3 3L7 20l-3-3Z" />
+                <path d="m13 8 3 3M10 11l2 2M7 14l3 3" />
+              </svg>
+            </button>
+            {measurementEnabled && measurementPoints.length ? (
+              <button
+                type="button"
+                className="map-control-button map-control-mode-button"
+                aria-label="Clear measurement"
+                title="Clear measurement"
+                onClick={() => setMeasurementPoints([])}
+              >
+                x
+              </button>
+            ) : null}
+          </>
+        ) : null}
         {showGpsButton && oc?.gps_button !== false ? (
           <button
             type="button"
@@ -4375,6 +4525,11 @@ export const TaskMap = React.memo(function TaskMap({
           <div className="map-scale-bar" aria-label={`Map scale ${scaleBar.label}`}>
             <span className="map-scale-bar-label">{scaleBar.label}</span>
             <span className="map-scale-bar-line" style={{ width: scaleBar.width }} />
+          </div>
+        ) : null}
+        {measurementEnabled && measurementPoints.length > 1 ? (
+          <div className="map-measure-summary" aria-label={`Measured route total ${formatDistanceLabel(measurementTotalDistanceKm, units.distance)}`}>
+            <span>Total {formatDistanceLabel(measurementTotalDistanceKm, units.distance)}</span>
           </div>
         ) : null}
         {oc?.basemap_selector !== false ? (

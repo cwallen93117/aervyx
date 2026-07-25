@@ -126,3 +126,17 @@ test("waypoint editor reuses its panel for fullscreen floating edits", () => {
   assert.match(source, /turnpoint-floating-editor/);
   assert.match(source, /aria-label="Close waypoint editor"/);
 });
+
+test("turnpoint library map receives account unit preferences", () => {
+  const settingsSource = readFileSync(join(root, "src/components/dashboard/SettingsSection.tsx"), "utf8");
+  const editorSource = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  assert.match(settingsSource, /distance: settingsForm\.distance_unit/);
+  assert.match(editorSource, /units=\{units\}/);
+});
+
+test("measurement tool is opted into task planning and waypoint editor maps", () => {
+  const taskMapSource = readFileSync(join(root, "src/components/TaskBuilderMap.tsx"), "utf8");
+  const editorSource = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  assert.match(taskMapSource, /measurement_tool: true/);
+  assert.match(editorSource, /measurement_tool: true/);
+});

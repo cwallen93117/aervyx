@@ -5268,6 +5268,22 @@ button[type="submit"]:hover,
   color: white !important;
 }
 
+.map-control-measure-active {
+  background: var(--ink) !important;
+  color: white !important;
+}
+
+.map-measure-summary {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: var(--shadow-sm);
+  color: var(--ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+}
+
 /* ── Watch Live page ────────────────────────────── */
 
 .live-page {
