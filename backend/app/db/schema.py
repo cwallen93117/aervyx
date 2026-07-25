@@ -596,6 +596,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     table_names = set(inspector.get_table_names())
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
+    event_pilot_columns = {column["name"] for column in inspector.get_columns("event_pilots")} if "event_pilots" in table_names else set()
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
     task_point_columns = {column["name"] for column in inspector.get_columns("task_points")} if "task_points" in table_names else set()
     score_result_details = {column["name"]: column for column in inspector.get_columns("score_results")} if "score_results" in table_names else {}
@@ -677,6 +678,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
     with engine.begin() as connection:
         if "users" in table_names and "oauth_provider" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(40)"))
+        if "event_pilots" in table_names and "pilot_class" not in event_pilot_columns:
+            connection.execute(text("ALTER TABLE event_pilots ADD COLUMN pilot_class VARCHAR(40) NOT NULL DEFAULT 'modern_topless'"))
         if "users" in table_names and "oauth_id" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN oauth_id VARCHAR(255)"))
         if "users" in table_names:

@@ -29,6 +29,7 @@ from app.services.airscore.task import distance_flown as airscore_distance_flown
 from app.services.airscore.track_lib import PI, distance as vincenty_distance, distance_deg, to_rad_dict
 from app.services.airscore.verify import coord_from_degrees as airscore_coord_from_degrees
 from app.services.airscore.verify import validate_task as airscore_validate_task
+from app.services.handicap import DEFAULT_PILOT_CLASS, handicap_config
 from app.services.terrain_elevation import sample_ground_elevation_m
 
 STATUS_ORDER = {"goal": 0, "ess": 1, "partial": 2, "minimum_distance": 3, "did_not_fly": 4, "absent": 5, "uploaded": 6}
@@ -2066,8 +2067,10 @@ def _manual_penalty_lines(raw_score: float, penalties: list[ScorePenalty]) -> tu
 def build_result_penalty_payload(result: ScoreResult, penalties: list[ScorePenalty], event_timezone: str | None = None) -> tuple[list[dict], str | None, dict | None]:
     final_score = float(result.score_points or 0.0)
     raw_score = float(result.raw_score_points or final_score or 0.0)
+    handicap = result.details_json.get("handicap") if isinstance(result.details_json, dict) else None
+    penalty_base_score = _safe_float(handicap.get("adjusted_score_points"), raw_score) if isinstance(handicap, dict) else raw_score
     engine_points, engine_lines = _engine_penalty_lines(result.details_json, event_timezone)
-    manual_points, manual_lines = _manual_penalty_lines(raw_score, penalties)
+    manual_points, manual_lines = _manual_penalty_lines(penalty_base_score, penalties)
     lines = [*engine_lines, *manual_lines]
     if not lines:
         return [], None, None
@@ -2195,6 +2198,7 @@ def _score_evaluations(
     evaluations: list[dict],
     penalties_by_pilot: dict[int, list[ScorePenalty]] | Event | None = None,
     event: Event | None = None,
+    pilot_classes: dict[int, str] | None = None,
     airscore_waypoints: list[dict] | None = None,
 ) -> list[dict]:
     """Score all evaluations using the AirScore GAP engine."""
@@ -2202,6 +2206,8 @@ def _score_evaluations(
         event = penalties_by_pilot
         penalties_by_pilot = None
     penalties_by_pilot = penalties_by_pilot or {}
+    pilot_classes = pilot_classes or {}
+    handicap_enabled, handicap_multipliers = handicap_config(getattr(event, "penalties_json", None))
     formula = _build_formula(task, event)
 
     # Build AirScore pilot results
@@ -2352,10 +2358,21 @@ def _score_evaluations(
         upload = entry.get("upload")
 
         raw_points = round(pil.get("Pscore", 0), decimals)
+        pilot_class = pilot_classes.get(pilot_id, DEFAULT_PILOT_CLASS)
+        multiplier = handicap_multipliers.get(pilot_class, 1.0) if handicap_enabled else 1.0
+        adjusted_points = round(raw_points * multiplier, decimals)
         pilot_penalties = penalties_by_pilot.get(pilot_id, [])
-        final_points = _apply_penalties(raw_points, pilot_penalties)
+        final_points = _apply_penalties(adjusted_points, pilot_penalties)
 
         details = dict(evaluation["details"])
+        if handicap_enabled:
+            details["handicap"] = {
+                "pilot_class": pilot_class,
+                "multiplier": multiplier,
+                "official_score_points": raw_points,
+                "adjusted_score_points": adjusted_points,
+                "adjustment_points": round(adjusted_points - raw_points, decimals),
+            }
         leadingcoeff_field = select_coeff(formula)
         leadingcoeff_key = "coeff2" if leadingcoeff_field == "tarLeadingCoeff2" else "coeff"
         selected_leading_coeff = pil.get(leadingcoeff_key, pil.get("coeff", 0))
@@ -2456,7 +2473,7 @@ def _score_evaluations(
     scored.sort(
         key=lambda result: (
             0 if result["status"] in COMPETITIVE_STATUSES else 1,
-            -(result["raw_score_points"] or 0.0),
+            -(result["score_points"] if handicap_enabled else result["raw_score_points"] or 0.0),
             STATUS_ORDER.get(result["status"], 99),
             result["elapsed_seconds"] or 10**9,
             -(result["distance_flown_km"] or 0.0),
@@ -2658,7 +2675,9 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     for penalty in penalties:
         penalties_by_pilot.setdefault(penalty.pilot_id, []).append(penalty)
 
-    event_pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
+    event_pilots = session.scalars(select(EventPilot).where(EventPilot.event_id == task.event_id).order_by(EventPilot.pilot_id.asc())).all()
+    event_pilot_ids = [membership.pilot_id for membership in event_pilots]
+    pilot_classes = {membership.pilot_id: membership.pilot_class or DEFAULT_PILOT_CLASS for membership in event_pilots}
     registered_pilot_count = len(event_pilot_ids)
 
     # Pre-compute optimized task distance once for all pilots
@@ -2716,7 +2735,15 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     session.flush()
     session.expire_all()
 
-    scored_payloads = _score_evaluations(task, registered_pilot_count, evaluations, penalties_by_pilot, event, airscore_waypoints=airscore_waypoints)
+    scored_payloads = _score_evaluations(
+        task,
+        registered_pilot_count,
+        evaluations,
+        penalties_by_pilot,
+        event,
+        pilot_classes,
+        airscore_waypoints=airscore_waypoints,
+    )
     results: list[ScoreResult] = []
     for payload in scored_payloads:
         payload["result_state"] = "provisional"
@@ -2728,11 +2755,29 @@ def rescore_task(session: Session, task_id: int) -> list[ScoreResult]:
     return results
 
 
+def rescore_scored_event_tasks(session: Session, event_id: int) -> int:
+    task_ids = session.scalars(
+        select(ScoreResult.task_id)
+        .join(Task, Task.id == ScoreResult.task_id)
+        .where(Task.event_id == event_id)
+        .distinct()
+        .order_by(ScoreResult.task_id)
+    ).all()
+    for task_id in task_ids:
+        rescore_task(session, task_id)
+    return len(task_ids)
+
+
 def build_result_payload(session: Session, result: ScoreResult) -> dict:
     pilot = session.get(Pilot, result.pilot_id)
     pilot_name = f"{pilot.first_name} {pilot.last_name}" if pilot else "Unknown"
     task = session.get(Task, result.task_id)
     event = session.get(Event, task.event_id) if task else None
+    membership = session.scalar(
+        select(EventPilot).where(EventPilot.event_id == task.event_id, EventPilot.pilot_id == result.pilot_id)
+    ) if task else None
+    pilot_class = membership.pilot_class if membership and membership.pilot_class else DEFAULT_PILOT_CLASS
+    handicap = result.details_json.get("handicap") if isinstance(result.details_json, dict) else None
     event_timezone = event.timezone if event else None
     penalties = session.scalars(
         select(ScorePenalty)
@@ -2761,4 +2806,7 @@ def build_result_payload(session: Session, result: ScoreResult) -> dict:
         "penalties": penalty_entries,
         "penalty_summary": penalty_summary,
         "penalty_calculation": penalty_calculation,
+        "pilot_class": str(handicap.get("pilot_class") or pilot_class) if isinstance(handicap, dict) else pilot_class,
+        "handicap_multiplier": _safe_float(handicap.get("multiplier"), 1.0) if isinstance(handicap, dict) else 1.0,
+        "handicap_adjustment_points": _safe_float(handicap.get("adjustment_points")) if isinstance(handicap, dict) else 0.0,
     }

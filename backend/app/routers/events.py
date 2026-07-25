@@ -10,7 +10,9 @@ from app.deps import get_current_user, require_admin, require_staff
 from app.models import AirspaceRegion, AirspaceSource, Event, EventPilot, EventTurnpointSlot, Task, TaskPoint, Turnpoint, User
 from app.schemas import EventCreate, EventResponse, ScoringPresetEntry, ScoringPresetUpdate, default_task_point_direction
 from app.services.audit import log_action
+from app.services.handicap import handicap_config
 from app.services.pilot_identity import participant_event_ids_for_user
+from app.services.scoring import rescore_scored_event_tasks
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 STAFF_ROLES = {"admin", "organizer"}
@@ -252,7 +254,7 @@ def duplicate_event(event_id: int, admin: User = Depends(require_staff), session
         )
 
     for event_pilot in session.scalars(select(EventPilot).where(EventPilot.event_id == source_event.id).order_by(EventPilot.id)).all():
-        session.add(EventPilot(event_id=duplicated_event.id, pilot_id=event_pilot.pilot_id))
+        session.add(EventPilot(event_id=duplicated_event.id, pilot_id=event_pilot.pilot_id, pilot_class=event_pilot.pilot_class))
 
     task_id_map: dict[int, int] = {}
     for task in session.scalars(select(Task).where(Task.event_id == source_event.id).order_by(Task.id)).all():
@@ -317,16 +319,18 @@ def update_event(event_id: int, payload: EventCreate, user: User = Depends(requi
     event = session.get(Event, event_id)
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
+    previous_handicap = handicap_config(event.penalties_json)
     data = payload.model_dump()
     for field, value in data.items():
         setattr(event, field, value)
+    rescored_task_count = rescore_scored_event_tasks(session, event_id) if handicap_config(event.penalties_json) != previous_handicap else 0
     log_action(
         session,
         actor_user_id=user.id,
         action="event.update",
         entity_type="event",
         entity_id=str(event.id),
-        details=payload.model_dump(mode="json"),
+        details={**payload.model_dump(mode="json"), "rescored_task_count": rescored_task_count},
     )
     session.commit()
     session.refresh(event)

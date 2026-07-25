@@ -4,6 +4,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.services.handicap import HANDICAP_CLASSES, validate_handicap_config
+
 
 def default_task_point_direction(point_type: str | None) -> str:
     return "exit" if (point_type or "").lower() == "start" else "enter"
@@ -413,6 +415,11 @@ class EventCreate(BaseModel):
     is_public_tracking: bool = False
     visibility: str = "private"
 
+    @model_validator(mode="after")
+    def validate_handicap(self) -> EventCreate:
+        validate_handicap_config(self.penalties_json)
+        return self
+
 
 class EventResponse(EventCreate):
     id: int
@@ -447,6 +454,11 @@ class PilotResponse(BaseModel):
     portal_username: str | None = None
     is_claimed: bool = False
     temp_password: str | None = None
+    pilot_class: str | None = None
+
+
+class PilotClassUpdate(BaseModel):
+    pilot_class: str = Field(pattern=f"^({'|'.join(HANDICAP_CLASSES)})$")
 
 
 class TurnpointResponse(BaseModel):
@@ -669,6 +681,9 @@ class ScoreResultResponse(BaseModel):
     penalties: list[ScorePenaltyEntry] = Field(default_factory=list)
     penalty_summary: str | None = None
     penalty_calculation: ScorePenaltyCalculation | None = None
+    pilot_class: str = "modern_topless"
+    handicap_multiplier: float = 1
+    handicap_adjustment_points: float = 0
 
 
 class PilotSummaryResponse(BaseModel):
@@ -681,6 +696,7 @@ class PilotSummaryResponse(BaseModel):
     task_scores: dict[int, float] = Field(default_factory=dict)
     task_result_states: dict[int, str] = Field(default_factory=dict)
     task_statuses: dict[int, str] = Field(default_factory=dict)
+    pilot_class: str = "modern_topless"
 
 
 class TaskResultSummaryResponse(BaseModel):
@@ -779,6 +795,7 @@ class ScoringOperationsResultSummary(BaseModel):
     score_points: float = 0
     result_state: str = "official"
     penalty_calculation: ScorePenaltyCalculation | None = None
+    handicap_adjustment_points: float = 0
 
 
 class ScoringOperationsRow(BaseModel):

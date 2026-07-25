@@ -43,6 +43,47 @@ def _score(task: Task, pilot: Pilot, quality: float | None, state: str = "offici
     )
 
 
+def test_task_results_expose_event_class_and_handicap_adjustment() -> None:
+    session = _session()
+    admin = User(username="handicap-admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(name="Mixed Race", location="Ridge", starts_on=date(2026, 7, 1), ends_on=date(2026, 7, 2), timezone="UTC")
+    pilot = Pilot(first_name="Ada", last_name="Wing")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published")
+    session.add_all([task, EventPilot(event_id=event.id, pilot_id=pilot.id, pilot_class="single_surface")])
+    session.flush()
+    session.add(
+        ScoreResult(
+            task_id=task.id,
+            pilot_id=pilot.id,
+            status="goal",
+            rank=1,
+            raw_score_points=800,
+            score_points=960,
+            details_json={
+                "handicap": {
+                    "pilot_class": "single_surface",
+                    "multiplier": 1.2,
+                    "official_score_points": 800,
+                    "adjusted_score_points": 960,
+                    "adjustment_points": 160,
+                }
+            },
+            result_state="official",
+        )
+    )
+    session.commit()
+
+    result = get_task_results(task.id, admin, session)[0]
+
+    assert result.raw_score_points == 800
+    assert result.score_points == 960
+    assert result.pilot_class == "single_surface"
+    assert result.handicap_multiplier == 1.2
+    assert result.handicap_adjustment_points == 160
+
+
 def _add_meet_stats_fixture(session: Session) -> tuple[Event, User, User]:
     admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
     viewer = User(username="viewer@example.com", full_name="Viewer", role="pilot", password_hash="hash")

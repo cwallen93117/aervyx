@@ -2750,6 +2750,7 @@ button[type="submit"]:hover,
 
 .participant-table-wrap {
   padding: 0;
+  max-width: 100%;
   overflow-x: auto;
 }
 
@@ -2801,6 +2802,12 @@ button[type="submit"]:hover,
   padding: 3px 8px;
   font-size: 0.8125rem;
   line-height: 1.2;
+}
+
+.participant-roster-table select {
+  min-height: 28px;
+  padding: 2px 28px 2px 8px;
+  font-size: 0.75rem;
 }
 
 .participant-roster-table .participant-table-check {
@@ -3255,6 +3262,20 @@ button[type="submit"]:hover,
 .results-table-penalty {
   font-weight: 700;
   color: var(--warning);
+}
+
+.results-table-handicap {
+  font-weight: 700;
+  color: var(--success);
+}
+
+.results-pilot-class {
+  display: block;
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1.2;
 }
 
 .score-penalty-link {
@@ -7501,6 +7522,25 @@ details[open] > summary {
 
   .fieldset-grid.events-scoring-grid > :last-child {
     grid-column: auto;
+  }
+
+  .tab-row {
+    display: flex;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .tab-button {
+    flex: 0 0 auto;
+  }
+
+  .event-workspace-grid > *,
+  .participant-workspace {
+    min-width: 0;
+  }
+
+  .participant-roster-table {
+    min-width: 620px;
   }
 
   .scoring-import-strip {

@@ -31,8 +31,8 @@ from app.routers.auth import (
     update_user_account,
 )
 from app.routers.events import list_events
-from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
+from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_event_pilot_class, update_pilot
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import backfill_user_subject_pilot_links, merge_pilots, repair_pilot_email_identities
 
@@ -211,6 +211,29 @@ def test_assign_existing_pilot_adds_them_to_event() -> None:
 
     assert response.id == pilot.id
     assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == pilot.id)) is not None
+
+
+def test_pilot_class_is_event_specific_and_rescores_existing_tasks() -> None:
+    session = _session()
+    admin = User(username="admin-class@example.com", full_name="Admin", role="admin", password_hash="hash")
+    pilot = Pilot(first_name="Class", last_name="Pilot")
+    first_event = Event(name="Mixed", location="Ridge", starts_on=date(2026, 7, 1), ends_on=date(2026, 7, 2), timezone="UTC")
+    second_event = Event(name="Open", location="Ridge", starts_on=date(2026, 7, 3), ends_on=date(2026, 7, 4), timezone="UTC")
+    session.add_all([admin, pilot, first_event, second_event])
+    session.flush()
+    session.add_all([
+        EventPilot(event_id=first_event.id, pilot_id=pilot.id),
+        EventPilot(event_id=second_event.id, pilot_id=pilot.id),
+    ])
+    session.commit()
+
+    with patch("app.routers.pilots.rescore_scored_event_tasks", return_value=2) as rescore:
+        response = update_event_pilot_class(first_event.id, pilot.id, PilotClassUpdate(pilot_class="single_surface"), admin, session)
+
+    assert response.pilot_class == "single_surface"
+    assert session.scalar(select(EventPilot.pilot_class).where(EventPilot.event_id == first_event.id, EventPilot.pilot_id == pilot.id)) == "single_surface"
+    assert session.scalar(select(EventPilot.pilot_class).where(EventPilot.event_id == second_event.id, EventPilot.pilot_id == pilot.id)) == "modern_topless"
+    rescore.assert_called_once_with(session, first_event.id)
 
 
 def test_create_pilot_with_email_creates_email_login_user() -> None:

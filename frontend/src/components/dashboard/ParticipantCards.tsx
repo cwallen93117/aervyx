@@ -2,6 +2,7 @@
 
 import { type FormEvent, useMemo, useState } from "react";
 import { SectionCard } from "../SectionCard";
+import { DEFAULT_PILOT_CLASS, HANDICAP_CLASSES, handicapClassLabel, type PilotClass } from "../../lib/handicap";
 import type { EventRecord, PilotRecord } from "./types";
 
 export type PilotEditForm = { first_name: string; last_name: string; email: string; nation: string; competition_number: string; civl_id: string };
@@ -20,6 +21,7 @@ export interface ParticipantCardsProps {
   createPilot: (event: FormEvent<HTMLFormElement>) => void;
   removePilot: (pilot: PilotRecord) => void;
   updatePilot: (pilotId: number, payload: PilotEditForm) => Promise<void>;
+  updateEventPilotClass: (pilotId: number, pilotClass: PilotClass) => Promise<void>;
   uploadFile: <T>(path: string, file: File) => Promise<T>;
   loadEvent: (activeToken: string, eventId: number) => Promise<void>;
   refreshPilotDirectory: (activeToken: string) => Promise<PilotRecord[]>;
@@ -43,6 +45,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
     createPilot,
     removePilot,
     updatePilot,
+    updateEventPilotClass,
     uploadFile,
     loadEvent,
     refreshPilotDirectory,
@@ -234,6 +237,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                 ) : null}
                 <th>Name</th>
                 <th>Competition #</th>
+                <th>Class</th>
                 <th>Login</th>
                 {canManagePlatform ? <th className="participant-table-actions">Actions</th> : null}
               </tr>
@@ -259,6 +263,19 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                       <strong>{pilot.first_name} {pilot.last_name}</strong>
                     </td>
                     <td>{pilot.competition_number ?? "No comp #"}</td>
+                    <td>
+                      {canManagePlatform ? (
+                        <select
+                          aria-label={`Class for ${pilot.first_name} ${pilot.last_name}`}
+                          value={pilot.pilot_class ?? DEFAULT_PILOT_CLASS}
+                          onChange={(event) => void updateEventPilotClass(pilot.id, event.target.value as PilotClass)}
+                        >
+                          {HANDICAP_CLASSES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      ) : (
+                        handicapClassLabel(pilot.pilot_class)
+                      )}
+                    </td>
                     <td>
                       <span>{pilotLoginLabel(pilot)}</span>
                       {pilot.email || pilot.portal_username ? <span>{` - ${pilotLoginKind(pilot)}`}</span> : null}
@@ -293,7 +310,7 @@ export default function ParticipantCards(props: ParticipantCardsProps) {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={canManagePlatform ? 5 : 3} className="participant-table-empty">No participants assigned to this event yet.</td>
+                  <td colSpan={canManagePlatform ? 6 : 4} className="participant-table-empty">No participants assigned to this event yet.</td>
                 </tr>
               )}
             </tbody>

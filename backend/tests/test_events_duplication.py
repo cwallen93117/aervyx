@@ -201,7 +201,7 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
             is_restricted_field=False,
         )
     )
-    session.add(EventPilot(event_id=event.id, pilot_id=pilot.id))
+    session.add(EventPilot(event_id=event.id, pilot_id=pilot.id, pilot_class="single_surface"))
     session.flush()
 
     task = Task(
@@ -290,6 +290,8 @@ def test_duplicate_event_copies_setup_without_scores(tmp_path: Path) -> None:
     assert duplicated_task_point.turnpoint_id == turnpoint.id
     assert duplicated_task_point.direction == "exit"
 
-    assert session.scalar(select(EventPilot).where(EventPilot.event_id == duplicated.id, EventPilot.pilot_id == pilot.id)) is not None
+    duplicated_membership = session.scalar(select(EventPilot).where(EventPilot.event_id == duplicated.id, EventPilot.pilot_id == pilot.id))
+    assert duplicated_membership is not None
+    assert duplicated_membership.pilot_class == "single_surface"
     assert session.scalar(select(IGCUpload).where(IGCUpload.event_id == duplicated.id)) is None
     assert session.scalar(select(ScoreResult).join(Task, Task.id == ScoreResult.task_id).where(Task.event_id == duplicated.id)) is None

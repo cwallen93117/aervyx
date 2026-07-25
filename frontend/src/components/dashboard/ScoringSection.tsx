@@ -6,6 +6,7 @@ import { formatCalendarDateLabel } from "../../lib/dateLabels";
 import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints } from "../../lib/scorePenalties";
 import { resolveApiBase } from "../../lib/live-tracking-utils";
 import { DEFAULT_AIRSPACE_CATEGORIES } from "../../lib/faaAirspace";
+import { formatHandicapAdjustment, handicapClassLabel } from "../../lib/handicap";
 import { SectionCard } from "../SectionCard";
 import { TaskMap, type MapLegMetric, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import ScoringOperationsPanel from "./ScoringOperationsPanel";
@@ -834,6 +835,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
   }));
   const scoredTrackResults = results.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null);
   const taskResultsIncludePenalty = results.some((result) => formatPenaltyPoints(result) !== "-");
+  const mixedClass = eventForm.mixed_class;
   const fullscreenPilotTracksToggleLabel = isFullscreenPilotTracksCollapsed ? "Expand pilot tracks" : "Collapse pilot tracks";
   const fullscreenPilotTracksToggleButton = (
     <button
@@ -1080,6 +1082,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             <th><span className="results-header-stack"><span>Speed</span><span>[km/h]</span></span></th>
                             <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
                             {taskResultsColumns.map((column) => <th key={column.key}>{taskResultsHeaderLabel(column.key)}</th>)}
+                            {mixedClass ? <th>Handicap</th> : null}
                             {taskResultsIncludePenalty ? <th>Penalty</th> : null}
                             <th>Total</th>
                             <th>Download IGC</th>
@@ -1105,6 +1108,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                 <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
                                 <td>
                                   <strong>{result.pilot_name}</strong>
+                                  {mixedClass ? <small className="results-pilot-class">{handicapClassLabel(result.pilot_class)}</small> : null}
                                   {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
                                 </td>
                                 <td>{pilot?.nation ?? "-"}</td>
@@ -1119,6 +1123,11 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                     {column.key === "distance" ? taskPoints : column.key === "speed" ? timePoints : column.key === "arrival" ? arrivalPoints : column.key === "departure" ? departurePoints : leadingPoints}
                                   </td>
                                 ))}
+                                {mixedClass ? (
+                                  <td className="results-table-handicap">
+                                    {isUnscored ? "-" : formatHandicapAdjustment(result.handicap_adjustment_points)}
+                                  </td>
+                                ) : null}
                                 {taskResultsIncludePenalty ? (
                                   <td className={penaltyLabel !== "-" ? "results-table-penalty" : undefined}>
                                     {penaltyLabel !== "-" ? (
@@ -1256,7 +1265,10 @@ export default function ScoringSection(props: ScoringSectionProps) {
                           return (
                             <tr key={summary.pilot_id}>
                               <td><span className="scoring-ops-rank-badge">{index + 1}</span></td>
-                              <td><strong>{summary.pilot_name}</strong></td>
+                              <td>
+                                <strong>{summary.pilot_name}</strong>
+                                {mixedClass ? <small className="results-pilot-class">{handicapClassLabel(summary.pilot_class)}</small> : null}
+                              </td>
                               <td>{pilot?.nation ?? "-"}</td>
                               <td>-</td>
                               {scoredTasks.map((task) => <td key={task.id}>{formatOverallTaskScore(summary, task.id)}</td>)}

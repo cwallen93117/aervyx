@@ -7,6 +7,7 @@ import { SectionCard } from "../../components/SectionCard";
 import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from "../../components/TaskMap";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories } from "../../lib/faaAirspace";
+import { readHandicapConfig, writeHandicapConfig, type PilotClass } from "../../lib/handicap";
 
 import EventsSection from "../../components/dashboard/EventsSection";
 import TasksSection from "../../components/dashboard/TasksSection";
@@ -709,8 +710,9 @@ function taskTypeBehavior(taskType: string) {
 }
 
 function eventToForm(event: EventRecord | null | undefined): EventFormState {
-  return event
-    ? {
+  if (!event) return blankEventForm();
+  const handicap = readHandicapConfig(event.penalties_json);
+  return {
         name: event.name,
         location: event.location,
         starts_on: event.starts_on,
@@ -760,10 +762,11 @@ function eventToForm(event: EventRecord | null | undefined): EventFormState {
         visible_airspace_classes_json: event.visible_airspace_classes_json,
         show_restricted_fields: event.show_restricted_fields,
         penalties_text: JSON.stringify(event.penalties_json ?? {}, null, 2),
+        mixed_class: handicap.enabled,
+        handicap_multipliers: handicap.multipliers,
         is_public_tracking: event.is_public_tracking ?? false,
         visibility: event.visibility ?? "private",
-      }
-    : blankEventForm();
+      };
 }
 
 function sortEventsByUpdatedAt(eventList: EventRecord[]): EventRecord[] {
@@ -2149,6 +2152,7 @@ export default function HomePage() {
       setError("Scoring penalties must be valid JSON before saving the event.");
       return;
     }
+    penaltiesJson = writeHandicapConfig(penaltiesJson, nextForm.mixed_class, nextForm.handicap_multipliers);
     const payload = {
       name: nextForm.name,
       location: nextForm.location,
@@ -2335,6 +2339,20 @@ export default function HomePage() {
     setMessage(`Updated ${updated.first_name} ${updated.last_name}.`);
     if (selectedEventId) await loadEvent(token, selectedEventId);
     await refreshPilotDirectory(token);
+  }
+
+  async function updateEventPilotClass(pilotId: number, pilotClass: PilotClass) {
+    if (!token || !selectedEventId) return;
+    try {
+      const updated = await apiFetch<PilotRecord>(`/api/events/${selectedEventId}/pilots/${pilotId}/class`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ pilot_class: pilotClass }),
+      });
+      setMessage(`Updated ${updated.first_name} ${updated.last_name} to ${updated.pilot_class?.replaceAll("_", " ") ?? "Modern Topless"}.`);
+      await loadEvent(token, selectedEventId);
+    } catch (caught) {
+      setMessage(caught instanceof Error ? caught.message : "Could not update pilot class.");
+    }
   }
 
   async function uploadFile<T>(path: string, file: File): Promise<T> {
@@ -2844,6 +2862,7 @@ export default function HomePage() {
         createPilot={createPilot}
         removePilot={removePilot}
         updatePilot={updatePilot}
+        updateEventPilotClass={updateEventPilotClass}
         uploadFile={uploadFile}
         loadEvent={(t, id) => loadEvent(t, id)}
         refreshPilotDirectory={(t) => refreshPilotDirectory(t)}

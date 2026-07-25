@@ -3,6 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
+import { HANDICAP_CLASSES, readHandicapConfig } from "../../lib/handicap";
 import type {
   AirspaceCategoryOption,
   AirspaceSourceRecord,
@@ -332,6 +333,7 @@ function blankPreset(id: string): ScoringPresetRecord {
 }
 
 function scoringFormFromEvent(sourceEvent: EventRecord, currentForm: EventFormState): EventFormState {
+  const handicap = readHandicapConfig(sourceEvent.penalties_json);
   return {
     ...currentForm,
     scoring_formula: sourceEvent.scoring_formula,
@@ -373,6 +375,8 @@ function scoringFormFromEvent(sourceEvent: EventRecord, currentForm: EventFormSt
     turnpoint_radius_minimum_absolute_tolerance_m: sourceEvent.turnpoint_radius_minimum_absolute_tolerance_m,
     number_of_decimals_task_results: sourceEvent.number_of_decimals_task_results,
     number_of_decimals_competition_results: sourceEvent.number_of_decimals_competition_results,
+    mixed_class: handicap.enabled,
+    handicap_multipliers: handicap.multipliers,
   };
 }
 
@@ -706,6 +710,10 @@ export default function EventsSection(props: EventsSectionProps) {
                     <input type="checkbox" checked={eventForm.is_public_tracking ?? false} onChange={(event) => setEventForm({ ...eventForm, is_public_tracking: event.target.checked })} />
                     <span>Public live tracking</span>
                   </label>
+                  <label className="task-advanced-toggle">
+                    <input type="checkbox" checked={eventForm.mixed_class} onChange={(event) => setEventForm({ ...eventForm, mixed_class: event.target.checked })} />
+                    <span>Mixed Class</span>
+                  </label>
                   <label className="stack compact">
                     <span>Publicly viewable</span>
                     <select value={eventForm.visibility} onChange={(event) => setEventForm({ ...eventForm, visibility: event.target.value as "public" | "users" | "participants" | "private" })}>
@@ -972,6 +980,32 @@ export default function EventsSection(props: EventsSectionProps) {
                       <LabelWithHelp label="Minimum distance (km)" helpId="minimum_distance_km" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
                       <input type="number" value={eventForm.minimum_distance_km} onChange={(event) => setEventForm({ ...eventForm, minimum_distance_km: Number(event.target.value) })} />
                     </label>
+                  </div>
+                </div>
+              </fieldset>
+              <fieldset className="fieldset-cluster">
+                <legend>Handicap</legend>
+                <div className="cluster-stack">
+                  <p className="hint">Each pilot&apos;s AirScore result is multiplied by their event class value before manual penalties.</p>
+                  <div className="inline-grid">
+                    {HANDICAP_CLASSES.map((pilotClass) => (
+                      <label className="stack compact" key={pilotClass.value}>
+                        <span>{pilotClass.label}</span>
+                        <input
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={eventForm.handicap_multipliers[pilotClass.value]}
+                          onChange={(event) => setEventForm({
+                            ...eventForm,
+                            handicap_multipliers: {
+                              ...eventForm.handicap_multipliers,
+                              [pilotClass.value]: Number(event.target.value),
+                            },
+                          })}
+                        />
+                      </label>
+                    ))}
                   </div>
                 </div>
               </fieldset>

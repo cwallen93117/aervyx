@@ -246,6 +246,8 @@ def test_runtime_schema_adds_profile_type_timestamp_to_legacy_users() -> None:
             )
         )
         connection.execute(text("CREATE TABLE events (id INTEGER PRIMARY KEY)"))
+        connection.execute(text("CREATE TABLE event_pilots (id INTEGER PRIMARY KEY, event_id INTEGER, pilot_id INTEGER)"))
+        connection.execute(text("INSERT INTO event_pilots (id, event_id, pilot_id) VALUES (1, 1, 1)"))
         connection.execute(text("CREATE TABLE tasks (id INTEGER PRIMARY KEY)"))
         connection.execute(text("CREATE TABLE task_points (id INTEGER PRIMARY KEY, point_type VARCHAR(20))"))
         connection.execute(text("CREATE TABLE score_results (id INTEGER PRIMARY KEY, upload_id INTEGER, score_points FLOAT)"))
@@ -306,7 +308,10 @@ def test_runtime_schema_adds_profile_type_timestamp_to_legacy_users() -> None:
 
     columns = {column["name"] for column in inspect(engine).get_columns("users")}
     assert "profile_type_updated_at" in columns
+    event_pilot_columns = {column["name"] for column in inspect(engine).get_columns("event_pilots")}
+    assert "pilot_class" in event_pilot_columns
     with engine.connect() as connection:
+        assert connection.execute(text("SELECT pilot_class FROM event_pilots WHERE id = 1")).scalar_one() == "modern_topless"
         row = connection.execute(
             text(
                 """

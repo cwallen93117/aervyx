@@ -211,15 +211,15 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
         .order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     results_by_pilot = {result.pilot_id: result for result in visible_results}
-    pilots = session.execute(
-        select(Pilot)
+    pilot_rows = session.execute(
+        select(Pilot, EventPilot.pilot_class)
         .join(EventPilot, EventPilot.pilot_id == Pilot.id)
         .where(EventPilot.event_id == task.event_id)
         .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
-    ).scalars().all()
+    ).all()
 
     rows: list[ScoreResultResponse] = []
-    for pilot in pilots:
+    for pilot, pilot_class in pilot_rows:
         result = results_by_pilot.get(pilot.id)
         if result is not None:
             rows.append(ScoreResultResponse(**build_result_payload(session, result)))
@@ -243,6 +243,7 @@ def get_public_task_results(task_id: int, session: Session = Depends(get_session
                 score_points=0.0,
                 details_json={},
                 result_state="unscored",
+                pilot_class=pilot_class,
             )
         )
 
@@ -429,7 +430,9 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
     event = session.get(Event, event_id)
     if event is None or event.visibility != "public":
         raise HTTPException(status_code=404, detail="Event not found")
-    pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
+    memberships = session.scalars(select(EventPilot).where(EventPilot.event_id == event_id)).all()
+    pilot_ids = [membership.pilot_id for membership in memberships]
+    pilot_classes = {membership.pilot_id: membership.pilot_class for membership in memberships}
     task_rows = session.execute(select(Task.id, Task.is_practice).where(Task.event_id == event_id, Task.status == "published")).all()
     published_task_ids = [int(task_id) for task_id, _is_practice in task_rows]
     competition_task_ids = [int(task_id) for task_id, is_practice in task_rows if not is_practice]
@@ -491,6 +494,7 @@ def public_pilot_summary(event_id: int, session: Session = Depends(get_session))
                         .order_by(ScoreResult.task_id.asc())
                     ).all()
                 },
+                pilot_class=pilot_classes[pilot_id],
             )
         )
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))
