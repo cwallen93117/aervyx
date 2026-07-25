@@ -1,19 +1,40 @@
 import logging
+import json
+import hashlib
+import hmac
+import secrets
 from datetime import UTC, datetime
+from datetime import timedelta
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from slowapi import Limiter
 from slowapi.util import get_remote_address
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session
+from webauthn import (
+    generate_authentication_options,
+    generate_registration_options,
+    options_to_json,
+    verify_authentication_response,
+    verify_registration_response,
+)
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers.exceptions import WebAuthnException
+from webauthn.helpers.structs import (
+    AuthenticatorSelectionCriteria,
+    PublicKeyCredentialDescriptor,
+    ResidentKeyRequirement,
+    UserVerificationRequirement,
+)
 
 from app.core.config import get_settings as get_app_settings
 from app.core.security import create_access_token, create_refresh_token, decode_refresh_token, hash_password, verify_password
 from app.db import get_session
 from app.deps import get_current_user, require_admin, resolve_user_from_token_subject, token_subject_for_user
-from app.models import LivePosition, MeshDevice, Pilot, TrackingSession, User, UserEmail
+from app.models import LivePosition, MeshDevice, PasskeyChallenge, PasskeyCredential, Pilot, TrackingSession, User, UserEmail
 from app.schemas import (
     AdminUserCredentialsUpdate,
     AdminUserResponse,
@@ -29,6 +50,10 @@ from app.schemas import (
     MeshDeviceResponse,
     MeshDeviceUpdate,
     PasswordChangeRequest,
+    PasskeyOptionsResponse,
+    PasskeyRenameRequest,
+    PasskeyResponse,
+    PasskeyVerifyRequest,
     PilotClaimRequest,
     PilotClaimResponse,
     PilotClaimSearchResult,
@@ -64,6 +89,7 @@ VALID_VARIO_UNITS = {"fpm", "ms"}
 VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 VALID_MESH_DEVICE_PURPOSES = {"tracking", "base_station", "driver_wifi", "driver_mesh", "relay"}
 TRACKING_MESH_PURPOSE = "tracking"
+PASSKEY_CHALLENGE_TTL = timedelta(minutes=5)
 
 
 def _now_utc() -> datetime:
@@ -201,6 +227,83 @@ def _request_mqtt_refresh() -> None:
     from app.services.mqtt_subscriber import request_mqtt_reconnect
 
     request_mqtt_reconnect()
+
+
+def _passkey_config() -> tuple[str, list[str]]:
+    settings = get_app_settings()
+    web_origin = settings.app_public_url.rstrip("/")
+    rp_id = settings.passkey_rp_id or urlparse(web_origin).hostname
+    if not rp_id or not web_origin:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Passkey sign-in is not configured")
+    return rp_id, [web_origin, *settings.passkey_android_origins]
+
+
+def _passkey_user_handle(user_id: int) -> bytes:
+    return hmac.new(
+        get_app_settings().app_secret_key.encode("utf-8"),
+        f"passkey-user:{user_id}".encode("utf-8"),
+        hashlib.sha256,
+    ).digest()
+
+
+def _issue_passkey_challenge(session: Session, purpose: str, user_id: int | None = None) -> PasskeyChallenge:
+    now = _now_utc()
+    session.execute(
+        delete(PasskeyChallenge)
+        .where(or_(PasskeyChallenge.expires_at <= now, PasskeyChallenge.used_at.is_not(None)))
+        .execution_options(synchronize_session=False)
+    )
+    challenge = PasskeyChallenge(
+        id=secrets.token_urlsafe(24),
+        challenge=secrets.token_bytes(32),
+        purpose=purpose,
+        user_id=user_id,
+        expires_at=now + PASSKEY_CHALLENGE_TTL,
+    )
+    session.add(challenge)
+    session.commit()
+    return challenge
+
+
+def _consume_passkey_challenge(
+    session: Session,
+    ceremony_id: str,
+    purpose: str,
+    user_id: int | None,
+) -> bytes:
+    challenge = session.get(PasskeyChallenge, ceremony_id)
+    if challenge is None or challenge.purpose != purpose or challenge.user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passkey request expired; try again")
+    challenge_bytes = challenge.challenge
+    now = _now_utc()
+    consumed = session.execute(
+        update(PasskeyChallenge)
+        .where(
+            PasskeyChallenge.id == ceremony_id,
+            PasskeyChallenge.used_at.is_(None),
+            PasskeyChallenge.expires_at > now,
+        )
+        .values(used_at=now)
+        .execution_options(synchronize_session=False)
+    )
+    session.commit()
+    if consumed.rowcount != 1:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passkey request expired; try again")
+    return challenge_bytes
+
+
+def _passkey_name(value: str | None) -> str:
+    return (value or "Passkey").strip()[:80] or "Passkey"
+
+
+def _passkey_payload(passkey: PasskeyCredential) -> PasskeyResponse:
+    return PasskeyResponse(
+        id=passkey.id,
+        name=passkey.name,
+        transports=[str(value) for value in (passkey.transports or [])],
+        created_at=passkey.created_at,
+        last_used_at=passkey.last_used_at,
+    )
 
 
 def _clear_user_tracking_device(user: User, session: Session) -> None:
@@ -387,6 +490,202 @@ def login(request: Request, payload: LoginRequest, session: Session = Depends(ge
         refresh_token=create_refresh_token(token_subject_for_user(user)),
         user=UserSummary.model_validate(user),
     )
+
+
+@router.post("/passkeys/register/options", response_model=PasskeyOptionsResponse)
+@limiter.limit("20/minute")
+def passkey_registration_options(
+    request: Request,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> PasskeyOptionsResponse:
+    rp_id, _ = _passkey_config()
+    credentials = session.scalars(
+        select(PasskeyCredential).where(PasskeyCredential.user_id == user.id)
+    ).all()
+    user_handle = credentials[0].user_handle if credentials else _passkey_user_handle(user.id)
+    challenge = _issue_passkey_challenge(session, "register", user.id)
+    options = generate_registration_options(
+        rp_id=rp_id,
+        rp_name="Aervyx",
+        user_id=user_handle,
+        user_name=user.username,
+        user_display_name=user.full_name,
+        challenge=challenge.challenge,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            require_resident_key=True,
+            user_verification=UserVerificationRequirement.REQUIRED,
+        ),
+        exclude_credentials=[
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(credential.credential_id))
+            for credential in credentials
+        ],
+    )
+    return PasskeyOptionsResponse(ceremony_id=challenge.id, public_key=json.loads(options_to_json(options)))
+
+
+@router.post("/passkeys/register/verify", response_model=PasskeyResponse)
+@limiter.limit("10/minute")
+def passkey_registration_verify(
+    request: Request,
+    payload: PasskeyVerifyRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> PasskeyResponse:
+    challenge = _consume_passkey_challenge(session, payload.ceremony_id, "register", user.id)
+    rp_id, origins = _passkey_config()
+    try:
+        verified = verify_registration_response(
+            credential=payload.credential,
+            expected_challenge=challenge,
+            expected_rp_id=rp_id,
+            expected_origin=origins,
+            require_user_verification=True,
+        )
+    except (WebAuthnException, KeyError, TypeError, ValueError) as exc:
+        logger.info("Passkey registration rejected for user %s: %s", user.id, exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passkey registration failed") from exc
+
+    credential_id = bytes_to_base64url(verified.credential_id)
+    if session.scalar(select(PasskeyCredential.id).where(PasskeyCredential.credential_id == credential_id)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="That passkey is already registered")
+    transports = payload.credential.get("response", {}).get("transports", [])
+    passkey = PasskeyCredential(
+        user_id=user.id,
+        credential_id=credential_id,
+        public_key=verified.credential_public_key,
+        user_handle=(
+            session.scalar(
+                select(PasskeyCredential.user_handle)
+                .where(PasskeyCredential.user_id == user.id)
+                .limit(1)
+            )
+            or _passkey_user_handle(user.id)
+        ),
+        sign_count=verified.sign_count,
+        transports=transports if isinstance(transports, list) else [],
+        aaguid=verified.aaguid,
+        name=_passkey_name(payload.name),
+    )
+    session.add(passkey)
+    session.commit()
+    session.refresh(passkey)
+    return _passkey_payload(passkey)
+
+
+@router.post("/passkeys/login/options", response_model=PasskeyOptionsResponse)
+@limiter.limit("20/minute")
+def passkey_login_options(
+    request: Request,
+    session: Session = Depends(get_session),
+) -> PasskeyOptionsResponse:
+    rp_id, _ = _passkey_config()
+    challenge = _issue_passkey_challenge(session, "login")
+    options = generate_authentication_options(
+        rp_id=rp_id,
+        challenge=challenge.challenge,
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    return PasskeyOptionsResponse(ceremony_id=challenge.id, public_key=json.loads(options_to_json(options)))
+
+
+@router.post("/passkeys/login/verify", response_model=TokenResponse)
+@limiter.limit("10/minute")
+def passkey_login_verify(
+    request: Request,
+    payload: PasskeyVerifyRequest,
+    session: Session = Depends(get_session),
+) -> TokenResponse:
+    challenge = _consume_passkey_challenge(session, payload.ceremony_id, "login", None)
+    credential_id = str(payload.credential.get("id", ""))
+    passkey = session.scalar(
+        select(PasskeyCredential).where(PasskeyCredential.credential_id == credential_id)
+    )
+    user = session.get(User, passkey.user_id) if passkey else None
+    if passkey is None or user is None or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Passkey sign-in failed")
+    rp_id, origins = _passkey_config()
+    try:
+        verified = verify_authentication_response(
+            credential=payload.credential,
+            expected_challenge=challenge,
+            expected_rp_id=rp_id,
+            expected_origin=origins,
+            credential_public_key=passkey.public_key,
+            credential_current_sign_count=passkey.sign_count,
+            require_user_verification=True,
+        )
+    except (WebAuthnException, KeyError, TypeError, ValueError) as exc:
+        logger.info("Passkey sign-in rejected for credential %s: %s", passkey.id, exc)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Passkey sign-in failed") from exc
+    if bytes_to_base64url(verified.credential_id) != passkey.credential_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Passkey sign-in failed")
+
+    passkey.sign_count = verified.new_sign_count
+    passkey.last_used_at = _now_utc()
+    session.add(passkey)
+    session.commit()
+    return TokenResponse(
+        access_token=create_access_token(token_subject_for_user(user)),
+        refresh_token=create_refresh_token(token_subject_for_user(user)),
+        user=UserSummary.model_validate(user),
+    )
+
+
+@router.get("/passkeys", response_model=list[PasskeyResponse])
+def list_passkeys(
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> list[PasskeyResponse]:
+    return [
+        _passkey_payload(passkey)
+        for passkey in session.scalars(
+            select(PasskeyCredential)
+            .where(PasskeyCredential.user_id == user.id)
+            .order_by(PasskeyCredential.created_at.desc(), PasskeyCredential.id.desc())
+        ).all()
+    ]
+
+
+@router.patch("/passkeys/{passkey_id}", response_model=PasskeyResponse)
+def rename_passkey(
+    passkey_id: int,
+    payload: PasskeyRenameRequest,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> PasskeyResponse:
+    passkey = session.scalar(
+        select(PasskeyCredential).where(
+            PasskeyCredential.id == passkey_id,
+            PasskeyCredential.user_id == user.id,
+        )
+    )
+    if passkey is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Passkey not found")
+    passkey.name = _passkey_name(payload.name)
+    session.add(passkey)
+    session.commit()
+    session.refresh(passkey)
+    return _passkey_payload(passkey)
+
+
+@router.delete("/passkeys/{passkey_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_passkey(
+    passkey_id: int,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> None:
+    passkey = session.scalar(
+        select(PasskeyCredential).where(
+            PasskeyCredential.id == passkey_id,
+            PasskeyCredential.user_id == user.id,
+        )
+    )
+    if passkey is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Passkey not found")
+    session.delete(passkey)
+    session.commit()
 
 
 @router.get("/google-client-id")

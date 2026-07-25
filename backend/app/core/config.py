@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     )
     google_client_id: str | None = None
     google_client_secret: str | None = None
+    passkey_rp_id: str | None = None
+    passkey_android_origins: list[str] = Field(
+        default_factory=lambda: [
+            "android:apk-key-hash:K-eZP7LKduP4a_T6MeG0mShQPpYAnjFU7L1N03eRDe8"
+        ]
+    )
     mesh_channel_psk: str | None = None
     mqtt_host: str | None = None
     mqtt_port: int = 1883

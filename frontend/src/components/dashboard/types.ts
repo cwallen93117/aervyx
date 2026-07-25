@@ -1,5 +1,6 @@
 import type { MapAirspaceRegion, MapTaskPoint, MapTurnpoint, TrackCollection } from "../TaskMap";
 import type { ScorePenaltyCalculation } from "../../lib/scorePenalties";
+import { DEFAULT_HANDICAP_MULTIPLIERS, type HandicapMultipliers, type PilotClass } from "../../lib/handicap";
 
 export type SidebarSection = "events" | "tasks" | "scoring" | "live_tracking" | "live_backtest" | "drivers" | "logbook" | "weather" | "airspace" | "sos" | "settings" | "admin";
 export type EventTab = "details" | "turnpoints" | "airspace" | "participants" | "scoring";
@@ -249,7 +250,7 @@ export type EventRecord = {
   airspace_count: number;
   restricted_field_count: number;
 };
-export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null };
+export type PilotRecord = { id: number; first_name: string; last_name: string; email?: string | null; nation?: string | null; competition_number: string | null; civl_id?: string | null; portal_username: string | null; is_claimed?: boolean; temp_password: string | null; pilot_class?: PilotClass | null };
 export type TurnpointRecord = MapTurnpoint & { event_id: number | null; source_id: number | null; elevation_m: number | null; symbol: string | null; extra_json: Record<string, unknown>; source_row_index: number | null };
 export type TurnpointSourceRecord = { id: number; filename: string; file_format: string; sha256: string; turnpoint_count: number };
 export type TaskPointDirection = "enter" | "exit";
@@ -277,8 +278,8 @@ export type TaskRecord = {
   published_at: string | null;
   points: TaskPointRecord[];
 };
-export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string; penalties?: ScorePenaltyRecord[]; penalty_summary?: string | null; penalty_calculation?: ScorePenaltyCalculation | null };
-export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number>; task_result_states: Record<string, string>; task_statuses?: Record<string, string> };
+export type ResultRecord = { id: number; upload_id: number | null; pilot_id: number; pilot_name: string; competition_number?: string | null; status: string; distance_flown_km: number; elapsed_seconds?: number | null; started_at?: string | null; ess_at?: string | null; goal_at?: string | null; raw_score_points?: number; score_points: number; rank: number | null; details_json: Record<string, unknown>; result_state?: string; penalties?: ScorePenaltyRecord[]; penalty_summary?: string | null; penalty_calculation?: ScorePenaltyCalculation | null; pilot_class?: PilotClass; handicap_multiplier?: number; handicap_adjustment_points?: number };
+export type PilotSummaryRecord = { pilot_id: number; pilot_name: string; competition_number?: string | null; total_score_points: number; tasks_scored: number; best_distance_km: number; task_scores: Record<string, number>; task_result_states: Record<string, string>; task_statuses?: Record<string, string>; pilot_class?: PilotClass };
 export type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; statistics?: Record<string, unknown> };
 export type MeetStatsHighlightRecord = { pilot_id: number; pilot_name: string; task_id: number; task_name: string; upload_id: number; value_m: number; recorded_at?: string | null; task_date?: string | null; latitude?: number | null; longitude?: number | null; ground_altitude_m?: number | null; agl_altitude_m?: number | null };
 export type MeetStatsRecord = { total_airtime_seconds: number; average_airtime_seconds: number; max_gps_altitude: MeetStatsHighlightRecord | null; lowest_save: MeetStatsHighlightRecord | null; total_xc_distance_km: number; pilot_count: number; day_count: number; flight_count: number };
@@ -287,7 +288,7 @@ export type ScoringUploadOptionRecord = { id: number; filename: string; upload_s
 export type ScorePenaltyRecord = { id?: number | null; penalty_type: "percentage" | "fixed"; value: number; reason: string; position: number; applied_by?: string | null; applied_at?: string | null };
 export type PenaltyAuditRecord = { actor_name: string; timestamp: string; summary: string };
 export type ScoringPresetRecord = { id: string; label: string; penalty_type: "percentage" | "fixed"; value: number; reason: string };
-export type ScoringOperationsResultRecord = { result_id: number; upload_id: number | null; status: string; rank: number | null; distance_flown_km: number; elapsed_seconds: number | null; raw_score_points: number; score_points: number; result_state?: string; penalty_calculation?: ScorePenaltyCalculation | null };
+export type ScoringOperationsResultRecord = { result_id: number; upload_id: number | null; status: string; rank: number | null; distance_flown_km: number; elapsed_seconds: number | null; raw_score_points: number; score_points: number; result_state?: string; penalty_calculation?: ScorePenaltyCalculation | null; handicap_adjustment_points?: number };
 export type ScoringOperationsRowRecord = {
   pilot_id: number;
   pilot_name: string;
@@ -415,6 +416,8 @@ export function blankEventForm() {
     visible_airspace_classes_json: ["B", "C", "D", "P", "Q", "R", "TFR", "OTHER"],
     show_restricted_fields: true,
     penalties_text: "{}",
+    mixed_class: false,
+    handicap_multipliers: { ...DEFAULT_HANDICAP_MULTIPLIERS } as HandicapMultipliers,
     is_public_tracking: false,
     visibility: "private" as "public" | "users" | "participants" | "private",
   };

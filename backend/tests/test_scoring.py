@@ -2,9 +2,10 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from app.models import Event, Task, TaskPoint, TrackPoint
+from app.models import Event, ScorePenalty, Task, TaskPoint, TrackPoint
 from app.services.airscore import task as airscore_task_module
 from app.services.airscore.gap import select_coeff
+from app.services.handicap import validate_handicap_config
 from app.services.scoring import (
     _as_utc_aware,
     _build_airscore_pilot_result,
@@ -1131,3 +1132,80 @@ def test_launch_validity_saturates_at_one_for_well_launched_day() -> None:
     assert gap["validity"]["launch"] == 1.0
     assert gap["available_points"]["distance"] > 0
     assert gap["available_points"]["speed"] > 0
+
+
+def test_mixed_class_handicap_runs_after_airscore_before_manual_penalties_and_sets_rank() -> None:
+    task = _task(nominal_time_hours=0.05)
+    task_points = [
+        _task_point(1, 1, "launch", 36.600, -118.000, 500),
+        _task_point(2, 2, "start", 36.650, -118.050, 1000),
+        _task_point(3, 3, "turnpoint", 36.700, -118.100, 600),
+        _task_point(4, 4, "ESS", 36.750, -118.150, 1000),
+        _task_point(5, 5, "goal", 36.800, -118.200, 500),
+    ]
+    track = [
+        _track_point(1, 36.600, -118.000),
+        _track_point(2, 36.650, -118.050),
+        _track_point(3, 36.700, -118.100),
+        _track_point(4, 36.750, -118.150),
+        _track_point(5, 36.800, -118.200),
+    ]
+    event = type(
+        "EventStub",
+        (),
+        {
+            "nominal_goal_percent": 0.2,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_departure_points": False,
+            "use_arrival_position_points": False,
+            "use_arrival_time_points": False,
+            "use_difficulty_for_distance_points": True,
+            "goal_ss_penalty": 0.0,
+            "penalties_json": {
+                "handicap": {
+                    "enabled": True,
+                    "multipliers": {
+                        "modern_topless": 1,
+                        "high_performance_kingpost": 1.05,
+                        "intermediate_kingpost": 1.1,
+                        "single_surface": 1.2,
+                    },
+                }
+            },
+        },
+    )()
+    scored = _score_evaluations(
+        task,
+        2,
+        [
+            {"upload": type("UploadStub", (), {"id": 10, "pilot_id": 1})(), "evaluation": evaluate_task(task, task_points, track)},
+            {"upload": type("UploadStub", (), {"id": 11, "pilot_id": 2})(), "evaluation": evaluate_task(task, task_points, track)},
+        ],
+        {2: [ScorePenalty(penalty_type="fixed", value=5, reason="Late report", position=0)]},
+        event,
+        {1: "modern_topless", 2: "single_surface"},
+    )
+    by_pilot = {row["pilot_id"]: row for row in scored}
+    handicap = by_pilot[2]["details_json"]["handicap"]
+
+    assert handicap["adjusted_score_points"] == round(by_pilot[2]["raw_score_points"] * 1.2, 1)
+    assert handicap["adjustment_points"] == round(handicap["adjusted_score_points"] - by_pilot[2]["raw_score_points"], 1)
+    assert by_pilot[2]["score_points"] == round(max(handicap["adjusted_score_points"] - 5, 0), 2)
+    assert by_pilot[2]["rank"] == 1
+    assert scored[0]["pilot_id"] == 2
+
+
+def test_handicap_config_requires_all_positive_multipliers() -> None:
+    with pytest.raises(ValueError, match="single_surface"):
+        validate_handicap_config({
+            "handicap": {
+                "enabled": True,
+                "multipliers": {
+                    "modern_topless": 1,
+                    "high_performance_kingpost": 1,
+                    "intermediate_kingpost": 1,
+                    "single_surface": 0,
+                },
+            }
+        })

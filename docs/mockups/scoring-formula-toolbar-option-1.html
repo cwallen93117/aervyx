@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scoring Formula Toolbar - Option 1</title>
+  <link rel="stylesheet" href="scoring-formula-toolbar.css">
+</head>
+<body>
+  <main class="review-shell">
+    <header class="review-header">
+      <div>
+        <h1>Option 1 — Compact command bar</h1>
+        <p>Formula selection, custom-formula actions, and saved-meet loading share one compact control row above the detailed parameters.</p>
+      </div>
+      <nav class="review-nav" aria-label="Mockup options">
+        <a class="active" href="scoring-formula-toolbar-option-1.html">Option 1</a>
+        <a href="scoring-formula-toolbar-option-2.html">Option 2</a>
+      </nav>
+    </header>
+
+    <div class="review-note">
+      Review focus: this is the shortest layout and keeps every high-level scoring action on one line at wide desktop sizes. Open the About and custom-formula controls to preview their active states.
+    </div>
+
+    <section class="scoring-card">
+      <header class="scoring-card-header">
+        <h2>Scoring parameters</h2>
+      </header>
+
+      <form class="scoring-form">
+        <section class="setup-bar" aria-labelledby="setup-heading">
+          <div class="setup-bar-intro">
+            <strong id="setup-heading">Scoring setup</strong>
+            <span>Choose the current formula or copy scoring fields and penalty presets from another saved meet.</span>
+          </div>
+
+          <div class="command-row">
+            <label class="control">
+              <span class="control-title">Scoring formula <span class="help-badge" aria-hidden="true">i</span></span>
+              <select>
+                <option selected>GAP 2021</option>
+                <option>GAP 2020</option>
+                <option>FS 2023</option>
+                <option>PWC 2016</option>
+                <option>Custom — Ridge Race</option>
+              </select>
+            </label>
+
+            <details class="toolbar-details" name="formula-actions">
+              <summary>About GAP 2021</summary>
+              <div class="toolbar-details-panel">
+                <strong>GAP 2021</strong>
+                <p>The current FAI/CIVL GAP formula, including leading points, distance validity, time validity, and updated stopped-task handling.</p>
+              </div>
+            </details>
+
+            <details class="toolbar-details" name="formula-actions">
+              <summary>Save As</summary>
+              <div class="toolbar-details-panel save-popover">
+                <input type="text" aria-label="Custom formula name" placeholder="Custom formula name">
+                <button class="button primary" type="button">Save formula</button>
+              </div>
+            </details>
+
+            <span class="command-divider" aria-hidden="true"></span>
+
+            <label class="control source-control">
+              <span>Saved meet</span>
+              <select>
+                <option selected>Choose saved scoring parameters</option>
+                <option>2026 East Coast Championship — Ridgely</option>
+                <option>2025 Highland Challenge — Henson Gap</option>
+              </select>
+            </label>
+
+            <button class="button" type="button">Load Parameters</button>
+          </div>
+        </section>
+
+        <div class="fieldset-grid">
+          <fieldset class="fieldset">
+            <legend>Formula and points</legend>
+            <div class="field-stack">
+              <label class="field">
+                <span class="control-title">Nominal goal (%) <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="20">
+              </label>
+              <label class="field">
+                <span class="control-title">Score-back time (minutes) <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="15">
+              </label>
+              <label class="field">
+                <span class="control-title">Goal / SS penalty <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="0">
+              </label>
+              <div class="checkbox-list">
+                <label class="checkbox-row"><span>Distance points</span><input type="checkbox" checked></label>
+                <label class="checkbox-row"><span>Time points</span><input type="checkbox" checked></label>
+                <label class="checkbox-row"><span>Leading points</span><input type="checkbox" checked></label>
+              </div>
+            </div>
+          </fieldset>
+
+          <fieldset class="fieldset">
+            <legend>Nominal values and notes</legend>
+            <div class="field-stack">
+              <label class="field">
+                <span class="control-title">Nominal distance (km) <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="60">
+              </label>
+              <label class="field">
+                <span class="control-title">Nominal time (hours) <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="1.5" step="0.1">
+              </label>
+              <label class="field">
+                <span class="control-title">Nominal launch <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="0.96" step="0.01">
+              </label>
+              <label class="field">
+                <span class="control-title">Minimum distance (km) <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="5">
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="fieldset">
+            <legend>Advanced scoring</legend>
+            <div class="field-stack">
+              <label class="field">
+                <span class="control-title">Day quality override <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="0" step="0.01">
+              </label>
+              <label class="field">
+                <span class="control-title">Time points if not in goal <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="1" step="0.01">
+              </label>
+              <label class="field">
+                <span class="control-title">Min time span for valid task (minutes) <span class="help-badge" aria-hidden="true">i</span></span>
+                <input type="number" value="60">
+              </label>
+              <label class="field">
+                <span class="control-title">Scoring altitude <span class="help-badge" aria-hidden="true">i</span></span>
+                <select><option selected>GPS altitude</option><option>Pressure altitude</option></select>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+
+        <button class="button primary save-parameters" type="button">Save scoring parameters</button>
+      </form>
+    </section>
+  </main>
+</body>
+</html>

@@ -2,6 +2,11 @@
 
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { PasswordInput } from "../../components/PasswordInput";
+import {
+  authenticateWithPasskey,
+  conditionalPasskeysSupported,
+  passkeysSupported,
+} from "../../lib/passkeys";
 
 declare global {
   interface Window {
@@ -41,6 +46,7 @@ function resolveApiBase() {
 const TOKEN_KEY = "flightcomp-platform-token";
 const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 const SESSION_COOKIE = "flightcomp_session";
+const PASSKEY_SETUP_SUGGESTION = "aervyx-passkey-setup-suggestion";
 
 function setSessionCookie() {
   document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax`;
@@ -86,8 +92,21 @@ export default function LoginPage() {
   });
 
   const googleButtonRef = useRef<HTMLDivElement>(null);
+  const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null | undefined>(undefined);
-  const [googleSdkReady, setGoogleSdkReady] = useState(typeof window !== "undefined" && !!window.google);
+  const [googleSdkReady, setGoogleSdkReady] = useState(false);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
+
+  const completeSignIn = useCallback((
+    payload: { access_token: string; refresh_token?: string; user?: { full_name: string } },
+    suggestPasskey: boolean,
+  ) => {
+    window.localStorage.setItem(TOKEN_KEY, payload.access_token);
+    if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
+    if (suggestPasskey) window.sessionStorage.setItem(PASSKEY_SETUP_SUGGESTION, "1");
+    setSessionCookie();
+    window.location.replace(destination);
+  }, [destination]);
 
   useEffect(() => {
     const next = new URLSearchParams(window.location.search).get("next");
@@ -110,17 +129,51 @@ export default function LoginPage() {
         throw new Error(await readApiError(res, "Google sign-in failed. Please try again."));
       }
       const payload = (await res.json()) as { access_token: string; refresh_token?: string; user: { full_name: string } };
-      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
-      if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
-      setSessionCookie();
       setMessage(`Signed in as ${payload.user.full_name}. Opening your dashboard...`);
-      window.location.replace(destination);
+      completeSignIn(payload, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Google sign-in failed");
     } finally {
       setIsSubmitting(false);
     }
-  }, [destination]);
+  }, [completeSignIn]);
+
+  useEffect(() => {
+    setPasskeyAvailable(passkeysSupported());
+  }, []);
+
+  useEffect(() => {
+    if (authMode !== "login" || !passkeyAvailable) return;
+    const controller = new AbortController();
+    conditionalPasskeyAbortRef.current = controller;
+    void conditionalPasskeysSupported().then(async (supported) => {
+      if (!supported || controller.signal.aborted) return;
+      const payload = await authenticateWithPasskey("conditional", controller.signal);
+      completeSignIn(payload, false);
+    }).catch((caught) => {
+      if (!(caught instanceof DOMException) || !["AbortError", "NotAllowedError"].includes(caught.name)) {
+        setError(caught instanceof Error ? caught.message : "Passkey sign-in failed");
+      }
+    });
+    return () => controller.abort();
+  }, [authMode, completeSignIn, passkeyAvailable]);
+
+  async function handlePasskeyLogin() {
+    conditionalPasskeyAbortRef.current?.abort();
+    setError("");
+    setMessage("");
+    setIsSubmitting(true);
+    try {
+      const payload = await authenticateWithPasskey();
+      completeSignIn(payload, false);
+    } catch (caught) {
+      if (!(caught instanceof DOMException) || caught.name !== "NotAllowedError") {
+        setError(caught instanceof Error ? caught.message : "Passkey sign-in failed");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   // Fetch Google Client ID from backend and initialize Google Sign-In
   useEffect(() => {
@@ -182,11 +235,8 @@ export default function LoginPage() {
         throw new Error(await readApiError(response, "Sign in failed. Please try again."));
       }
       const payload = (await response.json()) as { access_token: string; refresh_token?: string };
-      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
-      if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
-      setSessionCookie();
       setMessage("Sign-in successful. Opening your dashboard...");
-      window.location.replace(destination);
+      completeSignIn(payload, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Sign in failed");
     } finally {
@@ -213,11 +263,8 @@ export default function LoginPage() {
       });
       if (!response.ok) throw new Error(await readApiError(response, "Registration failed. Please try again."));
       const payload = (await response.json()) as { access_token: string; refresh_token?: string; user: { full_name: string } };
-      window.localStorage.setItem(TOKEN_KEY, payload.access_token);
-      if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
-      setSessionCookie();
       setMessage(`Created account for ${payload.user.full_name}. Redirecting...`);
-      window.location.replace(destination);
+      completeSignIn(payload, true);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Registration failed");
     } finally {
@@ -298,7 +345,7 @@ export default function LoginPage() {
                         value={loginForm.username}
                         onChange={(event) => setLoginForm({ ...loginForm, username: event.target.value })}
                         placeholder="pilot@example.com"
-                        autoComplete="username"
+                        autoComplete="username webauthn"
                         required
                       />
                     </div>
@@ -335,6 +382,11 @@ export default function LoginPage() {
                     {isSubmitting ? "Signing in..." : "Sign in"}
                   </button>
                 </form>
+                {passkeyAvailable ? (
+                  <button type="button" className="aervyx-auth-passkey" disabled={isSubmitting} onClick={() => void handlePasskeyLogin()}>
+                    Sign in with a passkey
+                  </button>
+                ) : null}
               </>
             ) : (
               <form className="aervyx-auth-form" onSubmit={handleRegister}>

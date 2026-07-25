@@ -10,6 +10,7 @@ import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints, type Sco
 import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories, type AirspaceCategory } from "../../lib/faaAirspace";
+import { formatHandicapAdjustment, handicapClassLabel, readHandicapConfig, type PilotClass } from "../../lib/handicap";
 
 type PublicEvent = EventRecord;
 
@@ -57,6 +58,9 @@ type ResultRecord = {
   penalties?: ScorePenaltyRecord[];
   penalty_summary?: string | null;
   penalty_calculation?: ScorePenaltyCalculation | null;
+  pilot_class?: PilotClass;
+  handicap_multiplier?: number;
+  handicap_adjustment_points?: number;
 };
 
 type PilotSummaryRecord = {
@@ -69,6 +73,7 @@ type PilotSummaryRecord = {
   task_scores: Record<string, number>;
   task_result_states: Record<string, string>;
   task_statuses?: Record<string, string>;
+  pilot_class?: PilotClass;
 };
 
 type TaskResultSummaryRecord = { task_id: number; day_quality: number | null; statistics?: Record<string, unknown> };
@@ -984,6 +989,7 @@ export function PublicScoresClient() {
     () => taskResults.some((result) => formatPenaltyPoints(result) !== "-"),
     [taskResults],
   );
+  const mixedClass = readHandicapConfig(selectedEvent?.penalties_json).enabled;
   const trackableResults = useMemo(
     () => taskResults.filter((result): result is ResultRecord & { upload_id: number } => result.upload_id != null && result.result_state !== "unscored"),
     [taskResults],
@@ -1426,6 +1432,7 @@ export function PublicScoresClient() {
                   <td><span className="scoring-ops-rank-badge">{index + 1}</span></td>
                   <td>
                     <strong>{summary.pilot_name}</strong>
+                    {mixedClass ? <small className="results-pilot-class">{handicapClassLabel(summary.pilot_class)}</small> : null}
                   </td>
                   {scoredTasks.map((task) => <td key={task.id}>{formatOverallTaskScore(summary, task.id, formatPoints)}</td>)}
                   <td className="results-table-total">{formatPointsWithComma(summary.total_score_points)}</td>
@@ -1505,6 +1512,7 @@ export function PublicScoresClient() {
                   <th><span className="results-header-stack"><span>Speed</span><span>[km/h]</span></span></th>
                   <th><span className="results-header-stack"><span>Distance</span><span>[km]</span></span></th>
                   {taskResultsColumns.map((column) => <th key={column}>{taskResultsHeaderLabel(column)}</th>)}
+                  {mixedClass ? <th>Handicap</th> : null}
                   {taskResultsIncludePenalty ? <th>Penalty</th> : null}
                   <th>Total</th>
                 </tr>
@@ -1519,6 +1527,7 @@ export function PublicScoresClient() {
                       <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
                       <td>
                         <strong>{result.pilot_name}</strong>
+                        {mixedClass ? <small className="results-pilot-class">{handicapClassLabel(result.pilot_class)}</small> : null}
                         {statusLabel ? <span className="results-status-badge">{statusLabel}</span> : null}
                       </td>
                       <td>{isUnscored ? "-" : formatClockTime(result.started_at, true, resultScoringTimezone(result, selectedEvent?.timezone))}</td>
@@ -1527,6 +1536,11 @@ export function PublicScoresClient() {
                       <td>{isUnscored ? "-" : formatSpeedKmh(result.distance_flown_km, result.elapsed_seconds)}</td>
                       <td>{isUnscored ? "-" : result.distance_flown_km.toFixed(1)}</td>
                       {taskResultsColumns.map((column) => <td key={column}>{isUnscored ? "-" : formatPoints(gapAwardedPoints(result, column))}</td>)}
+                      {mixedClass ? (
+                        <td className="results-table-handicap">
+                          {isUnscored ? "-" : formatHandicapAdjustment(result.handicap_adjustment_points)}
+                        </td>
+                      ) : null}
                       {taskResultsIncludePenalty ? (
                         <td className={penaltyLabel !== "-" ? "results-table-penalty" : undefined}>
                           {penaltyLabel !== "-" ? (

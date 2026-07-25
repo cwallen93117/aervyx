@@ -17,12 +17,14 @@ class ApiService {
       _refreshAuth = handler;
 
   Map<String, String> get _headers => {
-        'Content-Type': 'application/json',
-        if (_token != null) 'Authorization': 'Bearer $_token',
-      };
+    'Content-Type': 'application/json',
+    if (_token != null) 'Authorization': 'Bearer $_token',
+  };
 
-  Future<Map<String, dynamic>> get(String path,
-      {Map<String, String>? query}) async {
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final uri = Uri.parse('$_baseUrl$path').replace(queryParameters: query);
     final response = await _sendWithAuthRetry(
       path,
@@ -34,8 +36,10 @@ class ApiService {
     return decoded is Map<String, dynamic> ? decoded : {};
   }
 
-  Future<List<dynamic>> getList(String path,
-      {Map<String, String>? query}) async {
+  Future<List<dynamic>> getList(
+    String path, {
+    Map<String, String>? query,
+  }) async {
     final uri = Uri.parse('$_baseUrl$path').replace(queryParameters: query);
     final response = await _sendWithAuthRetry(
       path,
@@ -45,8 +49,10 @@ class ApiService {
     return jsonDecode(response.body) as List<dynamic>;
   }
 
-  Future<Map<String, dynamic>> post(String path,
-      {Map<String, dynamic>? body}) async {
+  Future<Map<String, dynamic>> post(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
     final uri = Uri.parse('$_baseUrl$path');
     final response = await _sendWithAuthRetry(
       path,
@@ -62,8 +68,10 @@ class ApiService {
     return decoded is Map<String, dynamic> ? decoded : {};
   }
 
-  Future<Map<String, dynamic>> patch(String path,
-      {Map<String, dynamic>? body}) async {
+  Future<Map<String, dynamic>> patch(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
     final uri = Uri.parse('$_baseUrl$path');
     final response = await _sendWithAuthRetry(
       path,
@@ -79,8 +87,10 @@ class ApiService {
     return decoded is Map<String, dynamic> ? decoded : {};
   }
 
-  Future<Map<String, dynamic>> put(String path,
-      {Map<String, dynamic>? body}) async {
+  Future<Map<String, dynamic>> put(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
     final uri = Uri.parse('$_baseUrl$path');
     final response = await _sendWithAuthRetry(
       path,
@@ -94,6 +104,15 @@ class ApiService {
     if (response.body.isEmpty) return {};
     final decoded = jsonDecode(response.body);
     return decoded is Map<String, dynamic> ? decoded : {};
+  }
+
+  Future<void> delete(String path) async {
+    final uri = Uri.parse('$_baseUrl$path');
+    final response = await _sendWithAuthRetry(
+      path,
+      () => _client.delete(uri, headers: _headers),
+    );
+    _assertOk(response);
   }
 
   /// Upload a file via multipart/form-data POST.
@@ -117,10 +136,7 @@ class ApiService {
       return http.Response.fromStream(streamedResponse);
     }
 
-    final response = await _sendWithAuthRetry(
-      path,
-      send,
-    );
+    final response = await _sendWithAuthRetry(path, send);
     _assertOk(response);
     if (response.body.isEmpty) return {};
     final decoded = jsonDecode(response.body);

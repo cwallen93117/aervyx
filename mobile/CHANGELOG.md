@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.72+89 - 2026-07-25
+
+### Added
+- Passkey sign-in uses Android Credential Manager to unlock Aervyx with face,
+  fingerprint, or the device PIN.
+- The login screen automatically offers available passkeys and keeps password
+  and Google sign-in as fallbacks.
+- Settings can add, rename, and remove multiple Aervyx passkeys.
+
 ## 0.4.71+88 - 2026-07-18
 
 ### Changed

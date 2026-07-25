@@ -271,14 +271,14 @@ def get_task_results(task_id: int, user: User = Depends(get_current_user), sessi
         results_query.order_by(ScoreResult.rank.asc().nullslast(), ScoreResult.score_points.desc())
     ).all()
     results_by_pilot = {result.pilot_id: result for result in visible_results}
-    pilots = session.execute(
-        select(Pilot)
+    pilot_rows = session.execute(
+        select(Pilot, EventPilot.pilot_class)
         .join(EventPilot, EventPilot.pilot_id == Pilot.id)
         .where(EventPilot.event_id == task.event_id)
         .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
-    ).scalars().all()
+    ).all()
     rows: list[ScoreResultResponse] = []
-    for pilot in pilots:
+    for pilot, pilot_class in pilot_rows:
         result = results_by_pilot.get(pilot.id)
         if result is not None:
             rows.append(ScoreResultResponse(**build_result_payload(session, result)))
@@ -302,6 +302,7 @@ def get_task_results(task_id: int, user: User = Depends(get_current_user), sessi
                 score_points=0.0,
                 details_json={},
                 result_state="unscored",
+                pilot_class=pilot_class,
             )
         )
 
@@ -437,6 +438,11 @@ def get_scoring_operations(task_id: int, admin: User = Depends(require_staff), s
                     score_points=result.score_points,
                     result_state=result.result_state,
                     penalty_calculation=penalty_calculation,
+                    handicap_adjustment_points=float(
+                        result.details_json.get("handicap", {}).get("adjustment_points", 0)
+                        if isinstance(result.details_json, dict) and isinstance(result.details_json.get("handicap"), dict)
+                        else 0
+                    ),
                 ) if result else None,
                 penalties=[ScorePenaltyEntry(**entry) for entry in penalty_entries],
                 penalty_summary=penalty_summary,
@@ -773,7 +779,9 @@ def meet_stats(event_id: int, user: User = Depends(get_current_user), session: S
 
 @router.get("/api/events/{event_id}/pilot-summary", response_model=list[PilotSummaryResponse])
 def pilot_summary(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[PilotSummaryResponse]:
-    pilot_ids = session.scalars(select(EventPilot.pilot_id).where(EventPilot.event_id == event_id)).all()
+    memberships = session.scalars(select(EventPilot).where(EventPilot.event_id == event_id)).all()
+    pilot_ids = [membership.pilot_id for membership in memberships]
+    pilot_classes = {membership.pilot_id: membership.pilot_class for membership in memberships}
     if not pilot_ids:
         return []
 
@@ -882,5 +890,6 @@ def pilot_summary(event_id: int, user: User = Depends(get_current_user), session
             task_scores=pilot_task_scores,
             task_result_states=task_states_by_pilot.get(pilot_id, {}),
             task_statuses=task_statuses_by_pilot.get(pilot_id, {}),
+            pilot_class=pilot_classes[pilot_id],
         ))
     return sorted(summaries, key=lambda summary: (-summary.total_score_points, summary.pilot_name))

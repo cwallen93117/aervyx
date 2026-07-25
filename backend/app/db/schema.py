@@ -567,6 +567,56 @@ def ensure_runtime_schema(engine: Engine) -> None:
             if "ix_mesh_node_statuses_last_seen_at" not in existing_mesh_status_indexes:
                 connection.execute(text("CREATE INDEX ix_mesh_node_statuses_last_seen_at ON mesh_node_statuses (last_seen_at)"))
 
+    if "users" in table_names:
+        with engine.begin() as connection:
+            id_column = "id INTEGER PRIMARY KEY" if dialect_name == "sqlite" else "id SERIAL PRIMARY KEY"
+            binary_type = "BLOB" if dialect_name == "sqlite" else "BYTEA"
+            timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
+            if "passkey_credentials" not in table_names:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE passkey_credentials (
+                          {id_column},
+                          user_id INTEGER NOT NULL,
+                          credential_id VARCHAR(1024) NOT NULL,
+                          public_key {binary_type} NOT NULL,
+                          user_handle {binary_type} NOT NULL,
+                          sign_count INTEGER NOT NULL DEFAULT 0,
+                          transports JSON,
+                          aaguid VARCHAR(36),
+                          name VARCHAR(80) NOT NULL DEFAULT 'Passkey',
+                          created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP,
+                          last_used_at {timestamp_type},
+                          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                          CONSTRAINT uq_passkey_credentials_credential_id UNIQUE (credential_id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_passkey_credentials_user_id ON passkey_credentials (user_id)"))
+                connection.execute(text("CREATE INDEX ix_passkey_credentials_user_handle ON passkey_credentials (user_handle)"))
+                table_names.add("passkey_credentials")
+
+            if "passkey_challenges" not in table_names:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE passkey_challenges (
+                          id VARCHAR(64) PRIMARY KEY,
+                          challenge {binary_type} NOT NULL,
+                          purpose VARCHAR(20) NOT NULL,
+                          user_id INTEGER,
+                          expires_at {timestamp_type} NOT NULL,
+                          used_at {timestamp_type},
+                          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_passkey_challenges_expires_at ON passkey_challenges (expires_at)"))
+                table_names.add("passkey_challenges")
+
     if "events" not in table_names:
         return
 
@@ -596,6 +646,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
     table_names = set(inspector.get_table_names())
     user_columns = {column["name"] for column in inspector.get_columns("users")} if "users" in table_names else set()
     event_columns = {column["name"] for column in inspector.get_columns("events")}
+    event_pilot_columns = {column["name"] for column in inspector.get_columns("event_pilots")} if "event_pilots" in table_names else set()
     task_columns = {column["name"] for column in inspector.get_columns("tasks")} if "tasks" in table_names else set()
     task_point_columns = {column["name"] for column in inspector.get_columns("task_points")} if "task_points" in table_names else set()
     score_result_details = {column["name"]: column for column in inspector.get_columns("score_results")} if "score_results" in table_names else {}
@@ -677,6 +728,8 @@ def ensure_runtime_schema(engine: Engine) -> None:
     with engine.begin() as connection:
         if "users" in table_names and "oauth_provider" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN oauth_provider VARCHAR(40)"))
+        if "event_pilots" in table_names and "pilot_class" not in event_pilot_columns:
+            connection.execute(text("ALTER TABLE event_pilots ADD COLUMN pilot_class VARCHAR(40) NOT NULL DEFAULT 'modern_topless'"))
         if "users" in table_names and "oauth_id" not in user_columns:
             connection.execute(text("ALTER TABLE users ADD COLUMN oauth_id VARCHAR(255)"))
         if "users" in table_names:

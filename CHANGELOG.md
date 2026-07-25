@@ -13,6 +13,17 @@ path is requested.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.07.25]
+
+### Added
+- Passkey sign-in now works on the Aervyx website and Android app through
+  Windows Hello, face, fingerprint, or the device PIN while keeping password
+  and Google sign-in available.
+- Account security settings can add, name, rename, and remove multiple
+  passkeys without exposing biometric data to Aervyx.
+- **Mobile v0.4.72+89** automatically offers an available passkey on the login
+  screen and supports passkey setup and management from Settings.
+
 ## [2026.07.18]
 
 ### Changed

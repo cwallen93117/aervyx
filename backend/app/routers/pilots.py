@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.deps import get_current_user, require_staff
 from app.models import Event, EventPilot, Pilot, User
-from app.schemas import PilotResponse, PilotUpsert
+from app.schemas import PilotClassUpdate, PilotResponse, PilotUpsert
 from app.services.audit import log_action
 from app.services.event_access import require_event_manager
+from app.services.handicap import DEFAULT_PILOT_CLASS
 from app.services.pilot_identity import (
     apply_pilot_profile,
     ensure_event_membership,
@@ -21,11 +22,12 @@ from app.services.pilot_identity import (
     linked_user_for_pilot,
     normalize_email,
 )
+from app.services.scoring import rescore_scored_event_tasks
 
 router = APIRouter(tags=["pilots"])
 
 
-def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = None) -> PilotResponse:
+def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = None, pilot_class: str | None = None) -> PilotResponse:
     user = linked_user_for_pilot(session, pilot)
     return PilotResponse(
         id=pilot.id,
@@ -38,6 +40,7 @@ def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = N
         portal_username=user.username if user else None,
         is_claimed=user is not None,
         temp_password=temp_password,
+        pilot_class=pilot_class,
     )
 
 
@@ -45,8 +48,13 @@ def _pilot_payload(session: Session, pilot: Pilot, temp_password: str | None = N
 def list_pilots(event_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[PilotResponse]:
     if session.get(Event, event_id) is None:
         raise HTTPException(status_code=404, detail="Event not found")
-    pilots = session.scalars(select(Pilot).join(EventPilot, EventPilot.pilot_id == Pilot.id).where(EventPilot.event_id == event_id).order_by(Pilot.last_name.asc(), Pilot.first_name.asc())).all()
-    return [_pilot_payload(session, pilot) for pilot in pilots]
+    rows = session.execute(
+        select(Pilot, EventPilot.pilot_class)
+        .join(EventPilot, EventPilot.pilot_id == Pilot.id)
+        .where(EventPilot.event_id == event_id)
+        .order_by(Pilot.last_name.asc(), Pilot.first_name.asc())
+    ).all()
+    return [_pilot_payload(session, pilot, pilot_class=pilot_class or DEFAULT_PILOT_CLASS) for pilot, pilot_class in rows]
 
 
 @router.get("/api/pilots", response_model=list[PilotResponse])
@@ -117,10 +125,11 @@ def create_pilot(event_id: int, payload: PilotUpsert, admin: User = Depends(get_
     session.flush()
     identity = ensure_pilot_login_identity(session, pilot, payload.username, payload.password)
     ensure_event_membership(session, event_id, identity.pilot.id)
+    membership = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == identity.pilot.id))
     username = identity.user.username if identity.user else None
     log_action(session, actor_user_id=admin.id, action="pilot.create", entity_type="pilot", entity_id=str(identity.pilot.id), details={"event_id": event_id, "username": username})
     session.commit()
-    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password)
+    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password, pilot_class=membership.pilot_class if membership else DEFAULT_PILOT_CLASS)
 
 
 @router.post("/api/events/{event_id}/pilots/{pilot_id}/assign", response_model=PilotResponse)
@@ -131,9 +140,38 @@ def assign_existing_pilot(event_id: int, pilot_id: int, admin: User = Depends(ge
         raise HTTPException(status_code=404, detail="Pilot not found")
     identity = ensure_pilot_login_identity(session, pilot)
     ensure_event_membership(session, event_id, identity.pilot.id)
+    membership = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == identity.pilot.id))
     log_action(session, actor_user_id=admin.id, action="pilot.assign_existing", entity_type="pilot", entity_id=str(identity.pilot.id), details={"event_id": event_id, "source_pilot_id": pilot_id})
     session.commit()
-    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password)
+    return _pilot_payload(session, identity.pilot, temp_password=identity.temp_password, pilot_class=membership.pilot_class if membership else DEFAULT_PILOT_CLASS)
+
+
+@router.patch("/api/events/{event_id}/pilots/{pilot_id}/class", response_model=PilotResponse)
+def update_event_pilot_class(
+    event_id: int,
+    pilot_id: int,
+    payload: PilotClassUpdate,
+    actor: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> PilotResponse:
+    require_event_manager(session, actor, session.get(Event, event_id))
+    membership = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == pilot_id))
+    pilot = session.get(Pilot, pilot_id)
+    if membership is None or pilot is None:
+        raise HTTPException(status_code=404, detail="Pilot is not assigned to this event")
+    membership.pilot_class = payload.pilot_class
+    session.flush()
+    rescored_task_count = rescore_scored_event_tasks(session, event_id)
+    log_action(
+        session,
+        actor_user_id=actor.id,
+        action="event_pilot.class.update",
+        entity_type="pilot",
+        entity_id=str(pilot_id),
+        details={"event_id": event_id, "pilot_class": payload.pilot_class, "rescored_task_count": rescored_task_count},
+    )
+    session.commit()
+    return _pilot_payload(session, pilot, pilot_class=membership.pilot_class)
 
 
 @router.put("/api/pilots/{pilot_id}", response_model=PilotResponse)
@@ -213,7 +251,8 @@ async def import_pilots(event_id: int, file: UploadFile = File(...), admin: User
         session.flush()
         identity = ensure_pilot_login_identity(session, pilot, (row.get("username") or "").strip() or None, (row.get("password") or "").strip() or None)
         ensure_event_membership(session, event_id, identity.pilot.id)
-        imported.append(_pilot_payload(session, identity.pilot, temp_password=identity.temp_password))
+        membership = session.scalar(select(EventPilot).where(EventPilot.event_id == event_id, EventPilot.pilot_id == identity.pilot.id))
+        imported.append(_pilot_payload(session, identity.pilot, temp_password=identity.temp_password, pilot_class=membership.pilot_class if membership else DEFAULT_PILOT_CLASS))
     log_action(session, actor_user_id=admin.id, action="pilot.import_csv", entity_type="event", entity_id=str(event_id), details={"filename": file.filename, "count": len(imported)})
     session.commit()
     return imported

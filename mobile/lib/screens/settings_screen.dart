@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:passkeys/types.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -25,6 +26,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   int? _runtimeBatteryLevel;
   bool? _runtimeBatteryCharging;
   bool _profileUpdating = false;
+  bool _passkeysLoading = false;
+  List<PasskeyCredentialInfo> _passkeys = [];
 
   @override
   void initState() {
@@ -38,8 +41,99 @@ class _SettingsScreenState extends State<SettingsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       unawaited(
-          context.read<AuthService>().refreshUserProfile().catchError((_) {}));
+        context.read<AuthService>().refreshUserProfile().catchError((_) {}),
+      );
+      unawaited(_loadPasskeys());
     });
+  }
+
+  Future<void> _loadPasskeys() async {
+    setState(() => _passkeysLoading = true);
+    try {
+      final passkeys = await context.read<AuthService>().listPasskeys();
+      if (mounted) setState(() => _passkeys = passkeys);
+    } catch (_) {
+      // Settings remain usable offline.
+    } finally {
+      if (mounted) setState(() => _passkeysLoading = false);
+    }
+  }
+
+  Future<String?> _askPasskeyName(String title, String initialValue) async {
+    final controller = TextEditingController(text: initialValue);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLength: 80,
+          decoration: const InputDecoration(labelText: 'Passkey name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    return result?.isEmpty == true ? null : result;
+  }
+
+  Future<void> _addPasskey() async {
+    final name = await _askPasskeyName('Add passkey', 'Android device');
+    if (name == null || !mounted) return;
+    try {
+      await context.read<AuthService>().createPasskey(name);
+      await _loadPasskeys();
+    } on PasskeyAuthCancelledException {
+      return;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Passkey could not be added')),
+        );
+      }
+    }
+  }
+
+  Future<void> _renamePasskey(PasskeyCredentialInfo passkey) async {
+    final name = await _askPasskeyName('Rename passkey', passkey.name);
+    if (name == null || !mounted) return;
+    await context.read<AuthService>().renamePasskey(passkey.id, name);
+    await _loadPasskeys();
+  }
+
+  Future<void> _removePasskey(PasskeyCredentialInfo passkey) async {
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Remove passkey?'),
+            content: Text('${passkey.name} will no longer sign in to Aervyx.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('Remove'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    await context.read<AuthService>().removePasskey(passkey.id);
+    await _loadPasskeys();
   }
 
   Future<void> _loadRuntimeBatterySettings() async {
@@ -114,7 +208,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       appBar: AppBar(title: const Text('Settings')),
       body: ListView(
         padding: EdgeInsets.fromLTRB(
-            16, 16, 16, 16 + MediaQuery.of(context).padding.bottom),
+          16,
+          16,
+          16,
+          16 + MediaQuery.of(context).padding.bottom,
+        ),
         children: [
           // ── User Info ──
           Card(
@@ -127,11 +225,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     child: Text(
                       user != null
                           ? user.fullName
-                              .split(' ')
-                              .map((w) => w.isNotEmpty ? w[0] : '')
-                              .take(2)
-                              .join()
-                              .toUpperCase()
+                                .split(' ')
+                                .map((w) => w.isNotEmpty ? w[0] : '')
+                                .take(2)
+                                .join()
+                                .toUpperCase()
                           : '?',
                       style: const TextStyle(fontSize: 18),
                     ),
@@ -162,11 +260,80 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
+          Text(
+            'Security',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                children: [
+                  const ListTile(
+                    leading: Icon(Icons.fingerprint),
+                    title: Text('Passkeys'),
+                    subtitle: Text(
+                      'Use face, fingerprint, or your device PIN. '
+                      'Aervyx never receives biometric data.',
+                    ),
+                  ),
+                  if (_passkeysLoading)
+                    const LinearProgressIndicator()
+                  else
+                    ..._passkeys.map(
+                      (passkey) => ListTile(
+                        title: Text(passkey.name),
+                        subtitle: Text(
+                          passkey.lastUsedAt == null
+                              ? 'Added ${passkey.createdAt.toLocal().toString().split(' ').first}'
+                              : 'Last used ${passkey.lastUsedAt!.toLocal().toString().split(' ').first}',
+                        ),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (action) {
+                            if (action == 'rename') {
+                              unawaited(_renamePasskey(passkey));
+                            } else {
+                              unawaited(_removePasskey(passkey));
+                            }
+                          },
+                          itemBuilder: (_) => const [
+                            PopupMenuItem(
+                              value: 'rename',
+                              child: Text('Rename'),
+                            ),
+                            PopupMenuItem(
+                              value: 'remove',
+                              child: Text('Remove'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _passkeysLoading ? null : _addPasskey,
+                      icon: const Icon(Icons.add),
+                      label: const Text('Add passkey'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
           // ── Meshtastic ──
-          Text('Profile',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'Profile',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           Card(
             child: SwitchListTile(
@@ -191,8 +358,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       final messenger = ScaffoldMessenger.of(context);
                       setState(() => _profileUpdating = true);
                       try {
-                        await auth
-                            .updateProfileType(enabled ? 'driver' : 'pilot');
+                        await auth.updateProfileType(
+                          enabled ? 'driver' : 'pilot',
+                        );
                         if (!enabled && tracking.isDriverTracking) {
                           await tracking.stopTracking();
                         }
@@ -215,10 +383,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const SizedBox(height: 24),
 
-          Text('Meshtastic',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'Meshtastic',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           Card(
             child: InkWell(
@@ -261,8 +431,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ],
                       ),
                     ),
-                    Icon(Icons.chevron_right,
-                        color: theme.colorScheme.onSurfaceVariant),
+                    Icon(
+                      Icons.chevron_right,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ],
                 ),
               ),
@@ -272,10 +444,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 32),
 
           // Battery Settings
-          Text('Battery Settings',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'Battery Settings',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           Card(
             child: Padding(
@@ -285,20 +459,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    leading: Icon(Icons.battery_charging_full,
-                        color: theme.colorScheme.primary),
+                    leading: Icon(
+                      Icons.battery_charging_full,
+                      color: theme.colorScheme.primary,
+                    ),
                     title: const Text('Battery Optimization'),
-                    subtitle:
-                        const Text('Allow unrestricted background runtime'),
+                    subtitle: const Text(
+                      'Allow unrestricted background runtime',
+                    ),
                     trailing: const Icon(Icons.open_in_new),
-                    onTap: () => PersistentRuntimeService
-                        .openBatteryOptimizationSettings(),
+                    onTap: () =>
+                        PersistentRuntimeService.openBatteryOptimizationSettings(),
                   ),
                   const Divider(height: 24),
                   Row(
                     children: [
-                      Icon(Icons.battery_saver,
-                          size: 20, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.battery_saver,
+                        size: 20,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
@@ -356,8 +536,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Divider(height: 32),
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    secondary: Icon(Icons.power_settings_new,
-                        color: theme.colorScheme.primary),
+                    secondary: Icon(
+                      Icons.power_settings_new,
+                      color: theme.colorScheme.primary,
+                    ),
                     title: const Text('Critical battery shutdown'),
                     subtitle: Text(
                       _runtimeBatteryThreshold == null
@@ -419,20 +601,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 32),
 
           // ── SOS Message ──
-          Text('SOS Message',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'SOS Message',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           _SosMessageEditor(ble: ble),
 
           const SizedBox(height: 32),
 
           // ── Flight Settings ──
-          Text('Flight Settings',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'Flight Settings',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           Card(
             child: Padding(
@@ -499,8 +685,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // Multi-flight toggle
                   Row(
                     children: [
-                      Icon(Icons.replay,
-                          size: 20, color: theme.colorScheme.primary),
+                      Icon(
+                        Icons.replay,
+                        size: 20,
+                        color: theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -531,11 +720,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   // Debug mode toggle
                   Row(
                     children: [
-                      Icon(Icons.bug_report,
-                          size: 20,
-                          color: tracking.debugMode
-                              ? Colors.orange
-                              : theme.colorScheme.primary),
+                      Icon(
+                        Icons.bug_report,
+                        size: 20,
+                        color: tracking.debugMode
+                            ? Colors.orange
+                            : theme.colorScheme.primary,
+                      ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Column(
@@ -558,7 +749,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       Switch(
                         value: tracking.debugMode,
-                        activeColor: Colors.orange,
+                        activeThumbColor: Colors.orange,
                         onChanged: (enabled) {
                           tracking.setDebugMode(enabled);
                         },
@@ -573,10 +764,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 32),
 
           // ── Units Section ──
-          Text('Units',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'Units',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           Card(
             child: Padding(
@@ -626,10 +819,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 32),
 
           // ── App Info ──
-          Text('App Info',
-              style: theme.textTheme.titleSmall?.copyWith(
-                color: theme.colorScheme.primary,
-              )),
+          Text(
+            'App Info',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 8),
           Card(
             child: Padding(
@@ -637,7 +832,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _InfoRow(label: 'App', value: 'Aervyx Pilot'),
+                  const _InfoRow(label: 'App', value: 'Aervyx Pilot'),
                   const SizedBox(height: 4),
                   _InfoRow(label: 'Version', value: _version),
                   const SizedBox(height: 12),
@@ -658,9 +853,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         const SizedBox(width: 6),
                         Text(
                           'Download latest app',
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(
                                 color: Theme.of(context).colorScheme.primary,
                                 decoration: TextDecoration.underline,
@@ -757,8 +950,10 @@ class _SosMessageEditorState extends State<_SosMessageEditor> {
                 hintText: 'Enter your SOS message...',
                 suffixIcon: _dirty
                     ? IconButton(
-                        icon:
-                            const Icon(Icons.check_circle, color: Colors.green),
+                        icon: const Icon(
+                          Icons.check_circle,
+                          color: Colors.green,
+                        ),
                         tooltip: 'Save',
                         onPressed: _save,
                       )
@@ -812,19 +1007,14 @@ class _UnitRow extends StatelessWidget {
       children: [
         Icon(icon, size: 20, color: theme.colorScheme.primary),
         const SizedBox(width: 8),
-        Expanded(
-          child: Text(label, style: theme.textTheme.bodyMedium),
-        ),
+        Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
         DropdownButton<String>(
           value: value,
           onChanged: (v) {
             if (v != null) onChanged(v);
           },
           items: options.entries
-              .map((e) => DropdownMenuItem(
-                    value: e.key,
-                    child: Text(e.value),
-                  ))
+              .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
               .toList(),
         ),
       ],

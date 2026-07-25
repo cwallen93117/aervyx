@@ -296,13 +296,15 @@ export default function ScoringOperationsPanel({
     [rows, hasResults],
   );
   const activeRow = useMemo(() => sortedRows.find((row) => row.pilot_id === panelPilotId) ?? null, [panelPilotId, sortedRows]);
+  const penaltyBaseScore = (activeRow?.result?.raw_score_points ?? activeRow?.result?.score_points ?? 0)
+    + (activeRow?.result?.handicap_adjustment_points ?? 0);
   const penaltyCascade = useMemo(
-    () => calculatePenaltyCascade(activeRow?.result?.raw_score_points ?? activeRow?.result?.score_points ?? 0, draftPenalties),
-    [activeRow, draftPenalties],
+    () => calculatePenaltyCascade(penaltyBaseScore, draftPenalties),
+    [penaltyBaseScore, draftPenalties],
   );
   const automaticPenaltyLines = activeRow?.result?.penalty_calculation?.lines.filter((line) => line.kind === "engine") ?? [];
   const automaticPenaltyPoints = automaticPenaltyLines.reduce((total, line) => total + Number(line.amount_points || 0), 0);
-  const manualPenaltyPoints = Math.max(Number(activeRow?.result?.raw_score_points ?? activeRow?.result?.score_points ?? 0) - penaltyCascade.final, 0);
+  const manualPenaltyPoints = Math.max(penaltyBaseScore - penaltyCascade.final, 0);
   const prePenaltyTotalPoints = penaltyCascade.final + manualPenaltyPoints + automaticPenaltyPoints;
 
   const reloadTaskAndRows = async () => {
