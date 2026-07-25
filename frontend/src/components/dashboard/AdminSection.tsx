@@ -190,7 +190,7 @@ const MAP_GROUPS = [
   { key: "site_preview", label: "Site Preview", maps: ["admin_site_preview"] },
 ] as const;
 const HIGH_FLOOR_AIRSPACE_CONTEXTS = ["task_builder", "scoring", "dashboard_live", "public_live", "airspace_explorer"] as const;
-type UserSortField = "first_name" | "last_name" | "username" | "role" | "status";
+type UserSortField = "first_name" | "last_name" | "username" | "role" | "status" | "created_at";
 type SortDir = "asc" | "desc";
 type LiveTrackingSortField = "status" | "device_pilot" | "purpose" | "sources" | "device_id" | "battery" | "fix_path" | "last_heard";
 
@@ -588,6 +588,8 @@ export default function AdminSection(props: AdminSectionProps) {
         }
         case "status":
           return dir * (Number(b.is_active) - Number(a.is_active));
+        case "created_at":
+          return dir * a.created_at.localeCompare(b.created_at);
         default:
           return 0;
       }
@@ -1118,7 +1120,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     <SortHeader field="username" label="Username" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="role" label="Role" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="status" label="Status" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
-                    <th>Created</th>
+                    <SortHeader field="created_at" label="Created" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <th>Mesh Device</th>
                     <th className="participant-table-actions">Actions</th>
                   </tr>
