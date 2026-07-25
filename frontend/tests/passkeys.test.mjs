@@ -40,6 +40,13 @@ test("login uses conditional mediation and WebAuthn autofill", () => {
   assert.match(login, /Sign in with a passkey/);
 });
 
+test("passkey setup is only shown in account settings", () => {
+  const dashboard = readFileSync(join(root, "src", "app", "dashboard", "page.tsx"), "utf8");
+  const settings = readFileSync(join(root, "src", "components", "dashboard", "PasskeyManager.tsx"), "utf8");
+  assert.doesNotMatch(dashboard, /Set up a passkey|Not now/);
+  assert.match(settings, /Add passkey/);
+});
+
 test("Android asset link matches the release application and certificate", () => {
   const assetLinks = JSON.parse(readFileSync(join(root, "public", ".well-known", "assetlinks.json"), "utf8"));
   assert.equal(assetLinks[0].target.package_name, "com.aervyx.aervyx_mobile");

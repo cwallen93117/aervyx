@@ -4668,6 +4668,54 @@ button[type="submit"]:hover,
   transform: rotate(45deg);
 }
 
+.task-downloads-panel {
+  margin-top: 10px;
+}
+
+.task-download-list {
+  display: grid;
+  gap: 8px;
+}
+
+.task-download-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(88px, 120px) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+}
+
+.task-download-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.task-download-row strong,
+.task-download-row span {
+  overflow-wrap: anywhere;
+}
+
+.task-download-row span {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.task-download-row select {
+  min-height: 30px;
+  padding: 4px 28px 4px 8px;
+  font-size: 0.8125rem;
+}
+
+.task-download-row .ghost-button {
+  min-height: 30px;
+  padding: 4px 10px;
+  font-size: 0.8125rem;
+}
+
 .results-table-task thead th,
 .results-table-task tbody td {
   text-align: center;
@@ -7487,6 +7535,15 @@ button[type="submit"]:hover,
   .compact-labeled-row label.stack.compact select,
   .compact-labeled-row label.stack.compact textarea {
     max-width: none;
+  }
+
+  .task-download-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .task-download-row select,
+  .task-download-row .ghost-button {
+    width: 100%;
   }
 }
 

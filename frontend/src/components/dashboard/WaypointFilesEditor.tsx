@@ -42,6 +42,18 @@ const turnpointSymbolOptions = [
   { value: "launch", label: "Launch" },
 ] satisfies Array<{ value: TurnpointSymbol; label: string }>;
 
+const waypointExportFormats = [
+  { value: "gpx", label: "GPX" },
+  { value: "cup", label: "CUP" },
+  { value: "wpt", label: "WPT" },
+  { value: "kmz", label: "KMZ" },
+  { value: "csv", label: "CSV" },
+] as const;
+
+function defaultExportFormat(fileFormat: string | null | undefined): string {
+  return waypointExportFormats.some((option) => option.value === fileFormat) ? fileFormat as string : "gpx";
+}
+
 function resolveApiBase() {
   const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
   if (configured?.startsWith("/")) return configured;
@@ -198,6 +210,7 @@ export default function WaypointFilesEditor({
   const [saveAsSource, setSaveAsSource] = useState<WaypointFileSourceRecord | null>(null);
   const [saveAsFilename, setSaveAsFilename] = useState("");
   const [saveAsFormat, setSaveAsFormat] = useState("gpx");
+  const [downloadFormats, setDownloadFormats] = useState<Record<number, string>>({});
 
   useEffect(() => {
     if (selectedSourceId && !sources.some((source) => source.id === selectedSourceId)) {
@@ -291,9 +304,10 @@ export default function WaypointFilesEditor({
 
   async function downloadTurnpointSource(source: WaypointFileSourceRecord) {
     if (!token) return;
+    const format = downloadFormats[source.id] ?? defaultExportFormat(source.file_format);
     try {
-      const { blob, filename } = await apiFetchBlob(`/api/turnpoint-library/${source.id}/download`, token);
-      downloadBlob(blob, filename ?? source.filename);
+      const { blob, filename } = await apiFetchBlob(`/api/turnpoint-library/${source.id}/download?format=${encodeURIComponent(format)}`, token);
+      downloadBlob(blob, filename ?? `${source.filename.replace(/\.[^.]+$/, "")}.${format}`);
       setMessage(`Started downloading ${source.filename}.`);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not download that waypoint file.");
@@ -322,7 +336,7 @@ export default function WaypointFilesEditor({
     const suffix = source.filename.includes(".") ? source.filename.slice(source.filename.lastIndexOf(".")) : "";
     setSaveAsSource(source);
     setSaveAsFilename(`${stem} v2${suffix}`);
-    setSaveAsFormat(source.file_format);
+    setSaveAsFormat(defaultExportFormat(source.file_format));
   }
 
   async function saveTurnpointSourceAs() {
@@ -451,6 +465,13 @@ export default function WaypointFilesEditor({
                     <td className="participant-table-actions">
                       <div className="compact-slot-actions">
                           <button type="button" className="ghost-button" onClick={() => void loadSourceTurnpoints(source)}>Edit</button>
+                          <select
+                            value={downloadFormats[source.id] ?? defaultExportFormat(source.file_format)}
+                            aria-label={`Download format for ${source.filename}`}
+                            onChange={(event) => setDownloadFormats((current) => ({ ...current, [source.id]: event.target.value }))}
+                          >
+                            {waypointExportFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </select>
                           <button type="button" className="ghost-button" onClick={() => void downloadTurnpointSource(source)}>Download</button>
                           <button type="button" className="ghost-button" onClick={() => void renameTurnpointSource(source)}>Rename</button>
                           <button type="button" className="ghost-button" onClick={() => openSaveAs(source)}>Save as</button>
@@ -638,9 +659,7 @@ export default function WaypointFilesEditor({
             <label className="stack compact">
               <span>Format</span>
               <select value={saveAsFormat} onChange={(event) => setSaveAsFormat(event.target.value)}>
-                <option value="gpx">GPX</option>
-                <option value="csv">CSV</option>
-                <option value="geojson">GeoJSON</option>
+                {waypointExportFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
               </select>
             </label>
             <div className="confirm-actions">

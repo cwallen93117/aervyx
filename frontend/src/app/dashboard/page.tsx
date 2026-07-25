@@ -8,7 +8,6 @@ import { type MapAirspaceRegion, type MapTurnpoint, type TrackCollection } from 
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories } from "../../lib/faaAirspace";
 import { readHandicapConfig, writeHandicapConfig, type PilotClass } from "../../lib/handicap";
-import { listPasskeys } from "../../lib/passkeys";
 
 import EventsSection from "../../components/dashboard/EventsSection";
 import TasksSection from "../../components/dashboard/TasksSection";
@@ -386,7 +385,6 @@ const SIDEBAR_COMPACT_KEY = "flightcomp-platform-sidebar-compact";
 const LAST_EVENT_KEY = "flightcomp-platform-last-event-id";
 const ACTIVE_SECTION_KEY = "flightcomp-platform-active-section";
 const SESSION_COOKIE = "flightcomp_session";
-const PASSKEY_SETUP_SUGGESTION = "aervyx-passkey-setup-suggestion";
 const TOKEN_REFRESH_EVENT = "flightcomp-token-refresh";
 const DEFAULT_MESSAGE = "Use admin / admin1234 or pilot-demo / pilot1234 after the backend seed runs.";
 type SidebarItem = { id: SidebarSection; label: string; description?: string };
@@ -415,7 +413,6 @@ const organizerSidebarItems = [
   { id: "settings", label: "Settings" },
 ] satisfies SidebarItem[];
 const pilotSidebarItems = [
-  { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -451,7 +448,7 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
   if (section && allowedSections.has(section as SidebarSection)) {
     return section as SidebarSection;
   }
-  if (role === "pilot") return "events";
+  if (role === "pilot") return "tasks";
   if (role === null) return "scoring";
   return "events";
 }
@@ -886,7 +883,6 @@ async function apiFetchPublic<T>(path: string, init: RequestInit = {}): Promise<
 export default function HomePage() {
   const [token, setToken] = useState("");
   const [user, setUser] = useState<User | null>(null);
-  const [showPasskeySuggestion, setShowPasskeySuggestion] = useState(false);
   const [activeSection, setActiveSection] = useState<SidebarSection>("events");
   const [airspaceRefreshToken, setAirspaceRefreshToken] = useState(0);
   const [tfrRefreshToken, setTfrRefreshToken] = useState(0);
@@ -1244,12 +1240,6 @@ export default function HomePage() {
     if (!user) return;
     window.localStorage.setItem(ACTIVE_SECTION_KEY, activeSection);
   }, [activeSection, user]);
-
-  useEffect(() => {
-    if (!user || !token || window.sessionStorage.getItem(PASSKEY_SETUP_SUGGESTION) !== "1") return;
-    window.sessionStorage.removeItem(PASSKEY_SETUP_SUGGESTION);
-    void listPasskeys(token).then((passkeys) => setShowPasskeySuggestion(passkeys.length === 0)).catch(() => {});
-  }, [token, user]);
 
   useEffect(() => {
     if (!user) return;
@@ -2892,6 +2882,8 @@ export default function HomePage() {
             selectedTaskId={selectedTaskId}
             selectedTask={selectedTask}
             taskDraft={taskDraft}
+            turnpointSources={turnpointSources}
+            airspaceSources={airspaceSources}
             setTaskDraft={setTaskDraft}
             taskPointAdvanced={taskPointAdvanced}
             toggleTaskPointAdvanced={toggleTaskPointAdvanced}
@@ -2978,6 +2970,8 @@ export default function HomePage() {
               selectedTaskId={selectedTaskId}
               selectedTask={selectedTask}
               taskDraft={taskDraft}
+              turnpointSources={turnpointSources}
+              airspaceSources={airspaceSources}
               setTaskDraft={setTaskDraft}
               taskPointAdvanced={taskPointAdvanced}
               toggleTaskPointAdvanced={toggleTaskPointAdvanced}
@@ -3191,7 +3185,6 @@ export default function HomePage() {
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
               canManagePlatform={canManagePlatform}
-              openPasskeys={showPasskeySuggestion}
             />
           );
         case "admin":
@@ -3239,7 +3232,6 @@ export default function HomePage() {
               onPilotClaimed={handlePilotClaimed}
               onMeshDevicesChanged={handleMeshDevicesChanged}
               canManagePlatform={canManagePlatform}
-              openPasskeys={showPasskeySuggestion}
             />
           );
       }
@@ -3309,15 +3301,6 @@ export default function HomePage() {
             {workspaceLoading ? (
               <div className="status-row">
                 <div className="status-chip pending">Loading event workspace...</div>
-              </div>
-            ) : null}
-            {showPasskeySuggestion ? (
-              <div className="status-row">
-                <div className="status-chip pending">
-                  Use face, fingerprint, Windows Hello, or your device PIN next time.
-                  <button type="button" onClick={() => setActiveSection("settings")}>Set up a passkey</button>
-                  <button type="button" onClick={() => setShowPasskeySuggestion(false)}>Not now</button>
-                </div>
               </div>
             ) : null}
             {renderActiveSection()}

@@ -4,6 +4,7 @@ import hashlib
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,7 @@ from app.models import AirspaceRegion, AirspaceSource, Event, User
 from app.schemas import AirspaceRegionResponse, AirspaceSourceResponse, AirspaceSourceUpdate, AirspaceUploadResponse
 from app.services.airspace import _display_category, parse_airspace_upload
 from app.services.audit import log_action
+from app.services.waypoint_access import can_view_waypoints
 
 router = APIRouter(tags=["airspace"])
 
@@ -61,6 +63,21 @@ def list_airspaces(event_id: int, user: User = Depends(get_current_user), sessio
         raise HTTPException(status_code=404, detail="Event not found")
     regions = session.scalars(select(AirspaceRegion).where(AirspaceRegion.event_id == event_id).order_by(AirspaceRegion.is_restricted_field.asc(), AirspaceRegion.name.asc())).all()
     return [AirspaceRegionResponse.model_validate(region) for region in regions]
+
+
+@router.get("/api/events/{event_id}/airspace-sources/{source_id}/download")
+def download_airspace_source(event_id: int, source_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> FileResponse:
+    event = session.get(Event, event_id)
+    if event is None or not can_view_waypoints(session, user, event):
+        raise HTTPException(status_code=404, detail="Event not found")
+    source = session.get(AirspaceSource, source_id)
+    if source is None or source.event_id != event_id:
+        raise HTTPException(status_code=404, detail="Airspace source not found")
+    stored_path = Path(source.stored_path)
+    if not stored_path.exists():
+        raise HTTPException(status_code=404, detail="Stored airspace file not found")
+    media_type = {"openair": "text/plain", "geojson": "application/geo+json"}.get(source.file_format, "application/octet-stream")
+    return FileResponse(stored_path, filename=source.filename, media_type=media_type)
 
 
 @router.post("/api/events/{event_id}/airspaces/upload", response_model=AirspaceUploadResponse)

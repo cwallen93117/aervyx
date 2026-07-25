@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import BuddyGroupsManager from "./BuddyGroupsManager";
 import EmailsManager from "./EmailsManager";
 import MeshDevicesManager from "./MeshDevicesManager";
@@ -36,7 +36,6 @@ export interface SettingsSectionProps {
   onPilotClaimed: () => void;
   onMeshDevicesChanged?: () => void | Promise<void>;
   canManagePlatform: boolean;
-  openPasskeys?: boolean;
 }
 
 type SettingsTab = "profile" | "units" | "password" | "emails" | "meshtastic" | "pilot_record" | "buddies" | "turnpoint_library";
@@ -128,13 +127,9 @@ export default function SettingsSection(props: SettingsSectionProps) {
     onPilotClaimed,
     onMeshDevicesChanged,
     canManagePlatform,
-    openPasskeys = false,
   } = props;
 
   const [activeTab, setActiveTab] = useState<SettingsTab>("profile");
-  useEffect(() => {
-    if (openPasskeys) setActiveTab("password");
-  }, [openPasskeys]);
 
   return (
     <div className="section-stack">
