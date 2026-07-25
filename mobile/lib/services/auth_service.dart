@@ -3,6 +3,8 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:passkeys/authenticator.dart';
+import 'package:passkeys/types.dart';
 
 import '../config/api_config.dart';
 import '../models/user.dart';
@@ -17,10 +19,12 @@ class AuthService extends ChangeNotifier {
 
   final ApiService _api;
   final FlutterSecureStorage _storage = const FlutterSecureStorage();
+  final PasskeyAuthenticator _passkeys;
 
   User? _user;
   bool _loading = true;
   bool _profileTypeSyncPending = false;
+  bool _suggestPasskeySetup = false;
   Future<bool>? _refreshFuture;
 
   User? get user => _user;
@@ -28,8 +32,10 @@ class AuthService extends ChangeNotifier {
   bool get loading => _loading;
   String? get token => _api.token;
   bool get profileTypeSyncPending => _profileTypeSyncPending;
+  bool get suggestPasskeySetup => _suggestPasskeySetup;
 
-  AuthService(this._api) {
+  AuthService(this._api, {PasskeyAuthenticator? passkeys})
+    : _passkeys = passkeys ?? PasskeyAuthenticator() {
     _api.setAuthRefreshHandler(refreshAccessToken);
   }
 
@@ -52,11 +58,13 @@ class AuthService extends ChangeNotifier {
       final raw = await _storage.read(key: _pendingProfileTypeKey);
       if (raw == null) return null;
       final json = jsonDecode(raw) as Map<String, dynamic>;
-      final profileType =
-          (json['profile_type'] as String?)?.trim().toLowerCase();
+      final profileType = (json['profile_type'] as String?)
+          ?.trim()
+          .toLowerCase();
       final updatedAtRaw = json['profile_type_updated_at'] as String?;
-      final updatedAt =
-          updatedAtRaw == null ? null : DateTime.tryParse(updatedAtRaw);
+      final updatedAt = updatedAtRaw == null
+          ? null
+          : DateTime.tryParse(updatedAtRaw);
       if ((profileType != 'pilot' && profileType != 'driver') ||
           updatedAt == null) {
         await _storage.delete(key: _pendingProfileTypeKey);
@@ -99,6 +107,27 @@ class AuthService extends ChangeNotifier {
     if (auth.refreshToken != null && auth.refreshToken!.isNotEmpty) {
       await _storage.write(key: _refreshTokenKey, value: auth.refreshToken);
     }
+  }
+
+  Future<void> _completeLogin(
+    Map<String, dynamic> json, {
+    bool checkPasskeySetup = false,
+  }) async {
+    final auth = AuthToken.fromJson(json);
+    await _storeAuthToken(auth);
+    await _clearPendingProfileType();
+    _user = auth.user;
+    await _cacheUser(auth.user);
+    if (checkPasskeySetup) {
+      try {
+        _suggestPasskeySetup = (await listPasskeys()).isEmpty;
+      } catch (_) {
+        _suggestPasskeySetup = false;
+      }
+    } else {
+      _suggestPasskeySetup = false;
+    }
+    notifyListeners();
   }
 
   Future<void> _clearStoredSession({bool notify = true}) async {
@@ -161,12 +190,16 @@ class AuthService extends ChangeNotifier {
 
     _profileTypeSyncPending = true;
     try {
-      final request = _api.patch(ApiConfig.preferencesPath, body: {
-        'profile_type': pending.profileType,
-        'profile_type_updated_at': pending.updatedAt.toIso8601String(),
-      });
-      final json =
-          timeout == null ? await request : await request.timeout(timeout);
+      final request = _api.patch(
+        ApiConfig.preferencesPath,
+        body: {
+          'profile_type': pending.profileType,
+          'profile_type_updated_at': pending.updatedAt.toIso8601String(),
+        },
+      );
+      final json = timeout == null
+          ? await request
+          : await request.timeout(timeout);
       final serverUser = User.fromJson(json);
 
       await _clearPendingProfileType();
@@ -242,16 +275,13 @@ class AuthService extends ChangeNotifier {
 
   /// Log in with email and password.
   Future<void> login(String email, String password) async {
-    final json = await _api.post(ApiConfig.loginPath, body: {
-      'username': email.trim(),
-      'password': password,
-    }).timeout(const Duration(seconds: 45));
-    final auth = AuthToken.fromJson(json);
-    await _storeAuthToken(auth);
-    await _clearPendingProfileType();
-    await _cacheUser(auth.user);
-    _user = auth.user;
-    notifyListeners();
+    final json = await _api
+        .post(
+          ApiConfig.loginPath,
+          body: {'username': email.trim(), 'password': password},
+        )
+        .timeout(const Duration(seconds: 45));
+    await _completeLogin(json, checkPasskeySetup: true);
   }
 
   /// Register a new pilot account.
@@ -263,33 +293,89 @@ class AuthService extends ChangeNotifier {
     String? nation,
     String? competitionNumber,
   }) async {
-    final json = await _api.post(ApiConfig.registerPath, body: {
-      'first_name': firstName.trim(),
-      'last_name': lastName.trim(),
-      'email': email.trim(),
-      'password': password,
-      'account_role': 'pilot',
-      if (nation != null) 'nation': nation,
-      if (competitionNumber != null) 'competition_number': competitionNumber,
-    });
-    final auth = AuthToken.fromJson(json);
-    await _storeAuthToken(auth);
-    await _clearPendingProfileType();
-    _user = auth.user;
-    await _cacheUser(auth.user);
-    notifyListeners();
+    final json = await _api.post(
+      ApiConfig.registerPath,
+      body: {
+        'first_name': firstName.trim(),
+        'last_name': lastName.trim(),
+        'email': email.trim(),
+        'password': password,
+        'account_role': 'pilot',
+        if (nation != null) 'nation': nation,
+        if (competitionNumber != null) 'competition_number': competitionNumber,
+      },
+    );
+    await _completeLogin(json, checkPasskeySetup: true);
   }
 
   /// Log in with a Google ID token (obtained from google_sign_in package).
   Future<void> loginWithGoogle(String idToken) async {
-    final json = await _api.post(ApiConfig.googleAuthPath, body: {
-      'credential': idToken,
-    });
-    final auth = AuthToken.fromJson(json);
-    await _storeAuthToken(auth);
-    await _clearPendingProfileType();
-    _user = auth.user;
-    await _cacheUser(auth.user);
+    final json = await _api.post(
+      ApiConfig.googleAuthPath,
+      body: {'credential': idToken},
+    );
+    await _completeLogin(json, checkPasskeySetup: true);
+  }
+
+  Future<void> loginWithPasskey({
+    bool preferImmediatelyAvailableCredentials = false,
+  }) async {
+    final options = await _api.post(ApiConfig.passkeyLoginOptionsPath);
+    final request = AuthenticateRequestType.fromJson(
+      Map<String, dynamic>.from(options['public_key'] as Map),
+      preferImmediatelyAvailableCredentials:
+          preferImmediatelyAvailableCredentials,
+    );
+    final credential = await _passkeys.authenticate(request);
+    final json = await _api.post(
+      ApiConfig.passkeyLoginVerifyPath,
+      body: {
+        'ceremony_id': options['ceremony_id'],
+        'credential': credential.toJson(),
+      },
+    );
+    await _completeLogin(json);
+  }
+
+  Future<List<PasskeyCredentialInfo>> listPasskeys() async {
+    final rows = await _api.getList(ApiConfig.passkeysPath);
+    return rows
+        .whereType<Map<String, dynamic>>()
+        .map(PasskeyCredentialInfo.fromJson)
+        .toList();
+  }
+
+  Future<void> createPasskey(String name) async {
+    final options = await _api.post(ApiConfig.passkeyRegisterOptionsPath);
+    final request = RegisterRequestType.fromJson(
+      Map<String, dynamic>.from(options['public_key'] as Map),
+    );
+    final credential = await _passkeys.register(request);
+    await _api.post(
+      ApiConfig.passkeyRegisterVerifyPath,
+      body: {
+        'ceremony_id': options['ceremony_id'],
+        'credential': credential.toJson(),
+        'name': name.trim(),
+      },
+    );
+    _suggestPasskeySetup = false;
+    notifyListeners();
+  }
+
+  Future<void> renamePasskey(int id, String name) async {
+    await _api.patch(
+      '${ApiConfig.passkeysPath}/$id',
+      body: {'name': name.trim()},
+    );
+  }
+
+  Future<void> removePasskey(int id) async {
+    await _api.delete('${ApiConfig.passkeysPath}/$id');
+  }
+
+  void dismissPasskeySetupSuggestion() {
+    _suggestPasskeySetup = false;
     notifyListeners();
   }
 
@@ -359,20 +445,21 @@ class AuthService extends ChangeNotifier {
     await _cacheUser(_user!);
     notifyListeners();
 
-    await _tryFlushPendingProfileType(
-      timeout: const Duration(seconds: 5),
-    );
+    await _tryFlushPendingProfileType(timeout: const Duration(seconds: 5));
   }
 
   Future<void> _syncUnitsToBackend() async {
     if (_user == null || isBleTestMode) return;
     try {
-      await _api.patch(ApiConfig.preferencesPath, body: {
-        'altitude_unit': _user!.altitudeUnit,
-        'speed_unit': _user!.speedUnit,
-        'distance_unit': _user!.distanceUnit,
-        'vario_unit': _user!.varioUnit,
-      });
+      await _api.patch(
+        ApiConfig.preferencesPath,
+        body: {
+          'altitude_unit': _user!.altitudeUnit,
+          'speed_unit': _user!.speedUnit,
+          'distance_unit': _user!.distanceUnit,
+          'vario_unit': _user!.varioUnit,
+        },
+      );
       await _cacheUser(_user!);
     } catch (_) {
       // Backend unreachable: local change is kept.
@@ -390,4 +477,29 @@ class _PendingProfileType {
   final DateTime updatedAt;
 
   const _PendingProfileType(this.profileType, this.updatedAt);
+}
+
+class PasskeyCredentialInfo {
+  final int id;
+  final String name;
+  final DateTime createdAt;
+  final DateTime? lastUsedAt;
+
+  const PasskeyCredentialInfo({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+    this.lastUsedAt,
+  });
+
+  factory PasskeyCredentialInfo.fromJson(Map<String, dynamic> json) {
+    return PasskeyCredentialInfo(
+      id: json['id'] as int,
+      name: json['name'] as String? ?? 'Passkey',
+      createdAt: DateTime.parse(json['created_at'] as String),
+      lastUsedAt: json['last_used_at'] == null
+          ? null
+          : DateTime.parse(json['last_used_at'] as String),
+    );
+  }
 }

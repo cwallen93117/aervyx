@@ -369,3 +369,26 @@ def test_runtime_schema_creates_event_meet_stats_cache_table() -> None:
     assert {"event_id", "scope", "payload_json", "calculated_at", "updated_at"}.issubset(columns)
     indexes = {index["name"] for index in inspector.get_indexes("event_meet_stats_cache")}
     assert "ix_event_meet_stats_cache_event_scope" in indexes
+
+
+def test_runtime_schema_creates_passkey_tables_without_event_tables() -> None:
+    engine = create_engine("sqlite:///:memory:", future=True)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                CREATE TABLE users (
+                  id INTEGER PRIMARY KEY,
+                  username VARCHAR(255),
+                  full_name VARCHAR(160),
+                  role VARCHAR(20),
+                  is_active BOOLEAN
+                )
+                """
+            )
+        )
+
+    ensure_runtime_schema(engine)
+
+    tables = set(inspect(engine).get_table_names())
+    assert {"passkey_credentials", "passkey_challenges"}.issubset(tables)

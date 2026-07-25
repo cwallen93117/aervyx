@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 
-from sqlalchemy import Boolean, Date, DateTime, Double, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, func
+from sqlalchemy import Boolean, Date, DateTime, Double, Float, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -45,6 +45,39 @@ class UserEmail(Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     email: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PasskeyCredential(Base):
+    __tablename__ = "passkey_credentials"
+    __table_args__ = (
+        UniqueConstraint("credential_id", name="uq_passkey_credentials_credential_id"),
+        Index("ix_passkey_credentials_user_id", "user_id"),
+        Index("ix_passkey_credentials_user_handle", "user_handle"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    credential_id: Mapped[str] = mapped_column(String(1024), nullable=False)
+    public_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    user_handle: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sign_count: Mapped[int] = mapped_column(Integer, default=0)
+    transports: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    aaguid: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    name: Mapped[str] = mapped_column(String(80), default="Passkey")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PasskeyChallenge(Base):
+    __tablename__ = "passkey_challenges"
+    __table_args__ = (Index("ix_passkey_challenges_expires_at", "expires_at"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    challenge: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MeshDevice(Base):

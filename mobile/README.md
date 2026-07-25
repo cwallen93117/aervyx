@@ -8,7 +8,7 @@ as IGC files, and pairs with Meshtastic BLE radios for off-grid mesh tracking.
 
 ## Setup
 
-Flutter 3.22+ and Dart 3.4+ are required.
+Flutter 3.35+ and Dart 3.9+ are required.
 
 ```bash
 # Install dependencies
@@ -77,5 +77,6 @@ lib/
 - `geolocator` — high-accuracy GPS with distance filter
 - `flutter_blue_plus` — BLE scanning and GATT operations
 - `flutter_secure_storage` — encrypted JWT token persistence
+- `passkeys` — Android Credential Manager passkey authentication
 - `provider` — state management
 - `http` — REST and SSE networking

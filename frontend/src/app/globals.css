@@ -7183,6 +7183,22 @@ button[type="submit"]:hover,
   filter: brightness(1.03);
 }
 
+.aervyx-auth-passkey {
+  width: 100%;
+  margin-top: 0.75rem;
+  padding: 0.8rem 1rem;
+  border: 1px solid rgba(34, 211, 238, 0.5);
+  border-radius: 0.65rem;
+  background: transparent;
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.aervyx-auth-passkey:hover {
+  background: rgba(34, 211, 238, 0.08);
+}
+
 .aervyx-auth-divider {
   display: flex;
   align-items: center;

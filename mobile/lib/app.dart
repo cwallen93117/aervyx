@@ -27,6 +27,7 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   bool _runtimeBatteryShutdownStarted = false;
   bool _updateCheckInProgress = false;
   bool _updateDialogShowing = false;
+  bool _passkeySuggestionShowing = false;
   int? _dismissedUpdateVersionCode;
   AuthService? _authService;
   Timer? _runtimeBatteryTimer;
@@ -70,11 +71,64 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
       final ble = context.read<BleService>();
       unawaited(ble.syncPlatformConfig());
       unawaited(ble.restoreAutoReconnect());
+      if (_authService?.suggestPasskeySetup == true) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          unawaited(_showPasskeySuggestion());
+        });
+      }
     }
     if (_authService?.user?.profileType == 'driver') return;
     final tracking = context.read<TrackingService>();
     if (tracking.isDriverTracking) {
       unawaited(tracking.stopTracking());
+    }
+  }
+
+  Future<void> _showPasskeySuggestion() async {
+    if (_passkeySuggestionShowing || !mounted) return;
+    final navigatorContext = _navigatorKey.currentContext;
+    if (navigatorContext == null) return;
+    _passkeySuggestionShowing = true;
+    final auth = context.read<AuthService>();
+    auth.dismissPasskeySetupSuggestion();
+    try {
+      final create =
+          await showDialog<bool>(
+            context: navigatorContext,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Set up faster sign-in?'),
+              content: const Text(
+                'Create an Aervyx passkey to sign in with face, fingerprint, '
+                'or your device PIN. Aervyx never receives biometric data.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: const Text('Not now'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: const Text('Set up passkey'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+      if (!create || !mounted) return;
+      await auth.createPasskey('Android device');
+      if (navigatorContext.mounted) {
+        ScaffoldMessenger.of(
+          navigatorContext,
+        ).showSnackBar(const SnackBar(content: Text('Passkey added')));
+      }
+    } catch (_) {
+      if (navigatorContext.mounted) {
+        ScaffoldMessenger.of(navigatorContext).showSnackBar(
+          const SnackBar(content: Text('Passkey setup was not completed')),
+        );
+      }
+    } finally {
+      _passkeySuggestionShowing = false;
     }
   }
 
@@ -95,14 +149,16 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
     if (_runtimeStartRequested) return;
     _runtimeStartRequested = true;
     try {
-      await PersistentRuntimeService.requestNotificationPermission()
-          .timeout(const Duration(seconds: 10));
+      await PersistentRuntimeService.requestNotificationPermission().timeout(
+        const Duration(seconds: 10),
+      );
     } catch (_) {
       // The runtime can still run as a foreground service if this request fails.
     }
     try {
-      await PersistentRuntimeService.start()
-          .timeout(const Duration(seconds: 5));
+      await PersistentRuntimeService.start().timeout(
+        const Duration(seconds: 5),
+      );
       if (mounted && context.read<AuthService>().isLoggedIn) {
         unawaited(context.read<BleService>().restoreAutoReconnect());
       }
@@ -268,10 +324,12 @@ class _AervyxAppState extends State<AervyxApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     // Make the system status bar and nav bar black to match
-    SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
-      statusBarColor: Colors.black,
-      systemNavigationBarColor: Colors.black,
-    ));
+    SystemChrome.setSystemUIOverlayStyle(
+      const SystemUiOverlayStyle(
+        statusBarColor: Colors.black,
+        systemNavigationBarColor: Colors.black,
+      ),
+    );
 
     return MaterialApp(
       title: 'Aervyx',
@@ -309,10 +367,7 @@ class _UpdateVersionRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _UpdateVersionRow({
-    required this.label,
-    required this.value,
-  });
+  const _UpdateVersionRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {

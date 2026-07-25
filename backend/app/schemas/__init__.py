@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -67,6 +68,29 @@ class TokenResponse(BaseModel):
     refresh_token: str | None = None
     token_type: str = "bearer"
     user: UserSummary
+
+
+class PasskeyOptionsResponse(BaseModel):
+    ceremony_id: str
+    public_key: dict[str, Any]
+
+
+class PasskeyVerifyRequest(BaseModel):
+    ceremony_id: str
+    credential: dict[str, Any]
+    name: str | None = None
+
+
+class PasskeyResponse(BaseModel):
+    id: int
+    name: str
+    transports: list[str] = Field(default_factory=list)
+    created_at: datetime
+    last_used_at: datetime | None = None
+
+
+class PasskeyRenameRequest(BaseModel):
+    name: str
 
 
 class AccountSettingsResponse(BaseModel):

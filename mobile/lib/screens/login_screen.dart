@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:passkeys/types.dart';
 import 'package:provider/provider.dart';
 
 import '../config/api_config.dart';
@@ -29,8 +30,9 @@ String _friendlyError(Object e) {
   if (e is ApiException) {
     if (e.statusCode == 401) return 'Invalid email or password.';
     if (e.statusCode == 403) return 'Your account is not authorized.';
-    if (e.statusCode >= 500)
+    if (e.statusCode >= 500) {
       return 'Server error (${e.statusCode}). Please try again.';
+    }
     return 'Request failed (${e.statusCode}).';
   }
   return 'Login failed. Please try again.';
@@ -60,6 +62,9 @@ class _LoginScreenState extends State<LoginScreen> {
     super.initState();
     _loadVersion();
     _fetchGoogleClientId();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_handlePasskeyLogin(automatic: true));
+    });
   }
 
   Future<void> _loadVersion() async {
@@ -126,6 +131,46 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _handlePasskeyLogin({bool automatic = false}) async {
+    if (!automatic) {
+      setState(() {
+        _busy = true;
+        _error = null;
+      });
+    }
+    try {
+      await context.read<AuthService>().loginWithPasskey(
+        preferImmediatelyAvailableCredentials: automatic,
+      );
+    } on PasskeyAuthCancelledException {
+      // The native credential sheet was dismissed; existing login stays usable.
+    } on NoCredentialsAvailableException {
+      if (!automatic && mounted) {
+        setState(
+          () => _error = 'No Aervyx passkey is available on this device.',
+        );
+      }
+    } on PasskeyUnsupportedException {
+      if (!automatic && mounted) {
+        setState(
+          () => _error =
+              'Passkeys require Android 9 or newer and a configured screen lock.',
+        );
+      }
+    } on DomainNotAssociatedException {
+      if (mounted) {
+        setState(
+          () => _error =
+              'This app build is not associated with the Aervyx passkey domain.',
+        );
+      }
+    } catch (error) {
+      if (!automatic && mounted) setState(() => _error = _friendlyError(error));
+    } finally {
+      if (!automatic && mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _handleGoogleSignIn() async {
     setState(() {
       _busy = true;
@@ -167,9 +212,11 @@ class _LoginScreenState extends State<LoginScreen> {
       await authService.loginWithGoogle(idToken);
     } on ApiException catch (e) {
       if (mounted) {
-        setState(() => _error = e.statusCode == 404
-            ? 'Google sign-in is not available on this server'
-            : 'Server error (${e.statusCode})');
+        setState(
+          () => _error = e.statusCode == 404
+              ? 'Google sign-in is not available on this server'
+              : 'Server error (${e.statusCode})',
+        );
       }
     } on PlatformException catch (e) {
       // google_sign_in surfaces native Google Play Services failures here.
@@ -179,7 +226,8 @@ class _LoginScreenState extends State<LoginScreen> {
       String msg;
       if (e.code == 'sign_in_failed' || e.code == 'sign_in_canceled') {
         if (e.message?.contains('10') ?? false) {
-          msg = 'Google Sign-In not configured for this app build '
+          msg =
+              'Google Sign-In not configured for this app build '
               '(DEVELOPER_ERROR / SHA-1 not registered in Google Cloud).';
         } else if (e.message?.contains('7') ?? false) {
           msg = 'Network error talking to Google. Check your connection.';
@@ -273,8 +321,10 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 if (_error != null) ...[
                   const SizedBox(height: 12),
-                  Text(_error!,
-                      style: const TextStyle(color: Colors.redAccent)),
+                  Text(
+                    _error!,
+                    style: const TextStyle(color: Colors.redAccent),
+                  ),
                 ],
                 const SizedBox(height: 24),
                 SizedBox(
@@ -294,8 +344,21 @@ class _LoginScreenState extends State<LoginScreen> {
                               color: Colors.black,
                             ),
                           )
-                        : const Text('Log In',
-                            style: TextStyle(fontWeight: FontWeight.w600)),
+                        : const Text(
+                            'Log In',
+                            style: TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _busy
+                        ? null
+                        : () => _handlePasskeyLogin(automatic: false),
+                    icon: const Icon(Icons.fingerprint),
+                    label: const Text('Sign in with a passkey'),
                   ),
                 ),
                 if (!_googleNotConfigured) ...[
@@ -305,9 +368,13 @@ class _LoginScreenState extends State<LoginScreen> {
                       const Expanded(child: Divider()),
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 12),
-                        child: Text('or',
-                            style: TextStyle(
-                                color: Colors.grey[500], fontSize: 13)),
+                        child: Text(
+                          'or',
+                          style: TextStyle(
+                            color: Colors.grey[500],
+                            fontSize: 13,
+                          ),
+                        ),
                       ),
                       const Expanded(child: Divider()),
                     ],
@@ -333,10 +400,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   onPressed: _busy
                       ? null
                       : () => Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => const RegisterScreen(),
-                            ),
+                          MaterialPageRoute(
+                            builder: (_) => const RegisterScreen(),
                           ),
+                        ),
                   child: Text(
                     'Create Account',
                     style: TextStyle(color: Colors.grey[500]),

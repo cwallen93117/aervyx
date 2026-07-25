@@ -567,6 +567,56 @@ def ensure_runtime_schema(engine: Engine) -> None:
             if "ix_mesh_node_statuses_last_seen_at" not in existing_mesh_status_indexes:
                 connection.execute(text("CREATE INDEX ix_mesh_node_statuses_last_seen_at ON mesh_node_statuses (last_seen_at)"))
 
+    if "users" in table_names:
+        with engine.begin() as connection:
+            id_column = "id INTEGER PRIMARY KEY" if dialect_name == "sqlite" else "id SERIAL PRIMARY KEY"
+            binary_type = "BLOB" if dialect_name == "sqlite" else "BYTEA"
+            timestamp_type = "TIMESTAMP" if dialect_name == "sqlite" else "TIMESTAMPTZ"
+            if "passkey_credentials" not in table_names:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE passkey_credentials (
+                          {id_column},
+                          user_id INTEGER NOT NULL,
+                          credential_id VARCHAR(1024) NOT NULL,
+                          public_key {binary_type} NOT NULL,
+                          user_handle {binary_type} NOT NULL,
+                          sign_count INTEGER NOT NULL DEFAULT 0,
+                          transports JSON,
+                          aaguid VARCHAR(36),
+                          name VARCHAR(80) NOT NULL DEFAULT 'Passkey',
+                          created_at {timestamp_type} DEFAULT CURRENT_TIMESTAMP,
+                          last_used_at {timestamp_type},
+                          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                          CONSTRAINT uq_passkey_credentials_credential_id UNIQUE (credential_id)
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_passkey_credentials_user_id ON passkey_credentials (user_id)"))
+                connection.execute(text("CREATE INDEX ix_passkey_credentials_user_handle ON passkey_credentials (user_handle)"))
+                table_names.add("passkey_credentials")
+
+            if "passkey_challenges" not in table_names:
+                connection.execute(
+                    text(
+                        f"""
+                        CREATE TABLE passkey_challenges (
+                          id VARCHAR(64) PRIMARY KEY,
+                          challenge {binary_type} NOT NULL,
+                          purpose VARCHAR(20) NOT NULL,
+                          user_id INTEGER,
+                          expires_at {timestamp_type} NOT NULL,
+                          used_at {timestamp_type},
+                          FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+                )
+                connection.execute(text("CREATE INDEX ix_passkey_challenges_expires_at ON passkey_challenges (expires_at)"))
+                table_names.add("passkey_challenges")
+
     if "events" not in table_names:
         return
 

@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.get_login_creds"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.aervyx.aervyx_mobile",
+      "sha256_cert_fingerprints": [
+        "2B:E7:99:3F:B2:CA:76:E3:F8:6B:F4:FA:31:E1:B4:99:28:50:3E:96:00:9E:31:54:EC:BD:4D:D3:77:91:0D:EF"
+      ]
+    }
+  }
+]

@@ -43,6 +43,15 @@ class ApiConfig {
   static const String mePath = '/api/auth/me';
   static const String googleAuthPath = '/api/auth/google';
   static const String googleClientIdPath = '/api/auth/google-client-id';
+  static const String passkeyRegisterOptionsPath =
+      '/api/auth/passkeys/register/options';
+  static const String passkeyRegisterVerifyPath =
+      '/api/auth/passkeys/register/verify';
+  static const String passkeyLoginOptionsPath =
+      '/api/auth/passkeys/login/options';
+  static const String passkeyLoginVerifyPath =
+      '/api/auth/passkeys/login/verify';
+  static const String passkeysPath = '/api/auth/passkeys';
   static const String preferencesPath = '/api/auth/preferences';
   static const String meshDeviceRegisterPath = '/api/auth/mesh-device';
   static const String meshDevicesPath = '/api/auth/mesh-devices';

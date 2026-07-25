@@ -1,16 +1,20 @@
 from datetime import UTC, date, datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.requests import Request
+from webauthn.helpers.exceptions import WebAuthnException
 
 from app.core.security import create_access_token, create_refresh_token, decode_access_token
 from app.db import Base
 from app.deps import get_current_user, token_subject_for_user
-from app.models import Event, EventPilot, LivePosition, MeshDevice, Pilot, ScoreResult, Task, TaskScoringInput, TrackingSession, User, UserEmail
+from app.models import Event, EventPilot, LivePosition, MeshDevice, PasskeyChallenge, PasskeyCredential, Pilot, ScoreResult, Task, TaskScoringInput, TrackingSession, User, UserEmail
 from app.routers.auth import (
     admin_delete_user_mesh_device,
     admin_set_user_tracking_mesh_device,
@@ -20,19 +24,26 @@ from app.routers.auth import (
     claim_pilot,
     create_mesh_device,
     delete_user_account,
+    delete_passkey,
     login,
+    list_passkeys,
     list_mesh_devices,
     list_users,
+    passkey_login_options,
+    passkey_login_verify,
+    passkey_registration_options,
+    passkey_registration_verify,
     register,
     register_mesh_device,
     refresh,
+    rename_passkey,
     update_mesh_device,
     update_settings,
     update_user_account,
 )
 from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_event_pilot_class, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasskeyRenameRequest, PasskeyVerifyRequest, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import backfill_user_subject_pilot_links, merge_pilots, repair_pilot_email_identities
 
@@ -91,6 +102,226 @@ def test_refresh_accepts_existing_username_tokens_and_mints_user_id_tokens() -> 
 
     assert response.user.id == user.id
     assert decode_access_token(response.access_token) == f"user:{user.id}"
+
+
+def test_passkey_registration_and_passwordless_login_share_existing_tokens() -> None:
+    session = _session()
+    user = User(username="passkey@example.com", full_name="Pass Key", role="pilot", password_hash="hash")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    options = passkey_registration_options(_request(), user, session)
+    assert options.public_key["authenticatorSelection"]["residentKey"] == "required"
+    assert options.public_key["authenticatorSelection"]["userVerification"] == "required"
+
+    with patch(
+        "app.routers.auth.verify_registration_response",
+        return_value=SimpleNamespace(
+            credential_id=b"credential-one",
+            credential_public_key=b"public-key",
+            sign_count=0,
+            aaguid="00000000-0000-0000-0000-000000000000",
+        ),
+    ) as verify_registration:
+        registered = passkey_registration_verify(
+            _request(),
+            PasskeyVerifyRequest(
+                ceremony_id=options.ceremony_id,
+                credential={"id": "Y3JlZGVudGlhbC1vbmU", "response": {"transports": ["internal"]}},
+                name="Windows Hello",
+            ),
+            user,
+            session,
+        )
+    assert verify_registration.call_args.kwargs["expected_rp_id"] == "localhost"
+    assert "android:apk-key-hash:K-eZP7LKduP4a_T6MeG0mShQPpYAnjFU7L1N03eRDe8" in verify_registration.call_args.kwargs["expected_origin"]
+    assert verify_registration.call_args.kwargs["require_user_verification"] is True
+
+    assert registered.name == "Windows Hello"
+    assert registered.transports == ["internal"]
+    login_options = passkey_login_options(_request(), session)
+    with patch(
+        "app.routers.auth.verify_authentication_response",
+        return_value=SimpleNamespace(credential_id=b"credential-one", new_sign_count=7),
+    ) as verify_authentication:
+        response = passkey_login_verify(
+            _request(),
+            PasskeyVerifyRequest(
+                ceremony_id=login_options.ceremony_id,
+                credential={"id": "Y3JlZGVudGlhbC1vbmU", "response": {}},
+            ),
+            session,
+        )
+    assert verify_authentication.call_args.kwargs["credential_current_sign_count"] == 0
+    assert verify_authentication.call_args.kwargs["require_user_verification"] is True
+
+    assert response.user.id == user.id
+    assert decode_access_token(response.access_token) == f"user:{user.id}"
+    stored = session.scalar(select(PasskeyCredential))
+    assert stored.sign_count == 7
+    assert stored.last_used_at is not None
+    assert list_passkeys(user, session)[0].name == "Windows Hello"
+
+    with pytest.raises(HTTPException) as replay:
+        passkey_login_verify(
+            _request(),
+            PasskeyVerifyRequest(
+                ceremony_id=login_options.ceremony_id,
+                credential={"id": "Y3JlZGVudGlhbC1vbmU", "response": {}},
+            ),
+            session,
+        )
+    assert replay.value.status_code == 400
+
+
+def test_passkey_management_is_scoped_to_owner() -> None:
+    session = _session()
+    owner = User(username="owner@example.com", full_name="Owner", role="pilot", password_hash="hash")
+    other = User(username="other@example.com", full_name="Other", role="pilot", password_hash="hash")
+    session.add_all([owner, other])
+    session.flush()
+    passkey = PasskeyCredential(
+        user_id=owner.id,
+        credential_id="credential",
+        public_key=b"key",
+        user_handle=b"handle",
+        name="Phone",
+    )
+    session.add(passkey)
+    session.commit()
+
+    with pytest.raises(HTTPException) as rename_error:
+        rename_passkey(passkey.id, PasskeyRenameRequest(name="Mine"), other, session)
+    assert rename_error.value.status_code == 404
+    with pytest.raises(HTTPException) as delete_error:
+        delete_passkey(passkey.id, other, session)
+    assert delete_error.value.status_code == 404
+
+    renamed = rename_passkey(passkey.id, PasskeyRenameRequest(name="  Pixel  "), owner, session)
+    assert renamed.name == "Pixel"
+    delete_passkey(passkey.id, owner, session)
+    assert session.get(PasskeyCredential, passkey.id) is None
+
+
+def test_passkey_registration_options_exclude_all_existing_credentials() -> None:
+    session = _session()
+    user = User(username="multi@example.com", full_name="Multiple Keys", role="pilot", password_hash="hash")
+    session.add(user)
+    session.flush()
+    user_handle = b"stable-user-handle"
+    session.add_all(
+        [
+            PasskeyCredential(
+                user_id=user.id,
+                credential_id="Y3JlZGVudGlhbC1vbmU",
+                public_key=b"key-one",
+                user_handle=user_handle,
+                name="Laptop",
+            ),
+            PasskeyCredential(
+                user_id=user.id,
+                credential_id="Y3JlZGVudGlhbC10d28",
+                public_key=b"key-two",
+                user_handle=user_handle,
+                name="Phone",
+            ),
+        ]
+    )
+    session.commit()
+
+    options = passkey_registration_options(_request(), user, session)
+
+    assert len(options.public_key["excludeCredentials"]) == 2
+    assert {item["id"] for item in options.public_key["excludeCredentials"]} == {
+        "Y3JlZGVudGlhbC1vbmU",
+        "Y3JlZGVudGlhbC10d28",
+    }
+    assert [item.name for item in list_passkeys(user, session)] == ["Phone", "Laptop"]
+
+
+@pytest.mark.parametrize("reason", ["Unexpected client data origin", "Unexpected RP ID hash"])
+def test_passkey_login_rejects_invalid_origin_or_rp(reason: str) -> None:
+    session = _session()
+    user = User(username="origin@example.com", full_name="Origin Check", role="pilot", password_hash="hash")
+    session.add(user)
+    session.flush()
+    session.add(
+        PasskeyCredential(
+            user_id=user.id,
+            credential_id="credential",
+            public_key=b"key",
+            user_handle=b"handle",
+            name="Phone",
+        )
+    )
+    session.commit()
+    options = passkey_login_options(_request(), session)
+
+    with patch(
+        "app.routers.auth.verify_authentication_response",
+        side_effect=WebAuthnException(reason),
+    ):
+        with pytest.raises(HTTPException) as rejected:
+            passkey_login_verify(
+                _request(),
+                PasskeyVerifyRequest(
+                    ceremony_id=options.ceremony_id,
+                    credential={"id": "credential", "response": {}},
+                ),
+                session,
+            )
+
+    assert rejected.value.status_code == 401
+    assert rejected.value.detail == "Passkey sign-in failed"
+
+
+def test_expired_passkey_challenge_and_inactive_account_are_rejected() -> None:
+    session = _session()
+    user = User(
+        username="inactive@example.com",
+        full_name="Inactive",
+        role="pilot",
+        password_hash="hash",
+        is_active=False,
+    )
+    session.add(user)
+    session.flush()
+    session.add_all(
+        [
+            PasskeyCredential(
+                user_id=user.id,
+                credential_id="credential",
+                public_key=b"key",
+                user_handle=b"handle",
+                name="Phone",
+            ),
+            PasskeyChallenge(
+                id="expired",
+                challenge=b"challenge",
+                purpose="login",
+                expires_at=datetime(2020, 1, 1, tzinfo=UTC),
+            ),
+        ]
+    )
+    session.commit()
+
+    with pytest.raises(HTTPException) as expired_error:
+        passkey_login_verify(
+            _request(),
+            PasskeyVerifyRequest(ceremony_id="expired", credential={"id": "credential", "response": {}}),
+            session,
+        )
+    assert expired_error.value.status_code == 400
+
+    options = passkey_login_options(_request(), session)
+    with pytest.raises(HTTPException) as inactive_error:
+        passkey_login_verify(
+            _request(),
+            PasskeyVerifyRequest(ceremony_id=options.ceremony_id, credential={"id": "credential", "response": {}}),
+            session,
+        )
+    assert inactive_error.value.status_code == 401
 
 
 def test_backfill_user_subject_pilot_links_repairs_user_only_tracking_rows() -> None:
