@@ -1456,14 +1456,77 @@ select {
 }
 
 .scoring-import-strip {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 16px;
+  display: block;
   padding: 14px 16px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(241, 245, 249, 0.9) 100%);
+}
+
+.scoring-setup-header {
+  margin-bottom: 12px;
+}
+
+.scoring-setup-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.scoring-setup-group {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.scoring-setup-group-copy {
+  min-height: 48px;
+  margin-bottom: 10px;
+}
+
+.scoring-setup-group-copy strong,
+.scoring-setup-group-copy span {
+  display: block;
+}
+
+.scoring-setup-group-copy strong {
+  color: var(--ink);
+  font-size: 0.8125rem;
+}
+
+.scoring-setup-group-copy span {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.scoring-formula-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scoring-formula-field {
+  flex: 1 1 220px;
+  min-width: 180px;
+  gap: 6px;
+}
+
+.scoring-formula-field select {
+  max-width: none;
+}
+
+.scoring-formula-actions {
+  flex: 0 1 auto;
+  justify-content: flex-end;
+}
+
+.scoring-setup-group .formula-info-panel {
+  margin-top: 10px;
 }
 
 .scoring-import-copy {
@@ -7548,6 +7611,10 @@ details[open] > summary {
     align-items: stretch;
   }
 
+  .scoring-setup-groups {
+    grid-template-columns: 1fr;
+  }
+
   .scoring-import-controls {
     justify-content: stretch;
   }
@@ -7606,6 +7673,23 @@ details[open] > summary {
   .scoring-import-controls {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .scoring-formula-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scoring-formula-field {
+    min-width: 0;
+  }
+
+  .scoring-formula-actions {
+    justify-content: flex-start;
+  }
+
+  .scoring-setup-group-copy {
+    min-height: 0;
   }
 
   .scoring-import-button {
