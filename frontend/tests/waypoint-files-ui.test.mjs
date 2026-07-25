@@ -118,3 +118,11 @@ test("map renders LZ and Launch waypoint symbols as marker icons", () => {
   assert.match(source, /launch:/);
   assert.match(source, /\["grass_strip", "paved_runway", "bar", "lz", "launch"\]/);
 });
+
+test("waypoint editor reuses its panel for fullscreen floating edits", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
+  assert.match(source, /taskEditorOverlay=\{fullscreenWaypointEditor\}/);
+  assert.match(source, /renderTurnpointEditorPanel\("floating"/);
+  assert.match(source, /turnpoint-floating-editor/);
+  assert.match(source, /aria-label="Close waypoint editor"/);
+});

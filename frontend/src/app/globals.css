@@ -3008,6 +3008,28 @@ button[type="submit"]:hover,
     background: var(--wash);
   }
 
+  .turnpoint-floating-editor {
+    width: min(340px, calc(100vw - 24px));
+    max-height: calc(100vh - 24px);
+    overflow: auto;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: var(--shadow-lg);
+  }
+
+  .turnpoint-floating-editor-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .turnpoint-floating-editor-header:active {
+    cursor: grabbing;
+  }
+
   .turnpoint-edit-grid,
   .turnpoint-extra-grid {
     display: grid;
