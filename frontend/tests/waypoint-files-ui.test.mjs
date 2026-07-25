@@ -38,9 +38,12 @@ test("Tasks exposes selected event waypoint and airspace downloads", () => {
   const source = readFileSync(join(root, "src/components/dashboard/TasksSection.tsx"), "utf8");
   assert.match(source, /turnpointSources: TurnpointSourceRecord\[\]/);
   assert.match(source, /airspaceSources: AirspaceSourceRecord\[\]/);
-  assert.match(source, /<legend>Downloads<\/legend>/);
+  assert.match(source, /const \[downloadsOpen, setDownloadsOpen\] = useState\(false\)/);
+  assert.match(source, /aria-expanded=\{downloadsOpen\}/);
+  assert.match(source, /hidden=\{!downloadsOpen\}/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/turnpoint-sources\/\$\{source\.id\}\/download\?format=/);
   assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/airspace-sources\/\$\{source\.id\}\/download/);
+  assert.ok(source.indexOf("{downloadsPanel}") < source.indexOf('<div className="task-toolbar">'));
 });
 
 test("library table has the requested columns and file operations", () => {

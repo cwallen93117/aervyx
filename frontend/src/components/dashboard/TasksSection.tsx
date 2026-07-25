@@ -165,6 +165,7 @@ export default function TasksSection(props: TasksSectionProps) {
   } = props;
   const [downloadFormats, setDownloadFormats] = useState<Record<number, string>>({});
   const [downloadFeedback, setDownloadFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
   const sortedTasks = sortTasksByDateAsc(tasks);
   if (!selectedEventId) {
     return canManagePlatform ? (
@@ -191,6 +192,7 @@ export default function TasksSection(props: TasksSectionProps) {
   ];
   const enabledAirspaceSources = airspaceSources.filter((source) => source.enabled ?? true);
   const hasDownloads = turnpointSources.length > 0 || enabledAirspaceSources.length > 0;
+  const downloadCount = turnpointSources.length + enabledAirspaceSources.length;
 
   async function downloadWaypointSource(source: TurnpointSourceRecord) {
     const format = downloadFormats[source.id] ?? "gpx";
@@ -212,6 +214,53 @@ export default function TasksSection(props: TasksSectionProps) {
       setDownloadFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download that airspace file." });
     }
   }
+
+  const downloadsPanel = hasDownloads ? (
+    <fieldset className="fieldset-cluster task-downloads-panel">
+      <legend>
+        <button
+          type="button"
+          className="task-downloads-toggle"
+          aria-expanded={downloadsOpen}
+          onClick={() => setDownloadsOpen((open) => !open)}
+        >
+          <span>Downloads ({downloadCount})</span>
+          <span>{downloadsOpen ? "Hide" : "Show"}</span>
+        </button>
+      </legend>
+      <div className="task-download-list" hidden={!downloadsOpen}>
+        {turnpointSources.map((source) => {
+          const format = downloadFormats[source.id] ?? "gpx";
+          return (
+            <div key={`waypoints-${source.id}`} className="task-download-row">
+              <div>
+                <strong>{source.filename}</strong>
+                <span>Waypoint file</span>
+              </div>
+              <select
+                value={format}
+                aria-label={`Download format for ${source.filename}`}
+                onChange={(event) => setDownloadFormats((current) => ({ ...current, [source.id]: event.target.value }))}
+              >
+                {waypointDownloadFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+              <button type="button" className="ghost-button" onClick={() => void downloadWaypointSource(source)}>Download</button>
+            </div>
+          );
+        })}
+        {enabledAirspaceSources.map((source) => (
+          <div key={`airspace-${source.id}`} className="task-download-row">
+            <div>
+              <strong>{source.filename}</strong>
+              <span>{source.kind === "restricted_field" ? "Restricted fields" : "Airspace file"}</span>
+            </div>
+            <button type="button" className="ghost-button" onClick={() => void downloadAirspaceSource(source)}>Download</button>
+          </div>
+        ))}
+      </div>
+      {downloadsOpen && downloadFeedback ? <div className={`status-chip ${downloadFeedback.type}`}>{downloadFeedback.text}</div> : null}
+    </fieldset>
+  ) : null;
 
   const showTimingAndGates = canManagePlatform || usesGatedStart;
   const fullscreenTaskEditor = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
@@ -268,6 +317,7 @@ export default function TasksSection(props: TasksSectionProps) {
     <div className="section-stack">
     <SectionCard>
       <div className="stack form-block compact-clusters">
+        {downloadsPanel}
         <div className="task-toolbar">
           {canManagePlatform ? (
             <>
@@ -306,42 +356,6 @@ export default function TasksSection(props: TasksSectionProps) {
             </div>
           )}
         </div>
-        {hasDownloads ? (
-          <fieldset className="fieldset-cluster task-downloads-panel">
-            <legend>Downloads</legend>
-            <div className="task-download-list">
-              {turnpointSources.map((source) => {
-                const format = downloadFormats[source.id] ?? "gpx";
-                return (
-                  <div key={`waypoints-${source.id}`} className="task-download-row">
-                    <div>
-                      <strong>{source.filename}</strong>
-                      <span>Waypoint file</span>
-                    </div>
-                    <select
-                      value={format}
-                      aria-label={`Download format for ${source.filename}`}
-                      onChange={(event) => setDownloadFormats((current) => ({ ...current, [source.id]: event.target.value }))}
-                    >
-                      {waypointDownloadFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                    <button type="button" className="ghost-button" onClick={() => void downloadWaypointSource(source)}>Download</button>
-                  </div>
-                );
-              })}
-              {enabledAirspaceSources.map((source) => (
-                <div key={`airspace-${source.id}`} className="task-download-row">
-                  <div>
-                    <strong>{source.filename}</strong>
-                    <span>{source.kind === "restricted_field" ? "Restricted fields" : "Airspace file"}</span>
-                  </div>
-                  <button type="button" className="ghost-button" onClick={() => void downloadAirspaceSource(source)}>Download</button>
-                </div>
-              ))}
-            </div>
-            {downloadFeedback ? <div className={`status-chip ${downloadFeedback.type}`}>{downloadFeedback.text}</div> : null}
-          </fieldset>
-        ) : null}
         {canManagePlatform && taskFeedback ? <div className={`status-chip ${taskFeedback.type} task-toolbar-feedback`}>{taskFeedback.text}</div> : null}
         <div className="fieldset-grid two-up task-setup-grid">
           <fieldset className="fieldset-cluster">
