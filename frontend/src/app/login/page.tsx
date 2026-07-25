@@ -46,7 +46,6 @@ function resolveApiBase() {
 const TOKEN_KEY = "flightcomp-platform-token";
 const REFRESH_TOKEN_KEY = "flightcomp-platform-refresh-token";
 const SESSION_COOKIE = "flightcomp_session";
-const PASSKEY_SETUP_SUGGESTION = "aervyx-passkey-setup-suggestion";
 
 function setSessionCookie() {
   document.cookie = `${SESSION_COOKIE}=1; Path=/; Max-Age=31536000; SameSite=Lax`;
@@ -97,13 +96,13 @@ export default function LoginPage() {
   const [googleSdkReady, setGoogleSdkReady] = useState(false);
   const [passkeyAvailable, setPasskeyAvailable] = useState(false);
 
-  const completeSignIn = useCallback((
-    payload: { access_token: string; refresh_token?: string; user?: { full_name: string } },
-    suggestPasskey: boolean,
-  ) => {
+  const completeSignIn = useCallback((payload: {
+    access_token: string;
+    refresh_token?: string;
+    user?: { full_name: string };
+  }) => {
     window.localStorage.setItem(TOKEN_KEY, payload.access_token);
     if (payload.refresh_token) window.localStorage.setItem(REFRESH_TOKEN_KEY, payload.refresh_token);
-    if (suggestPasskey) window.sessionStorage.setItem(PASSKEY_SETUP_SUGGESTION, "1");
     setSessionCookie();
     window.location.replace(destination);
   }, [destination]);
@@ -130,7 +129,7 @@ export default function LoginPage() {
       }
       const payload = (await res.json()) as { access_token: string; refresh_token?: string; user: { full_name: string } };
       setMessage(`Signed in as ${payload.user.full_name}. Opening your dashboard...`);
-      completeSignIn(payload, true);
+      completeSignIn(payload);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Google sign-in failed");
     } finally {
@@ -149,7 +148,7 @@ export default function LoginPage() {
     void conditionalPasskeysSupported().then(async (supported) => {
       if (!supported || controller.signal.aborted) return;
       const payload = await authenticateWithPasskey("conditional", controller.signal);
-      completeSignIn(payload, false);
+      completeSignIn(payload);
     }).catch((caught) => {
       if (!(caught instanceof DOMException) || !["AbortError", "NotAllowedError"].includes(caught.name)) {
         setError(caught instanceof Error ? caught.message : "Passkey sign-in failed");
@@ -165,7 +164,7 @@ export default function LoginPage() {
     setIsSubmitting(true);
     try {
       const payload = await authenticateWithPasskey();
-      completeSignIn(payload, false);
+      completeSignIn(payload);
     } catch (caught) {
       if (!(caught instanceof DOMException) || caught.name !== "NotAllowedError") {
         setError(caught instanceof Error ? caught.message : "Passkey sign-in failed");
@@ -236,7 +235,7 @@ export default function LoginPage() {
       }
       const payload = (await response.json()) as { access_token: string; refresh_token?: string };
       setMessage("Sign-in successful. Opening your dashboard...");
-      completeSignIn(payload, true);
+      completeSignIn(payload);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Sign in failed");
     } finally {
@@ -264,7 +263,7 @@ export default function LoginPage() {
       if (!response.ok) throw new Error(await readApiError(response, "Registration failed. Please try again."));
       const payload = (await response.json()) as { access_token: string; refresh_token?: string; user: { full_name: string } };
       setMessage(`Created account for ${payload.user.full_name}. Redirecting...`);
-      completeSignIn(payload, true);
+      completeSignIn(payload);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Registration failed");
     } finally {
