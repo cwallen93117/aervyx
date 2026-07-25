@@ -917,6 +917,7 @@ export default function EventsSection(props: EventsSectionProps) {
               </div>
               {scoringTemplateFeedback ? <div className={`status-chip ${scoringTemplateFeedback.type} scoring-import-feedback`}>{scoringTemplateFeedback.text}</div> : null}
               <div className="fieldset-grid events-scoring-grid">
+              <div className="scoring-fieldset-column">
               <fieldset className="fieldset-cluster scoring-help-open-right">
                 <legend>Formula and points</legend>
                 <div className="cluster-stack">
@@ -978,6 +979,8 @@ export default function EventsSection(props: EventsSectionProps) {
                     </div>
                   </div>
                 </fieldset>
+              </div>
+              <div className="scoring-fieldset-column">
               <fieldset className="fieldset-cluster">
                 <legend>Nominal values and notes</legend>
                 <div className="cluster-stack">
@@ -1029,6 +1032,8 @@ export default function EventsSection(props: EventsSectionProps) {
                   </div>
                 </div>
               </fieldset>
+              </div>
+              <div className="scoring-fieldset-column">
               <fieldset className="fieldset-cluster">
                 <legend>Advanced scoring</legend>
                 <div className="cluster-stack">
@@ -1138,6 +1143,7 @@ export default function EventsSection(props: EventsSectionProps) {
                     </div>
                 </div>
               </fieldset>
+              </div>
               </div>
               {canManagePlatform ? <button type="submit">Save scoring parameters</button> : null}
             </form>
