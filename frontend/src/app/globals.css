@@ -4672,6 +4672,31 @@ button[type="submit"]:hover,
   margin-top: 10px;
 }
 
+.task-downloads-panel > legend {
+  width: 100%;
+}
+
+.task-downloads-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.task-downloads-toggle span:last-child {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 800;
+}
+
 .task-download-list {
   display: grid;
   gap: 8px;

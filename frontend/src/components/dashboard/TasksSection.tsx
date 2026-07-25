@@ -165,6 +165,7 @@ export default function TasksSection(props: TasksSectionProps) {
   } = props;
   const [downloadFormats, setDownloadFormats] = useState<Record<number, string>>({});
   const [downloadFeedback, setDownloadFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [downloadsOpen, setDownloadsOpen] = useState(false);
   const sortedTasks = sortTasksByDateAsc(tasks);
   if (!selectedEventId) {
     return canManagePlatform ? (
@@ -191,6 +192,7 @@ export default function TasksSection(props: TasksSectionProps) {
   ];
   const enabledAirspaceSources = airspaceSources.filter((source) => source.enabled ?? true);
   const hasDownloads = turnpointSources.length > 0 || enabledAirspaceSources.length > 0;
+  const downloadCount = turnpointSources.length + enabledAirspaceSources.length;
 
   async function downloadWaypointSource(source: TurnpointSourceRecord) {
     const format = downloadFormats[source.id] ?? "gpx";
@@ -215,8 +217,18 @@ export default function TasksSection(props: TasksSectionProps) {
 
   const downloadsPanel = hasDownloads ? (
     <fieldset className="fieldset-cluster task-downloads-panel">
-      <legend>Downloads</legend>
-      <div className="task-download-list">
+      <legend>
+        <button
+          type="button"
+          className="task-downloads-toggle"
+          aria-expanded={downloadsOpen}
+          onClick={() => setDownloadsOpen((open) => !open)}
+        >
+          <span>Downloads ({downloadCount})</span>
+          <span>{downloadsOpen ? "Hide" : "Show"}</span>
+        </button>
+      </legend>
+      <div className="task-download-list" hidden={!downloadsOpen}>
         {turnpointSources.map((source) => {
           const format = downloadFormats[source.id] ?? "gpx";
           return (
@@ -246,7 +258,7 @@ export default function TasksSection(props: TasksSectionProps) {
           </div>
         ))}
       </div>
-      {downloadFeedback ? <div className={`status-chip ${downloadFeedback.type}`}>{downloadFeedback.text}</div> : null}
+      {downloadsOpen && downloadFeedback ? <div className={`status-chip ${downloadFeedback.type}`}>{downloadFeedback.text}</div> : null}
     </fieldset>
   ) : null;
 
