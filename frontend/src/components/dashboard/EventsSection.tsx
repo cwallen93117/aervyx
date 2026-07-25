@@ -812,9 +812,12 @@ export default function EventsSection(props: EventsSectionProps) {
           {eventEditorId ? (
             <form className="stack form-block compact-scoring-form compact-clusters" onSubmit={saveEvent}>
               <div className="scoring-import-strip">
-                <div className="scoring-import-copy scoring-setup-header">
-                  <strong>Scoring setup</strong>
-                  <span>Set the current formula or start from scoring settings saved on another meet.</span>
+                <div className="scoring-setup-header">
+                  <div className="scoring-import-copy">
+                    <strong>Scoring setup</strong>
+                    <span>Set the current formula or start from scoring settings saved on another meet.</span>
+                  </div>
+                  {canManagePlatform ? <button type="submit">Save scoring parameters</button> : null}
                 </div>
                 <div className="scoring-setup-groups">
                   <section className="scoring-setup-group">
@@ -1145,7 +1148,6 @@ export default function EventsSection(props: EventsSectionProps) {
               </fieldset>
               </div>
               </div>
-              {canManagePlatform ? <button type="submit">Save scoring parameters</button> : null}
             </form>
           ) : (
             <p className="hint">Create or select an event to define its scoring defaults.</p>

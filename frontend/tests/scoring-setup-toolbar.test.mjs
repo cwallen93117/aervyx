@@ -14,15 +14,17 @@ test("scoring setup promotes formula and saved-meet controls above the parameter
   assert.match(toolbar, /<strong>Load from Saved<\/strong>/);
   assert.match(toolbar, />Save As<\/button>/);
   assert.match(toolbar, />\s*Load Parameters\s*<\/button>/);
+  assert.match(toolbar, /type="submit">Save scoring parameters<\/button>/);
   assert.match(toolbar, /label="Scoring formula"/);
   assert.doesNotMatch(toolbar, /Claude-guided placement/);
   assert.equal(source.match(/label="Scoring formula"/g)?.length, 1);
+  assert.equal(source.match(/Save scoring parameters/g)?.length, 1);
 });
 
 test("scoring cards stack handicap below nominal values and advanced scoring in column three", () => {
   const source = readFileSync(join(process.cwd(), "src/components/dashboard/EventsSection.tsx"), "utf8");
   const gridStart = source.indexOf('<div className="fieldset-grid events-scoring-grid">');
-  const gridEnd = source.indexOf("Save scoring parameters", gridStart);
+  const gridEnd = source.indexOf("</form>", gridStart);
   const grid = source.slice(gridStart, gridEnd);
   const columns = [...grid.matchAll(/<div className="scoring-fieldset-column">/g)].map((match) => match.index);
 

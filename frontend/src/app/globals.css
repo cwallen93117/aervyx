@@ -1471,7 +1471,15 @@ select {
 }
 
 .scoring-setup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 12px;
+}
+
+.scoring-setup-header > button {
+  flex: 0 0 auto;
 }
 
 .scoring-setup-groups {
@@ -7680,6 +7688,15 @@ details[open] > summary {
   .scoring-import-controls {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .scoring-setup-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .scoring-setup-header > button {
+    width: 100%;
   }
 
   .scoring-formula-controls {
