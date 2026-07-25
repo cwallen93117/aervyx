@@ -7,6 +7,7 @@ import json
 import os
 import tempfile
 import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable
@@ -18,6 +19,7 @@ from app.models import Turnpoint, TurnpointSource
 CANONICAL_SYMBOLS = {"grass_strip", "paved_runway", "dot", "bar", "lz", "launch"}
 CORE_FIELD_KEYS = {"name", "code", "latitude", "longitude", "elevation_m", "symbol"}
 SUPPORTED_FORMATS = {".csv": "csv", ".geojson": "geojson", ".json": "geojson", ".gpx": "gpx"}
+EXPORT_FORMATS = {"csv", "gpx", "cup", "wpt", "kmz"}
 
 
 @dataclass
@@ -278,12 +280,24 @@ def _turnpoint_to_record(turnpoint: Turnpoint) -> TurnpointRecord:
 
 def serialize_turnpoints(source: TurnpointSource, turnpoints: list[Turnpoint]) -> bytes:
     records = [_turnpoint_to_record(turnpoint) for turnpoint in sorted(turnpoints, key=lambda item: (item.source_row_index is None, item.source_row_index or 0, item.id))]
-    schema = source.schema_json or {}
-    if source.file_format == "csv":
+    return serialize_turnpoint_records(records, source.file_format, source.schema_json or {})
+
+
+def serialize_turnpoint_records(records: list[TurnpointRecord], file_format: str, schema: dict | None = None) -> bytes:
+    schema = schema or {}
+    if file_format == "csv":
         return serialize_csv_turnpoints(records, schema).encode("utf-8")
-    if source.file_format == "gpx":
+    if file_format == "gpx":
         return serialize_gpx_turnpoints(records, schema).encode("utf-8")
-    return serialize_geojson_turnpoints(records, schema).encode("utf-8")
+    if file_format == "geojson":
+        return serialize_geojson_turnpoints(records, schema).encode("utf-8")
+    if file_format == "cup":
+        return serialize_cup_turnpoints(records).encode("utf-8")
+    if file_format == "wpt":
+        return serialize_wpt_turnpoints(records).encode("utf-8")
+    if file_format == "kmz":
+        return serialize_kmz_turnpoints(records)
+    raise ValueError("Unsupported waypoint export format.")
 
 
 def serialize_csv_turnpoints(records: list[TurnpointRecord], schema: dict) -> str:
@@ -367,6 +381,92 @@ def serialize_gpx_turnpoints(records: list[TurnpointRecord], schema: dict) -> st
                 ET.SubElement(wpt, key).text = str(value)
     ET.indent(root, space="  ")
     return "<?xml version='1.0' encoding='UTF-8'?>\n" + ET.tostring(root, encoding="unicode") + "\n"
+
+
+def _coord(value: float) -> str:
+    return f"{value:.8f}".rstrip("0").rstrip(".")
+
+
+def _cup_coord(value: float, *, longitude: bool) -> str:
+    hemisphere = ("E" if value >= 0 else "W") if longitude else ("N" if value >= 0 else "S")
+    absolute = abs(value)
+    degrees = int(absolute)
+    minutes = (absolute - degrees) * 60
+    width = 3 if longitude else 2
+    return f"{degrees:0{width}d}{minutes:06.3f}{hemisphere}"
+
+
+def _cup_style(symbol: str | None) -> str:
+    if symbol in {"grass_strip", "paved_runway"}:
+        return "5"
+    if symbol == "lz":
+        return "3"
+    return "1"
+
+
+def serialize_cup_turnpoints(records: list[TurnpointRecord]) -> str:
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(["name", "code", "country", "lat", "lon", "elev", "style", "rwdir", "rwlen", "rwwidth", "freq", "desc"])
+    for record in records:
+        description = str((record.extra_json or {}).get("desc") or (record.extra_json or {}).get("description") or "")
+        writer.writerow([
+            record.name,
+            record.code or "",
+            "",
+            _cup_coord(record.latitude, longitude=False),
+            _cup_coord(record.longitude, longitude=True),
+            "" if record.elevation_m is None else f"{record.elevation_m:.1f}m",
+            _cup_style(record.symbol),
+            "",
+            "",
+            "",
+            "",
+            description,
+        ])
+    return output.getvalue()
+
+
+def _wpt_name(record: TurnpointRecord) -> str:
+    name = (record.code or record.name).strip().replace(" ", "_")
+    return (name or "WP")[:24]
+
+
+def serialize_wpt_turnpoints(records: list[TurnpointRecord]) -> str:
+    lines = ["G  WGS 84", "U  1"]
+    for record in records:
+        elevation = 0 if record.elevation_m is None else record.elevation_m
+        lines.append(
+            f"W  {_wpt_name(record)} A {_coord(abs(record.latitude))}{'N' if record.latitude >= 0 else 'S'} "
+            f"{_coord(abs(record.longitude))}{'E' if record.longitude >= 0 else 'W'} 27-MAR-62 00:00:00 {elevation:.6f} {record.name}"
+        )
+        lines.append(f"w  Waypoint,0,0.0,16777215,255,1,7,,0.0")
+    return "\n".join(lines) + "\n"
+
+
+def serialize_kml_turnpoints(records: list[TurnpointRecord]) -> str:
+    namespace = "http://www.opengis.net/kml/2.2"
+    ET.register_namespace("", namespace)
+    kml = ET.Element(f"{{{namespace}}}kml")
+    document = ET.SubElement(kml, f"{{{namespace}}}Document")
+    ET.SubElement(document, f"{{{namespace}}}name").text = "Aervyx Waypoints"
+    for record in records:
+        placemark = ET.SubElement(document, f"{{{namespace}}}Placemark")
+        ET.SubElement(placemark, f"{{{namespace}}}name").text = record.name
+        if record.code:
+            ET.SubElement(placemark, f"{{{namespace}}}description").text = record.code
+        point = ET.SubElement(placemark, f"{{{namespace}}}Point")
+        altitude = 0 if record.elevation_m is None else record.elevation_m
+        ET.SubElement(point, f"{{{namespace}}}coordinates").text = f"{_coord(record.longitude)},{_coord(record.latitude)},{_coord(altitude)}"
+    ET.indent(kml, space="  ")
+    return "<?xml version='1.0' encoding='UTF-8'?>\n" + ET.tostring(kml, encoding="unicode") + "\n"
+
+
+def serialize_kmz_turnpoints(records: list[TurnpointRecord]) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("doc.kml", serialize_kml_turnpoints(records))
+    return output.getvalue()
 
 
 def rewrite_turnpoint_source_file(source: TurnpointSource, turnpoints: list[Turnpoint]) -> str:

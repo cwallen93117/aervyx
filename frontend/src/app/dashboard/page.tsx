@@ -413,7 +413,6 @@ const organizerSidebarItems = [
   { id: "settings", label: "Settings" },
 ] satisfies SidebarItem[];
 const pilotSidebarItems = [
-  { id: "events", label: "Events" },
   { id: "tasks", label: "Tasks" },
   { id: "scoring", label: "Scores" },
   { id: "live_tracking", label: "Live Tracking" },
@@ -449,7 +448,7 @@ function normalizeSectionForRole(section: string | null, role: User["role"] | nu
   if (section && allowedSections.has(section as SidebarSection)) {
     return section as SidebarSection;
   }
-  if (role === "pilot") return "events";
+  if (role === "pilot") return "tasks";
   if (role === null) return "scoring";
   return "events";
 }
@@ -2883,6 +2882,8 @@ export default function HomePage() {
             selectedTaskId={selectedTaskId}
             selectedTask={selectedTask}
             taskDraft={taskDraft}
+            turnpointSources={turnpointSources}
+            airspaceSources={airspaceSources}
             setTaskDraft={setTaskDraft}
             taskPointAdvanced={taskPointAdvanced}
             toggleTaskPointAdvanced={toggleTaskPointAdvanced}
@@ -2969,6 +2970,8 @@ export default function HomePage() {
               selectedTaskId={selectedTaskId}
               selectedTask={selectedTask}
               taskDraft={taskDraft}
+              turnpointSources={turnpointSources}
+              airspaceSources={airspaceSources}
               setTaskDraft={setTaskDraft}
               taskPointAdvanced={taskPointAdvanced}
               toggleTaskPointAdvanced={toggleTaskPointAdvanced}

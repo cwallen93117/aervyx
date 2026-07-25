@@ -1,13 +1,13 @@
 "use client";
 
-import type { KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { SectionCard } from "../SectionCard";
 import { type MapAirspaceRegion, type MapLegMetric, type MapTelemetrySmoothing, type MapTurnpoint, type TaskEditorOverlayRenderProps, type TrackCollection } from "../TaskMap";
 import { TaskBuilderMap } from "../TaskBuilderMap";
 import { TaskTurnpointsTable } from "./TaskTurnpointsTable";
 import { sortTasksByDateAsc } from "./taskSorting";
 import { DEFAULT_AIRSPACE_CATEGORIES } from "../../lib/faaAirspace";
-import type { AccountSettingsRecord, TaskDraftState, TaskPointRecord, TaskRecord } from "./types";
+import type { AccountSettingsRecord, AirspaceSourceRecord, TaskDraftState, TaskPointRecord, TaskRecord, TurnpointSourceRecord } from "./types";
 
 const taskTypeOptions = [
   { value: "race_to_goal_with_gates", label: "Race to Goal" },
@@ -24,6 +24,44 @@ function displayTaskValue(value: string | number | null | undefined): string {
   return String(value);
 }
 
+const waypointDownloadFormats = [
+  { value: "gpx", label: "GPX" },
+  { value: "cup", label: "CUP" },
+  { value: "wpt", label: "WPT" },
+  { value: "kmz", label: "KMZ" },
+  { value: "csv", label: "CSV" },
+] as const;
+
+function resolveApiBase() {
+  const configured = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  if (configured?.startsWith("/")) return configured;
+  if (typeof window !== "undefined") return configured || "/backend";
+  return configured ?? "/backend";
+}
+
+async function apiFetchBlob(path: string, token: string): Promise<{ blob: Blob; filename: string | null }> {
+  const response = await fetch(`${resolveApiBase()}${path}`, {
+    cache: "no-store",
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  if (!response.ok) throw new Error((await response.text()) || `Request failed (${response.status})`);
+  const disposition = response.headers.get("content-disposition");
+  const filenameMatch = disposition?.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i);
+  const filename = filenameMatch ? decodeURIComponent(filenameMatch[1] ?? filenameMatch[2] ?? "") : null;
+  return { blob: await response.blob(), filename };
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export interface TasksSectionProps {
   selectedEventId: number | null;
   selectedEvent: { name?: string } | null;
@@ -31,6 +69,8 @@ export interface TasksSectionProps {
   selectedTaskId: number | null;
   selectedTask: TaskRecord | null;
   taskDraft: TaskDraftState;
+  turnpointSources: TurnpointSourceRecord[];
+  airspaceSources: AirspaceSourceRecord[];
   setTaskDraft: (draft: TaskDraftState | ((current: TaskDraftState) => TaskDraftState)) => void;
   taskPointAdvanced: boolean;
   toggleTaskPointAdvanced: (checked: boolean) => void;
@@ -83,6 +123,8 @@ export default function TasksSection(props: TasksSectionProps) {
     selectedTaskId,
     selectedTask,
     taskDraft,
+    turnpointSources,
+    airspaceSources,
     setTaskDraft,
     taskPointAdvanced,
     toggleTaskPointAdvanced,
@@ -121,6 +163,8 @@ export default function TasksSection(props: TasksSectionProps) {
     radiusInputValue,
     overlayConfig,
   } = props;
+  const [downloadFormats, setDownloadFormats] = useState<Record<number, string>>({});
+  const [downloadFeedback, setDownloadFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const sortedTasks = sortTasksByDateAsc(tasks);
   if (!selectedEventId) {
     return canManagePlatform ? (
@@ -145,6 +189,30 @@ export default function TasksSection(props: TasksSectionProps) {
     { label: "Task type", value: taskTypeLabel(taskDraft.task_type) },
     { label: "Practice Task", value: taskDraft.is_practice ? "Yes" : "No" },
   ];
+  const enabledAirspaceSources = airspaceSources.filter((source) => source.enabled ?? true);
+  const hasDownloads = turnpointSources.length > 0 || enabledAirspaceSources.length > 0;
+
+  async function downloadWaypointSource(source: TurnpointSourceRecord) {
+    const format = downloadFormats[source.id] ?? "gpx";
+    try {
+      const { blob, filename } = await apiFetchBlob(`/api/events/${selectedEventId}/turnpoint-sources/${source.id}/download?format=${encodeURIComponent(format)}`, token);
+      downloadBlob(blob, filename ?? `${source.filename.replace(/\.[^.]+$/, "")}.${format}`);
+      setDownloadFeedback({ type: "success", text: `Started downloading ${source.filename}.` });
+    } catch (caught) {
+      setDownloadFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download that waypoint file." });
+    }
+  }
+
+  async function downloadAirspaceSource(source: AirspaceSourceRecord) {
+    try {
+      const { blob, filename } = await apiFetchBlob(`/api/events/${selectedEventId}/airspace-sources/${source.id}/download`, token);
+      downloadBlob(blob, filename ?? source.filename);
+      setDownloadFeedback({ type: "success", text: `Started downloading ${source.filename}.` });
+    } catch (caught) {
+      setDownloadFeedback({ type: "error", text: caught instanceof Error ? caught.message : "Could not download that airspace file." });
+    }
+  }
+
   const showTimingAndGates = canManagePlatform || usesGatedStart;
   const fullscreenTaskEditor = ({ collapsed, contentId, overlayId, toggleButton }: TaskEditorOverlayRenderProps) => (
     <div id={overlayId} className={`map-task-editor${collapsed ? " is-collapsed" : ""}`}>
@@ -238,6 +306,42 @@ export default function TasksSection(props: TasksSectionProps) {
             </div>
           )}
         </div>
+        {hasDownloads ? (
+          <fieldset className="fieldset-cluster task-downloads-panel">
+            <legend>Downloads</legend>
+            <div className="task-download-list">
+              {turnpointSources.map((source) => {
+                const format = downloadFormats[source.id] ?? "gpx";
+                return (
+                  <div key={`waypoints-${source.id}`} className="task-download-row">
+                    <div>
+                      <strong>{source.filename}</strong>
+                      <span>Waypoint file</span>
+                    </div>
+                    <select
+                      value={format}
+                      aria-label={`Download format for ${source.filename}`}
+                      onChange={(event) => setDownloadFormats((current) => ({ ...current, [source.id]: event.target.value }))}
+                    >
+                      {waypointDownloadFormats.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                    <button type="button" className="ghost-button" onClick={() => void downloadWaypointSource(source)}>Download</button>
+                  </div>
+                );
+              })}
+              {enabledAirspaceSources.map((source) => (
+                <div key={`airspace-${source.id}`} className="task-download-row">
+                  <div>
+                    <strong>{source.filename}</strong>
+                    <span>{source.kind === "restricted_field" ? "Restricted fields" : "Airspace file"}</span>
+                  </div>
+                  <button type="button" className="ghost-button" onClick={() => void downloadAirspaceSource(source)}>Download</button>
+                </div>
+              ))}
+            </div>
+            {downloadFeedback ? <div className={`status-chip ${downloadFeedback.type}`}>{downloadFeedback.text}</div> : null}
+          </fieldset>
+        ) : null}
         {canManagePlatform && taskFeedback ? <div className={`status-chip ${taskFeedback.type} task-toolbar-feedback`}>{taskFeedback.text}</div> : null}
         <div className="fieldset-grid two-up task-setup-grid">
           <fieldset className="fieldset-cluster">

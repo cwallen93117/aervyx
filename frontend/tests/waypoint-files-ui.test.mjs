@@ -24,6 +24,25 @@ test("event turnpoint files select from the shared library", () => {
   assert.match(catalogSource, /\/api\/turnpoint-library\/upload/);
 });
 
+test("pilot navigation defaults to Tasks and omits Events", () => {
+  const source = readFileSync(join(root, "src/app/dashboard/page.tsx"), "utf8");
+  const pilotItemsStart = source.indexOf("const pilotSidebarItems = [");
+  const pilotItemsEnd = source.indexOf("] satisfies SidebarItem[];", pilotItemsStart);
+  const pilotItems = source.slice(pilotItemsStart, pilotItemsEnd);
+  assert.doesNotMatch(pilotItems, /id: "events"/);
+  assert.match(pilotItems, /id: "tasks"/);
+  assert.match(source, /if \(role === "pilot"\) return "tasks";/);
+});
+
+test("Tasks exposes selected event waypoint and airspace downloads", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/TasksSection.tsx"), "utf8");
+  assert.match(source, /turnpointSources: TurnpointSourceRecord\[\]/);
+  assert.match(source, /airspaceSources: AirspaceSourceRecord\[\]/);
+  assert.match(source, /<legend>Downloads<\/legend>/);
+  assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/turnpoint-sources\/\$\{source\.id\}\/download\?format=/);
+  assert.match(source, /\/api\/events\/\$\{selectedEventId\}\/airspace-sources\/\$\{source\.id\}\/download/);
+});
+
 test("library table has the requested columns and file operations", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
   assert.match(source, /<th>Selection<\/th>/);
@@ -40,11 +59,20 @@ test("library table has the requested columns and file operations", () => {
 
 test("Save As defaults to the source format and supports conversion", () => {
   const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesEditor.tsx"), "utf8");
-  assert.match(source, /setSaveAsFormat\(source\.file_format\)/);
-  assert.match(source, /<option value="gpx">GPX<\/option>/);
-  assert.match(source, /<option value="csv">CSV<\/option>/);
-  assert.match(source, /<option value="geojson">GeoJSON<\/option>/);
+  assert.match(source, /setSaveAsFormat\(defaultExportFormat\(source\.file_format\)\)/);
+  assert.match(source, /value: "gpx", label: "GPX"/);
+  assert.match(source, /value: "csv", label: "CSV"/);
+  assert.match(source, /value: "cup", label: "CUP"/);
+  assert.match(source, /value: "wpt", label: "WPT"/);
+  assert.match(source, /value: "kmz", label: "KMZ"/);
+  assert.doesNotMatch(source, /<option value="geojson">GeoJSON<\/option>/);
   assert.match(source, /\/api\/turnpoint-library\/\$\{saveAsSource\.id\}\/save-as/);
+});
+
+test("turnpoint library upload picker no longer advertises GeoJSON", () => {
+  const source = readFileSync(join(root, "src/components/dashboard/WaypointFilesSettings.tsx"), "utf8");
+  assert.match(source, /accept="\.csv,\.gpx"/);
+  assert.doesNotMatch(source, /accept="\.csv,\.geojson,\.json,\.gpx"/);
 });
 
 test("open file detail keeps only the upper-right close control above the map", () => {

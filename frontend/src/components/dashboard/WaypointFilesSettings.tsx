@@ -66,7 +66,7 @@ export default function WaypointFilesSettings({
           Upload turnpoints
           <input
             type="file"
-            accept=".csv,.geojson,.json,.gpx"
+            accept=".csv,.gpx"
             onChange={async (event) => {
               const file = event.target.files?.[0];
               if (!file) return;

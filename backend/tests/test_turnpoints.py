@@ -1,5 +1,7 @@
 from datetime import date
+from io import BytesIO
 from pathlib import Path
+import zipfile
 
 import pytest
 import app.routers.turnpoints as turnpoint_router
@@ -14,6 +16,7 @@ from app.routers.turnpoints import (
     create_library_turnpoint,
     delete_library_source,
     deselect_event_turnpoint_source,
+    download_event_turnpoint_source,
     list_source_turnpoints,
     list_turnpoint_sources,
     merge_library_sources,
@@ -23,7 +26,7 @@ from app.routers.turnpoints import (
     update_library_turnpoint,
 )
 from app.schemas import TurnpointSourceMerge, TurnpointSourceSaveAs, TurnpointSourceUpdate, TurnpointWrite
-from app.services.turnpoints import normalize_symbol, parse_csv_turnpoints, parse_csv_turnpoints_with_schema, parse_geojson_turnpoints, parse_gpx_turnpoints, serialize_csv_turnpoints
+from app.services.turnpoints import TurnpointRecord, normalize_symbol, parse_csv_turnpoints, parse_csv_turnpoints_with_schema, parse_geojson_turnpoints, parse_gpx_turnpoints, serialize_csv_turnpoints, serialize_turnpoint_records
 
 
 def _session() -> Session:
@@ -99,6 +102,19 @@ def test_parse_gpx_ignores_url_symbol_codes() -> None:
     assert records[0].code is None
 
 
+def test_export_formats_for_downloads() -> None:
+    records = [TurnpointRecord(name="Launch", code="LCH", latitude=36.6, longitude=-118.1, elevation_m=1200, symbol="launch")]
+
+    assert b"Launch,LCH,36.6,-118.1,1200,launch" in serialize_turnpoint_records(records, "csv", {})
+    assert b"<wpt lat=\"36.6\" lon=\"-118.1\">" in serialize_turnpoint_records(records, "gpx", {})
+    assert b"name,code,country,lat,lon,elev,style" in serialize_turnpoint_records(records, "cup", {})
+    assert b"G  WGS 84\nU  1\nW  LCH A 36.6N 118.1W" in serialize_turnpoint_records(records, "wpt", {})
+    kmz = serialize_turnpoint_records(records, "kmz", {})
+    with zipfile.ZipFile(BytesIO(kmz)) as archive:
+        assert "doc.kml" in archive.namelist()
+        assert b"<name>Launch</name>" in archive.read("doc.kml")
+
+
 def _library_source(session: Session, tmp_path: Path, filename: str, points: list[dict]) -> TurnpointSource:
     stored_path = tmp_path / filename
     stored_path.parent.mkdir(parents=True, exist_ok=True)
@@ -163,7 +179,7 @@ def test_rename_library_source_corrects_extension(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("source_format", ["csv", "gpx", "geojson"])
-@pytest.mark.parametrize("output_format", ["csv", "gpx", "geojson"])
+@pytest.mark.parametrize("output_format", ["csv", "gpx", "cup", "wpt", "kmz"])
 def test_save_as_converts_every_supported_format_and_preserves_metadata(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -308,6 +324,38 @@ def test_events_share_library_sources_and_pilots_read_selected_files(tmp_path: P
     deselect_event_turnpoint_source(first_event.id, source.id, admin, session)
     assert list_turnpoint_sources(first_event.id, pilot, session) == []
     assert [item.id for item in list_turnpoint_sources(second_event.id, pilot, session)] == [source.id]
+
+
+def test_pilot_can_download_selected_event_waypoint_file(tmp_path: Path) -> None:
+    session = _session()
+    pilot = User(username="pilot@example.com", full_name="Pilot", role="pilot", password_hash="hash")
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(name="Meet", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="public")
+    session.add_all([pilot, admin, event])
+    session.commit()
+    source = _library_source(session, tmp_path, "shared.csv", [{"name": "A", "code": "A1", "latitude": 1, "longitude": 2}])
+    select_event_turnpoint_source(event.id, source.id, admin, session)
+
+    response = download_event_turnpoint_source(event.id, source.id, "cup", pilot, session)
+
+    assert response.media_type == "text/csv"
+    assert b"name,code,country,lat,lon,elev,style" in response.body
+
+
+def test_event_waypoint_download_rejects_unsupported_export_format(tmp_path: Path) -> None:
+    session = _session()
+    pilot = User(username="pilot@example.com", full_name="Pilot", role="pilot", password_hash="hash")
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(name="Meet", location="", starts_on=date(2026, 5, 1), ends_on=date(2026, 5, 1), timezone="UTC", visibility="public")
+    session.add_all([pilot, admin, event])
+    session.commit()
+    source = _library_source(session, tmp_path, "shared.csv", [{"name": "A", "latitude": 1, "longitude": 2}])
+    select_event_turnpoint_source(event.id, source.id, admin, session)
+
+    with pytest.raises(HTTPException) as exc:
+        download_event_turnpoint_source(event.id, source.id, "geojson", pilot, session)
+
+    assert exc.value.status_code == 400
 
 
 def test_library_delete_preserves_task_point_snapshot(tmp_path: Path) -> None:

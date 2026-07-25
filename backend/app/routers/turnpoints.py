@@ -5,7 +5,7 @@ import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
@@ -29,15 +29,14 @@ from app.services.turnpoints import (
     normalize_symbol,
     parse_turnpoint_upload,
     rewrite_turnpoint_source_file,
-    serialize_csv_turnpoints,
-    serialize_geojson_turnpoints,
-    serialize_gpx_turnpoints,
+    serialize_turnpoint_records,
     validate_coordinate,
 )
 from app.services.waypoint_access import can_view_waypoints
 
 router = APIRouter(tags=["turnpoints"])
-SUPPORTED_FORMATS = {"csv", "gpx", "geojson"}
+SUPPORTED_FORMATS = {"csv", "gpx", "geojson", "cup", "wpt", "kmz"}
+DOWNLOAD_FORMATS = {"csv", "gpx", "cup", "wpt", "kmz"}
 
 
 def _source_payload(session: Session, source: TurnpointSource) -> TurnpointSourceResponse:
@@ -96,7 +95,7 @@ def _event_source_or_404(session: Session, event_id: int, source_id: int, user: 
 
 def _clean_source_filename(filename: str, file_format: str) -> str:
     if file_format not in SUPPORTED_FORMATS:
-        raise HTTPException(status_code=400, detail="Format must be csv, gpx, or geojson.")
+        raise HTTPException(status_code=400, detail="Format must be csv, gpx, geojson, cup, wpt, or kmz.")
     cleaned = filename.strip()
     if not cleaned:
         raise HTTPException(status_code=400, detail="Filename is required.")
@@ -122,14 +121,45 @@ def _record(turnpoint: Turnpoint) -> TurnpointRecord:
 
 
 def _serialize_records(records: list[TurnpointRecord], file_format: str, schema: dict | None = None) -> bytes:
-    schema = schema or {}
-    if file_format == "csv":
-        return serialize_csv_turnpoints(records, schema).encode("utf-8")
-    if file_format == "gpx":
-        return serialize_gpx_turnpoints(records, schema).encode("utf-8")
-    if file_format == "geojson":
-        return serialize_geojson_turnpoints(records, schema).encode("utf-8")
-    raise HTTPException(status_code=400, detail="Format must be csv, gpx, or geojson.")
+    try:
+        return serialize_turnpoint_records(records, file_format, schema)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Format must be csv, gpx, geojson, cup, wpt, or kmz.") from exc
+
+
+def _media_type(file_format: str) -> str:
+    return {
+        "csv": "text/csv",
+        "gpx": "application/gpx+xml",
+        "geojson": "application/geo+json",
+        "cup": "text/csv",
+        "wpt": "text/plain",
+        "kmz": "application/vnd.google-earth.kmz",
+    }.get(file_format, "application/octet-stream")
+
+
+def _download_filename(source: TurnpointSource, file_format: str) -> str:
+    suffix = ".geojson" if file_format == "geojson" else f".{file_format}"
+    return f"{Path(source.filename).stem}{suffix}"
+
+
+def _download_response(source: TurnpointSource, turnpoints: list[Turnpoint], file_format: str | None = None) -> Response:
+    if file_format is None:
+        stored_path = Path(source.stored_path)
+        if not stored_path.exists():
+            raise HTTPException(status_code=404, detail="Stored turnpoint file not found")
+        return FileResponse(stored_path, filename=source.filename, media_type=_media_type(source.file_format))
+    file_format = file_format.strip().lower()
+    if file_format not in DOWNLOAD_FORMATS:
+        raise HTTPException(status_code=400, detail="Format must be csv, gpx, cup, wpt, or kmz.")
+    records = [_record(point) for point in turnpoints]
+    body = _serialize_records(records, file_format, source.schema_json if file_format == source.file_format else {})
+    filename = _download_filename(source, file_format)
+    return Response(
+        content=body,
+        media_type=_media_type(file_format),
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 def _create_library_source(
@@ -248,13 +278,14 @@ def list_library_turnpoints(source_id: int, _staff: User = Depends(require_staff
 
 
 @router.get("/api/turnpoint-library/{source_id}/download")
-def download_library_file(source_id: int, _staff: User = Depends(require_staff), session: Session = Depends(get_session)) -> FileResponse:
+def download_library_file(
+    source_id: int,
+    format: str | None = Query(default=None),
+    _staff: User = Depends(require_staff),
+    session: Session = Depends(get_session),
+) -> Response:
     source = _library_source_or_404(session, source_id)
-    stored_path = Path(source.stored_path)
-    if not stored_path.exists():
-        raise HTTPException(status_code=404, detail="Stored turnpoint file not found")
-    media_type = {"csv": "text/csv", "gpx": "application/gpx+xml", "geojson": "application/geo+json"}.get(source.file_format, "application/octet-stream")
-    return FileResponse(stored_path, filename=source.filename, media_type=media_type)
+    return _download_response(source, _source_turnpoints(session, source), format)
 
 
 @router.post("/api/turnpoint-library/{source_id}/turnpoints", response_model=TurnpointResponse)
@@ -454,3 +485,15 @@ def deselect_event_turnpoint_source(event_id: int, source_id: int, staff: User =
 def list_source_turnpoints(event_id: int, source_id: int, user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> list[TurnpointResponse]:
     source = _event_source_or_404(session, event_id, source_id, user)
     return [_turnpoint_response(point) for point in _source_turnpoints(session, source)]
+
+
+@router.get("/api/events/{event_id}/turnpoint-sources/{source_id}/download")
+def download_event_turnpoint_source(
+    event_id: int,
+    source_id: int,
+    format: str | None = Query(default=None),
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> Response:
+    source = _event_source_or_404(session, event_id, source_id, user)
+    return _download_response(source, _source_turnpoints(session, source), format)
