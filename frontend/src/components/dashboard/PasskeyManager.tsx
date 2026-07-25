@@ -14,11 +14,12 @@ export default function PasskeyManager({ token }: { token: string }) {
   const [passkeys, setPasskeys] = useState<PasskeyRecord[]>([]);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const supported = passkeysSupported();
+  const [supported, setSupported] = useState(false);
 
   const load = () => listPasskeys(token).then(setPasskeys).catch(() => {
     setFeedback({ type: "error", text: "Passkeys could not be loaded." });
   });
+  useEffect(() => setSupported(passkeysSupported()), []);
   useEffect(() => { void load(); }, [token]);
 
   async function add() {

@@ -94,7 +94,8 @@ export default function LoginPage() {
   const googleButtonRef = useRef<HTMLDivElement>(null);
   const conditionalPasskeyAbortRef = useRef<AbortController | null>(null);
   const [googleClientId, setGoogleClientId] = useState<string | null | undefined>(undefined);
-  const [googleSdkReady, setGoogleSdkReady] = useState(typeof window !== "undefined" && !!window.google);
+  const [googleSdkReady, setGoogleSdkReady] = useState(false);
+  const [passkeyAvailable, setPasskeyAvailable] = useState(false);
 
   const completeSignIn = useCallback((
     payload: { access_token: string; refresh_token?: string; user?: { full_name: string } },
@@ -138,7 +139,11 @@ export default function LoginPage() {
   }, [completeSignIn]);
 
   useEffect(() => {
-    if (authMode !== "login" || !passkeysSupported()) return;
+    setPasskeyAvailable(passkeysSupported());
+  }, []);
+
+  useEffect(() => {
+    if (authMode !== "login" || !passkeyAvailable) return;
     const controller = new AbortController();
     conditionalPasskeyAbortRef.current = controller;
     void conditionalPasskeysSupported().then(async (supported) => {
@@ -151,7 +156,7 @@ export default function LoginPage() {
       }
     });
     return () => controller.abort();
-  }, [authMode, completeSignIn]);
+  }, [authMode, completeSignIn, passkeyAvailable]);
 
   async function handlePasskeyLogin() {
     conditionalPasskeyAbortRef.current?.abort();
@@ -377,7 +382,7 @@ export default function LoginPage() {
                     {isSubmitting ? "Signing in..." : "Sign in"}
                   </button>
                 </form>
-                {passkeysSupported() ? (
+                {passkeyAvailable ? (
                   <button type="button" className="aervyx-auth-passkey" disabled={isSubmitting} onClick={() => void handlePasskeyLogin()}>
                     Sign in with a passkey
                   </button>
