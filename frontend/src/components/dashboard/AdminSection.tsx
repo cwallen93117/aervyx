@@ -1118,6 +1118,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     <SortHeader field="username" label="Username" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="role" label="Role" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
                     <SortHeader field="status" label="Status" current={userSortField} dir={userSortDir} toggle={toggleUserSort} />
+                    <th>Created</th>
                     <th>Mesh Device</th>
                     <th className="participant-table-actions">Actions</th>
                   </tr>
@@ -1173,6 +1174,7 @@ export default function AdminSection(props: AdminSectionProps) {
                             <span>{account.is_active ? "Active" : "Disabled"}</span>
                           </label>
                         </td>
+                        <td>{new Date(account.created_at).toLocaleDateString()}</td>
                         <td>
                           <div className="admin-mesh-summary">
                             {hasMultipleMeshDevices ? (
@@ -1258,7 +1260,7 @@ export default function AdminSection(props: AdminSectionProps) {
                       </tr>
                       {hasMultipleMeshDevices && meshExpanded ? (
                         <tr className="admin-mesh-detail-row">
-                          <td colSpan={8}>
+                          <td colSpan={9}>
                             <table className="admin-mesh-devices-table">
                               <thead>
                                 <tr>
@@ -1304,7 +1306,7 @@ export default function AdminSection(props: AdminSectionProps) {
                     })
                   ) : (
                     <tr>
-                      <td colSpan={8} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
+                      <td colSpan={9} className="participant-table-empty">{userSearch ? "No matching users." : "No platform users found."}</td>
                     </tr>
                   )}
                 </tbody>
