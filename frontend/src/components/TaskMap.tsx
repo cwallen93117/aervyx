@@ -111,6 +111,7 @@ export type MapLegMetric = { index: number; centerDistanceKm: number; optimizedD
 export type MapClickPosition = { latitude: number; longitude: number; elevationM: number | null };
 type MeasurementPoint = { longitude: number; latitude: number };
 type MeasurementLegLabel = { position: [number, number, number]; label: string };
+type MeasurementTotalLabel = { position: [number, number, number]; label: string };
 export type TaskEditorOverlayRenderProps = {
   collapsed: boolean;
   contentId: string;
@@ -2082,6 +2083,7 @@ export const TaskMap = React.memo(function TaskMap({
   const [showFaaAirspace, setShowFaaAirspace] = useState(false);
   const [measurementEnabled, setMeasurementEnabled] = useState(false);
   const [measurementPoints, setMeasurementPoints] = useState<MeasurementPoint[]>([]);
+  const [measurementHoverPoint, setMeasurementHoverPoint] = useState<MeasurementPoint | null>(null);
   const [faaAirspaceData, setFaaAirspaceData] = useState<GeoJSON.FeatureCollection>(() => emptyFeatureCollection());
   const [mapReadyNonce, setMapReadyNonce] = useState(0);
   const [scaleBar, setScaleBar] = useState<{ label: string; width: number } | null>(null);
@@ -2458,29 +2460,50 @@ export const TaskMap = React.memo(function TaskMap({
     })),
   }), [effectiveLegMetrics, units.distance]);
   const cylinderData = useMemo(() => ({ type: "FeatureCollection", features: effectiveTaskCylinderPoints.map(buildCircle) }), [effectiveTaskCylinderPoints]);
-  const measurementPath = useMemo(
-    () => measurementEnabled ? measurementPoints.map((point) => [point.longitude, point.latitude, 0] as [number, number, number]) : [],
-    [measurementEnabled, measurementPoints],
+  const measurementRoutePoints = useMemo(
+    () => measurementEnabled && measurementHoverPoint && measurementPoints.length ? [...measurementPoints, measurementHoverPoint] : measurementPoints,
+    [measurementEnabled, measurementHoverPoint, measurementPoints],
+  );
+  const measurementCommittedPath = useMemo(
+    () => measurementPoints.map((point) => [point.longitude, point.latitude, 0] as [number, number, number]),
+    [measurementPoints],
+  );
+  const measurementPreviewPath = useMemo(
+    () => measurementEnabled && measurementHoverPoint && measurementPoints.length
+      ? [[measurementPoints[measurementPoints.length - 1].longitude, measurementPoints[measurementPoints.length - 1].latitude, 0] as [number, number, number], [measurementHoverPoint.longitude, measurementHoverPoint.latitude, 0] as [number, number, number]]
+      : [],
+    [measurementEnabled, measurementHoverPoint, measurementPoints],
   );
   const measurementLegLabels = useMemo<MeasurementLegLabel[]>(() => {
-    if (!measurementEnabled) return [];
     const labels: MeasurementLegLabel[] = [];
-    for (let index = 1; index < measurementPoints.length; index += 1) {
-      const previous = measurementPoints[index - 1];
-      const current = measurementPoints[index];
+    for (let index = 1; index < measurementRoutePoints.length; index += 1) {
+      const previous = measurementRoutePoints[index - 1];
+      const current = measurementRoutePoints[index];
       labels.push({
         position: [(previous.longitude + current.longitude) / 2, (previous.latitude + current.latitude) / 2, 0],
         label: formatDistanceLabel(haversineKm([previous.longitude, previous.latitude], [current.longitude, current.latitude]), units.distance),
       });
     }
     return labels;
-  }, [measurementEnabled, measurementPoints, units.distance]);
+  }, [measurementRoutePoints, units.distance]);
   const measurementTotalDistanceKm = useMemo(
-    () => measurementPoints.reduce((total, point, index) => {
+    () => measurementRoutePoints.reduce((total, point, index) => {
       if (index === 0) return total;
-      const previous = measurementPoints[index - 1];
+      const previous = measurementRoutePoints[index - 1];
       return total + haversineKm([previous.longitude, previous.latitude], [point.longitude, point.latitude]);
     }, 0),
+    [measurementRoutePoints],
+  );
+  const measurementTotalLabel = useMemo<MeasurementTotalLabel[]>(() => {
+    if (measurementRoutePoints.length < 2) return [];
+    const first = measurementRoutePoints[0];
+    return [{
+      position: [first.longitude, first.latitude, 0],
+      label: `Total ${formatDistanceLabel(measurementTotalDistanceKm, units.distance)}`,
+    }];
+  }, [measurementRoutePoints, measurementTotalDistanceKm, units.distance]);
+  const measurementPointMarkers = useMemo(
+    () => measurementPoints.map((point) => [point.longitude, point.latitude, 0] as [number, number, number]),
     [measurementPoints],
   );
   const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(effectiveTaskRoutePoints, effectiveOptimizedRoute), [effectiveOptimizedRoute, effectiveTaskRoutePoints]);
@@ -3085,12 +3108,12 @@ export const TaskMap = React.memo(function TaskMap({
         }),
       );
     }
-    if (measurementPath.length) {
-      if (measurementPath.length > 1) {
+    if (measurementCommittedPath.length) {
+      if (measurementCommittedPath.length > 1) {
         layers.push(
           new PathLayer({
             id: "measurement-route",
-            data: [{ path: measurementPath }],
+            data: [{ path: measurementCommittedPath }],
             coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
             positionFormat: "XYZ",
             getPath: (item: { path: [number, number, number][] }) => item.path,
@@ -3108,7 +3131,7 @@ export const TaskMap = React.memo(function TaskMap({
       layers.push(
         new ScatterplotLayer({
           id: "measurement-points",
-          data: measurementPath,
+          data: measurementPointMarkers,
           coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
           getPosition: (point: [number, number, number]) => point,
           getRadius: 5,
@@ -3121,6 +3144,25 @@ export const TaskMap = React.memo(function TaskMap({
           lineWidthUnits: "pixels",
           lineWidthMinPixels: 2,
           pickable: false,
+          parameters: { depthTest: false },
+        }),
+      );
+    }
+    if (measurementPreviewPath.length) {
+      layers.push(
+        new PathLayer({
+          id: "measurement-preview-route",
+          data: [{ path: measurementPreviewPath }],
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          positionFormat: "XYZ",
+          getPath: (item: { path: [number, number, number][] }) => item.path,
+          getColor: [37, 99, 235, 230],
+          getWidth: 3,
+          widthUnits: "pixels",
+          widthMinPixels: 3,
+          pickable: false,
+          jointRounded: true,
+          capRounded: true,
           parameters: { depthTest: false },
         }),
       );
@@ -3146,6 +3188,33 @@ export const TaskMap = React.memo(function TaskMap({
           getBackgroundColor: [255, 255, 255, 230],
           backgroundPadding: [5, 3],
           backgroundBorderRadius: 4,
+          pickable: false,
+          parameters: { depthTest: false },
+        }),
+      );
+    }
+    if (measurementTotalLabel.length) {
+      layers.push(
+        new TextLayer({
+          id: "measurement-total-label",
+          data: measurementTotalLabel,
+          coordinateSystem: COORDINATE_SYSTEM.LNGLAT,
+          billboard: true,
+          getPosition: (item: MeasurementTotalLabel) => item.position,
+          getText: (item: MeasurementTotalLabel) => item.label,
+          getColor: [17, 24, 39, 255],
+          getSize: 14,
+          sizeUnits: "pixels",
+          sizeMinPixels: 14,
+          getPixelOffset: [0, 30],
+          getTextAnchor: "middle",
+          getAlignmentBaseline: "top",
+          fontFamily: "Segoe UI, Arial, sans-serif",
+          fontWeight: 700,
+          background: true,
+          getBackgroundColor: [255, 255, 255, 240],
+          backgroundPadding: [8, 5],
+          backgroundBorderRadius: 6,
           pickable: false,
           parameters: { depthTest: false },
         }),
@@ -3316,7 +3385,7 @@ export const TaskMap = React.memo(function TaskMap({
       );
     }
     return layers;
-  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, isPerspective3D, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, measurementLegLabels, measurementPath, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
+  }, [altitudeTrackSegments, cylinderVolumes, effectiveHighlightedTrackUploadId, fullTrackPathData, isPerspective3D, liveMarkerScale, livePilotLabelData, livePilotMarkerData, maxScoredTrackAltitudeM, measurementCommittedPath, measurementLegLabels, measurementPointMarkers, measurementPreviewPath, measurementTotalLabel, mode, onLivePositionClick, replayPilotLabelData, scoredTrackDeckPointData, visibleSpiralReconstructionSegments, visibleTrackLengths]);
   const fitBounds = resolvedFitTarget.coordinates;
   const fitGeometrySignature = resolvedFitTarget.signature;
   const fitTargetKind = resolvedFitTarget.kind;
@@ -3349,6 +3418,9 @@ export const TaskMap = React.memo(function TaskMap({
     if (map) {
       map.getCanvas().style.cursor = measurementEnabled ? "crosshair" : "";
     }
+    if (!measurementEnabled) {
+      setMeasurementHoverPoint(null);
+    }
   }, [measurementEnabled]);
 
   useEffect(() => {
@@ -3360,7 +3432,20 @@ export const TaskMap = React.memo(function TaskMap({
 
   useEffect(() => {
     measurementPointsRef.current = measurementPoints;
+    if (!measurementPoints.length) {
+      setMeasurementHoverPoint(null);
+    }
   }, [measurementPoints]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (measurementAvailable && measurementEnabled) {
+      map.doubleClickZoom.disable();
+      return;
+    }
+    map.doubleClickZoom.enable();
+  }, [mapReadyNonce, measurementAvailable, measurementEnabled]);
 
   useEffect(() => {
     faaAirspaceCategoriesRef.current = effectiveFaaAirspaceCategories;
@@ -3573,9 +3658,30 @@ export const TaskMap = React.memo(function TaskMap({
       map.on("zoomstart", markManualInteraction);
       map.on("rotatestart", markManualInteraction);
       map.on("pitchstart", markManualInteraction);
+      const handleMeasurementMouseMove = (event: maplibregl.MapMouseEvent) => {
+        if (!measurementEnabledRef.current || !measurementAvailableRef.current || !measurementPointsRef.current.length) {
+          return;
+        }
+        setMeasurementHoverPoint({ longitude: event.lngLat.lng, latitude: event.lngLat.lat });
+      };
+      const handleMeasurementDoubleClick = (event: maplibregl.MapMouseEvent) => {
+        if (!measurementEnabledRef.current || !measurementAvailableRef.current) {
+          return;
+        }
+        event.preventDefault();
+        event.originalEvent.preventDefault();
+        setMeasurementEnabled(false);
+        setMeasurementHoverPoint(null);
+      };
+      map.on("mousemove", handleMeasurementMouseMove);
+      map.on("dblclick", handleMeasurementDoubleClick);
       map.on("click", (event) => {
         if (measurementEnabledRef.current && measurementAvailableRef.current) {
+          if (event.originalEvent.detail > 1) {
+            return;
+          }
           setMeasurementPoints([...measurementPointsRef.current, { longitude: event.lngLat.lng, latitude: event.lngLat.lat }]);
+          setMeasurementHoverPoint(null);
           return;
         }
         if (!editableRef.current || (!onSelectTurnpointRef.current && !onMapClickRef.current) || !clickToAddTurnpointEnabledRef.current) {
@@ -3639,6 +3745,8 @@ export const TaskMap = React.memo(function TaskMap({
         map.off("zoomstart", markManualInteraction);
         map.off("rotatestart", markManualInteraction);
         map.off("pitchstart", markManualInteraction);
+        map.off("mousemove", handleMeasurementMouseMove);
+        map.off("dblclick", handleMeasurementDoubleClick);
         map.off("pitch", syncPerspectiveMode);
         if (deckOverlayRef.current) {
           map.removeControl(deckOverlayRef.current);
@@ -4462,7 +4570,10 @@ export const TaskMap = React.memo(function TaskMap({
               aria-label={measurementEnabled ? "Turn measurement off" : "Measure distance"}
               title={measurementEnabled ? "Turn measurement off" : "Measure distance"}
               aria-pressed={measurementEnabled}
-              onClick={() => setMeasurementEnabled((current) => !current)}
+              onClick={() => setMeasurementEnabled((current) => {
+                if (current) setMeasurementHoverPoint(null);
+                return !current;
+              })}
             >
               <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 17 17 4l3 3L7 20l-3-3Z" />
@@ -4475,7 +4586,10 @@ export const TaskMap = React.memo(function TaskMap({
                 className="map-control-button map-control-mode-button"
                 aria-label="Clear measurement"
                 title="Clear measurement"
-                onClick={() => setMeasurementPoints([])}
+                onClick={() => {
+                  setMeasurementPoints([]);
+                  setMeasurementHoverPoint(null);
+                }}
               >
                 x
               </button>
@@ -4525,11 +4639,6 @@ export const TaskMap = React.memo(function TaskMap({
           <div className="map-scale-bar" aria-label={`Map scale ${scaleBar.label}`}>
             <span className="map-scale-bar-label">{scaleBar.label}</span>
             <span className="map-scale-bar-line" style={{ width: scaleBar.width }} />
-          </div>
-        ) : null}
-        {measurementEnabled && measurementPoints.length > 1 ? (
-          <div className="map-measure-summary" aria-label={`Measured route total ${formatDistanceLabel(measurementTotalDistanceKm, units.distance)}`}>
-            <span>Total {formatDistanceLabel(measurementTotalDistanceKm, units.distance)}</span>
           </div>
         ) : null}
         {oc?.basemap_selector !== false ? (
