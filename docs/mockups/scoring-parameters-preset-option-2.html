@@ -60,7 +60,7 @@
             </label>
             <button class="button primary" type="button" data-save-button>Save</button>
             <button class="button" type="button" data-save-as-toggle>Save As</button>
-            <button class="button danger" type="button" data-delete-button>Delete custom</button>
+            <button class="button danger" type="button" data-delete-button>Delete</button>
           </div>
 
           <div class="save-drawer" data-save-drawer>
@@ -113,8 +113,8 @@
 
     function syncPresetState() {
       const isCustom = select.value.startsWith("custom:");
-      saveButton.disabled = !isCustom;
-      deleteButton.disabled = !isCustom;
+      saveButton.hidden = !isCustom;
+      deleteButton.hidden = !isCustom;
     }
 
     select.addEventListener("change", syncPresetState);

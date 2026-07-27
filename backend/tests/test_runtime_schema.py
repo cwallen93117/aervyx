@@ -308,6 +308,7 @@ def test_runtime_schema_adds_profile_type_timestamp_to_legacy_users() -> None:
 
     columns = {column["name"] for column in inspect(engine).get_columns("users")}
     assert "profile_type_updated_at" in columns
+    assert "custom_scoring_formulas_json" in columns
     event_pilot_columns = {column["name"] for column in inspect(engine).get_columns("event_pilots")}
     assert "pilot_class" in event_pilot_columns
     with engine.connect() as connection:

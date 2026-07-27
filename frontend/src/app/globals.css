@@ -1484,7 +1484,7 @@ select {
 
 .scoring-setup-groups {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -1533,6 +1533,22 @@ select {
 
 .scoring-formula-field select {
   max-width: none;
+}
+
+.scoring-formula-field optgroup {
+  font-style: italic;
+  font-weight: 800;
+}
+
+.scoring-formula-field .field-label-with-help {
+  gap: 10px;
+  align-items: center;
+}
+
+.scoring-formula-field .field-help-button {
+  width: 22px;
+  height: 22px;
+  font-size: 0.75rem;
 }
 
 .scoring-formula-actions {

@@ -183,20 +183,20 @@ select {
 .control-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
 }
 
 .help-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border: 1px solid var(--line-strong);
   border-radius: 50%;
   background: var(--panel);
   color: var(--accent);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   font-weight: 800;
 }
 

@@ -3,7 +3,7 @@
 import { type FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { SectionCard } from "../SectionCard";
 import { LabelWithHelp, type ScoringHelpId } from "../../lib/scoringParameters";
-import { HANDICAP_CLASSES, readHandicapConfig } from "../../lib/handicap";
+import { HANDICAP_CLASSES } from "../../lib/handicap";
 import type {
   AirspaceCategoryOption,
   AirspaceSourceRecord,
@@ -26,11 +26,10 @@ const builtInFormulaOptions = [
   { value: "OzGAP2005", label: "OzGAP 2005" },
   { value: "PWC2016", label: "PWC 2016" },
 ] as const;
-const builtInFormulaValues: Set<string> = new Set(builtInFormulaOptions.map((o) => o.value));
-
 const CUSTOM_FORMULAS_KEY = "aervyx_custom_scoring_formulas";
 
 type CustomFormula = { value: string; label: string; preset: FormulaPreset };
+type CustomFormulaResponse = { formulas: CustomFormula[] };
 
 function loadCustomFormulas(): CustomFormula[] {
   try {
@@ -45,6 +44,10 @@ function loadCustomFormulas(): CustomFormula[] {
 
 function saveCustomFormulas(formulas: CustomFormula[]) {
   localStorage.setItem(CUSTOM_FORMULAS_KEY, JSON.stringify(formulas));
+}
+
+function customFormulaKey(name: string) {
+  return `custom_${name.trim().replace(/\s+/g, "_").replace(/[^a-zA-Z0-9_]/g, "").toLowerCase()}_${Date.now()}`;
 }
 
 /* ---------- Formula preset defaults per GAP version ---------- */
@@ -332,54 +335,6 @@ function blankPreset(id: string): ScoringPresetRecord {
   return { id, label: "", penalty_type: "percentage", value: 0, reason: "" };
 }
 
-function scoringFormFromEvent(sourceEvent: EventRecord, currentForm: EventFormState): EventFormState {
-  const handicap = readHandicapConfig(sourceEvent.penalties_json);
-  return {
-    ...currentForm,
-    scoring_formula: sourceEvent.scoring_formula,
-    nominal_distance_km: sourceEvent.nominal_distance_km,
-    nominal_time_hours: sourceEvent.nominal_time_hours,
-    nominal_launch: sourceEvent.nominal_launch,
-    minimum_distance_km: sourceEvent.minimum_distance_km,
-    nominal_goal_percent: sourceEvent.nominal_goal_percent,
-    score_back_time_minutes: sourceEvent.score_back_time_minutes,
-    goal_ss_penalty: sourceEvent.goal_ss_penalty,
-    day_quality_override: sourceEvent.day_quality_override,
-    time_points_if_not_in_goal: sourceEvent.time_points_if_not_in_goal,
-    jump_the_gun_factor: sourceEvent.jump_the_gun_factor,
-    jump_the_gun_max_seconds: sourceEvent.jump_the_gun_max_seconds,
-    stopped_glide_bonus: sourceEvent.stopped_glide_bonus,
-    use_1000_points_for_max_day_quality: sourceEvent.use_1000_points_for_max_day_quality,
-    normalize_1000_before_day_quality: sourceEvent.normalize_1000_before_day_quality,
-    use_distance_points: sourceEvent.use_distance_points,
-    use_time_points: sourceEvent.use_time_points,
-    use_leading_points: sourceEvent.use_leading_points,
-    use_arrival_position_points: sourceEvent.use_arrival_position_points,
-    use_arrival_time_points: sourceEvent.use_arrival_time_points,
-    use_departure_points: sourceEvent.use_departure_points,
-    use_difficulty_for_distance_points: sourceEvent.use_difficulty_for_distance_points,
-    use_distance_squared_for_lc: sourceEvent.use_distance_squared_for_lc,
-    use_semi_circle_control_zone_for_goal_line: sourceEvent.use_semi_circle_control_zone_for_goal_line,
-    use_proportional_leading_weight_if_nobody_in_goal: sourceEvent.use_proportional_leading_weight_if_nobody_in_goal,
-    redistribute_removed_time_points_as_distance_points: sourceEvent.redistribute_removed_time_points_as_distance_points,
-    use_best_score_for_ftv_validity: sourceEvent.use_best_score_for_ftv_validity,
-    use_constant_leading_weight: sourceEvent.use_constant_leading_weight,
-    use_pwca2019_for_lc: sourceEvent.use_pwca2019_for_lc,
-    use_flat_decline_of_timepoints: sourceEvent.use_flat_decline_of_timepoints,
-    scoring_altitude: sourceEvent.scoring_altitude,
-    final_glide_decelerator: sourceEvent.final_glide_decelerator,
-    no_final_glide_decelerator_reason: sourceEvent.no_final_glide_decelerator_reason,
-    min_time_span_for_valid_task_minutes: sourceEvent.min_time_span_for_valid_task_minutes,
-    leading_weight_factor: sourceEvent.leading_weight_factor,
-    turnpoint_radius_tolerance: sourceEvent.turnpoint_radius_tolerance,
-    turnpoint_radius_minimum_absolute_tolerance_m: sourceEvent.turnpoint_radius_minimum_absolute_tolerance_m,
-    number_of_decimals_task_results: sourceEvent.number_of_decimals_task_results,
-    number_of_decimals_competition_results: sourceEvent.number_of_decimals_competition_results,
-    mixed_class: handicap.enabled,
-    handicap_multipliers: handicap.multipliers,
-  };
-}
-
 function airspaceSourceLabel(kind: AirspaceSourceRecord["kind"]): string {
   return kind === "restricted_field" ? "Restricted fields" : kind === "airspace" ? "Airspace" : "";
 }
@@ -492,20 +447,19 @@ export default function EventsSection(props: EventsSectionProps) {
   const [activeHelpId, setActiveHelpId] = useState<ScoringHelpId | null>(null);
   const [formulaInfoOpen, setFormulaInfoOpen] = useState(false);
   const [customFormulas, setCustomFormulas] = useState<CustomFormula[]>(() => loadCustomFormulas());
+  const [customFormulaFeedback, setCustomFormulaFeedback] = useState<PresetFeedback>(null);
   const [savingFormulaName, setSavingFormulaName] = useState("");
   const [showSaveFormula, setShowSaveFormula] = useState(false);
   const scoringFormulaOptions = [
-    ...builtInFormulaOptions,
     ...customFormulas.map((cf) => ({ value: cf.value, label: cf.label })),
+    ...builtInFormulaOptions,
   ];
-  const [scoringTemplateEventId, setScoringTemplateEventId] = useState("");
-  const [scoringTemplateFeedback, setScoringTemplateFeedback] = useState<PresetFeedback>(null);
+  const currentCustomFormula = customFormulas.find((cf) => cf.value === eventForm.scoring_formula);
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
   const [librarySources, setLibrarySources] = useState<TurnpointSourceRecord[]>([]);
   const startsOnPickerRef = useRef<HTMLInputElement | null>(null);
   const endsOnPickerRef = useRef<HTMLInputElement | null>(null);
-  const scoringTemplateOptions = events.filter((event) => event.id !== eventEditorId);
   const sortedEvents = [...events].sort((a, b) => {
     const da = a.starts_on ? new Date(a.starts_on).getTime() : -Infinity;
     const db = b.starts_on ? new Date(b.starts_on).getTime() : -Infinity;
@@ -534,6 +488,43 @@ export default function EventsSection(props: EventsSectionProps) {
       .then(setLibrarySources)
       .catch((caught) => setError(caught instanceof Error ? caught.message : "Could not load the Turnpoint Library."));
   }, [canManagePlatform, eventTab, setError, token]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAccountFormulas() {
+      if (!token || eventTab !== "scoring" || !canManagePlatform) return;
+      try {
+        const response = await apiFetch<CustomFormulaResponse>("/api/auth/scoring-formulas", token);
+        if (cancelled) return;
+        const localFormulas = loadCustomFormulas();
+        const merged = [
+          ...response.formulas,
+          ...localFormulas.filter((localFormula) => !response.formulas.some((formula) => formula.value === localFormula.value)),
+        ];
+        setCustomFormulas(merged);
+        saveCustomFormulas(merged);
+        if (merged.length !== response.formulas.length) {
+          void apiFetch<CustomFormulaResponse>("/api/auth/scoring-formulas", token, {
+            method: "PATCH",
+            body: JSON.stringify({ formulas: merged }),
+          }).catch(() => undefined);
+        }
+      } catch (caught) {
+        if (!cancelled) {
+          setCustomFormulaFeedback({
+            type: "error",
+            text: caught instanceof Error ? caught.message : "Could not load custom scoring parameters.",
+          });
+        }
+      }
+    }
+
+    void loadAccountFormulas();
+    return () => {
+      cancelled = true;
+    };
+  }, [canManagePlatform, eventTab, token]);
 
 
   const commitScheduleDate = (field: "starts_on" | "ends_on", displayValue: string) => {
@@ -597,10 +588,43 @@ export default function EventsSection(props: EventsSectionProps) {
   }, [eventTab, selectedEventId, token]);
 
   useEffect(() => {
-    setScoringTemplateEventId("");
-    setScoringTemplateFeedback(null);
+    setCustomFormulaFeedback(null);
     setActiveHelpId(null);
   }, [eventEditorId]);
+
+  async function persistCustomFormulas(next: CustomFormula[], successText: string) {
+    try {
+      if (!token || !canManagePlatform) {
+        setCustomFormulas(next);
+        saveCustomFormulas(next);
+        setCustomFormulaFeedback({ type: "success", text: successText });
+        return next;
+      }
+      setCustomFormulaFeedback({ type: "pending", text: "Saving custom scoring parameters..." });
+      const saved = await apiFetch<CustomFormulaResponse>("/api/auth/scoring-formulas", token, {
+        method: "PATCH",
+        body: JSON.stringify({ formulas: next }),
+      });
+      setCustomFormulas(saved.formulas);
+      saveCustomFormulas(saved.formulas);
+      setCustomFormulaFeedback({ type: "success", text: successText });
+      return saved.formulas;
+    } catch (caught) {
+      setCustomFormulaFeedback({
+        type: "error",
+        text: caught instanceof Error ? caught.message : "Could not save custom scoring parameters.",
+      });
+      return customFormulas;
+    }
+  }
+
+  function currentFormulaPreset(): FormulaPreset {
+    const preset: FormulaPreset = {};
+    for (const field of Object.keys(formulaPresetBase) as Array<keyof typeof formulaPresetBase>) {
+      (preset as Record<string, unknown>)[field] = eventForm[field];
+    }
+    return preset;
+  }
 
   async function saveScoringPresets() {
     if (!token || !selectedEventId) return;
@@ -623,37 +647,6 @@ export default function EventsSection(props: EventsSectionProps) {
       setPresetFeedback({
         type: "error",
         text: caught instanceof Error ? caught.message : "Could not save penalty presets.",
-      });
-    }
-  }
-
-  async function loadScoringTemplate() {
-    if (!token || !eventEditorId || !scoringTemplateEventId) return;
-    const sourceEventId = Number(scoringTemplateEventId);
-    const sourceEvent = events.find((event) => event.id === sourceEventId);
-    if (!sourceEvent) {
-      setScoringTemplateFeedback({ type: "error", text: "Choose a saved meet before loading scoring parameters." });
-      return;
-    }
-    try {
-      setScoringTemplateFeedback({ type: "pending", text: `Loading scoring parameters from ${sourceEvent.name}...` });
-      const loadedPresets = await apiFetch<ScoringPresetRecord[]>(`/api/events/${sourceEventId}/scoring-presets`, token);
-      setEventForm(scoringFormFromEvent(sourceEvent, eventForm));
-      setScoringPresets(loadedPresets);
-      setPresetFeedback({
-        type: "success",
-        text: loadedPresets.length
-          ? `Loaded ${loadedPresets.length} penalty preset${loadedPresets.length === 1 ? "" : "s"} from ${sourceEvent.name}.`
-          : `Loaded scoring parameters from ${sourceEvent.name}. No penalty presets were saved on that meet.`,
-      });
-      setScoringTemplateFeedback({
-        type: "success",
-        text: `Copied scoring parameters from ${sourceEvent.name}. Review them, then save this event and its penalty presets.`,
-      });
-    } catch (caught) {
-      setScoringTemplateFeedback({
-        type: "error",
-        text: caught instanceof Error ? caught.message : `Could not load scoring parameters from ${sourceEvent.name}.`,
       });
     }
   }
@@ -815,30 +808,38 @@ export default function EventsSection(props: EventsSectionProps) {
                 <div className="scoring-setup-header">
                   <div className="scoring-import-copy">
                     <strong>Scoring setup</strong>
-                    <span>Set the current formula or start from scoring settings saved on another meet.</span>
+                    <span>Select an account custom preset or start from an official scoring formula.</span>
                   </div>
                   {canManagePlatform ? <button type="submit">Save scoring parameters</button> : null}
                 </div>
                 <div className="scoring-setup-groups">
                   <section className="scoring-setup-group">
                     <div className="scoring-setup-group-copy">
-                      <strong>Current formula</strong>
+                      <strong>Parameter preset</strong>
                       <span>Selecting a formula loads its default scoring values into the form below.</span>
                     </div>
                     <div className="scoring-formula-controls">
                       <label className="stack compact scoring-formula-field">
-                        <LabelWithHelp label="Scoring formula" helpId="scoring_formula" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
+                        <LabelWithHelp label="Scoring parameters" helpId="scoring_formula" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
                         <select value={eventForm.scoring_formula} onChange={(event) => {
                           const newFormula = event.target.value;
                           const preset = formulaPresets[newFormula] ?? customFormulas.find((cf) => cf.value === newFormula)?.preset;
                           setFormulaInfoOpen(false);
+                          setCustomFormulaFeedback(null);
                           if (preset) {
                             setEventForm({ ...eventForm, ...preset, scoring_formula: newFormula });
                           } else {
                             setEventForm({ ...eventForm, scoring_formula: newFormula });
                           }
                         }}>
-                          {scoringFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          {customFormulas.length ? (
+                            <optgroup label="Custom Parameters">
+                              {customFormulas.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                            </optgroup>
+                          ) : null}
+                          <optgroup label="Official Parameters">
+                            {builtInFormulaOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                          </optgroup>
                         </select>
                       </label>
                       <div className="custom-formula-actions scoring-formula-actions">
@@ -850,13 +851,20 @@ export default function EventsSection(props: EventsSectionProps) {
                             {formulaInfoOpen ? "Hide" : "About"} {scoringFormulaOptions.find((o) => o.value === eventForm.scoring_formula)?.label ?? eventForm.scoring_formula}
                           </button>
                         ) : null}
-                        {!builtInFormulaValues.has(eventForm.scoring_formula) && customFormulas.some((cf) => cf.value === eventForm.scoring_formula) ? (
+                        {currentCustomFormula ? (
+                          <button type="button" className="formula-info-toggle" onClick={() => {
+                            const next = customFormulas.map((cf) => (
+                              cf.value === eventForm.scoring_formula ? { ...cf, preset: currentFormulaPreset() } : cf
+                            ));
+                            void persistCustomFormulas(next, "Saved custom scoring parameters.");
+                          }}>Save</button>
+                        ) : null}
+                        {currentCustomFormula ? (
                           <button type="button" className="formula-info-toggle danger-text" onClick={() => {
                             const next = customFormulas.filter((cf) => cf.value !== eventForm.scoring_formula);
-                            setCustomFormulas(next);
-                            saveCustomFormulas(next);
+                            void persistCustomFormulas(next, "Deleted custom scoring parameters.");
                             setEventForm({ ...eventForm, scoring_formula: "GAP2021", ...formulaPresets.GAP2021 });
-                          }}>Delete custom formula</button>
+                          }}>Delete</button>
                         ) : null}
                         {showSaveFormula ? (
                           <span className="custom-formula-save-row">
@@ -864,15 +872,11 @@ export default function EventsSection(props: EventsSectionProps) {
                             <button type="button" className="formula-info-toggle" onClick={() => {
                               const name = savingFormulaName.trim();
                               if (!name) return;
-                              const key = `custom_${name.replace(/\s+/g, "_").toLowerCase()}_${Date.now()}`;
-                              const preset: FormulaPreset = {};
-                              for (const field of Object.keys(formulaPresetBase) as Array<keyof typeof formulaPresetBase>) {
-                                (preset as Record<string, unknown>)[field] = eventForm[field];
-                              }
+                              const key = customFormulaKey(name);
+                              const preset = currentFormulaPreset();
                               const entry: CustomFormula = { value: key, label: name, preset };
                               const next = [...customFormulas, entry];
-                              setCustomFormulas(next);
-                              saveCustomFormulas(next);
+                              void persistCustomFormulas(next, "Saved custom scoring parameters.");
                               setEventForm({ ...eventForm, scoring_formula: key });
                               setSavingFormulaName("");
                               setShowSaveFormula(false);
@@ -894,31 +898,9 @@ export default function EventsSection(props: EventsSectionProps) {
                       </div>
                     ) : null}
                   </section>
-                  <section className="scoring-setup-group">
-                    <div className="scoring-setup-group-copy">
-                      <strong>Load from Saved</strong>
-                      <span>Copy scoring fields and penalty presets without leaving the current event.</span>
-                    </div>
-                    <div className="scoring-import-controls">
-                      <label className="stack compact scoring-import-field">
-                        <span>Saved meet</span>
-                        <select value={scoringTemplateEventId} onChange={(event) => setScoringTemplateEventId(event.target.value)}>
-                          <option value="">Choose saved scoring parameters</option>
-                          {scoringTemplateOptions.map((event) => (
-                            <option key={event.id} value={event.id}>
-                              {event.location ? `${event.name} - ${event.location}` : event.name} - scoring parameters
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <button type="button" className="ghost-button scoring-import-button" onClick={() => void loadScoringTemplate()} disabled={!scoringTemplateEventId}>
-                        Load Parameters
-                      </button>
-                    </div>
-                  </section>
                 </div>
               </div>
-              {scoringTemplateFeedback ? <div className={`status-chip ${scoringTemplateFeedback.type} scoring-import-feedback`}>{scoringTemplateFeedback.text}</div> : null}
+              {customFormulaFeedback ? <div className={`status-chip ${customFormulaFeedback.type} scoring-import-feedback`}>{customFormulaFeedback.text}</div> : null}
               <div className="fieldset-grid events-scoring-grid">
               <div className="scoring-fieldset-column">
               <fieldset className="fieldset-cluster scoring-help-open-right">

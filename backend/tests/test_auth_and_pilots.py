@@ -37,13 +37,15 @@ from app.routers.auth import (
     register_mesh_device,
     refresh,
     rename_passkey,
+    list_custom_scoring_formulas,
+    save_custom_scoring_formulas,
     update_mesh_device,
     update_settings,
     update_user_account,
 )
 from app.routers.events import list_events
 from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_event_pilot_class, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasskeyRenameRequest, PasskeyVerifyRequest, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, CustomScoringFormula, CustomScoringFormulaList, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasskeyRenameRequest, PasskeyVerifyRequest, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import backfill_user_subject_pilot_links, merge_pilots, repair_pilot_email_identities
 
@@ -102,6 +104,36 @@ def test_refresh_accepts_existing_username_tokens_and_mints_user_id_tokens() -> 
 
     assert response.user.id == user.id
     assert decode_access_token(response.access_token) == f"user:{user.id}"
+
+
+def test_staff_custom_scoring_formulas_are_saved_per_user() -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    organizer = User(username="organizer@example.com", full_name="Organizer", role="organizer", password_hash="hash")
+    pilot = User(username="pilot@example.com", full_name="Pilot", role="pilot", password_hash="hash")
+    session.add_all([admin, organizer, pilot])
+    session.commit()
+    session.refresh(admin)
+    session.refresh(organizer)
+    session.refresh(pilot)
+
+    saved = save_custom_scoring_formulas(
+        CustomScoringFormulaList(
+            formulas=[
+                CustomScoringFormula(value="custom_local", label="Local Rules", preset={"nominal_distance_km": 42}),
+                CustomScoringFormula(value="custom_local", label="Duplicate", preset={}),
+            ]
+        ),
+        admin,
+        session,
+    )
+
+    assert [formula.label for formula in saved.formulas] == ["Local Rules"]
+    assert list_custom_scoring_formulas(admin).formulas[0].preset == {"nominal_distance_km": 42}
+    assert list_custom_scoring_formulas(organizer).formulas == []
+    with pytest.raises(HTTPException) as caught:
+        list_custom_scoring_formulas(pilot)
+    assert caught.value.status_code == 403
 
 
 def test_passkey_registration_and_passwordless_login_share_existing_tokens() -> None:

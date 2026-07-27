@@ -145,6 +145,16 @@ class AccountPreferencesUpdate(BaseModel):
     vario_unit: str | None = None
 
 
+class CustomScoringFormula(BaseModel):
+    value: str
+    label: str
+    preset: dict[str, Any] = Field(default_factory=dict)
+
+
+class CustomScoringFormulaList(BaseModel):
+    formulas: list[CustomScoringFormula] = Field(default_factory=list)
+
+
 class PasswordChangeRequest(BaseModel):
     current_password: str = ""
     new_password: str

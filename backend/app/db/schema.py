@@ -120,6 +120,12 @@ def ensure_runtime_schema(engine: Engine) -> None:
     table_names = set(inspector.get_table_names())
     dialect_name = engine.dialect.name
 
+    if "users" in table_names:
+        user_columns = {column["name"] for column in inspector.get_columns("users")}
+        if "custom_scoring_formulas_json" not in user_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE users ADD COLUMN custom_scoring_formulas_json JSON"))
+
     with engine.begin() as connection:
         if "site_settings" not in table_names:
             connection.execute(
