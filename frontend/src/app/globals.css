@@ -1395,67 +1395,42 @@ select {
   font-size: 0.8125rem;
 }
 
-.formula-info-block {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.formula-info-toggle {
-  align-self: flex-start;
-  padding: 4px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-  background: var(--panel);
-  color: var(--ink-secondary);
-  font-size: 0.75rem;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.formula-info-toggle:hover {
-  background: var(--wash-alt);
-  color: var(--ink);
-}
-
-.formula-info-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: var(--panel);
-  font-size: 0.78125rem;
-  line-height: 1.5;
-  color: var(--ink-secondary);
-}
-.formula-info-panel strong {
-  color: var(--ink);
-  font-size: 0.8125rem;
-}
-.formula-info-panel p {
-  margin: 0;
-}
-
 .custom-formula-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
-.custom-formula-save-row {
+.custom-formula-save-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 25;
+  display: grid;
+  gap: 10px;
+  width: min(320px, 80vw);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.custom-formula-popover-actions {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .custom-formula-name-input {
-  width: 180px;
-  padding: 4px 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .danger-text {
@@ -1464,10 +1439,9 @@ select {
 
 .scoring-import-strip {
   display: block;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(241, 245, 249, 0.9) 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .scoring-setup-header {
@@ -1551,13 +1525,20 @@ select {
   font-size: 0.75rem;
 }
 
+.scoring-formula-field .field-help-popover {
+  top: 0;
+  left: calc(100% + 10px);
+  right: auto;
+}
+
 .scoring-formula-actions {
   flex: 0 1 auto;
   justify-content: flex-end;
 }
 
-.scoring-setup-group .formula-info-panel {
-  margin-top: 10px;
+.formula-action-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .scoring-import-copy {
@@ -5297,17 +5278,6 @@ button[type="submit"]:hover,
   color: white !important;
 }
 
-.map-measure-summary {
-  padding: 8px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: var(--shadow-sm);
-  color: var(--ink);
-  font-size: 0.8125rem;
-  font-weight: 700;
-}
-
 /* ── Watch Live page ────────────────────────────── */
 
 .live-page {
@@ -7874,6 +7844,12 @@ details[open] > summary {
 
   .scoring-formula-actions {
     justify-content: flex-start;
+  }
+
+  .custom-formula-save-popover {
+    left: 0;
+    right: auto;
+    width: min(100%, 320px);
   }
 
   .scoring-setup-group-copy {

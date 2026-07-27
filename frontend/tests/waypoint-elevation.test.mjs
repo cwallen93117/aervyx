@@ -15,8 +15,21 @@ test("measurement mode intercepts map clicks before waypoint and route adds", ()
   const source = readFileSync(join(process.cwd(), "src/components/TaskMap.tsx"), "utf8");
   assert.match(source, /measurementEnabledRef\.current/);
   assert.match(source, /measurementAvailableRef\.current/);
+  assert.match(source, /map\.on\("mousemove", handleMeasurementMouseMove\)/);
+  assert.match(source, /map\.on\("dblclick", handleMeasurementDoubleClick\)/);
   assert.match(source, /setMeasurementPoints\(\[\.\.\.measurementPointsRef\.current/);
   assert.ok(source.indexOf("if (measurementEnabledRef.current)") < source.indexOf("if (!editableRef.current"));
   assert.match(source, /formatDistanceLabel\(haversineKm/);
   assert.match(source, /aria-pressed=\{measurementEnabled\}/);
+});
+
+test("measurement total is anchored as a map label instead of the picker stack", () => {
+  const source = readFileSync(join(process.cwd(), "src/components/TaskMap.tsx"), "utf8");
+  const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+  assert.match(source, /id: "measurement-total-label"/);
+  assert.match(source, /getPixelOffset: \[0, 30\]/);
+  assert.match(source, /\{measurementPoints\.length \? \(/);
+  assert.doesNotMatch(source, /measurement-clear-label/);
+  assert.doesNotMatch(source, /Measured route total/);
+  assert.doesNotMatch(css, /map-measure-summary/);
 });

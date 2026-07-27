@@ -27,19 +27,15 @@
 
     <section class="scoring-card">
       <header class="scoring-card-header">
-        <h2>Scoring parameters</h2>
+        <div>
+          <h2>Scoring parameters</h2>
+          <p>Select an account custom preset or start from an official scoring formula.</p>
+        </div>
+        <button class="button primary" type="button">Save scoring parameters</button>
       </header>
 
       <form class="scoring-form">
-        <section class="setup-bar" aria-labelledby="setup-heading">
-          <div class="preset-card-header">
-            <div>
-              <h3 id="setup-heading">Parameter preset</h3>
-              <p>Select an account custom preset or start from an official scoring formula.</p>
-            </div>
-            <button class="button primary" type="button">Save scoring parameters</button>
-          </div>
-
+        <section class="setup-bar" aria-label="Parameter preset">
           <div class="preset-controls">
             <label class="control">
               <span class="control-title">Scoring parameters <span class="help-badge" aria-hidden="true">i</span></span>
@@ -59,17 +55,18 @@
               </select>
             </label>
             <button class="button primary" type="button" data-save-button>Save</button>
-            <button class="button" type="button" data-save-as-toggle>Save As</button>
+            <button class="button" type="button" data-save-as-toggle aria-expanded="false">Save As</button>
             <button class="button danger" type="button" data-delete-button>Delete</button>
-          </div>
-
-          <div class="save-drawer" data-save-drawer>
-            <label class="control">
-              <span>New custom parameter name</span>
-              <input type="text" value="Task Week Balanced copy">
-            </label>
-            <button class="button primary" type="button">Create custom preset</button>
-            <button class="button" type="button" data-save-as-toggle>Cancel</button>
+            <div class="save-popout" role="dialog" aria-label="Save custom scoring parameters" data-save-popout>
+              <label class="control">
+                <span>New custom file name</span>
+                <input type="text" value="Task Week Balanced copy">
+              </label>
+              <div class="save-popout-actions">
+                <button class="button primary" type="button">Save</button>
+                <button class="button" type="button" data-save-as-cancel>Cancel</button>
+              </div>
+            </div>
           </div>
 
         </section>
@@ -108,8 +105,9 @@
     const select = document.querySelector("[data-preset-select]");
     const saveButton = document.querySelector("[data-save-button]");
     const deleteButton = document.querySelector("[data-delete-button]");
-    const drawer = document.querySelector("[data-save-drawer]");
-    const toggles = document.querySelectorAll("[data-save-as-toggle]");
+    const popout = document.querySelector("[data-save-popout]");
+    const toggle = document.querySelector("[data-save-as-toggle]");
+    const cancel = document.querySelector("[data-save-as-cancel]");
 
     function syncPresetState() {
       const isCustom = select.value.startsWith("custom:");
@@ -118,7 +116,14 @@
     }
 
     select.addEventListener("change", syncPresetState);
-    toggles.forEach((button) => button.addEventListener("click", () => drawer.classList.toggle("open")));
+    toggle.addEventListener("click", () => {
+      popout.classList.toggle("open");
+      toggle.setAttribute("aria-expanded", popout.classList.contains("open") ? "true" : "false");
+    });
+    cancel.addEventListener("click", () => {
+      popout.classList.remove("open");
+      toggle.setAttribute("aria-expanded", "false");
+    });
     syncPresetState();
   </script>
 </body>

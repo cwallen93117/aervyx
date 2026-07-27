@@ -116,6 +116,10 @@ select {
 }
 
 .scoring-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   padding: 22px 26px;
   border-bottom: 1px solid #e4ebf5;
   background: linear-gradient(180deg, #fbfdff 0%, #f5f8fd 100%);
@@ -126,6 +130,12 @@ select {
   font-size: 1.15rem;
 }
 
+.scoring-card-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .scoring-form {
   display: grid;
   gap: 14px;
@@ -133,10 +143,9 @@ select {
 }
 
 .setup-bar {
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.92));
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .setup-bar-intro {
@@ -454,6 +463,7 @@ select {
   grid-template-columns: minmax(320px, 1fr) auto auto auto;
   align-items: end;
   gap: 10px;
+  position: relative;
 }
 
 .preset-controls select optgroup,
@@ -481,18 +491,29 @@ select {
   color: #1749aa;
 }
 
-.save-drawer {
+.save-popout {
   display: none;
-  grid-template-columns: minmax(220px, 1fr) auto auto;
-  align-items: end;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 5;
+  width: min(320px, 80vw);
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  box-shadow: 0 14px 32px rgba(28, 48, 84, 0.16);
 }
 
-.save-drawer.open {
+.save-popout.open {
   display: grid;
+}
+
+.save-popout-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .preset-meta-grid {
@@ -738,10 +759,15 @@ select {
   .group-controls,
   .group-controls.load,
   .preset-controls,
-  .save-drawer,
   .secondary-import,
   .save-popover {
     grid-template-columns: 1fr;
+  }
+
+  .save-popout {
+    left: 0;
+    right: auto;
+    width: min(100%, 320px);
   }
 
   .preset-card-header,
