@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 
 test("scoring setup uses one account preset dropdown above the parameter fields", () => {
   const source = readFileSync(join(process.cwd(), "src/components/dashboard/EventsSection.tsx"), "utf8");
+  const styles = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
   const toolbarStart = source.indexOf('<div className="scoring-import-strip">');
   const fieldsStart = source.indexOf('<div className="fieldset-grid events-scoring-grid">', toolbarStart);
   const toolbar = source.slice(toolbarStart, fieldsStart);
@@ -28,6 +29,7 @@ test("scoring setup uses one account preset dropdown above the parameter fields"
   assert.doesNotMatch(toolbar, /Delete custom formula/);
   assert.equal(source.match(/label="Scoring parameters"/g)?.length, 1);
   assert.equal(source.match(/Save scoring parameters/g)?.length, 1);
+  assert.match(styles, /\.scoring-formula-field \.field-help-popover \{[\s\S]*left: calc\(100% \+ 10px\);[\s\S]*right: auto;/);
 });
 
 test("scoring cards stack handicap below nominal values and advanced scoring in column three", () => {

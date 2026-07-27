@@ -1567,6 +1567,12 @@ select {
   font-size: 0.75rem;
 }
 
+.scoring-formula-field .field-help-popover {
+  top: 0;
+  left: calc(100% + 10px);
+  right: auto;
+}
+
 .scoring-formula-actions {
   flex: 0 1 auto;
   justify-content: flex-end;
