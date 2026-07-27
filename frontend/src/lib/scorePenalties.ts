@@ -36,7 +36,7 @@ export type PenaltyResultLike = {
 export function formatPenaltyPointsValue(value: number | null | undefined): string {
   const safe = Number(value ?? 0);
   if (!Number.isFinite(safe) || safe <= 0.05) return "-";
-  return `-${safe.toFixed(1)}`;
+  return `-${formatScorePoints(safe)}`;
 }
 
 export function penaltyDisplayPoints(result: PenaltyResultLike): number {
@@ -53,9 +53,12 @@ export function prePenaltyTotalPoints(result: PenaltyResultLike): number {
   const calculation = result.penalty_calculation;
   if (calculation) {
     const finalScore = Number(calculation.final_score_points ?? result.score_points ?? 0);
-    const penalties = Number(calculation.total_display_penalty_points ?? 0);
+    const penalties = Number(calculation.manual_penalty_points ?? 0);
     if (Number.isFinite(finalScore) && Number.isFinite(penalties)) return finalScore + penalties;
   }
+  const handicap = result.details_json?.handicap;
+  const adjusted = handicap && typeof handicap === "object" ? Number((handicap as Record<string, unknown>).adjusted_score_points) : NaN;
+  if (Number.isFinite(adjusted)) return adjusted;
   const rawScore = Number(result.raw_score_points ?? result.score_points ?? 0);
   return Number.isFinite(rawScore) ? rawScore : 0;
 }
@@ -66,5 +69,5 @@ export function hasPenaltyDetails(result: PenaltyResultLike): boolean {
 
 export function formatScorePoints(value: number | null | undefined): string {
   const safe = Number(value ?? 0);
-  return Number.isFinite(safe) ? safe.toFixed(1) : "-";
+  return Number.isFinite(safe) ? safe.toLocaleString("en-US", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : "-";
 }

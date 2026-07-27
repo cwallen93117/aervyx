@@ -11,7 +11,7 @@ from app.models import Event, EventMeetStatsCache, EventPilot, IGCUpload, Pilot,
 from app.routers import results as results_router
 from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, select_logbook_igc_candidate, task_result_summary
 from app.services import task_uploads
-from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, build_cached_meet_stats_payload, invalidate_event_meet_stats_cache, refresh_event_meet_stats_cache
+from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, _format_penalty_number, build_cached_meet_stats_payload, invalidate_event_meet_stats_cache, refresh_event_meet_stats_cache
 
 
 @pytest.fixture(autouse=True)
@@ -24,6 +24,11 @@ def _session() -> Session:
     engine = create_engine("sqlite:///:memory:", future=True)
     Base.metadata.create_all(bind=engine)
     return sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+
+
+def test_penalty_number_format_uses_thousands_separator() -> None:
+    assert _format_penalty_number(1000) == "1,000"
+    assert _format_penalty_number(1234.5) == "1,234.5"
 
 
 def _score(task: Task, pilot: Pilot, quality: float | None, state: str = "official", status: str = "goal", points: float = 900) -> ScoreResult:

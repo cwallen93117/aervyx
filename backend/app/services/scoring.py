@@ -1909,7 +1909,7 @@ def _safe_float(value: object, default: float = 0.0) -> float:
 
 
 def _format_penalty_number(value: float) -> str:
-    return f"{int(value)}" if float(value).is_integer() else f"{value:g}"
+    return f"{value:,.0f}" if float(value).is_integer() else f"{value:,.6g}"
 
 
 def _penalty_display_zone(event_timezone: str | None) -> ZoneInfo:
