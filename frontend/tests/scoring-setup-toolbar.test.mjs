@@ -10,14 +10,17 @@ test("scoring setup uses one account preset dropdown above the parameter fields"
   const toolbar = source.slice(toolbarStart, fieldsStart);
 
   assert.ok(toolbarStart >= 0 && fieldsStart > toolbarStart);
-  assert.match(toolbar, /<strong>Parameter preset<\/strong>/);
   assert.match(toolbar, /<optgroup label="Custom Parameters">/);
   assert.match(toolbar, /<optgroup label="Official Parameters">/);
   assert.match(toolbar, />Save As<\/button>/);
   assert.match(toolbar, />Delete<\/button>/);
-  assert.match(toolbar, /type="submit">Save scoring parameters<\/button>/);
+  assert.ok(toolbar.indexOf(">Save As</button>") < toolbar.indexOf(">Delete</button>"));
+  assert.match(source, /type="submit" form="event-scoring-parameters-form">Save scoring parameters<\/button>/);
+  assert.match(source, /id="event-scoring-parameters-form"/);
   assert.match(toolbar, /label="Scoring parameters"/);
   assert.doesNotMatch(toolbar, /Claude-guided placement/);
+  assert.doesNotMatch(toolbar, /scoring-setup-group/);
+  assert.doesNotMatch(toolbar, /Parameter preset/);
   assert.doesNotMatch(toolbar, /Load from Saved/);
   assert.doesNotMatch(toolbar, /Load Parameters/);
   assert.doesNotMatch(toolbar, /Delete custom formula/);

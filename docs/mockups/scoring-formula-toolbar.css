@@ -116,6 +116,10 @@ select {
 }
 
 .scoring-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
   padding: 22px 26px;
   border-bottom: 1px solid #e4ebf5;
   background: linear-gradient(180deg, #fbfdff 0%, #f5f8fd 100%);
@@ -126,6 +130,12 @@ select {
   font-size: 1.15rem;
 }
 
+.scoring-card-header p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
 .scoring-form {
   display: grid;
   gap: 14px;
@@ -133,10 +143,9 @@ select {
 }
 
 .setup-bar {
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.98), rgba(241, 245, 249, 0.92));
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .setup-bar-intro {

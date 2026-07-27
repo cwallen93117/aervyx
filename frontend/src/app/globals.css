@@ -1464,10 +1464,9 @@ select {
 
 .scoring-import-strip {
   display: block;
-  padding: 14px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(241, 245, 249, 0.9) 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .scoring-setup-header {
@@ -1554,6 +1553,11 @@ select {
 .scoring-formula-actions {
   flex: 0 1 auto;
   justify-content: flex-end;
+}
+
+.formula-action-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .scoring-setup-group .formula-info-panel {
