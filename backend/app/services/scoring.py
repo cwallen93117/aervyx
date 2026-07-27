@@ -2346,6 +2346,26 @@ def _score_evaluations(
     }
 
     decimals = formula.get("number_of_decimals_task_results", 1)
+    handicap_scores: dict[int, dict[str, float | str]] = {}
+    normalization_max_score = 0.0
+    if handicap_enabled:
+        for pil in scored_pilots:
+            pilot_id = pil["pilot_id"]
+            entry = eval_map.get(pilot_id)
+            if entry is None:
+                continue
+            raw_points = round(pil.get("Pscore", 0), decimals)
+            pilot_class = pilot_classes.get(pilot_id, DEFAULT_PILOT_CLASS)
+            multiplier = handicap_multipliers.get(pilot_class, 1.0)
+            multiplied_points = round(raw_points * multiplier, decimals)
+            handicap_scores[pilot_id] = {
+                "raw_points": raw_points,
+                "pilot_class": pilot_class,
+                "multiplier": multiplier,
+                "multiplied_points": multiplied_points,
+            }
+            if entry["evaluation"]["status"] in COMPETITIVE_STATUSES:
+                normalization_max_score = max(normalization_max_score, multiplied_points)
 
     # Build output
     scored: list[dict] = []
@@ -2357,10 +2377,16 @@ def _score_evaluations(
         evaluation = entry["evaluation"]
         upload = entry.get("upload")
 
-        raw_points = round(pil.get("Pscore", 0), decimals)
-        pilot_class = pilot_classes.get(pilot_id, DEFAULT_PILOT_CLASS)
-        multiplier = handicap_multipliers.get(pilot_class, 1.0) if handicap_enabled else 1.0
-        adjusted_points = round(raw_points * multiplier, decimals)
+        handicap_score = handicap_scores.get(pilot_id, {})
+        raw_points = float(handicap_score.get("raw_points", round(pil.get("Pscore", 0), decimals)))
+        pilot_class = str(handicap_score.get("pilot_class", pilot_classes.get(pilot_id, DEFAULT_PILOT_CLASS)))
+        multiplier = float(handicap_score.get("multiplier", 1.0))
+        multiplied_points = float(handicap_score.get("multiplied_points", raw_points))
+        adjusted_points = (
+            round((multiplied_points / normalization_max_score) * 1000.0, decimals)
+            if handicap_enabled and normalization_max_score > 0
+            else multiplied_points
+        )
         pilot_penalties = penalties_by_pilot.get(pilot_id, [])
         final_points = _apply_penalties(adjusted_points, pilot_penalties)
 
@@ -2370,6 +2396,8 @@ def _score_evaluations(
                 "pilot_class": pilot_class,
                 "multiplier": multiplier,
                 "official_score_points": raw_points,
+                "multiplied_score_points": multiplied_points,
+                "normalization_max_score_points": round(normalization_max_score, decimals),
                 "adjusted_score_points": adjusted_points,
                 "adjustment_points": round(adjusted_points - raw_points, decimals),
             }
