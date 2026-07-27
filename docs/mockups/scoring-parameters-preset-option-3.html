@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scoring Parameters Presets - Option 3</title>
+  <link rel="stylesheet" href="scoring-formula-toolbar.css">
+</head>
+<body>
+  <main class="review-shell">
+    <header class="review-header">
+      <div>
+        <h1>Option 3 - Preset library card</h1>
+        <p>A more browsable version for directors who may have many custom parameter sets. It still keeps official parameters grouped below and protected.</p>
+      </div>
+      <nav class="review-nav" aria-label="Mockup options">
+        <a href="scoring-parameters-preset-option-1.html">Preset 1</a>
+        <a href="scoring-parameters-preset-option-2.html">Preset 2</a>
+        <a class="active" href="scoring-parameters-preset-option-3.html">Preset 3</a>
+        <a href="scoring-formula-toolbar-option-2.html">Current</a>
+      </nav>
+    </header>
+
+    <div class="review-note">
+      Functionality: this is best if the custom list grows. It gives a list view and a matching dropdown/search field, while keeping the same Save disabled rule for official parameters.
+    </div>
+
+    <section class="scoring-card">
+      <header class="scoring-card-header">
+        <h2>Scoring parameters</h2>
+      </header>
+
+      <form class="scoring-form">
+        <section class="setup-bar preset-library-layout" aria-label="Scoring setup">
+          <div>
+            <div class="preset-card-header">
+              <div>
+                <h3>Parameter library</h3>
+                <p>Browse custom parameters first, official defaults below.</p>
+              </div>
+            </div>
+
+            <label class="control preset-search">
+              <span>Quick select</span>
+              <select class="preset-select" data-preset-select>
+                <optgroup label="Custom Parameters">
+                  <option value="custom:test-handicap" selected>Test Handicap</option>
+                  <option value="custom:ridge-race">Ridge Race 2026</option>
+                  <option value="custom:training-day">Training Day Conservative</option>
+                </optgroup>
+                <optgroup label="Official Parameters">
+                  <option value="official:gap-2025">GAP 2025</option>
+                  <option value="official:gap-2021">GAP 2021</option>
+                  <option value="official:pwc-2016">PWC 2016</option>
+                </optgroup>
+              </select>
+            </label>
+
+            <div class="preset-list" aria-label="Preset list">
+              <div class="preset-list-heading">Custom Parameters</div>
+              <button class="active" type="button" data-value="custom:test-handicap"><span>Test Handicap</span><span class="preset-pill">Custom</span></button>
+              <button type="button" data-value="custom:ridge-race"><span>Ridge Race 2026</span><span class="preset-pill">Custom</span></button>
+              <button type="button" data-value="custom:training-day"><span>Training Day Conservative</span><span class="preset-pill">Custom</span></button>
+              <div class="preset-list-heading">Official Parameters</div>
+              <button type="button" data-value="official:gap-2025"><span>GAP 2025</span><span class="preset-pill">Official</span></button>
+              <button type="button" data-value="official:gap-2021"><span>GAP 2021</span><span class="preset-pill">Official</span></button>
+              <button type="button" data-value="official:pwc-2016"><span>PWC 2016</span><span class="preset-pill">Official</span></button>
+            </div>
+          </div>
+
+          <aside class="preset-summary-panel">
+            <h3 data-summary-title>Test Handicap</h3>
+            <p data-summary-copy>Editable custom parameters. Save updates this preset; Save As creates a copy.</p>
+            <div class="preset-action-row">
+              <button class="button primary" type="button" data-save-button>Save</button>
+              <button class="button" type="button" data-save-as-toggle>Save As</button>
+              <button class="button danger" type="button" data-delete-button>Delete custom</button>
+              <button class="button subtle" type="button">Save scoring parameters</button>
+            </div>
+            <div class="save-drawer" data-save-drawer>
+              <label class="control">
+                <span>New custom parameter name</span>
+                <input type="text" value="Local Ridge copy">
+              </label>
+              <button class="button primary" type="button">Create custom set</button>
+              <button class="button" type="button" data-save-as-toggle>Cancel</button>
+            </div>
+            <div class="preset-change-list">
+              <div class="preset-change-row"><span>Formula source</span><strong data-source>Custom Parameters</strong></div>
+              <div class="preset-change-row"><span>Save behavior</span><strong data-save-text>Enabled</strong></div>
+              <div class="preset-change-row"><span>Load from saved meet</span><strong>Secondary action below</strong></div>
+            </div>
+            <div class="secondary-import">
+              <label class="control">
+                <span>Load full setup from saved meet</span>
+                <select>
+                  <option selected>Choose saved scoring parameters</option>
+                  <option>2026 East Coast Championship - Ridgely</option>
+                  <option>2025 Highland Challenge - Henson Gap</option>
+                </select>
+              </label>
+              <button class="button" type="button">Load Parameters</button>
+            </div>
+          </aside>
+        </section>
+
+        <div class="fieldset-grid">
+          <fieldset class="fieldset">
+            <legend>Formula and points</legend>
+            <div class="field-stack">
+              <label class="field"><span>Nominal goal (%)</span><input type="number" value="0.3"></label>
+              <label class="field"><span>Score-back time (minutes)</span><input type="number" value="15"></label>
+            </div>
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend>Nominal values and notes</legend>
+            <div class="field-stack">
+              <label class="field"><span>Nominal distance (km)</span><input type="number" value="60"></label>
+              <label class="field"><span>Nominal time (hours)</span><input type="number" value="1.5"></label>
+            </div>
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend>Advanced scoring</legend>
+            <div class="field-stack">
+              <label class="field"><span>Day quality override</span><input type="number" value="0"></label>
+              <label class="field"><span>Time points if not in goal</span><input type="number" value="1"></label>
+            </div>
+          </fieldset>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const select = document.querySelector("[data-preset-select]");
+    const buttons = document.querySelectorAll("[data-value]");
+    const saveButton = document.querySelector("[data-save-button]");
+    const deleteButton = document.querySelector("[data-delete-button]");
+    const drawer = document.querySelector("[data-save-drawer]");
+    const toggles = document.querySelectorAll("[data-save-as-toggle]");
+    const title = document.querySelector("[data-summary-title]");
+    const copy = document.querySelector("[data-summary-copy]");
+    const source = document.querySelector("[data-source]");
+    const saveText = document.querySelector("[data-save-text]");
+
+    function syncPresetState(value = select.value) {
+      select.value = value;
+      const isCustom = value.startsWith("custom:");
+      const label = select.selectedOptions[0].textContent;
+      title.textContent = label;
+      copy.textContent = isCustom
+        ? "Editable custom parameters. Save updates this preset; Save As creates a copy."
+        : "Protected official parameters. Save is disabled; Save As creates an editable custom set.";
+      source.textContent = isCustom ? "Custom Parameters" : "Official Parameters";
+      saveText.textContent = isCustom ? "Enabled" : "Disabled until Save As";
+      saveButton.disabled = !isCustom;
+      deleteButton.disabled = !isCustom;
+      buttons.forEach((button) => button.classList.toggle("active", button.dataset.value === value));
+    }
+
+    select.addEventListener("change", () => syncPresetState());
+    buttons.forEach((button) => button.addEventListener("click", () => syncPresetState(button.dataset.value)));
+    toggles.forEach((button) => button.addEventListener("click", () => drawer.classList.toggle("open")));
+    syncPresetState();
+  </script>
+</body>
+</html>
