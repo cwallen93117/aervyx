@@ -12,9 +12,11 @@ test("scoring setup uses one account preset dropdown above the parameter fields"
   assert.ok(toolbarStart >= 0 && fieldsStart > toolbarStart);
   assert.match(toolbar, /<optgroup label="Custom Parameters">/);
   assert.match(toolbar, /<optgroup label="Official Parameters">/);
-  assert.match(toolbar, />Save As<\/button>/);
+  assert.match(toolbar, /Save As\s*<\/button>/);
   assert.match(toolbar, />Delete<\/button>/);
-  assert.ok(toolbar.indexOf(">Save As</button>") < toolbar.indexOf(">Delete</button>"));
+  assert.ok(toolbar.indexOf("Save As") < toolbar.indexOf(">Delete</button>"));
+  assert.match(toolbar, /className="custom-formula-save-popover" role="dialog"/);
+  assert.doesNotMatch(toolbar, /custom-formula-save-row/);
   assert.match(source, /type="submit" form="event-scoring-parameters-form">Save scoring parameters<\/button>/);
   assert.match(source, /id="event-scoring-parameters-form"/);
   assert.match(toolbar, /label="Scoring parameters"/);

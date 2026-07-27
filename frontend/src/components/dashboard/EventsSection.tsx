@@ -850,10 +850,25 @@ export default function EventsSection(props: EventsSectionProps) {
                             void persistCustomFormulas(next, "Saved custom scoring parameters.");
                           }}>Save</button>
                         ) : null}
+                        <button
+                          type="button"
+                          className="ghost-button formula-action-button"
+                          aria-expanded={showSaveFormula}
+                          onClick={() => {
+                            setFormulaInfoOpen(false);
+                            setShowSaveFormula(!showSaveFormula);
+                          }}
+                        >
+                          Save As
+                        </button>
                         {showSaveFormula ? (
-                          <span className="custom-formula-save-row">
-                            <input type="text" placeholder="Custom formula name" value={savingFormulaName} onChange={(e) => setSavingFormulaName(e.target.value)} className="custom-formula-name-input" />
-                            <button type="button" className="primary-button formula-action-button" onClick={() => {
+                          <div className="custom-formula-save-popover" role="dialog" aria-label="Save custom scoring parameters">
+                            <label className="stack compact">
+                              <span>New custom file name</span>
+                              <input type="text" placeholder="Custom file name" value={savingFormulaName} onChange={(e) => setSavingFormulaName(e.target.value)} className="custom-formula-name-input" />
+                            </label>
+                            <div className="custom-formula-popover-actions">
+                              <button type="button" className="primary-button formula-action-button" onClick={() => {
                               const name = savingFormulaName.trim();
                               if (!name) return;
                               const key = customFormulaKey(name);
@@ -865,14 +880,10 @@ export default function EventsSection(props: EventsSectionProps) {
                               setSavingFormulaName("");
                               setShowSaveFormula(false);
                             }}>Save</button>
-                            <button type="button" className="ghost-button formula-action-button" onClick={() => { setShowSaveFormula(false); setSavingFormulaName(""); }}>Cancel</button>
-                          </span>
-                        ) : (
-                          <button type="button" className="ghost-button formula-action-button" onClick={() => {
-                            setFormulaInfoOpen(false);
-                            setShowSaveFormula(true);
-                          }}>Save As</button>
-                        )}
+                              <button type="button" className="ghost-button formula-action-button" onClick={() => { setShowSaveFormula(false); setSavingFormulaName(""); }}>Cancel</button>
+                            </div>
+                          </div>
+                        ) : null}
                         {currentCustomFormula ? (
                           <button type="button" className="ghost-button danger-button formula-action-button" onClick={() => {
                             const next = customFormulas.filter((cf) => cf.value !== eventForm.scoring_formula);

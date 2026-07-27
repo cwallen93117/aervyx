@@ -1442,20 +1442,37 @@ select {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
-.custom-formula-save-row {
+.custom-formula-save-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 25;
+  display: grid;
+  gap: 10px;
+  width: min(320px, 80vw);
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  box-shadow: var(--shadow-md);
+}
+
+.custom-formula-popover-actions {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .custom-formula-name-input {
-  width: 180px;
-  padding: 4px 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .danger-text {
@@ -7878,6 +7895,12 @@ details[open] > summary {
 
   .scoring-formula-actions {
     justify-content: flex-start;
+  }
+
+  .custom-formula-save-popover {
+    left: 0;
+    right: auto;
+    width: min(100%, 320px);
   }
 
   .scoring-setup-group-copy {
