@@ -21,7 +21,11 @@ test("scoring setup uses one account preset dropdown above the parameter fields"
   assert.match(source, /type="submit" form="event-scoring-parameters-form">Save scoring parameters<\/button>/);
   assert.match(source, /id="event-scoring-parameters-form"/);
   assert.match(toolbar, /label="Scoring parameters"/);
+  assert.match(toolbar, /helpCopy=\{scoringFormulaHelp\}/);
   assert.doesNotMatch(toolbar, /Claude-guided placement/);
+  assert.doesNotMatch(toolbar, /formula-info-toggle/);
+  assert.doesNotMatch(toolbar, /formula-info-panel/);
+  assert.doesNotMatch(toolbar, /About/);
   assert.doesNotMatch(toolbar, /scoring-setup-group/);
   assert.doesNotMatch(toolbar, /Parameter preset/);
   assert.doesNotMatch(toolbar, /Load from Saved/);

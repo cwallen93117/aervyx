@@ -169,12 +169,14 @@ export function FieldHelp({
   helpId,
   activeHelpId,
   setActiveHelpId,
+  helpCopy,
 }: {
   helpId: ScoringHelpId;
   activeHelpId: ScoringHelpId | null;
   setActiveHelpId: (value: ScoringHelpId | null) => void;
+  helpCopy?: ScoringHelpCopy;
 }) {
-  const copy = scoringFieldHelp[helpId];
+  const copy = helpCopy ?? scoringFieldHelp[helpId];
   const isOpen = activeHelpId === helpId;
   const popoverId = `scoring-help-${helpId}`;
 
@@ -209,16 +211,18 @@ export function LabelWithHelp({
   helpId,
   activeHelpId,
   setActiveHelpId,
+  helpCopy,
 }: {
   label: string;
   helpId: ScoringHelpId;
   activeHelpId: ScoringHelpId | null;
   setActiveHelpId: (value: ScoringHelpId | null) => void;
+  helpCopy?: ScoringHelpCopy;
 }) {
   return (
     <span className="field-label-with-help">
       <span>{label}</span>
-      <FieldHelp helpId={helpId} activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
+      <FieldHelp helpId={helpId} activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} helpCopy={helpCopy} />
     </span>
   );
 }

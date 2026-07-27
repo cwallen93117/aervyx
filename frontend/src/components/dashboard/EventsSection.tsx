@@ -445,7 +445,6 @@ export default function EventsSection(props: EventsSectionProps) {
   const [scoringPresets, setScoringPresets] = useState<ScoringPresetRecord[]>([]);
   const [presetFeedback, setPresetFeedback] = useState<PresetFeedback>(null);
   const [activeHelpId, setActiveHelpId] = useState<ScoringHelpId | null>(null);
-  const [formulaInfoOpen, setFormulaInfoOpen] = useState(false);
   const [customFormulas, setCustomFormulas] = useState<CustomFormula[]>(() => loadCustomFormulas());
   const [customFormulaFeedback, setCustomFormulaFeedback] = useState<PresetFeedback>(null);
   const [savingFormulaName, setSavingFormulaName] = useState("");
@@ -455,6 +454,14 @@ export default function EventsSection(props: EventsSectionProps) {
     ...builtInFormulaOptions,
   ];
   const currentCustomFormula = customFormulas.find((cf) => cf.value === eventForm.scoring_formula);
+  const selectedFormulaLabel = scoringFormulaOptions.find((o) => o.value === eventForm.scoring_formula)?.label ?? eventForm.scoring_formula;
+  const selectedFormulaDescription = formulaDescriptions[eventForm.scoring_formula];
+  const scoringFormulaHelp = selectedFormulaDescription
+    ? { title: selectedFormulaDescription.summary, body: selectedFormulaDescription.details }
+    : {
+        title: selectedFormulaLabel,
+        body: "This custom scoring parameter file is saved to your account. Selecting it loads the saved scoring values into this form.",
+      };
   const [startsOnDisplay, setStartsOnDisplay] = useState("");
   const [endsOnDisplay, setEndsOnDisplay] = useState("");
   const [librarySources, setLibrarySources] = useState<TurnpointSourceRecord[]>([]);
@@ -811,11 +818,10 @@ export default function EventsSection(props: EventsSectionProps) {
               <div className="scoring-import-strip">
                     <div className="scoring-formula-controls">
                       <label className="stack compact scoring-formula-field">
-                        <LabelWithHelp label="Scoring parameters" helpId="scoring_formula" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
+                        <LabelWithHelp label="Scoring parameters" helpId="scoring_formula" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} helpCopy={scoringFormulaHelp} />
                         <select value={eventForm.scoring_formula} onChange={(event) => {
                           const newFormula = event.target.value;
                           const preset = formulaPresets[newFormula] ?? customFormulas.find((cf) => cf.value === newFormula)?.preset;
-                          setFormulaInfoOpen(false);
                           setCustomFormulaFeedback(null);
                           if (preset) {
                             setEventForm({ ...eventForm, ...preset, scoring_formula: newFormula });
@@ -834,14 +840,6 @@ export default function EventsSection(props: EventsSectionProps) {
                         </select>
                       </label>
                       <div className="custom-formula-actions scoring-formula-actions">
-                        {formulaDescriptions[eventForm.scoring_formula] ? (
-                          <button type="button" className="formula-info-toggle" onClick={() => {
-                            setFormulaInfoOpen(!formulaInfoOpen);
-                            setShowSaveFormula(false);
-                          }}>
-                            {formulaInfoOpen ? "Hide" : "About"} {scoringFormulaOptions.find((o) => o.value === eventForm.scoring_formula)?.label ?? eventForm.scoring_formula}
-                          </button>
-                        ) : null}
                         {currentCustomFormula ? (
                           <button type="button" className="primary-button formula-action-button" onClick={() => {
                             const next = customFormulas.map((cf) => (
@@ -855,7 +853,6 @@ export default function EventsSection(props: EventsSectionProps) {
                           className="ghost-button formula-action-button"
                           aria-expanded={showSaveFormula}
                           onClick={() => {
-                            setFormulaInfoOpen(false);
                             setShowSaveFormula(!showSaveFormula);
                           }}
                         >
@@ -893,12 +890,6 @@ export default function EventsSection(props: EventsSectionProps) {
                         ) : null}
                       </div>
                     </div>
-                    {formulaDescriptions[eventForm.scoring_formula] && formulaInfoOpen ? (
-                      <div className="formula-info-panel">
-                        <strong>{formulaDescriptions[eventForm.scoring_formula].summary}</strong>
-                        <p>{formulaDescriptions[eventForm.scoring_formula].details}</p>
-                      </div>
-                    ) : null}
               </div>
               {customFormulaFeedback ? <div className={`status-chip ${customFormulaFeedback.type} scoring-import-feedback`}>{customFormulaFeedback.text}</div> : null}
               <div className="fieldset-grid events-scoring-grid">
