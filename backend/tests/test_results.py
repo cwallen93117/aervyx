@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.db import Base
 from app.models import Event, EventMeetStatsCache, EventPilot, IGCUpload, Pilot, PilotFlight, PilotFlightTrackPoint, ScorePenalty, ScoreResult, Task, TaskPoint, TaskScoringInput, TrackPoint, User
 from app.routers import results as results_router
-from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, select_logbook_igc_candidate, task_result_summary
+from app.routers.results import get_scoring_operations, get_task_results, list_logbook_igc_candidates, meet_stats, pilot_summary, save_penalties, select_logbook_igc_candidate, task_result_summary
+from app.schemas import ScorePenaltySaveRequest
 from app.services import task_uploads
 from app.services.scoring import MEET_STATS_SCOPE_INTERNAL_ALL, _format_penalty_number, build_cached_meet_stats_payload, invalidate_event_meet_stats_cache, refresh_event_meet_stats_cache
 
@@ -29,6 +30,47 @@ def _session() -> Session:
 def test_penalty_number_format_uses_thousands_separator() -> None:
     assert _format_penalty_number(1000) == "1,000"
     assert _format_penalty_number(1234.5) == "1,234.5"
+
+
+def test_save_penalties_rescores_task_total(monkeypatch) -> None:
+    session = _session()
+    admin = User(username="admin@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(name="Mixed Penalty Race", location="Ridge", starts_on=date(2026, 7, 1), ends_on=date(2026, 7, 2), timezone="UTC")
+    pilot = Pilot(first_name="Charles", last_name="Allen")
+    session.add_all([admin, event, pilot])
+    session.flush()
+    task = Task(event_id=event.id, name="Task 1", status="published")
+    session.add(task)
+    session.flush()
+    result = ScoreResult(
+        task_id=task.id,
+        pilot_id=pilot.id,
+        status="partial",
+        rank=1,
+        raw_score_points=900,
+        score_points=1000,
+        details_json={"handicap": {"adjusted_score_points": 1000, "adjustment_points": 100}},
+        result_state="provisional",
+    )
+    session.add_all([EventPilot(event_id=event.id, pilot_id=pilot.id), result])
+    session.flush()
+
+    def fake_rescore(_session: Session, task_id: int) -> list[ScoreResult]:
+        assert task_id == task.id
+        result.score_points = 950
+        return [result]
+
+    monkeypatch.setattr(results_router, "rescore_task", fake_rescore)
+    response = save_penalties(
+        task.id,
+        pilot.id,
+        ScorePenaltySaveRequest(penalties=[{"penalty_type": "fixed", "value": 50, "reason": "Late report", "position": 0}]),
+        admin,
+        session,
+    )
+
+    assert response["rescored_count"] == 1
+    assert result.score_points == 950
 
 
 def _score(task: Task, pilot: Pilot, quality: float | None, state: str = "official", status: str = "goal", points: float = 900) -> ScoreResult:

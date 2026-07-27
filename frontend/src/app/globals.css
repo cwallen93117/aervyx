@@ -3389,6 +3389,10 @@ button[type="submit"]:hover,
   cursor: pointer;
 }
 
+.score-handicap-link.positive {
+  color: #2563eb;
+}
+
 .score-penalty-modal-overlay {
   position: fixed;
   inset: 0;
@@ -6093,6 +6097,10 @@ button[type="submit"]:hover,
 
 .scores-page .score-penalty-link {
   color: #f87171;
+}
+
+.scores-page .score-handicap-link.positive {
+  color: #60a5fa;
 }
 
 .scores-page .score-penalty-modal {

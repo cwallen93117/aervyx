@@ -1164,6 +1164,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                             const leadingPoints = isUnscored ? "-" : formatResultPoints(gapAwardedPoints(result, "leading"));
                             const penaltyLabel = formatPenaltyPoints(result);
                             const handicap = handicapDetails(result);
+                            const handicapLinkClassName = `score-penalty-link score-handicap-link${Number(result.handicap_adjustment_points ?? 0) > 0 ? " positive" : ""}`;
                             return (
                               <tr key={result.id}>
                                 <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
@@ -1187,7 +1188,7 @@ export default function ScoringSection(props: ScoringSectionProps) {
                                 {mixedClass ? (
                                   <td className="results-table-handicap">
                                     {!isUnscored && handicap ? (
-                                      <button type="button" className="score-penalty-link" onClick={() => setHandicapDetailsResult(result)}>
+                                      <button type="button" className={handicapLinkClassName} onClick={() => setHandicapDetailsResult(result)}>
                                         {formatHandicapAdjustment(result.handicap_adjustment_points)}
                                       </button>
                                     ) : (

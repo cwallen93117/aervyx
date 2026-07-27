@@ -55,6 +55,8 @@ test("internal and public task scores conditionally show handicap and class", ()
     assert.match(source, /mixedClass \? <th>Handicap<\/th> : null/);
     assert.match(source, /formatHandicapAdjustment\(result\.handicap_adjustment_points\)/);
     assert.match(source, /setHandicapDetailsResult\(result\)/);
+    assert.match(source, /score-handicap-link/);
+    assert.match(source, /handicap_adjustment_points \?\? 0\) > 0 \? " positive"/);
     assert.match(source, /className="results-pilot-class"/);
   }
 });
