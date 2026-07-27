@@ -451,7 +451,7 @@ select {
 
 .preset-controls {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(320px, 1fr) auto auto auto;
   align-items: end;
   gap: 10px;
 }
