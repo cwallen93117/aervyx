@@ -28,7 +28,8 @@ test("measurement total is anchored as a map label instead of the picker stack",
   const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
   assert.match(source, /id: "measurement-total-label"/);
   assert.match(source, /getPixelOffset: \[0, 30\]/);
-  assert.match(source, /\{measurementPoints\.length \? \(/);
+  assert.match(source, /const hasMeasurement = measurementPoints\.length > 0;/);
+  assert.match(source, /\{hasMeasurement \? \(/);
   assert.doesNotMatch(source, /measurement-clear-label/);
   assert.doesNotMatch(source, /Measured route total/);
   assert.doesNotMatch(css, /map-measure-summary/);

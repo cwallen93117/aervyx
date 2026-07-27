@@ -2506,6 +2506,7 @@ export const TaskMap = React.memo(function TaskMap({
     () => measurementPoints.map((point) => [point.longitude, point.latitude, 0] as [number, number, number]),
     [measurementPoints],
   );
+  const hasMeasurement = measurementPoints.length > 0;
   const taskGeometrySignature = useMemo(() => buildTaskGeometrySignature(effectiveTaskRoutePoints, effectiveOptimizedRoute), [effectiveOptimizedRoute, effectiveTaskRoutePoints]);
   const resolvedFitTarget = useMemo(
     () => resolveFitTarget(effectiveTaskRoutePoints, effectiveOptimizedRoute, effectiveTurnpoints, effectiveTrack, fitTurnpoints, effectiveLivePositions),
@@ -4580,7 +4581,7 @@ export const TaskMap = React.memo(function TaskMap({
                 <path d="m13 8 3 3M10 11l2 2M7 14l3 3" />
               </svg>
             </button>
-            {measurementPoints.length ? (
+            {hasMeasurement ? (
               <button
                 type="button"
                 className="map-control-button map-control-mode-button"
