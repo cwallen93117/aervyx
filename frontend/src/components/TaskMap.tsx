@@ -4580,7 +4580,7 @@ export const TaskMap = React.memo(function TaskMap({
                 <path d="m13 8 3 3M10 11l2 2M7 14l3 3" />
               </svg>
             </button>
-            {measurementEnabled && measurementPoints.length ? (
+            {measurementPoints.length ? (
               <button
                 type="button"
                 className="map-control-button map-control-mode-button"
