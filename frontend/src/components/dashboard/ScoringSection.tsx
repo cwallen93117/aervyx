@@ -468,11 +468,11 @@ function PenaltyDetailsModal({
                 <div key={`${line.kind}-${index}`} className="score-penalty-line">
                   <div>
                     <strong>{line.label}</strong>
-                    {line.detail ? <span>{line.detail}</span> : null}
+                    {line.running_score_points != null ? <strong>Final Score</strong> : null}
                   </div>
                   <div>
                     <strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: line.amount_points } })}</strong>
-                    {line.running_score_points != null ? <span>{formatScorePoints(line.running_score_points)} running</span> : null}
+                    {line.running_score_points != null ? <strong>{formatScorePoints(line.running_score_points)}</strong> : null}
                   </div>
                 </div>
               ))}

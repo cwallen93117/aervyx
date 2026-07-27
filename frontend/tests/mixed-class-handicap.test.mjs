@@ -61,6 +61,19 @@ test("internal and public task scores conditionally show handicap and class", ()
   }
 });
 
+test("penalty details show final score without duplicated running text", () => {
+  for (const relativePath of [
+    "src/components/dashboard/ScoringSection.tsx",
+    "src/app/scores/PublicScoresClient.tsx",
+  ]) {
+    const source = readFileSync(join(root, relativePath), "utf8");
+    assert.match(source, /<strong>Final Score<\/strong>/);
+    assert.match(source, /<strong>\{formatScorePoints\(line\.running_score_points\)\}<\/strong>/);
+    assert.doesNotMatch(source, /line\.detail \? <span>\{line\.detail\}<\/span>/);
+    assert.doesNotMatch(source, /running<\/span>/);
+  }
+});
+
 test("handicap and penalty helpers format thousands and use normalized pre-penalty base", () => {
   const scorePenalties = loadTsModule("src/lib/scorePenalties.ts");
   const handicap = loadTsModule("src/lib/handicap.ts", { "./scorePenalties": scorePenalties });
