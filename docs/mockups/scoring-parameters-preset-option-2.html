@@ -10,8 +10,8 @@
   <main class="review-shell">
     <header class="review-header">
       <div>
-        <h1>Option 2 - Dropdown plus preview panel</h1>
-        <p>Same grouped dropdown, but with a right-hand summary so a director can see what will change before saving or cloning a set.</p>
+        <h1>Option 2 - Account preset dropdown</h1>
+        <p>A single dropdown lists each admin or organizer's saved custom parameters first, with protected official parameters below.</p>
       </div>
       <nav class="review-nav" aria-label="Mockup options">
         <a href="scoring-parameters-preset-option-1.html">Preset 1</a>
@@ -22,7 +22,7 @@
     </header>
 
     <div class="review-note">
-      Functionality: Save is active only for custom parameters. Official parameters show as protected defaults, with Save As as the intended path for modifications.
+      Functionality: custom parameters are user-owned records in the database. Save updates the selected custom record; official parameters are read-only and must be copied with Save As.
     </div>
 
     <section class="scoring-card">
@@ -31,85 +31,61 @@
       </header>
 
       <form class="scoring-form">
-        <section class="setup-bar two-panel-setup" aria-label="Scoring setup">
-          <div>
-            <div class="preset-card-header">
-              <div>
-                <h3>Parameter preset</h3>
-                <p>Use one selector for custom and official parameter sets.</p>
-              </div>
+        <section class="setup-bar" aria-labelledby="setup-heading">
+          <div class="preset-card-header">
+            <div>
+              <h3 id="setup-heading">Parameter preset</h3>
+              <p>Select an account custom preset or start from an official scoring formula.</p>
             </div>
-
-            <div class="field-stack">
-              <label class="control">
-                <span>Scoring parameters</span>
-                <select class="preset-select" data-preset-select>
-                  <optgroup label="Custom Parameters">
-                    <option value="custom:test-handicap" selected>Test Handicap</option>
-                    <option value="custom:task-week">Task Week Balanced</option>
-                    <option value="custom:local-ridge">Local Ridge Rules</option>
-                  </optgroup>
-                  <optgroup label="Official Parameters">
-                    <option value="official:gap-2025">GAP 2025</option>
-                    <option value="official:gap-2021">GAP 2021</option>
-                    <option value="official:pwc-2016">PWC 2016</option>
-                  </optgroup>
-                </select>
-              </label>
-
-              <div class="preset-action-row">
-                <button class="button primary" type="button" data-save-button>Save</button>
-                <button class="button" type="button" data-save-as-toggle>Save As</button>
-                <button class="button danger" type="button" data-delete-button>Delete custom</button>
-              </div>
-
-              <div class="save-drawer" data-save-drawer>
-                <label class="control">
-                  <span>New custom parameter name</span>
-                  <input type="text" value="Task Week Balanced copy">
-                </label>
-                <button class="button primary" type="button">Create custom set</button>
-                <button class="button" type="button" data-save-as-toggle>Cancel</button>
-              </div>
-            </div>
+            <button class="button primary" type="button">Save scoring parameters</button>
           </div>
 
-          <aside class="preset-summary-panel">
-            <h3 data-summary-title>Test Handicap</h3>
-            <p data-summary-copy>Custom parameter set. Changes can be saved back to this preset.</p>
-            <div class="preset-meta-grid">
-              <div class="preset-meta">
-                <span>Formula</span>
-                <strong data-summary-formula>GAP 2021</strong>
-              </div>
-              <div class="preset-meta">
-                <span>Ownership</span>
-                <strong data-summary-owner>Custom</strong>
-              </div>
-              <div class="preset-meta">
-                <span>Save</span>
-                <strong data-summary-save>Enabled</strong>
-              </div>
-            </div>
-            <div class="preset-change-list">
-              <div class="preset-change-row"><span>Nominal distance</span><strong>60 km</strong></div>
-              <div class="preset-change-row"><span>Nominal time</span><strong>1.5 hours</strong></div>
-              <div class="preset-change-row"><span>Handicap</span><strong>Enabled</strong></div>
-            </div>
-          </aside>
-        </section>
-
-        <section class="setup-bar">
-          <div class="secondary-import">
+          <div class="preset-controls">
             <label class="control">
-              <span>Load full setup from saved meet</span>
-              <select>
-                <option selected>Choose saved scoring parameters</option>
-                <option>2026 East Coast Championship - Ridgely</option>
-                <option>2025 Highland Challenge - Henson Gap</option>
+              <span class="control-title">Scoring parameters <span class="help-badge" aria-hidden="true">i</span></span>
+              <select class="preset-select" data-preset-select>
+                <optgroup label="Custom Parameters">
+                  <option value="custom:test-handicap" selected>Test Handicap</option>
+                  <option value="custom:task-week">Task Week Balanced</option>
+                  <option value="custom:local-ridge">Local Ridge Rules</option>
+                  <option value="custom:training-day">Training Day Conservative</option>
+                </optgroup>
+                <optgroup label="Official Parameters">
+                  <option value="official:gap-2025">GAP 2025</option>
+                  <option value="official:gap-2021">GAP 2021</option>
+                  <option value="official:fs-2023">FS 2023</option>
+                  <option value="official:pwc-2016">PWC 2016</option>
+                </optgroup>
               </select>
             </label>
-            <button class="button" type="button">Load Parameters</button>
+            <span class="preset-status custom" data-preset-status>Custom preset selected</span>
+            <button class="button primary" type="button" data-save-button>Save</button>
+            <button class="button" type="button" data-save-as-toggle>Save As</button>
+            <button class="button danger" type="button" data-delete-button>Delete custom</button>
+          </div>
+
+          <div class="save-drawer" data-save-drawer>
+            <label class="control">
+              <span>New custom parameter name</span>
+              <input type="text" value="Task Week Balanced copy">
+            </label>
+            <button class="button primary" type="button">Create custom preset</button>
+            <button class="button" type="button" data-save-as-toggle>Cancel</button>
+          </div>
+
+          <div class="preset-meta-grid">
+            <div class="preset-meta">
+              <span>Source</span>
+              <strong data-source>Custom Parameters</strong>
+            </div>
+            <div class="preset-meta">
+              <span>Database owner</span>
+              <strong data-owner>Your account</strong>
+            </div>
+            <div class="preset-meta">
+              <span>Save behavior</span>
+              <strong data-save-text>Save updates this preset</strong>
+            </div>
           </div>
         </section>
 
@@ -119,6 +95,7 @@
             <div class="field-stack">
               <label class="field"><span>Nominal goal (%)</span><input type="number" value="0.3"></label>
               <label class="field"><span>Score-back time (minutes)</span><input type="number" value="15"></label>
+              <label class="field"><span>Goal / SS penalty</span><input type="number" value="0"></label>
             </div>
           </fieldset>
           <fieldset class="fieldset">
@@ -126,6 +103,7 @@
             <div class="field-stack">
               <label class="field"><span>Nominal distance (km)</span><input type="number" value="60"></label>
               <label class="field"><span>Nominal time (hours)</span><input type="number" value="1.5"></label>
+              <label class="field"><span>Minimum distance (km)</span><input type="number" value="5"></label>
             </div>
           </fieldset>
           <fieldset class="fieldset">
@@ -133,6 +111,7 @@
             <div class="field-stack">
               <label class="field"><span>Day quality override</span><input type="number" value="0"></label>
               <label class="field"><span>Time points if not in goal</span><input type="number" value="1"></label>
+              <label class="field"><span>Scoring altitude</span><select><option>GPS altitude</option></select></label>
             </div>
           </fieldset>
         </div>
@@ -146,24 +125,20 @@
     const deleteButton = document.querySelector("[data-delete-button]");
     const drawer = document.querySelector("[data-save-drawer]");
     const toggles = document.querySelectorAll("[data-save-as-toggle]");
-    const title = document.querySelector("[data-summary-title]");
-    const copy = document.querySelector("[data-summary-copy]");
-    const formula = document.querySelector("[data-summary-formula]");
-    const owner = document.querySelector("[data-summary-owner]");
-    const save = document.querySelector("[data-summary-save]");
+    const status = document.querySelector("[data-preset-status]");
+    const source = document.querySelector("[data-source]");
+    const owner = document.querySelector("[data-owner]");
+    const saveText = document.querySelector("[data-save-text]");
 
     function syncPresetState() {
       const isCustom = select.value.startsWith("custom:");
-      const label = select.selectedOptions[0].textContent;
-      title.textContent = label;
       saveButton.disabled = !isCustom;
       deleteButton.disabled = !isCustom;
-      copy.textContent = isCustom
-        ? "Custom parameter set. Changes can be saved back to this preset."
-        : "Official parameter set. Defaults are protected; use Save As to make an editable copy.";
-      formula.textContent = select.value.includes("pwc") ? "PWC 2016" : select.value.includes("gap-2025") ? "GAP 2025" : "GAP 2021";
-      owner.textContent = isCustom ? "Custom" : "Official";
-      save.textContent = isCustom ? "Enabled" : "Disabled";
+      status.textContent = isCustom ? "Custom preset selected" : "Official preset selected";
+      status.classList.toggle("custom", isCustom);
+      source.textContent = isCustom ? "Custom Parameters" : "Official Parameters";
+      owner.textContent = isCustom ? "Your account" : "Aervyx official defaults";
+      saveText.textContent = isCustom ? "Save updates this preset" : "Save disabled; use Save As";
     }
 
     select.addEventListener("change", syncPresetState);
