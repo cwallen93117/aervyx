@@ -554,24 +554,44 @@ def test_assign_existing_pilot_links_matching_email_user() -> None:
 
 def test_people_directory_uses_active_users_as_source_of_truth() -> None:
     session = _session()
-    admin = User(username="admin@example.com", full_name="Admin User", role="admin", password_hash="hash")
+    staff = User(username="staff@example.com", full_name="Staff User", role="admin", password_hash="hash")
     canonical = Pilot(first_name="Knut", last_name="Pilot", email="knut@example.com", nation="NO", competition_number="77", civl_id="CIVL-KNUT")
+    admin_profile = Pilot(first_name="Ada", last_name="Admin", email="ada@example.com")
+    organizer_profile = Pilot(first_name="Olivia", last_name="Organizer", email="olivia@example.com")
     duplicate = Pilot(first_name="Knut", last_name="Pilot", email="knut@example.com", nation="NO", competition_number="88")
     unregistered = Pilot(first_name="Knut", last_name="Historical", email="old-knut@example.com", nation="NO", competition_number="99")
-    session.add_all([admin, canonical, duplicate, unregistered])
+    inactive_profile = Pilot(first_name="Ina", last_name="Inactive", email="ina@example.com")
+    event = Event(name="Spring Open", location="Hills", starts_on=date(2026, 3, 18), ends_on=date(2026, 3, 20), timezone="UTC")
+    session.add_all([staff, canonical, admin_profile, organizer_profile, duplicate, unregistered, inactive_profile, event])
     session.flush()
-    session.add(User(username="knut@example.com", full_name="Knut Pilot", role="pilot", pilot_id=canonical.id, password_hash="hash"))
+    session.add_all(
+        [
+            User(username="knut@example.com", full_name="Knut Pilot", role="pilot", pilot_id=canonical.id, password_hash="hash"),
+            User(username="ada@example.com", full_name="Ada Admin", role="admin", pilot_id=admin_profile.id, password_hash="hash"),
+            User(username="olivia@example.com", full_name="Olivia Organizer", role="organizer", pilot_id=organizer_profile.id, password_hash="hash"),
+            User(username="ina@example.com", full_name="Ina Inactive", role="pilot", pilot_id=inactive_profile.id, is_active=False, password_hash="hash"),
+        ]
+    )
     session.commit()
 
-    all_results = list_people(admin=admin, session=session)
-    search_results = list_people(search="knut", admin=admin, session=session)
-    civl_results = list_people(search="civl-knut", admin=admin, session=session)
-    nation_results = list_people(search="no", admin=admin, session=session)
+    all_results = list_people(admin=staff, session=session)
+    search_results = list_people(search="knut", admin=staff, session=session)
+    admin_results = list_people(search="ada", admin=staff, session=session)
+    organizer_results = list_people(search="olivia", admin=staff, session=session)
+    inactive_results = list_people(search="ina", admin=staff, session=session)
+    civl_results = list_people(search="civl-knut", admin=staff, session=session)
+    nation_results = list_people(search="no", admin=staff, session=session)
+    assigned = assign_existing_pilot(event.id, admin_profile.id, staff, session)
 
-    assert [pilot.id for pilot in all_results] == [canonical.id]
+    assert [pilot.id for pilot in all_results] == [admin_profile.id, organizer_profile.id, canonical.id]
     assert [pilot.id for pilot in search_results] == [canonical.id]
+    assert [pilot.id for pilot in admin_results] == [admin_profile.id]
+    assert [pilot.id for pilot in organizer_results] == [organizer_profile.id]
+    assert inactive_results == []
     assert [pilot.id for pilot in civl_results] == [canonical.id]
     assert [pilot.id for pilot in nation_results] == [canonical.id]
+    assert assigned.id == admin_profile.id
+    assert session.scalar(select(EventPilot).where(EventPilot.event_id == event.id, EventPilot.pilot_id == admin_profile.id)) is not None
 
 
 def test_deleted_user_disappears_from_people_directory_but_event_roster_remains() -> None:

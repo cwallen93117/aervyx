@@ -63,7 +63,6 @@ def list_people(search: str | None = None, admin: User = Depends(require_staff),
         select(User.id)
         .where(
             User.pilot_id == Pilot.id,
-            User.role == "pilot",
             User.is_active.is_(True),
         )
         .exists()
@@ -75,7 +74,6 @@ def list_people(search: str | None = None, admin: User = Depends(require_staff),
             select(User.id)
             .where(
                 User.pilot_id == Pilot.id,
-                User.role == "pilot",
                 User.is_active.is_(True),
                 or_(
                     func.lower(User.username).like(pattern),
