@@ -336,7 +336,15 @@ export default function SettingsSection(props: SettingsSectionProps) {
 
       {activeTab === "turnpoint_library" && canManagePlatform ? (
         <div className="settings-tab-panel">
-          <WaypointFilesSettings token={token} />
+          <WaypointFilesSettings
+            token={token}
+            units={{
+              altitude: settingsForm.altitude_unit,
+              speed: settingsForm.speed_unit,
+              distance: settingsForm.distance_unit,
+              vario: settingsForm.vario_unit,
+            }}
+          />
         </div>
       ) : null}
 

@@ -113,7 +113,7 @@ function formatElapsedSeconds(value: number | null | undefined): string {
 
 function formatPoints(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "-";
-  return value.toFixed(1);
+  return formatScorePoints(value);
 }
 
 function formatShortDate(value: string | null | undefined): string {
@@ -305,7 +305,7 @@ export default function ScoringOperationsPanel({
   const automaticPenaltyLines = activeRow?.result?.penalty_calculation?.lines.filter((line) => line.kind === "engine") ?? [];
   const automaticPenaltyPoints = automaticPenaltyLines.reduce((total, line) => total + Number(line.amount_points || 0), 0);
   const manualPenaltyPoints = Math.max(penaltyBaseScore - penaltyCascade.final, 0);
-  const prePenaltyTotalPoints = penaltyCascade.final + manualPenaltyPoints + automaticPenaltyPoints;
+  const prePenaltyTotalPoints = penaltyBaseScore;
 
   const reloadTaskAndRows = async () => {
     if (!token || !activePublishedTaskId) return;
@@ -900,7 +900,7 @@ export default function ScoringOperationsPanel({
         <div className="scoring-ops-panel-body">
           <div className="scoring-ops-score-strip">
             <div className="scoring-ops-score-strip-item">
-              <div className="scoring-ops-strip-label">Total</div>
+              <div className="scoring-ops-strip-label">Pre-penalty score</div>
               <div className="scoring-ops-strip-value">{formatScorePoints(prePenaltyTotalPoints)}</div>
             </div>
             <div className="scoring-ops-score-strip-item">
@@ -1014,7 +1014,7 @@ export default function ScoringOperationsPanel({
 
           <div className="scoring-ops-calc-box">
             <div className="scoring-ops-calc-row">
-              <span>Total</span>
+              <span>Pre-penalty score</span>
               <span>{formatScorePoints(prePenaltyTotalPoints)}</span>
             </div>
             {automaticPenaltyLines.map((line, index) => (

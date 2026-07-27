@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { MapTelemetrySmoothing } from "../TaskMap";
+import type { MapTelemetrySmoothing, MapUnitPreferences } from "../TaskMap";
 import WaypointFilesEditor from "./WaypointFilesEditor";
 import type { TurnpointSourceRecord } from "./types";
 
@@ -30,10 +30,12 @@ async function apiFetch<T>(path: string, token: string, init: RequestInit = {}):
 export default function WaypointFilesSettings({
   token,
   telemetrySmoothing,
+  units,
   onSourcesChanged,
 }: {
   token: string;
   telemetrySmoothing?: MapTelemetrySmoothing;
+  units?: MapUnitPreferences;
   onSourcesChanged?: () => Promise<void> | void;
 }) {
   const [sources, setSources] = useState<TurnpointSourceRecord[]>([]);
@@ -95,6 +97,7 @@ export default function WaypointFilesSettings({
         token={token}
         sources={sources}
         telemetrySmoothing={telemetrySmoothing}
+        units={units}
         setMessage={(text) => setFeedback({ type: "success", text })}
         setError={(text) => setFeedback({ type: "error", text })}
         emptyMessage="No waypoint files are available yet."

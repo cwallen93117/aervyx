@@ -43,6 +43,8 @@ from app.schemas import (
     AccountSettingsUpdate,
     AccountSettingsUpdateResponse,
     AccountPreferencesUpdate,
+    CustomScoringFormula,
+    CustomScoringFormulaList,
     GoogleAuthRequest,
     LoginRequest,
     MeshDeviceCreate,
@@ -90,6 +92,7 @@ VALID_AIRCRAFT_ICONS = {"hang_glider", "paraglider", "sailplane"}
 VALID_MESH_DEVICE_PURPOSES = {"tracking", "base_station", "driver_wifi", "driver_mesh", "relay"}
 TRACKING_MESH_PURPOSE = "tracking"
 PASSKEY_CHALLENGE_TTL = timedelta(minutes=5)
+CUSTOM_SCORING_FORMULA_ROLES = {"admin", "organizer"}
 
 
 def _now_utc() -> datetime:
@@ -152,6 +155,33 @@ def _settings_payload(user: User, pilot: Pilot | None, access_token: str | None 
         has_password=bool(user.password_hash),
         access_token=access_token,
     )
+
+
+def _require_custom_scoring_formula_access(user: User) -> None:
+    if user.role not in CUSTOM_SCORING_FORMULA_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admins and organizers can manage custom scoring parameters")
+
+
+def _custom_scoring_formulas(user: User) -> list[CustomScoringFormula]:
+    raw = user.custom_scoring_formulas_json or []
+    if not isinstance(raw, list):
+        return []
+    formulas: list[CustomScoringFormula] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            formula = CustomScoringFormula.model_validate(item)
+        except Exception:
+            continue
+        value = formula.value.strip()
+        label = formula.label.strip()
+        if not value or not label or value in seen:
+            continue
+        formulas.append(CustomScoringFormula(value=value, label=label, preset=formula.preset))
+        seen.add(value)
+    return formulas
 
 
 def _normalize_mesh_device_id(value: str | None) -> str | None:
@@ -888,6 +918,35 @@ def me(user: User = Depends(get_current_user)) -> UserSummary:
 def get_settings(user: User = Depends(get_current_user), session: Session = Depends(get_session)) -> AccountSettingsResponse:
     pilot = session.get(Pilot, user.pilot_id) if user.pilot_id else None
     return _settings_payload(user, pilot)
+
+
+@router.get("/scoring-formulas", response_model=CustomScoringFormulaList)
+def list_custom_scoring_formulas(user: User = Depends(get_current_user)) -> CustomScoringFormulaList:
+    _require_custom_scoring_formula_access(user)
+    return CustomScoringFormulaList(formulas=_custom_scoring_formulas(user))
+
+
+@router.patch("/scoring-formulas", response_model=CustomScoringFormulaList)
+def save_custom_scoring_formulas(
+    payload: CustomScoringFormulaList,
+    user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+) -> CustomScoringFormulaList:
+    _require_custom_scoring_formula_access(user)
+    formulas: list[CustomScoringFormula] = []
+    seen: set[str] = set()
+    for item in payload.formulas:
+        value = item.value.strip()
+        label = item.label.strip()
+        if not value or not label or value in seen:
+            continue
+        formulas.append(CustomScoringFormula(value=value, label=label, preset=item.preset))
+        seen.add(value)
+    user.custom_scoring_formulas_json = [item.model_dump() for item in formulas]
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    return CustomScoringFormulaList(formulas=formulas)
 
 
 @router.patch("/settings", response_model=AccountSettingsUpdateResponse)

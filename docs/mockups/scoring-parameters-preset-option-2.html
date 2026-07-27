@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scoring Parameters Presets - Option 2</title>
+  <link rel="stylesheet" href="scoring-formula-toolbar.css">
+</head>
+<body>
+  <main class="review-shell">
+    <header class="review-header">
+      <div>
+        <h1>Option 2 - Account preset dropdown</h1>
+        <p>A single dropdown lists each admin or organizer's saved custom parameters first, with protected official parameters below.</p>
+      </div>
+      <nav class="review-nav" aria-label="Mockup options">
+        <a href="scoring-parameters-preset-option-1.html">Preset 1</a>
+        <a class="active" href="scoring-parameters-preset-option-2.html">Preset 2</a>
+        <a href="scoring-parameters-preset-option-3.html">Preset 3</a>
+        <a href="scoring-formula-toolbar-option-2.html">Current</a>
+      </nav>
+    </header>
+
+    <div class="review-note">
+      Functionality: custom parameters are user-owned records in the database. Save updates the selected custom record; official parameters are read-only and must be copied with Save As.
+    </div>
+
+    <section class="scoring-card">
+      <header class="scoring-card-header">
+        <h2>Scoring parameters</h2>
+      </header>
+
+      <form class="scoring-form">
+        <section class="setup-bar" aria-labelledby="setup-heading">
+          <div class="preset-card-header">
+            <div>
+              <h3 id="setup-heading">Parameter preset</h3>
+              <p>Select an account custom preset or start from an official scoring formula.</p>
+            </div>
+            <button class="button primary" type="button">Save scoring parameters</button>
+          </div>
+
+          <div class="preset-controls">
+            <label class="control">
+              <span class="control-title">Scoring parameters <span class="help-badge" aria-hidden="true">i</span></span>
+              <select class="preset-select" data-preset-select>
+                <optgroup label="Custom Parameters">
+                  <option value="custom:test-handicap" selected>Test Handicap</option>
+                  <option value="custom:task-week">Task Week Balanced</option>
+                  <option value="custom:local-ridge">Local Ridge Rules</option>
+                  <option value="custom:training-day">Training Day Conservative</option>
+                </optgroup>
+                <optgroup label="Official Parameters">
+                  <option value="official:gap-2025">GAP 2025</option>
+                  <option value="official:gap-2021">GAP 2021</option>
+                  <option value="official:fs-2023">FS 2023</option>
+                  <option value="official:pwc-2016">PWC 2016</option>
+                </optgroup>
+              </select>
+            </label>
+            <button class="button primary" type="button" data-save-button>Save</button>
+            <button class="button" type="button" data-save-as-toggle>Save As</button>
+            <button class="button danger" type="button" data-delete-button>Delete</button>
+          </div>
+
+          <div class="save-drawer" data-save-drawer>
+            <label class="control">
+              <span>New custom parameter name</span>
+              <input type="text" value="Task Week Balanced copy">
+            </label>
+            <button class="button primary" type="button">Create custom preset</button>
+            <button class="button" type="button" data-save-as-toggle>Cancel</button>
+          </div>
+
+        </section>
+
+        <div class="fieldset-grid">
+          <fieldset class="fieldset">
+            <legend>Formula and points</legend>
+            <div class="field-stack">
+              <label class="field"><span>Nominal goal (%)</span><input type="number" value="0.3"></label>
+              <label class="field"><span>Score-back time (minutes)</span><input type="number" value="15"></label>
+              <label class="field"><span>Goal / SS penalty</span><input type="number" value="0"></label>
+            </div>
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend>Nominal values and notes</legend>
+            <div class="field-stack">
+              <label class="field"><span>Nominal distance (km)</span><input type="number" value="60"></label>
+              <label class="field"><span>Nominal time (hours)</span><input type="number" value="1.5"></label>
+              <label class="field"><span>Minimum distance (km)</span><input type="number" value="5"></label>
+            </div>
+          </fieldset>
+          <fieldset class="fieldset">
+            <legend>Advanced scoring</legend>
+            <div class="field-stack">
+              <label class="field"><span>Day quality override</span><input type="number" value="0"></label>
+              <label class="field"><span>Time points if not in goal</span><input type="number" value="1"></label>
+              <label class="field"><span>Scoring altitude</span><select><option>GPS altitude</option></select></label>
+            </div>
+          </fieldset>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    const select = document.querySelector("[data-preset-select]");
+    const saveButton = document.querySelector("[data-save-button]");
+    const deleteButton = document.querySelector("[data-delete-button]");
+    const drawer = document.querySelector("[data-save-drawer]");
+    const toggles = document.querySelectorAll("[data-save-as-toggle]");
+
+    function syncPresetState() {
+      const isCustom = select.value.startsWith("custom:");
+      saveButton.hidden = !isCustom;
+      deleteButton.hidden = !isCustom;
+    }
+
+    select.addEventListener("change", syncPresetState);
+    toggles.forEach((button) => button.addEventListener("click", () => drawer.classList.toggle("open")));
+    syncPresetState();
+  </script>
+</body>
+</html>

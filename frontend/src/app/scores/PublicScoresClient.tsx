@@ -10,7 +10,7 @@ import { formatPenaltyPoints, formatScorePoints, prePenaltyTotalPoints, type Sco
 import { FieldHelp, type ScoringHelpId } from "../../lib/scoringParameters";
 import { computeTaskOptimization } from "../../lib/taskOptimization";
 import { DEFAULT_AIRSPACE_CATEGORIES, normalizeAirspaceCategories, type AirspaceCategory } from "../../lib/faaAirspace";
-import { formatHandicapAdjustment, handicapClassLabel, readHandicapConfig, type PilotClass } from "../../lib/handicap";
+import { formatHandicapAdjustment, handicapClassLabel, handicapDetails, readHandicapConfig, type PilotClass } from "../../lib/handicap";
 
 type PublicEvent = EventRecord;
 
@@ -312,7 +312,7 @@ function formatElapsedSeconds(value: number | null | undefined): string {
 
 function formatPoints(value: number | null | undefined): string {
   const safe = Number(value ?? 0);
-  return safe.toFixed(1);
+  return formatScorePoints(safe);
 }
 
 function formatPointsWithComma(value: number): string {
@@ -670,7 +670,7 @@ function PenaltyDetailsModal({
         {calculation ? (
           <>
             <div className="score-penalty-score-strip">
-              <div><span>Total</span><strong>{formatScorePoints(prePenaltyTotalPoints(result))}</strong></div>
+              <div><span>Pre-penalty score</span><strong>{formatScorePoints(prePenaltyTotalPoints(result))}</strong></div>
               <div><span>Automatic Penalties</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.engine_penalty_points } })}</strong></div>
               <div><span>Manual Penalties</span><strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: calculation.manual_penalty_points } })}</strong></div>
               <div><span>Final</span><strong>{formatScorePoints(calculation.final_score_points)}</strong></div>
@@ -680,11 +680,11 @@ function PenaltyDetailsModal({
                 <div key={`${line.kind}-${index}`} className="score-penalty-line">
                   <div>
                     <strong>{line.label}</strong>
-                    {line.detail ? <span>{line.detail}</span> : null}
+                    {line.running_score_points != null ? <strong>Final Score</strong> : null}
                   </div>
                   <div>
                     <strong className="score-penalty-amount">{formatPenaltyPoints({ score_points: 0, penalty_calculation: { ...calculation, total_display_penalty_points: line.amount_points } })}</strong>
-                    {line.running_score_points != null ? <span>{formatScorePoints(line.running_score_points)} running</span> : null}
+                    {line.running_score_points != null ? <strong>{formatScorePoints(line.running_score_points)}</strong> : null}
                   </div>
                 </div>
               ))}
@@ -692,6 +692,65 @@ function PenaltyDetailsModal({
           </>
         ) : (
           <div className="score-penalty-empty">{formatPenaltyPoints(result)}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function HandicapDetailsModal({
+  result,
+  taskName,
+  onClose,
+}: {
+  result: ResultRecord;
+  taskName: string;
+  onClose: () => void;
+}) {
+  const details = handicapDetails(result);
+  return (
+    <div className="score-penalty-modal-overlay active" onClick={onClose}>
+      <div className="score-penalty-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="score-penalty-modal-header">
+          <div>
+            <div className="score-penalty-modal-title">{result.pilot_name}</div>
+            <div className="score-penalty-modal-subtitle">{taskName}</div>
+          </div>
+          <button type="button" className="score-penalty-modal-close" onClick={onClose} aria-label="Close handicap details">x</button>
+        </div>
+        {details ? (
+          <>
+            <div className="score-penalty-score-strip">
+              <div><span>Official</span><strong>{formatScorePoints(details.official_score_points)}</strong></div>
+              <div><span>Multiplier</span><strong>{details.multiplier.toLocaleString("en-US", { maximumFractionDigits: 3 })}x</strong></div>
+              <div><span>Normalized</span><strong>{formatScorePoints(details.adjusted_score_points)}</strong></div>
+              <div><span>Adjustment</span><strong className="score-penalty-amount">{formatHandicapAdjustment(details.adjustment_points)}</strong></div>
+            </div>
+            <div className="score-penalty-lines">
+              <div className="score-penalty-line">
+                <div>
+                  <strong>{handicapClassLabel(details.pilot_class)}</strong>
+                  <span>{formatScorePoints(details.official_score_points)} x {details.multiplier.toLocaleString("en-US", { maximumFractionDigits: 3 })}</span>
+                </div>
+                <div>
+                  <strong>{formatScorePoints(details.multiplied_score_points)}</strong>
+                  <span>multiplied</span>
+                </div>
+              </div>
+              <div className="score-penalty-line">
+                <div>
+                  <strong>Normalize to task max</strong>
+                  <span>{formatScorePoints(details.multiplied_score_points)} / {formatScorePoints(details.normalization_max_score_points)} x 1,000</span>
+                </div>
+                <div>
+                  <strong>{formatScorePoints(details.adjusted_score_points)}</strong>
+                  <span>before penalties</span>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : (
+          <div className="score-penalty-empty">No handicap details available.</div>
         )}
       </div>
     </div>
@@ -890,6 +949,7 @@ export function PublicScoresClient() {
   const [taskResults, setTaskResults] = useState<ResultRecord[]>([]);
   const [taskResultsTaskId, setTaskResultsTaskId] = useState<number | null>(null);
   const [penaltyDetailsResult, setPenaltyDetailsResult] = useState<ResultRecord | null>(null);
+  const [handicapDetailsResult, setHandicapDetailsResult] = useState<ResultRecord | null>(null);
   const [selectedResultUploadIds, setSelectedResultUploadIds] = useState<number[]>([]);
   const [resultTracksByUploadId, setResultTracksByUploadId] = useState<Record<number, TrackCollection>>({});
   const [highlightedResultUploadId, setHighlightedResultUploadId] = useState<number | null>(null);
@@ -1522,6 +1582,8 @@ export function PublicScoresClient() {
                   const isUnscored = result.result_state === "unscored";
                   const statusLabel = statusAbbreviation(result.status);
                   const penaltyLabel = formatPenaltyPoints(result);
+                  const handicap = handicapDetails(result);
+                  const handicapLinkClassName = `score-penalty-link score-handicap-link${Number(result.handicap_adjustment_points ?? 0) > 0 ? " positive" : ""}`;
                   return (
                     <tr key={result.id}>
                       <td><span className="scoring-ops-rank-badge">{result.rank ?? "-"}</span></td>
@@ -1538,7 +1600,13 @@ export function PublicScoresClient() {
                       {taskResultsColumns.map((column) => <td key={column}>{isUnscored ? "-" : formatPoints(gapAwardedPoints(result, column))}</td>)}
                       {mixedClass ? (
                         <td className="results-table-handicap">
-                          {isUnscored ? "-" : formatHandicapAdjustment(result.handicap_adjustment_points)}
+                          {!isUnscored && handicap ? (
+                            <button type="button" className={handicapLinkClassName} onClick={() => setHandicapDetailsResult(result)}>
+                              {formatHandicapAdjustment(result.handicap_adjustment_points)}
+                            </button>
+                          ) : (
+                            isUnscored ? "-" : formatHandicapAdjustment(result.handicap_adjustment_points)
+                          )}
                         </td>
                       ) : null}
                       {taskResultsIncludePenalty ? (
@@ -1774,6 +1842,13 @@ export function PublicScoresClient() {
           result={penaltyDetailsResult}
           taskName={selectedTask?.name ?? "Task"}
           onClose={() => setPenaltyDetailsResult(null)}
+        />
+      ) : null}
+      {handicapDetailsResult ? (
+        <HandicapDetailsModal
+          result={handicapDetailsResult}
+          taskName={selectedTask?.name ?? "Task"}
+          onClose={() => setHandicapDetailsResult(null)}
         />
       ) : null}
       {showScoringParameters && selectedEvent ? (

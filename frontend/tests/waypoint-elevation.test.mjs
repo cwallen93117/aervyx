@@ -10,3 +10,13 @@ test("editable click-to-add maps keep terrain loaded for waypoint altitude", () 
   assert.match(source, /isPerspective3D \|\| needsTerrainElevation \? \{ source: TERRAIN_SOURCE_ID, exaggeration \} : null/);
   assert.match(source, /elevationM \/ terrainExaggerationRef\.current/);
 });
+
+test("measurement mode intercepts map clicks before waypoint and route adds", () => {
+  const source = readFileSync(join(process.cwd(), "src/components/TaskMap.tsx"), "utf8");
+  assert.match(source, /measurementEnabledRef\.current/);
+  assert.match(source, /measurementAvailableRef\.current/);
+  assert.match(source, /setMeasurementPoints\(\[\.\.\.measurementPointsRef\.current/);
+  assert.ok(source.indexOf("if (measurementEnabledRef.current)") < source.indexOf("if (!editableRef.current"));
+  assert.match(source, /formatDistanceLabel\(haversineKm/);
+  assert.match(source, /aria-pressed=\{measurementEnabled\}/);
+});

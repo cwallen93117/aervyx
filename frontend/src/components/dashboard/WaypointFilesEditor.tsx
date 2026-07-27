@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { TaskMap, type MapTelemetrySmoothing } from "../TaskMap";
+import { useEffect, useMemo, useState, type PointerEvent } from "react";
+import { TaskMap, type MapTelemetrySmoothing, type MapUnitPreferences } from "../TaskMap";
 import type { TurnpointRecord, TurnpointSourceRecord } from "./types";
 
 type TurnpointSymbol = "" | "grass_strip" | "paved_runway" | "dot" | "bar" | "lz" | "launch";
@@ -27,6 +27,7 @@ export interface WaypointFilesEditorProps {
   sources: WaypointFileSourceRecord[];
   emptyMessage?: string;
   telemetrySmoothing?: MapTelemetrySmoothing;
+  units?: MapUnitPreferences;
   setMessage: FeedbackSetter;
   setError: FeedbackSetter;
   onSourcesChanged?: () => Promise<void> | void;
@@ -193,6 +194,7 @@ export default function WaypointFilesEditor({
   sources,
   emptyMessage = "No waypoint files uploaded yet.",
   telemetrySmoothing,
+  units,
   setMessage,
   setError,
   onSourcesChanged,
@@ -211,6 +213,7 @@ export default function WaypointFilesEditor({
   const [saveAsFilename, setSaveAsFilename] = useState("");
   const [saveAsFormat, setSaveAsFormat] = useState("gpx");
   const [downloadFormats, setDownloadFormats] = useState<Record<number, string>>({});
+  const [floatingEditorPosition, setFloatingEditorPosition] = useState({ x: 12, y: 12 });
 
   useEffect(() => {
     if (selectedSourceId && !sources.some((source) => source.id === selectedSourceId)) {
@@ -411,6 +414,105 @@ export default function WaypointFilesEditor({
     setDraftTurnpoint(null);
   }
 
+  function closeActiveTurnpointEditor() {
+    setEditingTurnpointId(null);
+    setTurnpointEdit(null);
+    setDraftTurnpoint(null);
+  }
+
+  function beginFloatingEditorDrag(event: PointerEvent<HTMLElement>) {
+    event.preventDefault();
+    const start = floatingEditorPosition;
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const move = (moveEvent: globalThis.PointerEvent) => {
+      const maxX = Math.max(12, window.innerWidth - 360);
+      const maxY = Math.max(12, window.innerHeight - 220);
+      setFloatingEditorPosition({
+        x: Math.min(Math.max(12, start.x + moveEvent.clientX - startX), maxX),
+        y: Math.min(Math.max(12, start.y + moveEvent.clientY - startY), maxY),
+      });
+    };
+    const stop = () => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", stop);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", stop);
+  }
+
+  function renderTurnpointEditorPanel(mode: "inline" | "floating", props: { contentId?: string; overlayId?: string } = {}) {
+    const title = draftTurnpoint ? "New waypoint" : turnpointEdit && editingTurnpointId ? "Edit waypoint" : "";
+    const active = draftTurnpoint || (turnpointEdit && editingTurnpointId);
+    const body = draftTurnpoint ? (
+      <>
+        <div className="turnpoint-edit-grid">
+          <label><span>Name</span><input value={draftTurnpoint.name} onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, name: event.target.value })} /></label>
+          <label><span>Latitude</span><input value={draftTurnpoint.latitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, latitude: event.target.value })} /></label>
+          <label><span>Longitude</span><input value={draftTurnpoint.longitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, longitude: event.target.value })} /></label>
+          <label><span>Altitude</span><input value={draftTurnpoint.elevation_m} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, elevation_m: event.target.value })} /></label>
+          <label><span>Symbol</span><TurnpointSymbolSelect value={draftTurnpoint.symbol} onChange={(symbol) => setDraftTurnpoint({ ...draftTurnpoint, symbol })} /></label>
+        </div>
+        {selectedSourceExtraColumns.length ? (
+          <div className="turnpoint-extra-grid">
+            {selectedSourceExtraColumns.map((key) => (
+              <label key={key}><span>{key}</span><input value={draftTurnpoint.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("draft", key, event.target.value)} /></label>
+            ))}
+          </div>
+        ) : null}
+        <div className="button-row">
+          <button type="button" className="primary-button" onClick={() => void saveDraftTurnpoint()}>Save waypoint</button>
+          <button type="button" className="ghost-button" onClick={closeActiveTurnpointEditor}>Cancel</button>
+        </div>
+      </>
+    ) : turnpointEdit && editingTurnpointId ? (
+      <>
+        <div className="turnpoint-edit-grid">
+          <label><span>Name</span><input value={turnpointEdit.name} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, name: event.target.value })} /></label>
+          <label><span>Latitude</span><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></label>
+          <label><span>Longitude</span><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></label>
+          <label><span>Altitude</span><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></label>
+          <label><span>Symbol</span><TurnpointSymbolSelect value={turnpointEdit.symbol} onChange={(symbol) => setTurnpointEdit({ ...turnpointEdit, symbol })} /></label>
+        </div>
+        {selectedSourceExtraColumns.length ? (
+          <div className="turnpoint-extra-grid">
+            {selectedSourceExtraColumns.map((key) => (
+              <label key={key}><span>{key}</span><input value={turnpointEdit.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("edit", key, event.target.value)} /></label>
+            ))}
+          </div>
+        ) : null}
+        <div className="button-row">
+          <button type="button" className="primary-button" onClick={() => void saveTurnpointEdit()}>Save waypoint</button>
+          <button type="button" className="ghost-button" onClick={closeActiveTurnpointEditor}>Cancel</button>
+        </div>
+      </>
+    ) : (
+      <p className="hint">Click a waypoint to edit it, or click open map space to place a new waypoint draft.</p>
+    );
+
+    if (mode === "floating" && !active) return null;
+
+    return (
+      <div
+        id={props.overlayId}
+        className={`stack compact turnpoint-draft-panel${mode === "floating" ? " turnpoint-floating-editor" : ""}`}
+        style={mode === "floating" ? { transform: `translate(${floatingEditorPosition.x}px, ${floatingEditorPosition.y}px)` } : undefined}
+      >
+        {title ? (
+          <div className={mode === "floating" ? "turnpoint-floating-editor-header" : "turnpoint-editor-panel-header"} onPointerDown={mode === "floating" ? beginFloatingEditorDrag : undefined}>
+            <strong>{title}</strong>
+            {mode === "floating" ? (
+              <button type="button" className="turnpoint-detail-close" onPointerDown={(event) => event.stopPropagation()} onClick={closeActiveTurnpointEditor} aria-label="Close waypoint editor">x</button>
+            ) : null}
+          </div>
+        ) : null}
+        <div id={props.contentId}>{body}</div>
+      </div>
+    );
+  }
+
+  const fullscreenWaypointEditor = ({ contentId, overlayId }: { contentId: string; overlayId: string }) => renderTurnpointEditorPanel("floating", { contentId, overlayId });
+
   return (
     <div className="stack form-block">
       <div className="button-row">
@@ -524,58 +626,12 @@ export default function WaypointFilesEditor({
                 viewStateKey={`turnpoint-source-${selectedTurnpointSource.id}`}
                 fitMaxZoom={12}
                 telemetrySmoothing={telemetrySmoothing}
-                overlayConfig={{ click_to_add_turnpoint: true }}
+                units={units}
+                overlayConfig={{ click_to_add_turnpoint: true, measurement_tool: true }}
+                taskEditorOverlay={fullscreenWaypointEditor}
               />
             </div>
-            <div className="stack compact turnpoint-draft-panel">
-              {draftTurnpoint ? (
-                <>
-                  <strong>New waypoint</strong>
-                  <div className="turnpoint-edit-grid">
-                    <label><span>Name</span><input value={draftTurnpoint.name} onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, name: event.target.value })} /></label>
-                    <label><span>Latitude</span><input value={draftTurnpoint.latitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, latitude: event.target.value })} /></label>
-                    <label><span>Longitude</span><input value={draftTurnpoint.longitude} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, longitude: event.target.value })} /></label>
-                    <label><span>Altitude</span><input value={draftTurnpoint.elevation_m} inputMode="decimal" onChange={(event) => setDraftTurnpoint({ ...draftTurnpoint, elevation_m: event.target.value })} /></label>
-                    <label><span>Symbol</span><TurnpointSymbolSelect value={draftTurnpoint.symbol} onChange={(symbol) => setDraftTurnpoint({ ...draftTurnpoint, symbol })} /></label>
-                  </div>
-                  {selectedSourceExtraColumns.length ? (
-                    <div className="turnpoint-extra-grid">
-                      {selectedSourceExtraColumns.map((key) => (
-                        <label key={key}><span>{key}</span><input value={draftTurnpoint.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("draft", key, event.target.value)} /></label>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="button-row">
-                    <button type="button" className="primary-button" onClick={() => void saveDraftTurnpoint()}>Save waypoint</button>
-                    <button type="button" className="ghost-button" onClick={() => setDraftTurnpoint(null)}>Cancel</button>
-                  </div>
-                </>
-              ) : turnpointEdit && editingTurnpointId ? (
-                <>
-                  <strong>Edit waypoint</strong>
-                  <div className="turnpoint-edit-grid">
-                    <label><span>Name</span><input value={turnpointEdit.name} onChange={(event) => setTurnpointEdit({ ...turnpointEdit, name: event.target.value })} /></label>
-                    <label><span>Latitude</span><input value={turnpointEdit.latitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, latitude: event.target.value })} /></label>
-                    <label><span>Longitude</span><input value={turnpointEdit.longitude} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, longitude: event.target.value })} /></label>
-                    <label><span>Altitude</span><input value={turnpointEdit.elevation_m} inputMode="decimal" onChange={(event) => setTurnpointEdit({ ...turnpointEdit, elevation_m: event.target.value })} /></label>
-                    <label><span>Symbol</span><TurnpointSymbolSelect value={turnpointEdit.symbol} onChange={(symbol) => setTurnpointEdit({ ...turnpointEdit, symbol })} /></label>
-                  </div>
-                  {selectedSourceExtraColumns.length ? (
-                    <div className="turnpoint-extra-grid">
-                      {selectedSourceExtraColumns.map((key) => (
-                        <label key={key}><span>{key}</span><input value={turnpointEdit.extra_json[key] ?? ""} onChange={(event) => updateEditableExtra("edit", key, event.target.value)} /></label>
-                      ))}
-                    </div>
-                  ) : null}
-                  <div className="button-row">
-                    <button type="button" className="primary-button" onClick={() => void saveTurnpointEdit()}>Save waypoint</button>
-                    <button type="button" className="ghost-button" onClick={() => { setEditingTurnpointId(null); setTurnpointEdit(null); }}>Cancel</button>
-                  </div>
-                </>
-              ) : (
-                <p className="hint">Click a waypoint to edit it, or click open map space to place a new waypoint draft.</p>
-              )}
-            </div>
+            {renderTurnpointEditorPanel("inline")}
           </div>
           <div className="participant-table-wrap turnpoint-table-scroll">
             <table className="participant-table turnpoint-edit-table">

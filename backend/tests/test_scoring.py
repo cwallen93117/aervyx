@@ -1169,7 +1169,7 @@ def test_mixed_class_handicap_runs_after_airscore_before_manual_penalties_and_se
                         "modern_topless": 1,
                         "high_performance_kingpost": 1.05,
                         "intermediate_kingpost": 1.1,
-                        "single_surface": 1.2,
+                        "single_surface": 20,
                     },
                 }
             },
@@ -1187,11 +1187,16 @@ def test_mixed_class_handicap_runs_after_airscore_before_manual_penalties_and_se
         {1: "modern_topless", 2: "single_surface"},
     )
     by_pilot = {row["pilot_id"]: row for row in scored}
+    modern = by_pilot[1]["details_json"]["handicap"]
     handicap = by_pilot[2]["details_json"]["handicap"]
 
-    assert handicap["adjusted_score_points"] == round(by_pilot[2]["raw_score_points"] * 1.2, 1)
+    assert handicap["multiplied_score_points"] == round(by_pilot[2]["raw_score_points"] * 20, 1)
+    assert handicap["multiplied_score_points"] > 1000
+    assert handicap["normalization_max_score_points"] == handicap["multiplied_score_points"]
+    assert handicap["adjusted_score_points"] == 1000
     assert handicap["adjustment_points"] == round(handicap["adjusted_score_points"] - by_pilot[2]["raw_score_points"], 1)
     assert by_pilot[2]["score_points"] == round(max(handicap["adjusted_score_points"] - 5, 0), 2)
+    assert modern["adjusted_score_points"] == round((modern["multiplied_score_points"] / handicap["normalization_max_score_points"]) * 1000, 1)
     assert by_pilot[2]["rank"] == 1
     assert scored[0]["pilot_id"] == 2
 

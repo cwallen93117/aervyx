@@ -667,8 +667,9 @@ def save_penalties(
         entity_id=f"{task_id}:{pilot_id}",
         details={"task_id": task_id, "pilot_id": pilot_id, "summary": summary, "count": len(payload.penalties)},
     )
+    rescored = rescore_task(session, task_id)
     session.commit()
-    return {"status": "ok", "task_id": task_id, "pilot_id": pilot_id, "penalty_count": len(payload.penalties)}
+    return {"status": "ok", "task_id": task_id, "pilot_id": pilot_id, "penalty_count": len(payload.penalties), "rescored_count": len(rescored)}
 
 
 @router.post("/api/results/{result_id}/promote", response_model=ScoreResultResponse)

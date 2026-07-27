@@ -56,7 +56,7 @@ export function TaskBuilderMap({
       viewStateKey={viewStateKey}
       units={units}
       telemetrySmoothing={telemetrySmoothing}
-      overlayConfig={overlayConfig}
+      overlayConfig={{ ...overlayConfig, measurement_tool: true }}
       faaAirspaceCategories={faaAirspaceCategories}
     />
   );

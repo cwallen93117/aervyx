@@ -3,21 +3,25 @@ import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
 
-test("scoring setup promotes formula and saved-meet controls above the parameter fields", () => {
+test("scoring setup uses one account preset dropdown above the parameter fields", () => {
   const source = readFileSync(join(process.cwd(), "src/components/dashboard/EventsSection.tsx"), "utf8");
   const toolbarStart = source.indexOf('<div className="scoring-import-strip">');
   const fieldsStart = source.indexOf('<div className="fieldset-grid events-scoring-grid">', toolbarStart);
   const toolbar = source.slice(toolbarStart, fieldsStart);
 
   assert.ok(toolbarStart >= 0 && fieldsStart > toolbarStart);
-  assert.match(toolbar, /<strong>Current formula<\/strong>/);
-  assert.match(toolbar, /<strong>Load from Saved<\/strong>/);
+  assert.match(toolbar, /<strong>Parameter preset<\/strong>/);
+  assert.match(toolbar, /<optgroup label="Custom Parameters">/);
+  assert.match(toolbar, /<optgroup label="Official Parameters">/);
   assert.match(toolbar, />Save As<\/button>/);
-  assert.match(toolbar, />\s*Load Parameters\s*<\/button>/);
+  assert.match(toolbar, />Delete<\/button>/);
   assert.match(toolbar, /type="submit">Save scoring parameters<\/button>/);
-  assert.match(toolbar, /label="Scoring formula"/);
+  assert.match(toolbar, /label="Scoring parameters"/);
   assert.doesNotMatch(toolbar, /Claude-guided placement/);
-  assert.equal(source.match(/label="Scoring formula"/g)?.length, 1);
+  assert.doesNotMatch(toolbar, /Load from Saved/);
+  assert.doesNotMatch(toolbar, /Load Parameters/);
+  assert.doesNotMatch(toolbar, /Delete custom formula/);
+  assert.equal(source.match(/label="Scoring parameters"/g)?.length, 1);
   assert.equal(source.match(/Save scoring parameters/g)?.length, 1);
 });
 

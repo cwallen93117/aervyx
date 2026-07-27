@@ -1,9 +1,32 @@
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { join } from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
+import vm from "node:vm";
 
 const root = process.cwd();
+const require = createRequire(import.meta.url);
+const ts = require("typescript");
+
+function loadTsModule(relativePath, deps = {}) {
+  const source = readFileSync(join(root, relativePath), "utf8");
+  const transpiled = ts.transpileModule(source, {
+    compilerOptions: {
+      esModuleInterop: true,
+      module: ts.ModuleKind.CommonJS,
+      target: ts.ScriptTarget.ES2022,
+    },
+  }).outputText;
+  const module = { exports: {} };
+  vm.runInNewContext(transpiled, {
+    console,
+    exports: module.exports,
+    module,
+    require: (name) => deps[name] ?? require(name),
+  });
+  return module.exports;
+}
 
 test("event settings expose Mixed Class and all four handicap tiers", () => {
   const source = readFileSync(join(root, "src/components/dashboard/EventsSection.tsx"), "utf8");
@@ -31,6 +54,57 @@ test("internal and public task scores conditionally show handicap and class", ()
     const source = readFileSync(join(root, relativePath), "utf8");
     assert.match(source, /mixedClass \? <th>Handicap<\/th> : null/);
     assert.match(source, /formatHandicapAdjustment\(result\.handicap_adjustment_points\)/);
+    assert.match(source, /setHandicapDetailsResult\(result\)/);
+    assert.match(source, /score-handicap-link/);
+    assert.match(source, /handicap_adjustment_points \?\? 0\) > 0 \? " positive"/);
     assert.match(source, /className="results-pilot-class"/);
   }
+});
+
+test("penalty details show final score without duplicated running text", () => {
+  for (const relativePath of [
+    "src/components/dashboard/ScoringSection.tsx",
+    "src/app/scores/PublicScoresClient.tsx",
+  ]) {
+    const source = readFileSync(join(root, relativePath), "utf8");
+    assert.match(source, /<strong>Final Score<\/strong>/);
+    assert.match(source, /<strong>\{formatScorePoints\(line\.running_score_points\)\}<\/strong>/);
+    assert.doesNotMatch(source, /line\.detail \? <span>\{line\.detail\}<\/span>/);
+    assert.doesNotMatch(source, /running<\/span>/);
+  }
+});
+
+test("handicap and penalty helpers format thousands and use normalized pre-penalty base", () => {
+  const scorePenalties = loadTsModule("src/lib/scorePenalties.ts");
+  const handicap = loadTsModule("src/lib/handicap.ts", { "./scorePenalties": scorePenalties });
+  const result = {
+    raw_score_points: 800,
+    score_points: 850,
+    handicap_adjustment_points: 100,
+    penalty_calculation: {
+      raw_score_points: 800,
+      final_score_points: 850,
+      manual_penalty_points: 50,
+      engine_penalty_points: 25,
+      total_display_penalty_points: 75,
+      lines: [],
+    },
+    details_json: {
+      handicap: {
+        pilot_class: "single_surface",
+        multiplier: 1.25,
+        official_score_points: 800,
+        multiplied_score_points: 1_100,
+        normalization_max_score_points: 1_222.2,
+        adjusted_score_points: 900,
+        adjustment_points: 100,
+      },
+    },
+  };
+
+  assert.equal(scorePenalties.formatScorePoints(1000), "1,000.0");
+  assert.equal(scorePenalties.formatPenaltyPointsValue(1234.56), "-1,234.6");
+  assert.equal(handicap.formatHandicapAdjustment(1234.56), "+1,234.6");
+  assert.equal(scorePenalties.prePenaltyTotalPoints(result), 900);
+  assert.equal(JSON.stringify(handicap.handicapDetails(result)), JSON.stringify(result.details_json.handicap));
 });
