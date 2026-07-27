@@ -1015,10 +1015,6 @@ export default function EventsSection(props: EventsSectionProps) {
                 <div className="cluster-stack">
                   <div className="inline-grid">
                     <label className="stack compact">
-                      <LabelWithHelp label="Day quality override" helpId="day_quality_override" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
-                      <input type="number" step="0.01" value={eventForm.day_quality_override} onChange={(event) => setEventForm({ ...eventForm, day_quality_override: Number(event.target.value) })} />
-                    </label>
-                    <label className="stack compact">
                       <LabelWithHelp label="Time points if not in goal" helpId="time_points_if_not_in_goal" activeHelpId={activeHelpId} setActiveHelpId={setActiveHelpId} />
                       <input type="number" step="0.01" value={eventForm.time_points_if_not_in_goal} onChange={(event) => setEventForm({ ...eventForm, time_points_if_not_in_goal: Number(event.target.value) })} />
                     </label>

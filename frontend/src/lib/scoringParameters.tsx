@@ -73,10 +73,6 @@ export const scoringFieldHelp = {
     title: "Task penalty / notes JSON",
     body: "Repo-specific raw formula overrides or notes stored with the event. Use it for extra scoring-engine parameters that do not yet have dedicated fields.",
   },
-  day_quality_override: {
-    title: "Day quality override",
-    body: "Forces a fixed day quality instead of using the value GAP would normally compute from task validity.",
-  },
   time_points_if_not_in_goal: {
     title: "Time points if not in goal",
     body: "Controls whether and how time-related points are kept for pilots who do not make ESS or goal.",

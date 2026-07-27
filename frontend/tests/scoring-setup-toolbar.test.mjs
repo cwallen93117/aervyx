@@ -47,4 +47,5 @@ test("scoring cards stack handicap below nominal values and advanced scoring in 
   assert.match(grid.slice(columns[0], columns[1]), /<legend>Formula and points<\/legend>/);
   assert.match(grid.slice(columns[1], columns[2]), /<legend>Nominal values and notes<\/legend>[\s\S]*<legend>Handicap<\/legend>/);
   assert.match(grid.slice(columns[2]), /<legend>Advanced scoring<\/legend>/);
+  assert.doesNotMatch(grid, /Day quality override/);
 });

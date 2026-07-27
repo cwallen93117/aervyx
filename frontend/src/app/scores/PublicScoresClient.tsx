@@ -95,7 +95,6 @@ type ScoringParameterDefinition = { param: string; field: keyof PublicEvent; hel
 
 const scoringParameterDefinitions: ScoringParameterDefinition[] = [
   { param: "id", field: "scoring_formula", helpId: "scoring_formula" },
-  { param: "day_quality_override", field: "day_quality_override", helpId: "day_quality_override" },
   { param: "bonus_gr", field: "stopped_glide_bonus", helpId: "stopped_glide_bonus" },
   { param: "jump_the_gun_factor", field: "jump_the_gun_factor", helpId: "jump_the_gun_factor" },
   { param: "jump_the_gun_max", field: "jump_the_gun_max_seconds", helpId: "jump_the_gun_max_seconds" },
