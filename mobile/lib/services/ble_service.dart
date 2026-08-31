@@ -132,11 +132,14 @@ class _SavedBleDevice {
 /// config to Meshtastic radios using the protobuf BLE API.
 typedef BatteryThresholdProvider = int? Function();
 typedef BatteryLevelProvider = Future<int?> Function();
+typedef LowBatteryPeerRelayAllowedProvider = bool Function();
 
 class BleService extends ChangeNotifier {
   final ApiService _api;
   final BatteryThresholdProvider? _batteryThresholdProvider;
   final BatteryLevelProvider _batteryLevelProvider;
+  final LowBatteryPeerRelayAllowedProvider?
+      _lowBatteryPeerRelayAllowedProvider;
 
   // ── Transport abstraction ──
   MeshTransport? _transport;
@@ -308,11 +311,14 @@ class BleService extends ChangeNotifier {
     this._api, {
     BatteryThresholdProvider? batteryThresholdProvider,
     BatteryLevelProvider? batteryLevelProvider,
+    LowBatteryPeerRelayAllowedProvider? lowBatteryPeerRelayAllowedProvider,
     this.debugDirectReconnectHandler,
     this.debugDiscoveryReconnectHandler,
   })  : _batteryThresholdProvider = batteryThresholdProvider,
         _batteryLevelProvider =
-            batteryLevelProvider ?? (() async => Battery().batteryLevel);
+            batteryLevelProvider ?? (() async => Battery().batteryLevel),
+        _lowBatteryPeerRelayAllowedProvider =
+            lowBatteryPeerRelayAllowedProvider;
 
   String _platformMqttAddressForRadio() {
     final host = _platformMqttHost ?? '';
@@ -2982,7 +2988,8 @@ class BleService extends ChangeNotifier {
     try {
       final level = await _batteryLevelProvider();
       if (level == null) return true;
-      return level > threshold;
+      return level > threshold ||
+          (_lowBatteryPeerRelayAllowedProvider?.call() ?? false);
     } catch (_) {
       // If the platform battery API is unavailable, keep relaying. The guard
       // should only block mesh positions when we know the battery is low.

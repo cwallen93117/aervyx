@@ -385,6 +385,24 @@ class LiveBacktestTrackResponse(BaseModel):
     raw_points: list[LiveBacktestPositionResponse]
 
 
+class RawPositionHistoryPoint(BaseModel):
+    id: str
+    timestamp: str
+    alt: float | None
+    lat: float
+    lon: float
+    source: str | None
+    device_id: str | None
+    point_type: str
+    path: str
+    vario_mps: float | None
+
+
+class RawPositionHistoryResponse(BaseModel):
+    points: list[RawPositionHistoryPoint]
+    next_cursor: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -402,6 +420,42 @@ def _live_backtest_user_ids_for_pilot(session: Session, pilot_id: int) -> list[i
             .order_by(User.id.asc())
         ).all()
     )
+
+
+def _raw_position_history_cursor(value: str | None) -> tuple[datetime, uuid.UUID] | None:
+    if not value:
+        return None
+    try:
+        timestamp_text, row_id = value.split("|", maxsplit=1)
+        timestamp = datetime.fromisoformat(timestamp_text.replace("Z", "+00:00"))
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        return timestamp.astimezone(UTC), uuid.UUID(row_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid history cursor")
+
+
+def _raw_position_history_timestamp(value: datetime) -> datetime:
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+def _raw_position_path(source: str | None) -> tuple[str, str]:
+    if source == "app":
+        return "app", "App"
+    if source == "mesh_relay":
+        return "mesh", "Mesh relay"
+    if source == "mqtt_gateway":
+        return "mesh", "MQTT gateway"
+    return "mesh" if source in MESH_POSITION_SOURCES else "app", source or "App"
+
+
+def _raw_position_vario_mps(previous: LivePosition | None, current: LivePosition) -> float | None:
+    if previous is None or previous.alt is None or current.alt is None:
+        return None
+    elapsed = (current.timestamp - previous.timestamp).total_seconds()
+    if elapsed <= 0:
+        return None
+    return (current.alt - previous.alt) / elapsed
 
 
 def _live_backtest_task_day_window_utc(task: Task, event: Event) -> tuple[datetime, datetime] | None:
@@ -600,6 +654,87 @@ def admin_live_backtest_track(
         ],
         raw_points=raw_points,
     )
+
+
+@router.get("/api/admin/live-history/{pilot_id}", response_model=RawPositionHistoryResponse)
+def admin_raw_position_history(
+    pilot_id: int,
+    limit: int = Query(default=500, ge=1, le=2000),
+    cursor: str | None = Query(default=None),
+    _: User = Depends(require_admin),
+    session: Session = Depends(get_session),
+) -> RawPositionHistoryResponse:
+    if session.get(Pilot, pilot_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Pilot not found")
+
+    # Include app rows created before a user account was deactivated as well as
+    # direct pilot and mesh-assigned rows. This audit endpoint intentionally
+    # does not apply live-map retention visibility filters.
+    user_ids = list(session.scalars(select(User.id).where(User.pilot_id == pilot_id)).all())
+    subject_clause = LivePosition.pilot_id == pilot_id
+    if user_ids:
+        subject_clause = or_(subject_clause, LivePosition.user_id.in_(user_ids))
+
+    query = select(LivePosition).where(subject_clause)
+    parsed_cursor = _raw_position_history_cursor(cursor)
+    if parsed_cursor is not None:
+        timestamp, row_id = parsed_cursor
+        query = query.where(
+            or_(
+                LivePosition.timestamp < timestamp,
+                and_(LivePosition.timestamp == timestamp, LivePosition.id < row_id),
+            )
+        )
+
+    rows = session.scalars(
+        query.order_by(LivePosition.timestamp.desc(), LivePosition.id.desc()).limit(limit + 1)
+    ).all()
+    page_rows = rows[:limit]
+    previous_row: LivePosition | None = None
+    if page_rows:
+        oldest = page_rows[-1]
+        previous_row = session.scalar(
+            select(LivePosition)
+            .where(
+                subject_clause,
+                or_(
+                    LivePosition.timestamp < oldest.timestamp,
+                    and_(LivePosition.timestamp == oldest.timestamp, LivePosition.id < oldest.id),
+                ),
+            )
+            .order_by(LivePosition.timestamp.desc(), LivePosition.id.desc())
+            .limit(1)
+        )
+
+    chronological_rows = list(reversed(page_rows))
+    vario_by_id: dict[uuid.UUID, float | None] = {}
+    for row in chronological_rows:
+        vario_by_id[row.id] = _raw_position_vario_mps(previous_row, row)
+        previous_row = row
+
+    points = []
+    for row in page_rows:
+        point_type, path = _raw_position_path(row.source)
+        points.append(
+            RawPositionHistoryPoint(
+                id=str(row.id),
+                timestamp=row.timestamp.isoformat(),
+                alt=row.alt,
+                lat=row.lat,
+                lon=row.lon,
+                source=row.source,
+                device_id=row.device_id,
+                point_type=point_type,
+                path=path,
+                vario_mps=vario_by_id[row.id],
+            )
+        )
+
+    next_cursor = None
+    if len(rows) > limit and page_rows:
+        tail = page_rows[-1]
+        next_cursor = f"{_raw_position_history_timestamp(tail.timestamp).isoformat()}|{tail.id}"
+    return RawPositionHistoryResponse(points=points, next_cursor=next_cursor)
 
 @router.post("/api/track/position", response_model=PositionResponse, status_code=status.HTTP_201_CREATED)
 def post_position(

@@ -39,6 +39,8 @@ void main() async {
   final bleService = BleService(
     apiService,
     batteryThresholdProvider: () => trackingService.batteryThreshold,
+    lowBatteryPeerRelayAllowedProvider: () =>
+        trackingService.trackingState == TrackingState.idle,
   );
   trackingService = TrackingService(
     apiService,

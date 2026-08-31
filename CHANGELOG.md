@@ -13,6 +13,18 @@ path is requested.
 - Production: <https://aervyx.net> / <https://api.aervyx.net>
 - Staging: <https://staging.aervyx.net> / <https://api-staging.aervyx.net>
 
+## [2026.08.31]
+
+### Added
+- Admin → Live Tracking Debugging can open every retained raw app and mesh
+  position row for a pilot, including feet, ft/min, coordinates, path, and
+  point source.
+
+### Fixed
+- **Mobile v0.4.73+90** starts Waiting immediately without delaying takeoff
+  detection for a Meshtastic reconnect or GPS lock. Low-battery peer relays
+  pause while active tracking is running and resume once it fully ends.
+
 ## [2026.07.25]
 
 ### Added

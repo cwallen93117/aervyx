@@ -1089,7 +1089,9 @@ class _StatusText extends StatelessWidget {
 
     switch (tracking.trackingState) {
       case TrackingState.preFlight:
-        text = 'Waiting for takeoff...\nLong-press to force start';
+        text = tracking.lastPosition == null
+            ? 'Waiting for GPS fix/takeoff...\nLong-press to force start'
+            : 'Waiting for takeoff...\nLong-press to force start';
         color = theme.colorScheme.primary;
         break;
       case TrackingState.monitoring:

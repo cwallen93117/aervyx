@@ -90,6 +90,22 @@ void main() {
     await Future<void>.delayed(Duration.zero);
     tracking.dispose();
   });
+
+  test('multi-flight monitoring remains available until 10 PM local time',
+      () async {
+    final tracking = _trackingService(<String, String>{});
+
+    expect(
+      tracking.debugIsMonitoringEligibleAt(DateTime(2026, 8, 31, 21, 59)),
+      isTrue,
+    );
+    expect(
+      tracking.debugIsMonitoringEligibleAt(DateTime(2026, 8, 31, 22)),
+      isFalse,
+    );
+    await Future<void>.delayed(Duration.zero);
+    tracking.dispose();
+  });
 }
 
 TrackingService _trackingService(Map<String, String> preferences) {

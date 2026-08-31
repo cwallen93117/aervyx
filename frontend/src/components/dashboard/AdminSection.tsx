@@ -2017,6 +2017,8 @@ export default function AdminSection(props: AdminSectionProps) {
         </SectionCard>
       ) : activeTab === "live_tracking" ? (
         <LiveTrackingTab
+          apiBase={apiBase}
+          token={token}
           debugStatus={debugStatus}
           meshNodes={meshNodes}
           nowMs={liveTrackingNowMs}
@@ -2582,6 +2584,8 @@ function compareLiveTrackingRows(a: UnifiedDevice, b: UnifiedDevice, field: Live
 }
 
 function LiveTrackingTab({
+  apiBase,
+  token,
   debugStatus,
   meshNodes,
   nowMs,
@@ -2593,6 +2597,8 @@ function LiveTrackingTab({
   onToggleLivePositionPruning,
   onDeleteAllLiveData,
 }: {
+  apiBase: string;
+  token: string;
   debugStatus: import("./types").DebugStatusResponse | null;
   meshNodes: MeshNode[];
   nowMs: number;
@@ -2608,6 +2614,49 @@ function LiveTrackingTab({
   const [trackingSortField, setTrackingSortField] = useState<LiveTrackingSortField>("device_pilot");
   const [trackingSortDir, setTrackingSortDir] = useState<SortDir>("asc");
   const [focusPos, setFocusPos] = useState<{ lat: number; lon: number; key: string | number } | null>(null);
+  const [historyPilot, setHistoryPilot] = useState<{ id: number; name: string } | null>(null);
+  const [historyPoints, setHistoryPoints] = useState<Array<{
+    id: string;
+    timestamp: string;
+    alt: number | null;
+    lat: number;
+    lon: number;
+    device_id: string | null;
+    point_type: string;
+    path: string;
+    vario_mps: number | null;
+  }>>([]);
+  const [historyCursor, setHistoryCursor] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
+  async function loadRawHistory(pilotId: number, cursor: string | null, append = false) {
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const params = new URLSearchParams({ limit: "500" });
+      if (cursor) params.set("cursor", cursor);
+      const response = await fetch(`${apiBase}/api/admin/live-history/${pilotId}?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`Raw position history failed: ${response.status}`);
+      const payload = await response.json() as { points: typeof historyPoints; next_cursor: string | null };
+      setHistoryPoints((current) => append ? [...current, ...payload.points] : payload.points);
+      setHistoryCursor(payload.next_cursor);
+    } catch (caught) {
+      setHistoryError(caught instanceof Error ? caught.message : "Could not load raw position history.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  function openRawHistory(pilotId: number, name: string) {
+    setHistoryPilot({ id: pilotId, name });
+    setHistoryPoints([]);
+    setHistoryCursor(null);
+    void loadRawHistory(pilotId, null);
+  }
 
   function handleRowClick(d: UnifiedDevice) {
     const newestMesh = d.meshDevices
@@ -2900,7 +2949,18 @@ function LiveTrackingTab({
                           />
                         </td>
                         <td>
-                          <strong>{d.pilot_name}</strong>
+                          {d.pilot_id != null ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                openRawHistory(d.pilot_id!, d.pilot_name);
+                              }}
+                              style={{ border: 0, padding: 0, background: "transparent", color: "inherit", font: "inherit", fontWeight: 700, cursor: "pointer", textDecoration: "underline" }}
+                            >
+                              {d.pilot_name}
+                            </button>
+                          ) : <strong>{d.pilot_name}</strong>}
                         </td>
                         <td></td>
                         <td></td>
@@ -3015,6 +3075,52 @@ function LiveTrackingTab({
             overlayConfig={overlayConfig}
           />
         </div>
+        {historyPilot ? (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`${historyPilot.name} raw position history`}
+            style={{ position: "fixed", inset: "5vh 5vw", zIndex: 1000, display: "flex", flexDirection: "column", padding: 16, border: "1px solid var(--border)", borderRadius: 10, background: "var(--surface)", boxShadow: "0 16px 48px rgba(0, 0, 0, 0.35)" }}
+          >
+            <div className="settings-summary-row" style={{ justifyContent: "space-between" }}>
+              <div>
+                <strong>{historyPilot.name} raw position history</strong>
+                <div className="hint">All retained app and mesh position rows. Auto-pruned rows cannot be recovered.</div>
+              </div>
+              <button type="button" className="ghost-button" onClick={() => setHistoryPilot(null)}>Close</button>
+            </div>
+            {historyError ? <div className="status-chip error">{historyError}</div> : null}
+            <div style={{ overflow: "auto", flex: 1, marginTop: 12 }}>
+              <table className="participant-table" style={{ minWidth: 880 }}>
+                <thead>
+                  <tr>
+                    {['Date / time', 'Altitude (ft)', 'Vario (ft/min)', 'GPS coordinates', 'Path', 'Point type', 'Device'].map((label) => (
+                      <th key={label} style={{ position: "sticky", top: 0, zIndex: 1, background: "var(--surface)" }}>{label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {historyPoints.map((point) => (
+                    <tr key={point.id}>
+                      <td>{formatOptionalDateTime(point.timestamp)}</td>
+                      <td>{point.alt == null ? "—" : Math.round(point.alt * 3.28084).toLocaleString()}</td>
+                      <td>{point.vario_mps == null ? "—" : Math.round(point.vario_mps * 196.850394).toLocaleString()}</td>
+                      <td style={{ fontFamily: "monospace" }}>{point.lat.toFixed(6)}, {point.lon.toFixed(6)}</td>
+                      <td>{point.path}</td>
+                      <td>{point.point_type}</td>
+                      <td style={{ fontFamily: "monospace" }}>{point.device_id ?? "—"}</td>
+                    </tr>
+                  ))}
+                  {!historyLoading && !historyPoints.length ? <tr><td colSpan={7} className="participant-table-empty">No retained raw position rows.</td></tr> : null}
+                </tbody>
+              </table>
+            </div>
+            <div className="button-row" style={{ marginTop: 12 }}>
+              {historyLoading ? <span className="hint">Loading raw positions…</span> : null}
+              {historyCursor ? <button type="button" className="secondary" disabled={historyLoading} onClick={() => void loadRawHistory(historyPilot.id, historyCursor, true)}>Load older positions</button> : null}
+            </div>
+          </div>
+        ) : null}
       </div>
     </SectionCard>
   );

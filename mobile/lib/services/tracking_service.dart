@@ -519,6 +519,10 @@ class TrackingService extends ChangeNotifier {
   double get debugTakeoffSpeedThresholdMs =>
       _takeoffThresholds.speedThresholdMs;
 
+  @visibleForTesting
+  bool debugIsMonitoringEligibleAt(DateTime now) =>
+      _isMonitoringEligible(now);
+
   Future<void> restoreActiveSession({
     bool restartRuntimeServices = true,
   }) async {
@@ -775,7 +779,6 @@ class TrackingService extends ChangeNotifier {
 
     if (!await _ensureLocationPermission()) return;
     _meshReconnectWarning = null;
-    await _requestMeshReconnectForTracking();
 
     _flightResetTimer?.cancel();
     _flightResetTimer = null;
@@ -834,11 +837,8 @@ class TrackingService extends ChangeNotifier {
     _schedulePersistTrackingSession();
     notifyListeners();
 
-    // Fetch settings from backend
-    await _fetchActiveTask();
-    await fetchFlightDetectionSettings();
-
-    // Start GPS stream
+    // Start GPS immediately. A Meshtastic reconnect or server request must not
+    // delay Waiting for takeoff or leave a force-start window uncovered.
     _startGpsStream();
 
     // Heartbeat: sends a synthesised fix every 5 s when the GPS stream is
@@ -857,6 +857,21 @@ class TrackingService extends ChangeNotifier {
 
     // Battery monitoring
     _startBatteryMonitor();
+
+    unawaited(_requestMeshReconnectForTracking());
+    unawaited(_loadTrackingStartConfiguration());
+  }
+
+  Future<void> _loadTrackingStartConfiguration() async {
+    await Future.wait<void>([
+      _fetchActiveTask(),
+      fetchFlightDetectionSettings(),
+    ]);
+    if (_trackingState == TrackingState.preFlight ||
+        _trackingState == TrackingState.inFlight) {
+      _startGpsStream();
+      _startPositionHeartbeat();
+    }
   }
 
   /// Force-start recording immediately — bypass takeoff detection.
@@ -1520,11 +1535,11 @@ class TrackingService extends ChangeNotifier {
   // Monitoring Mode
   // ═══════════════════════════════════════════════════════════════════════════
 
-  bool _isMonitoringEligible() {
-    final now = DateTime.now();
+  bool _isMonitoringEligible([DateTime? at]) {
+    final now = at ?? DateTime.now();
 
-    // Must be before 20:00 local time
-    if (now.hour >= 20) return false;
+    // Must be before 22:00 local time
+    if (now.hour >= 22) return false;
 
     // Battery must be above threshold
     if (_batteryThreshold != null &&
@@ -1603,8 +1618,8 @@ class TrackingService extends ChangeNotifier {
     // Auto-exit conditions (monitoring ONLY — never during inFlight)
     bool shouldExit = false;
 
-    // Time > 20:00
-    if (now.hour >= 20) shouldExit = true;
+    // Time >= 22:00
+    if (now.hour >= 22) shouldExit = true;
 
     // Battery below threshold
     if (_batteryThreshold != null &&
