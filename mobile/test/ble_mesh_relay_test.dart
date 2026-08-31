@@ -54,6 +54,21 @@ void main() {
       expect(api.posts, isEmpty);
     });
 
+    test('allows low-battery peer relay after tracking is idle', () async {
+      final api = _RecordingApiService();
+      final ble = BleService(
+        api,
+        batteryThresholdProvider: () => 15,
+        batteryLevelProvider: () async => 15,
+        lowBatteryPeerRelayAllowedProvider: () => true,
+      );
+      ble.deviceState.myNodeNum = 0x01020304;
+
+      await ble.debugHandleMeshPacket(_positionPacket(fromNode: 0x0a0b0c0d));
+
+      expect(api.posts, hasLength(1));
+    });
+
     test('allows peer mesh relay when the battery guard is disabled', () async {
       final api = _RecordingApiService();
       final ble = BleService(

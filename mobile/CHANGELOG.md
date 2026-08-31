@@ -1,5 +1,14 @@
 # Aervyx Mobile Changelog
 
+## 0.4.73+90 - 2026-08-31
+
+### Fixed
+- Starting tracking enters Waiting immediately instead of waiting for a
+  Meshtastic reconnect or GPS lock, keeping force-start and takeoff detection
+  available right away.
+- Low-battery mesh relaying pauses while tracking is active and resumes after
+  tracking fully ends. Multi-flight monitoring now runs until 10 PM local time.
+
 ## 0.4.72+89 - 2026-07-25
 
 ### Added
