@@ -1162,6 +1162,7 @@ def test_mixed_class_handicap_runs_after_airscore_before_manual_penalties_and_se
             "use_arrival_time_points": False,
             "use_difficulty_for_distance_points": True,
             "goal_ss_penalty": 0.0,
+            "normalize_1000_before_day_quality": False,
             "penalties_json": {
                 "handicap": {
                     "enabled": True,
@@ -1193,12 +1194,72 @@ def test_mixed_class_handicap_runs_after_airscore_before_manual_penalties_and_se
     assert handicap["multiplied_score_points"] == round(by_pilot[2]["raw_score_points"] * 20, 1)
     assert handicap["multiplied_score_points"] > 1000
     assert handicap["normalization_max_score_points"] == handicap["multiplied_score_points"]
-    assert handicap["adjusted_score_points"] == 1000
+    assert handicap["normalization_target_score_points"] == max(row["raw_score_points"] for row in scored)
+    assert handicap["adjusted_score_points"] == handicap["normalization_target_score_points"]
     assert handicap["adjustment_points"] == round(handicap["adjusted_score_points"] - by_pilot[2]["raw_score_points"], 1)
     assert by_pilot[2]["score_points"] == round(max(handicap["adjusted_score_points"] - 5, 0), 2)
-    assert modern["adjusted_score_points"] == round((modern["multiplied_score_points"] / handicap["normalization_max_score_points"]) * 1000, 1)
+    assert modern["adjusted_score_points"] == round((modern["multiplied_score_points"] / handicap["normalization_max_score_points"]) * handicap["normalization_target_score_points"], 1)
     assert by_pilot[2]["rank"] == 1
     assert scored[0]["pilot_id"] == 2
+
+
+def test_mixed_class_handicap_can_normalize_to_1000_when_event_setting_is_checked() -> None:
+    task = _task(nominal_time_hours=0.05)
+    task_points = [
+        _task_point(1, 1, "launch", 36.600, -118.000, 500),
+        _task_point(2, 2, "start", 36.650, -118.050, 1000),
+        _task_point(3, 3, "turnpoint", 36.700, -118.100, 600),
+        _task_point(4, 4, "ESS", 36.750, -118.150, 1000),
+        _task_point(5, 5, "goal", 36.800, -118.200, 500),
+    ]
+    track = [
+        _track_point(1, 36.600, -118.000),
+        _track_point(2, 36.650, -118.050),
+        _track_point(3, 36.700, -118.100),
+        _track_point(4, 36.750, -118.150),
+        _track_point(5, 36.800, -118.200),
+    ]
+    event = type(
+        "EventStub",
+        (),
+        {
+            "nominal_goal_percent": 0.2,
+            "use_distance_points": True,
+            "use_time_points": True,
+            "use_departure_points": False,
+            "use_arrival_position_points": False,
+            "use_arrival_time_points": False,
+            "use_difficulty_for_distance_points": True,
+            "goal_ss_penalty": 0.0,
+            "normalize_1000_before_day_quality": True,
+            "penalties_json": {
+                "handicap": {
+                    "enabled": True,
+                    "multipliers": {
+                        "modern_topless": 1,
+                        "high_performance_kingpost": 1.05,
+                        "intermediate_kingpost": 1.1,
+                        "single_surface": 20,
+                    },
+                }
+            },
+        },
+    )()
+    scored = _score_evaluations(
+        task,
+        2,
+        [
+            {"upload": type("UploadStub", (), {"id": 10, "pilot_id": 1})(), "evaluation": evaluate_task(task, task_points, track)},
+            {"upload": type("UploadStub", (), {"id": 11, "pilot_id": 2})(), "evaluation": evaluate_task(task, task_points, track)},
+        ],
+        {},
+        event,
+        {1: "modern_topless", 2: "single_surface"},
+    )
+    handicap = next(row for row in scored if row["pilot_id"] == 2)["details_json"]["handicap"]
+
+    assert handicap["normalization_target_score_points"] == 1000
+    assert handicap["adjusted_score_points"] == 1000
 
 
 def test_handicap_config_requires_all_positive_multipliers() -> None:

@@ -320,10 +320,16 @@ def update_event(event_id: int, payload: EventCreate, user: User = Depends(requi
     if event is None:
         raise HTTPException(status_code=404, detail="Event not found")
     previous_handicap = handicap_config(event.penalties_json)
+    previous_normalize = bool(event.normalize_1000_before_day_quality)
     data = payload.model_dump()
     for field, value in data.items():
         setattr(event, field, value)
-    rescored_task_count = rescore_scored_event_tasks(session, event_id) if handicap_config(event.penalties_json) != previous_handicap else 0
+    next_handicap = handicap_config(event.penalties_json)
+    rescore_handicap = next_handicap != previous_handicap or (
+        (previous_handicap[0] or next_handicap[0])
+        and previous_normalize != bool(event.normalize_1000_before_day_quality)
+    )
+    rescored_task_count = rescore_scored_event_tasks(session, event_id) if rescore_handicap else 0
     log_action(
         session,
         actor_user_id=user.id,

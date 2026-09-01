@@ -2348,6 +2348,7 @@ def _score_evaluations(
     decimals = formula.get("number_of_decimals_task_results", 1)
     handicap_scores: dict[int, dict[str, float | str]] = {}
     normalization_max_score = 0.0
+    normalization_target_score = 1000.0 if formula.get("normalize_1000_before_day_quality") else 0.0
     if handicap_enabled:
         for pil in scored_pilots:
             pilot_id = pil["pilot_id"]
@@ -2366,6 +2367,8 @@ def _score_evaluations(
             }
             if entry["evaluation"]["status"] in COMPETITIVE_STATUSES:
                 normalization_max_score = max(normalization_max_score, multiplied_points)
+                if not formula.get("normalize_1000_before_day_quality"):
+                    normalization_target_score = max(normalization_target_score, raw_points)
 
     # Build output
     scored: list[dict] = []
@@ -2383,7 +2386,7 @@ def _score_evaluations(
         multiplier = float(handicap_score.get("multiplier", 1.0))
         multiplied_points = float(handicap_score.get("multiplied_points", raw_points))
         adjusted_points = (
-            round((multiplied_points / normalization_max_score) * 1000.0, decimals)
+            round((multiplied_points / normalization_max_score) * normalization_target_score, decimals)
             if handicap_enabled and normalization_max_score > 0
             else multiplied_points
         )
@@ -2398,6 +2401,7 @@ def _score_evaluations(
                 "official_score_points": raw_points,
                 "multiplied_score_points": multiplied_points,
                 "normalization_max_score_points": round(normalization_max_score, decimals),
+                "normalization_target_score_points": round(normalization_target_score, decimals),
                 "adjusted_score_points": adjusted_points,
                 "adjustment_points": round(adjusted_points - raw_points, decimals),
             }

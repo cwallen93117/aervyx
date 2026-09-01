@@ -738,8 +738,8 @@ function HandicapDetailsModal({
               </div>
               <div className="score-penalty-line">
                 <div>
-                  <strong>Normalize to task max</strong>
-                  <span>{formatScorePoints(details.multiplied_score_points)} / {formatScorePoints(details.normalization_max_score_points)} x 1,000</span>
+                  <strong>Normalize to target score</strong>
+                  <span>{formatScorePoints(details.multiplied_score_points)} / {formatScorePoints(details.normalization_max_score_points)} x {formatScorePoints(details.normalization_target_score_points)}</span>
                 </div>
                 <div>
                   <strong>{formatScorePoints(details.adjusted_score_points)}</strong>
