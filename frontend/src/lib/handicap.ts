@@ -84,13 +84,15 @@ export function handicapDetails(result: HandicapResultLike): HandicapDetails | n
   const multiplier = numberOr(record.multiplier, numberOr(result.handicap_multiplier, 1));
   const multiplied = numberOr(record.multiplied_score_points, official * multiplier);
   const adjusted = numberOr(record.adjusted_score_points, official + numberOr(record.adjustment_points, numberOr(result.handicap_adjustment_points, 0)));
+  const normalizationMax = numberOr(record.normalization_max_score_points, multiplied);
+  const inferredTarget = multiplied > 0 && normalizationMax > 0 ? (adjusted * normalizationMax) / multiplied : 1000;
   return {
     pilot_class: String(record.pilot_class ?? result.pilot_class ?? DEFAULT_PILOT_CLASS),
     multiplier,
     official_score_points: official,
     multiplied_score_points: multiplied,
-    normalization_max_score_points: numberOr(record.normalization_max_score_points, multiplied),
-    normalization_target_score_points: numberOr(record.normalization_target_score_points, 1000),
+    normalization_max_score_points: normalizationMax,
+    normalization_target_score_points: numberOr(record.normalization_target_score_points, inferredTarget),
     adjusted_score_points: adjusted,
     adjustment_points: numberOr(record.adjustment_points, adjusted - official),
   };
