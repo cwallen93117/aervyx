@@ -23,6 +23,7 @@ export type HandicapDetails = {
   official_score_points: number;
   multiplied_score_points: number;
   normalization_max_score_points: number;
+  normalization_target_score_points: number;
   adjusted_score_points: number;
   adjustment_points: number;
 };
@@ -89,6 +90,7 @@ export function handicapDetails(result: HandicapResultLike): HandicapDetails | n
     official_score_points: official,
     multiplied_score_points: multiplied,
     normalization_max_score_points: numberOr(record.normalization_max_score_points, multiplied),
+    normalization_target_score_points: numberOr(record.normalization_target_score_points, 1000),
     adjusted_score_points: adjusted,
     adjustment_points: numberOr(record.adjustment_points, adjusted - official),
   };

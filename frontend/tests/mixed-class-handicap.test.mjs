@@ -57,6 +57,7 @@ test("internal and public task scores conditionally show handicap and class", ()
     assert.match(source, /setHandicapDetailsResult\(result\)/);
     assert.match(source, /score-handicap-link/);
     assert.match(source, /handicap_adjustment_points \?\? 0\) > 0 \? " positive"/);
+    assert.match(source, /normalization_target_score_points/);
     assert.match(source, /className="results-pilot-class"/);
   }
 });
@@ -96,6 +97,7 @@ test("handicap and penalty helpers format thousands and use normalized pre-penal
         official_score_points: 800,
         multiplied_score_points: 1_100,
         normalization_max_score_points: 1_222.2,
+        normalization_target_score_points: 900,
         adjusted_score_points: 900,
         adjustment_points: 100,
       },
@@ -106,5 +108,6 @@ test("handicap and penalty helpers format thousands and use normalized pre-penal
   assert.equal(scorePenalties.formatPenaltyPointsValue(1234.56), "-1,234.6");
   assert.equal(handicap.formatHandicapAdjustment(1234.56), "+1,234.6");
   assert.equal(scorePenalties.prePenaltyTotalPoints(result), 900);
+  assert.equal(handicap.handicapDetails(result).normalization_target_score_points, 900);
   assert.equal(JSON.stringify(handicap.handicapDetails(result)), JSON.stringify(result.details_json.handicap));
 });

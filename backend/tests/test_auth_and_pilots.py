@@ -43,9 +43,9 @@ from app.routers.auth import (
     update_settings,
     update_user_account,
 )
-from app.routers.events import list_events
+from app.routers.events import list_events, update_event
 from app.routers.pilots import assign_existing_pilot, create_pilot, list_people, list_pilots, update_event_pilot_class, update_pilot
-from app.schemas import AccountSettingsUpdate, AdminUserUpdate, CustomScoringFormula, CustomScoringFormulaList, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasskeyRenameRequest, PasskeyVerifyRequest, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
+from app.schemas import AccountSettingsUpdate, AdminUserUpdate, CustomScoringFormula, CustomScoringFormulaList, EventCreate, LoginRequest, MeshDeviceCreate, MeshDeviceRegister, MeshDeviceUpdate, PasskeyRenameRequest, PasskeyVerifyRequest, PasswordChangeRequest, PilotClaimRequest, PilotClassUpdate, PilotUpsert, RefreshRequest, RegisterRequest, UserEmailCreate
 from app.services.tracking import resolve_mesh_device_assignment
 from app.services.pilot_identity import backfill_user_subject_pilot_links, merge_pilots, repair_pilot_email_identities
 
@@ -497,6 +497,46 @@ def test_pilot_class_is_event_specific_and_rescores_existing_tasks() -> None:
     assert session.scalar(select(EventPilot.pilot_class).where(EventPilot.event_id == first_event.id, EventPilot.pilot_id == pilot.id)) == "single_surface"
     assert session.scalar(select(EventPilot.pilot_class).where(EventPilot.event_id == second_event.id, EventPilot.pilot_id == pilot.id)) == "modern_topless"
     rescore.assert_called_once_with(session, first_event.id)
+
+
+def test_mixed_class_normalize_setting_rescores_existing_tasks() -> None:
+    session = _session()
+    admin = User(username="admin-normalize@example.com", full_name="Admin", role="admin", password_hash="hash")
+    event = Event(
+        name="Mixed",
+        location="Ridge",
+        starts_on=date(2026, 7, 1),
+        ends_on=date(2026, 7, 2),
+        timezone="UTC",
+        normalize_1000_before_day_quality=False,
+        penalties_json={
+            "handicap": {
+                "enabled": True,
+                "multipliers": {
+                    "modern_topless": 1,
+                    "high_performance_kingpost": 1,
+                    "intermediate_kingpost": 1,
+                    "single_surface": 1,
+                },
+            }
+        },
+    )
+    session.add_all([admin, event])
+    session.commit()
+    payload = EventCreate(
+        name=event.name,
+        location=event.location,
+        starts_on=event.starts_on,
+        ends_on=event.ends_on,
+        timezone=event.timezone,
+        normalize_1000_before_day_quality=True,
+        penalties_json=event.penalties_json,
+    )
+
+    with patch("app.routers.events.rescore_scored_event_tasks", return_value=3) as rescore:
+        update_event(event.id, payload, admin, session)
+
+    rescore.assert_called_once_with(session, event.id)
 
 
 def test_create_pilot_with_email_creates_email_login_user() -> None:
