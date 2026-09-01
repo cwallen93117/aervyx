@@ -111,3 +111,24 @@ test("handicap and penalty helpers format thousands and use normalized pre-penal
   assert.equal(handicap.handicapDetails(result).normalization_target_score_points, 900);
   assert.equal(JSON.stringify(handicap.handicapDetails(result)), JSON.stringify(result.details_json.handicap));
 });
+
+test("handicap details infer legacy normalization target from stored score math", () => {
+  const scorePenalties = loadTsModule("src/lib/scorePenalties.ts");
+  const handicap = loadTsModule("src/lib/handicap.ts", { "./scorePenalties": scorePenalties });
+  const details = handicap.handicapDetails({
+    raw_score_points: 76.1,
+    details_json: {
+      handicap: {
+        pilot_class: "modern_topless",
+        multiplier: 1,
+        official_score_points: 76.1,
+        multiplied_score_points: 76.1,
+        normalization_max_score_points: 134.8,
+        adjusted_score_points: 60.9,
+        adjustment_points: -15.2,
+      },
+    },
+  });
+
+  assert.equal(scorePenalties.formatScorePoints(details.normalization_target_score_points), "107.9");
+});
